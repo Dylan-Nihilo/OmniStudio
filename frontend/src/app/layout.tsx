@@ -21,7 +21,7 @@ export default function RootLayout({
         {/* Tauri desktop: reset font-size to 100% to avoid layout bloat in WKWebView */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `if(window.__TAURI__){document.documentElement.style.fontSize="100%";}`,
+            __html: `if(window.__TAURI__){document.documentElement.style.fontSize="87.5%";}`,
           }}
         />
       </head>
