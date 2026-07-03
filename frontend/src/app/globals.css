@@ -889,6 +889,7 @@ html.atelier-light .atelier-new-tile:hover > span:first-child {
 /* ===== Tauri Desktop: Window Drag Region ===== */
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
+  app-region: drag;
 }
 
 [data-tauri-drag-region] button,
@@ -896,9 +897,30 @@ html.atelier-light .atelier-new-tile:hover > span:first-child {
 [data-tauri-drag-region] input,
 [data-tauri-drag-region] [role="button"] {
   -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 /* Tauri desktop: Traffic Light avoidance padding */
 .tauri-titlebar-inset {
   padding-top: 38px;
+}
+
+/* Tauri desktop: Top drag bar for window movement */
+.tauri-drag-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  z-index: 9999;
+  -webkit-app-region: drag;
+  app-region: drag;
+  pointer-events: auto;
+}
+
+.tauri-drag-bar button,
+.tauri-drag-bar a,
+.tauri-drag-bar input {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }

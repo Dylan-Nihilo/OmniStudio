@@ -94,29 +94,11 @@ pub fn run() {
             let native_menu = menu::build_menu(app.handle())?;
             app.set_menu(native_menu)?;
 
-            let window = app.get_webview_window("main").unwrap();
+            let _window = app.get_webview_window("main").unwrap();
 
-            // macOS: transparent titlebar + Traffic Light positioning
-            #[cfg(target_os = "macos")]
-            {
-                use cocoa::appkit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
-                use cocoa::base::{id, YES};
-
-                let ns_window: id = window.ns_window().unwrap() as id;
-                unsafe {
-                    // Hide title text but keep Traffic Light buttons
-                    ns_window.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
-                    ns_window.setTitlebarAppearsTransparent_(YES);
-
-                    // Full size content view - content extends behind titlebar
-                    let mask = ns_window.styleMask()
-                        | NSWindowStyleMask::NSFullSizeContentViewWindowMask;
-                    ns_window.setStyleMask_(mask);
-
-                    // Enable vibrancy for the window background
-                    ns_window.setBackgroundColor_(cocoa::appkit::NSColor::clearColor(cocoa::base::nil));
-                }
-            }
+            // macOS titlebar styling: using decorations:false for custom titlebar.
+            // The drag region is handled via CSS data-tauri-drag-region in the frontend.
+            // No manual cocoa manipulation needed for basic setup.
 
             // Start Python sidecar in background
             let app_handle = app.handle().clone();
