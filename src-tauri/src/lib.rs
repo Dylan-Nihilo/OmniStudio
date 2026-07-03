@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 mod sidecar;
+mod menu;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ApiProxyRequest {
@@ -89,6 +90,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            // Set up native macOS menu bar
+            let native_menu = menu::build_menu(app.handle())?;
+            app.set_menu(native_menu)?;
+
             let window = app.get_webview_window("main").unwrap();
 
             // macOS: transparent titlebar + Traffic Light positioning
