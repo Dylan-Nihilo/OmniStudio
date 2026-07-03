@@ -18,6 +18,12 @@ export default function RootLayout({
             __html: `(function(){try{var P=["atelier-dark","bridge-dark","brand-dark","atelier-light","brand-light"];var d=JSON.parse(localStorage.getItem("lumenx-settings")||"{}");var t=d.state&&d.state.theme;document.documentElement.className=P.indexOf(t)>=0?t:"atelier-dark";}catch(e){document.documentElement.className="atelier-dark";}})();`,
           }}
         />
+        {/* Tauri desktop: reset font-size to 100% to avoid layout bloat in WKWebView */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if(window.__TAURI__){document.documentElement.style.fontSize="100%";}`,
+          }}
+        />
       </head>
       <body className="font-sans bg-background text-foreground antialiased">
         <Providers>
