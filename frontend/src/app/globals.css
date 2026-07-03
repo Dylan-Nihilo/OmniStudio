@@ -885,3 +885,20 @@ html.atelier-dark .atelier-new-tile:hover > span:first-child,
 html.atelier-light .atelier-new-tile:hover > span:first-child {
   box-shadow: var(--glow-primary);
 }
+
+/* ===== Tauri Desktop: Window Drag Region ===== */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* Tauri desktop: Traffic Light avoidance padding */
+.tauri-titlebar-inset {
+  padding-top: 38px;
+}
