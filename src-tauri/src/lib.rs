@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -91,21 +91,26 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| {
             let id = event.id().0.as_str();
+            // Use webview.eval() for reliable JS execution (bypasses event system)
+            if let Some(window) = app.get_webview_window("main") {
+                let js = match id {
+                    "preferences" => Some("window.location.hash = '#/settings';".to_string()),
+                    "new_project" => Some("window.location.hash='#/new-project';".to_string()),
+                    "open_project" => Some("window.location.hash = '#/';".to_string()),
+                    "zoom_in" => Some("(function(){var s=parseFloat(getComputedStyle(document.documentElement).fontSize);document.documentElement.style.fontSize=(s+1)+'px';})()".to_string()),
+                    "zoom_out" => Some("(function(){var s=parseFloat(getComputedStyle(document.documentElement).fontSize);document.documentElement.style.fontSize=Math.max(10,s-1)+'px';})()".to_string()),
+                    "zoom_reset" => Some("document.documentElement.style.fontSize='87.5%';".to_string()),
+                    _ => None,
+                };
+                if let Some(code) = js {
+                    let _ = window.eval(&code);
+                }
+            }
+            // External links: open in default browser
             match id {
-                // Navigation: emit events to frontend
-                "preferences" | "new_project" | "open_project" | "zoom_in" | "zoom_out" | "zoom_reset" => {
-                    let _ = app.emit("menu-action", id);
-                }
-                // External links: open in default browser
-                "docs" => {
-                    let _ = open::that("https://github.com/LumenX-Studio/lumenx/wiki");
-                }
-                "release_notes" => {
-                    let _ = open::that("https://github.com/LumenX-Studio/lumenx/releases");
-                }
-                "report_issue" => {
-                    let _ = open::that("https://github.com/LumenX-Studio/lumenx/issues/new");
-                }
+                "docs" => { let _ = open::that("https://github.com/alibaba/lumenx/wiki"); }
+                "release_notes" => { let _ = open::that("https://github.com/alibaba/lumenx/releases"); }
+                "report_issue" => { let _ = open::that("https://github.com/alibaba/lumenx/issues/new"); }
                 _ => {}
             }
         })

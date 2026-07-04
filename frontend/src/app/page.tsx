@@ -612,6 +612,18 @@ export default function Home() {
         setEpisodeId(null);
         return;
       }
+      // Menu action: open new project dialog then land on workspace
+      if (hash === '#/new-project') {
+        setCurrentView('home');
+        setActiveTab('workspace');
+        setProjectId(null);
+        setSeriesId(null);
+        setEpisodeId(null);
+        setIsDialogOpen(true);
+        // Clean URL without triggering another hashchange
+        history.replaceState(null, '', '#/');
+        return;
+      }
       // Default: workspace
       setCurrentView('home');
       setActiveTab('workspace');
