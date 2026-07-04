@@ -2125,6 +2125,7 @@ version = "1.2.1"
 dependencies = [
  "cocoa",
  "objc",
+ "open",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

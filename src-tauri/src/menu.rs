@@ -35,8 +35,6 @@ pub fn build_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, tauri::Err
             &MenuItem::with_id(app, "new_project", "New Project", true, Some("CmdOrCtrl+N"))?,
             &MenuItem::with_id(app, "open_project", "Open Project...", true, Some("CmdOrCtrl+O"))?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "export_video", "Export Video...", true, Some("CmdOrCtrl+E"))?,
-            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
@@ -63,8 +61,6 @@ pub fn build_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, tauri::Err
         "View",
         true,
         &[
-            &MenuItem::with_id(app, "toggle_sidebar", "Toggle Sidebar", true, Some("CmdOrCtrl+\\"))?,
-            &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?,
             &MenuItem::with_id(app, "zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?,
             &MenuItem::with_id(app, "zoom_reset", "Actual Size", true, Some("CmdOrCtrl+0"))?,

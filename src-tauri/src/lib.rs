@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -89,6 +89,26 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            let id = event.id().0.as_str();
+            match id {
+                // Navigation: emit events to frontend
+                "preferences" | "new_project" | "open_project" | "zoom_in" | "zoom_out" | "zoom_reset" => {
+                    let _ = app.emit("menu-action", id);
+                }
+                // External links: open in default browser
+                "docs" => {
+                    let _ = open::that("https://github.com/LumenX-Studio/lumenx/wiki");
+                }
+                "release_notes" => {
+                    let _ = open::that("https://github.com/LumenX-Studio/lumenx/releases");
+                }
+                "report_issue" => {
+                    let _ = open::that("https://github.com/LumenX-Studio/lumenx/issues/new");
+                }
+                _ => {}
+            }
+        })
         .setup(move |app| {
             // Set up native macOS menu bar
             let native_menu = menu::build_menu(app.handle())?;
