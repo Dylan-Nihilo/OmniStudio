@@ -442,13 +442,24 @@ body {
 }
 /* Firefox — both properties inherit, so html cascades to every scroll region */
 html {
-  /* T11 global type-scale knob: 112.5% of the 16px UA default = 18px root.
-     Keeps the Playground consistent with workspace/library (the app's own
-     scale) rather than the mockup's tighter chrome. Single source of truth
-     for app-wide font scaling — every rem-based token scales off this. */
-  font-size: 112.5%;
+  /* T11 global type-scale knob — responsive scaling.
+     Desktop app windows (≤1440px) get a tighter scale (87.5% = 14px) to
+     maximise usable area; full browser viewports keep 100% (16px).
+     Single source of truth for app-wide font scaling — every rem-based
+     token scales off this. */
+  font-size: 87.5%;
   scrollbar-width: thin;
   scrollbar-color: var(--p-graphite-700, #292430) transparent;
+}
+@media (min-width: 1440px) {
+  html {
+    font-size: 100%;
+  }
+}
+@media (min-width: 1920px) {
+  html {
+    font-size: 112.5%;
+  }
 }
 
 @layer utilities {

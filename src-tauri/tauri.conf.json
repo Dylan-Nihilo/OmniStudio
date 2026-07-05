@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' http://127.0.0.1:* http://localhost:* data: blob: asset: https:; media-src 'self' http://127.0.0.1:* http://localhost:* data: blob: asset: https:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; font-src 'self' data:; style-src 'self' 'unsafe-inline';"
     }
   },
   "bundle": {

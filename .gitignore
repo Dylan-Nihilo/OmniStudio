@@ -90,6 +90,7 @@ logs/
 
 # Project outputs
 static/output/
+output
 output/
 static/
 
