@@ -3984,3 +3984,147 @@ def delete_prop(script_id: str, prop_id: str):
     pipeline._save_data()
 
     return signed_response(script)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Document CRUD — Script Editor document persistence
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pathlib import Path
+from datetime import datetime, timezone
+
+_TRON_PROJECTS_DIR = Path.home() / ".tron" / "comic" / "projects"
+
+
+class SaveDocumentRequest(BaseModel):
+    content: dict  # Tiptap JSON document
+    create_snapshot: bool = False
+
+
+class DocumentSnapshotInfo(BaseModel):
+    timestamp: str  # ISO format
+    size_bytes: int
+
+
+def _get_project_dir(project_id: str) -> Path:
+    """Return the project directory, raising 404 if it doesn't exist."""
+    project_dir = _TRON_PROJECTS_DIR / project_id
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project_dir
+
+
+def _ensure_history_dir(project_dir: Path) -> Path:
+    """Ensure history/ subdirectory exists and return its path."""
+    history_dir = project_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    return history_dir
+
+
+def _create_snapshot(project_dir: Path) -> None:
+    """Create a timestamped snapshot of the current document.json."""
+    doc_path = project_dir / "document.json"
+    if not doc_path.exists():
+        return
+    history_dir = _ensure_history_dir(project_dir)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S")
+    snapshot_path = history_dir / f"{ts}.json"
+    shutil.copy2(str(doc_path), str(snapshot_path))
+
+
+@app.post("/projects/{project_id}/document")
+def save_document(project_id: str, request: SaveDocumentRequest):
+    """Save the Tiptap JSON document for a project."""
+    project_dir = _TRON_PROJECTS_DIR / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    doc_path = project_dir / "document.json"
+
+    # Optionally create a snapshot before overwriting
+    if request.create_snapshot and doc_path.exists():
+        _create_snapshot(project_dir)
+
+    try:
+        with open(doc_path, "w", encoding="utf-8") as f:
+            json.dump(request.content, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
+
+    return {"status": "ok", "size_bytes": doc_path.stat().st_size}
+
+
+@app.get("/projects/{project_id}/document")
+def load_document(project_id: str):
+    """Load the Tiptap JSON document for a project."""
+    project_dir = _TRON_PROJECTS_DIR / project_id
+    doc_path = project_dir / "document.json"
+
+    if not doc_path.exists():
+        return {"type": "doc", "content": []}
+
+    try:
+        with open(doc_path, "r", encoding="utf-8") as f:
+            content = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
+
+    return content
+
+
+@app.get("/projects/{project_id}/document/snapshots")
+def list_document_snapshots(project_id: str):
+    """List all document snapshots for a project, ordered by time descending."""
+    project_dir = _get_project_dir(project_id)
+    history_dir = project_dir / "history"
+
+    if not history_dir.exists():
+        return []
+
+    snapshots = []
+    for f in history_dir.iterdir():
+        if f.suffix == ".json" and f.is_file():
+            snapshots.append(
+                DocumentSnapshotInfo(
+                    timestamp=f.stem,
+                    size_bytes=f.stat().st_size,
+                )
+            )
+
+    # Sort by timestamp descending
+    snapshots.sort(key=lambda s: s.timestamp, reverse=True)
+    return snapshots
+
+
+@app.post("/projects/{project_id}/document/snapshots")
+def create_document_snapshot(project_id: str):
+    """Create a snapshot of the current document."""
+    project_dir = _get_project_dir(project_id)
+    doc_path = project_dir / "document.json"
+
+    if not doc_path.exists():
+        raise HTTPException(status_code=404, detail="No document to snapshot")
+
+    _create_snapshot(project_dir)
+    return {"status": "ok"}
+
+
+@app.post("/projects/{project_id}/document/snapshots/{timestamp}/restore")
+def restore_document_snapshot(project_id: str, timestamp: str):
+    """Restore a document from a snapshot."""
+    project_dir = _get_project_dir(project_id)
+    history_dir = project_dir / "history"
+    snapshot_path = history_dir / f"{timestamp}.json"
+
+    if not snapshot_path.exists():
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    doc_path = project_dir / "document.json"
+
+    try:
+        shutil.copy2(str(snapshot_path), str(doc_path))
+        with open(doc_path, "r", encoding="utf-8") as f:
+            content = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to restore snapshot: {e}")
+
+    return content
