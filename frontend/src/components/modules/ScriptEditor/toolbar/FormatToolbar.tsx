@@ -5,16 +5,21 @@ import {
   Undo2,
   Redo2,
   Sparkles,
-  Columns2,
   Download,
   ChevronDown,
+  Pencil,
+  LayoutGrid,
+  BookOpen,
+  Maximize2,
 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useFormatEngine } from '../hooks/useFormatEngine';
-import type { ScriptFormat, TextRendering } from '@/store/editorStore';
+import type { ScriptFormat, TextRendering, ViewMode } from '@/store/editorStore';
 
 export interface FormatToolbarProps {
   editor: Editor | null;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
 }
 
 const FORMAT_OPTIONS: { value: ScriptFormat; label: string }[] = [
@@ -30,7 +35,14 @@ const RENDERING_OPTIONS: { value: TextRendering; label: string }[] = [
   { value: 'cjk_ja', label: '日本語 (明朝)' },
 ];
 
-export default function FormatToolbar({ editor }: FormatToolbarProps) {
+const VIEW_OPTIONS: { value: ViewMode; label: string; icon: typeof Pencil }[] = [
+  { value: 'edit', label: '编辑', icon: Pencil },
+  { value: 'storyboard', label: '分镜', icon: LayoutGrid },
+  { value: 'read', label: '阅读', icon: BookOpen },
+  { value: 'focus', label: '专注', icon: Maximize2 },
+];
+
+export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeChange }: FormatToolbarProps) {
   const { currentFormat, currentRendering, setFormat, setRendering } = useFormatEngine();
 
   const handleUndo = useCallback(() => {
@@ -121,15 +133,29 @@ export default function FormatToolbar({ editor }: FormatToolbarProps) {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* View Toggle (placeholder) */}
-      <button
-        type="button"
-        disabled
-        className="rounded p-1.5 text-zinc-500 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label="视图切换"
-      >
-        <Columns2 size={15} />
-      </button>
+      {/* View Mode Toggle */}
+      <div className="flex items-center gap-0.5 rounded-md border border-white/10 bg-zinc-800/50 p-0.5">
+        {VIEW_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          const isActive = viewMode === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onViewModeChange?.(opt.value)}
+              className={`rounded px-2 py-1 text-[11px] transition-all ${
+                isActive
+                  ? 'bg-white/10 text-zinc-100 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+              aria-label={opt.label}
+              title={opt.label}
+            >
+              <Icon size={13} />
+            </button>
+          );
+        })}
+      </div>
 
       {/* Export (placeholder) */}
       <button

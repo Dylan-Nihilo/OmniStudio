@@ -1786,5 +1786,77 @@
       "dispatching": "派发中",
       "cancel": "取消"
     }
+  },
+  "scriptEditor": {
+    "toolbar": {
+      "format": "格式",
+      "rendering": "渲染",
+      "undo": "撤销",
+      "redo": "重做",
+      "ai": "AI 工具",
+      "view": "视图",
+      "export": "导出"
+    },
+    "formats": {
+      "hollywood": "好莱坞格式",
+      "chinese_film": "中文电影格式",
+      "chinese_short": "中文短剧格式",
+      "japanese_anime": "日本动画格式"
+    },
+    "renderings": {
+      "latin": "Latin (Courier)",
+      "cjk_zh": "中文 (宋体)",
+      "cjk_ja": "日文 (明朝体)"
+    },
+    "panels": {
+      "characters": "角色",
+      "shots": "镜头",
+      "pipeline": "管线",
+      "locations": "地点",
+      "props": "道具",
+      "notes": "笔记"
+    },
+    "sidebar": {
+      "scenes": "场景",
+      "outline": "大纲",
+      "search": "搜索"
+    },
+    "views": {
+      "edit": "编辑",
+      "storyboard": "分镜",
+      "read": "阅读",
+      "focus": "专注"
+    },
+    "status": {
+      "saved": "已保存",
+      "saving": "保存中...",
+      "unsaved": "未保存",
+      "offline": "离线模式"
+    },
+    "snapshots": {
+      "title": "版本历史",
+      "restore": "恢复",
+      "confirmRestore": "恢复将覆盖当前内容，是否继续？",
+      "empty": "暂无版本快照"
+    },
+    "continuity": {
+      "allGood": "故事连贯",
+      "warnings": "连贯性警告",
+      "characterDisappeared": "{name} 已连续 {count} 场未出场"
+    },
+    "paste": {
+      "detected": "检测到可格式化内容",
+      "format": "一键格式化",
+      "dismiss": "忽略"
+    },
+    "import": {
+      "title": "导入文件",
+      "dropzone": "拖放文件到此处，或点击选择",
+      "supported": "支持 .fdx / .fountain / .txt"
+    },
+    "export": {
+      "title": "导出",
+      "selectFormat": "选择导出格式"
+    }
   }
 }

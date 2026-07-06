@@ -1786,5 +1786,77 @@
       "dispatching": "Starting",
       "cancel": "Cancel"
     }
+  },
+  "scriptEditor": {
+    "toolbar": {
+      "format": "Format",
+      "rendering": "Rendering",
+      "undo": "Undo",
+      "redo": "Redo",
+      "ai": "AI Tools",
+      "view": "View",
+      "export": "Export"
+    },
+    "formats": {
+      "hollywood": "Hollywood",
+      "chinese_film": "Chinese Film",
+      "chinese_short": "Chinese Short Drama",
+      "japanese_anime": "Japanese Anime"
+    },
+    "renderings": {
+      "latin": "Latin (Courier)",
+      "cjk_zh": "Chinese (Song)",
+      "cjk_ja": "Japanese (Mincho)"
+    },
+    "panels": {
+      "characters": "Characters",
+      "shots": "Shots",
+      "pipeline": "Pipeline",
+      "locations": "Locations",
+      "props": "Props",
+      "notes": "Notes"
+    },
+    "sidebar": {
+      "scenes": "Scenes",
+      "outline": "Outline",
+      "search": "Search"
+    },
+    "views": {
+      "edit": "Edit",
+      "storyboard": "Storyboard",
+      "read": "Read",
+      "focus": "Focus"
+    },
+    "status": {
+      "saved": "Saved",
+      "saving": "Saving...",
+      "unsaved": "Unsaved",
+      "offline": "Offline Mode"
+    },
+    "snapshots": {
+      "title": "Version History",
+      "restore": "Restore",
+      "confirmRestore": "Restoring will overwrite current content. Continue?",
+      "empty": "No snapshots yet"
+    },
+    "continuity": {
+      "allGood": "Story is consistent",
+      "warnings": "Continuity warnings",
+      "characterDisappeared": "{name} has been absent for {count} consecutive scenes"
+    },
+    "paste": {
+      "detected": "Formattable content detected",
+      "format": "Format Now",
+      "dismiss": "Dismiss"
+    },
+    "import": {
+      "title": "Import File",
+      "dropzone": "Drop file here, or click to select",
+      "supported": "Supports .fdx / .fountain / .txt"
+    },
+    "export": {
+      "title": "Export",
+      "selectFormat": "Select export format"
+    }
   }
 }
