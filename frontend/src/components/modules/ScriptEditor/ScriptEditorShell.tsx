@@ -6,7 +6,11 @@ import { useEditorStore } from '@/store/editorStore';
 import { useEditorSetup } from './hooks/useEditorSetup';
 import FormatToolbar from './toolbar/FormatToolbar';
 import { usePasteHandler } from './hooks/usePasteHandler';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useContinuityCheck } from './hooks/useContinuityCheck';
 import { PasteHintBar } from './components/PasteHintBar';
+import { ShortcutHelpPanel } from './components/ShortcutHelpPanel';
+import { ContinuityIndicator } from './components/ContinuityIndicator';
 import RightPanelContainer from './panels';
 
 export interface ScriptEditorShellProps {
@@ -22,6 +26,8 @@ export default function ScriptEditorShell({
 }: ScriptEditorShellProps) {
   const { editor, isReady } = useEditorSetup({ content: initialContent });
   const { showHint, analysis, applyFormatting, dismissHint } = usePasteHandler(editor);
+  const { showShortcutHelp, closeShortcutHelp } = useKeyboardShortcuts(editor);
+  const continuityReport = useContinuityCheck(editor);
 
   const isDirty = useEditorStore((s) => s.isDirty);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
@@ -163,11 +169,16 @@ export default function ScriptEditorShell({
                 ? `已保存 ${lastSavedAt.toLocaleTimeString()}`
                 : '就绪'}
           </span>
+          <span className="text-white/20">|</span>
+          <ContinuityIndicator report={continuityReport} />
           <span className="ml-auto text-text-muted/60">
             {currentFormat} / {currentRendering}
           </span>
         </div>
       )}
+
+      {/* Shortcut Help Panel */}
+      <ShortcutHelpPanel open={showShortcutHelp} onClose={closeShortcutHelp} />
     </div>
   );
 }

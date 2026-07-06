@@ -2,12 +2,15 @@
 
 import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Camera, Workflow } from 'lucide-react';
+import { Users, Camera, Workflow, MapPin, Package, StickyNote } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useEditorStore } from '@/store/editorStore';
 import CharacterPanel from './CharacterPanel';
 import ShotPanel from './ShotPanel';
 import PipelinePanel from './PipelinePanel';
+import LocationPanel from './LocationPanel';
+import PropsPanel from './PropsPanel';
+import NotesPanel from './NotesPanel';
 
 export interface RightPanelContainerProps {
   editor: Editor | null;
@@ -16,17 +19,27 @@ export interface RightPanelContainerProps {
   onEnterPipeline?: () => void;
 }
 
-type PanelTab = 'characters' | 'shots' | 'pipeline';
+type PanelTab = 'characters' | 'shots' | 'pipeline' | 'locations' | 'props' | 'notes';
 
-const TABS_FULL: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'characters', label: '角色', icon: <Users size={14} /> },
-  { id: 'shots', label: '镜头', icon: <Camera size={14} /> },
-  { id: 'pipeline', label: '管线', icon: <Workflow size={14} /> },
+interface TabDef {
+  id: PanelTab;
+  label: string;
+  icon: React.ReactNode;
+  group: 'primary' | 'secondary';
+}
+
+const ALL_TABS: TabDef[] = [
+  { id: 'characters', label: '角色', icon: <Users size={14} />, group: 'primary' },
+  { id: 'shots', label: '镜头', icon: <Camera size={14} />, group: 'primary' },
+  { id: 'pipeline', label: '管线', icon: <Workflow size={14} />, group: 'primary' },
+  { id: 'locations', label: '地点', icon: <MapPin size={14} />, group: 'secondary' },
+  { id: 'props', label: '道具', icon: <Package size={14} />, group: 'secondary' },
+  { id: 'notes', label: '笔记', icon: <StickyNote size={14} />, group: 'secondary' },
 ];
 
-const TABS_EMBEDDED: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'shots', label: '镜头', icon: <Camera size={14} /> },
-  { id: 'pipeline', label: '管线', icon: <Workflow size={14} /> },
+const TABS_EMBEDDED: TabDef[] = [
+  { id: 'shots', label: '镜头', icon: <Camera size={14} />, group: 'primary' },
+  { id: 'pipeline', label: '管线', icon: <Workflow size={14} />, group: 'primary' },
 ];
 
 export default function RightPanelContainer({
@@ -40,13 +53,12 @@ export default function RightPanelContainer({
   const panelLocked = useEditorStore((s) => s.rightPanelLocked);
 
   const isEmbedded = mode === 'embedded';
-  const tabs = isEmbedded ? TABS_EMBEDDED : TABS_FULL;
+  const tabs = isEmbedded ? TABS_EMBEDDED : ALL_TABS;
 
   // Map editorStore panel names to our tab IDs
   const currentTab: PanelTab = (() => {
-    if (activePanel === 'characters' && !isEmbedded) return 'characters';
-    if (activePanel === 'shots') return 'shots';
-    if (activePanel === 'pipeline') return 'pipeline';
+    const valid = tabs.find((t) => t.id === activePanel);
+    if (valid) return valid.id;
     // Default fallback
     return isEmbedded ? 'shots' : 'characters';
   })();
@@ -87,11 +99,14 @@ export default function RightPanelContainer({
     };
   }, [editor, panelLocked, isEmbedded, setActivePanel]);
 
+  const primaryTabs = tabs.filter((t) => t.group === 'primary');
+  const secondaryTabs = tabs.filter((t) => t.group === 'secondary');
+
   return (
     <div className="flex h-full flex-col">
-      {/* Tab bar */}
+      {/* Tab bar - Primary group */}
       <div className="flex shrink-0 border-b border-white/10">
-        {tabs.map((tab) => (
+        {primaryTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -115,6 +130,34 @@ export default function RightPanelContainer({
         ))}
       </div>
 
+      {/* Tab bar - Secondary group */}
+      {secondaryTabs.length > 0 && (
+        <div className="flex shrink-0 border-b border-white/5 bg-zinc-900/30">
+          {secondaryTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => handleTabChange(tab.id)}
+              className={`relative flex flex-1 items-center justify-center gap-1 px-2 py-2 text-xs font-medium transition-colors ${
+                currentTab === tab.id
+                  ? 'text-foreground'
+                  : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+              {currentTab === tab.id && (
+                <motion.div
+                  layoutId="panel-tab-indicator-secondary"
+                  className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-teal-500"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Panel content */}
       <div className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
@@ -136,6 +179,15 @@ export default function RightPanelContainer({
                 projectId={projectId}
                 onEnterPipeline={onEnterPipeline}
               />
+            )}
+            {currentTab === 'locations' && !isEmbedded && (
+              <LocationPanel editor={editor} />
+            )}
+            {currentTab === 'props' && !isEmbedded && (
+              <PropsPanel editor={editor} />
+            )}
+            {currentTab === 'notes' && !isEmbedded && (
+              <NotesPanel editor={editor} />
             )}
           </motion.div>
         </AnimatePresence>
