@@ -630,6 +630,11 @@
   resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list/-/extension-list-3.27.2.tgz"
   integrity sha512-SsVnh5ruM9QjgOGbhJjegHAIADuoE+9Sb0UV+lyxAeuEwO98JpVmE926Yur9abzUAA9MWZZ/XBIzoA5q0a4dBQ==
 
+"@tiptap/extension-mention@^3.27.2":
+  version "3.27.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-mention/-/extension-mention-3.27.2.tgz"
+  integrity sha512-KMsPDL6P0pD4u+Aq6xCkpDRemUqhihK5y//Q2wvycHtXolRwtUr/cZCgOhrvAUcuacxGHHUk2tjGxjpgQ/UIuw==
+
 "@tiptap/extension-ordered-list@^3.27.2":
   version "3.27.2"
   resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-ordered-list/-/extension-ordered-list-3.27.2.tgz"
@@ -725,6 +730,11 @@
     "@tiptap/extension-underline" "^3.27.2"
     "@tiptap/extensions" "^3.27.2"
     "@tiptap/pm" "^3.27.2"
+
+"@tiptap/suggestion@^3.27.2", "@tiptap/suggestion@3.27.2":
+  version "3.27.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/suggestion/-/suggestion-3.27.2.tgz"
+  integrity sha512-X43P44e0lUWrbEqrR7NNcxYsr/KtIwv6yNeEK8lgUEopb2kaukP+1lfP9xZq/gOLNutYU0/ZnwyFx8jHyPzN1g==
 
 "@tweenjs/tween.js@~23.1.3":
   version "23.1.3"

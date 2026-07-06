@@ -4545,3 +4545,110 @@ def export_document(project_id: str, req: ExportDocRequest):
 
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {fmt}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Script Editor - Derivation Sync & Pipeline Integration
+# ═══════════════════════════════════════════════════════════════
+
+
+class SyncDerivationRequest(BaseModel):
+    scenes: List[Dict[str, Any]] = Field(default_factory=list)
+    characters: List[Dict[str, Any]] = Field(default_factory=list)
+    locations: List[str] = Field(default_factory=list)
+    estimated_duration: float = 0
+    word_count: int = 0
+    confidence_score: float = 0
+
+
+class DeriveGapsRequest(BaseModel):
+    gap_type: str = "full"  # "full" | "characters" | "locations" | "shots"
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ConfirmShotBlockRequest(BaseModel):
+    shot_type: Optional[str] = None
+    camera_movement: Optional[str] = None
+    duration: Optional[float] = None
+    description: Optional[str] = None
+    characters: List[str] = Field(default_factory=list)
+
+
+@app.post("/projects/{project_id}/sync_derivation")
+def sync_derivation(project_id: str, req: SyncDerivationRequest):
+    """前端推送 L1 派生结果到后端存储"""
+    project_dir = _get_project_dir(project_id)
+    derivation_path = project_dir / "derivation.json"
+
+    data = {
+        "scenes": req.scenes,
+        "characters": req.characters,
+        "locations": req.locations,
+        "estimated_duration": req.estimated_duration,
+        "word_count": req.word_count,
+        "confidence_score": req.confidence_score,
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    derivation_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"status": "ok", "synced_at": data["synced_at"]}
+
+
+@app.post("/projects/{project_id}/derive_gaps")
+def derive_gaps(project_id: str, req: DeriveGapsRequest):
+    """L3 LLM 增量补全请求（异步占位）"""
+    _get_project_dir(project_id)  # validate project exists
+
+    task_id = str(uuid.uuid4())
+
+    # Store the pending task
+    project_dir = _TRON_PROJECTS_DIR / project_id
+    queue_dir = project_dir / "gap_tasks"
+    queue_dir.mkdir(parents=True, exist_ok=True)
+
+    task_data = {
+        "task_id": task_id,
+        "gap_type": req.gap_type,
+        "context": req.context,
+        "status": "queued",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    task_path = queue_dir / f"{task_id}.json"
+    task_path.write_text(json.dumps(task_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"task_id": task_id, "status": "queued"}
+
+
+@app.post("/projects/{project_id}/shot_blocks/{shot_id}/confirm")
+def confirm_shot_block(project_id: str, shot_id: str, req: ConfirmShotBlockRequest):
+    """确认 ShotBlock，更新状态为 confirmed"""
+    project_dir = _get_project_dir(project_id)
+    shot_blocks_path = project_dir / "shot_blocks.json"
+
+    # Load existing shot_blocks or create empty dict
+    if shot_blocks_path.exists():
+        shot_blocks = json.loads(shot_blocks_path.read_text(encoding="utf-8"))
+    else:
+        shot_blocks = {}
+
+    # Build the confirmed shot block entry
+    confirmed = {
+        "shot_id": shot_id,
+        "status": "confirmed",
+        "shot_type": req.shot_type,
+        "camera_movement": req.camera_movement,
+        "duration": req.duration,
+        "description": req.description,
+        "characters": req.characters,
+        "confirmed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    shot_blocks[shot_id] = confirmed
+
+    shot_blocks_path.write_text(
+        json.dumps(shot_blocks, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    return confirmed

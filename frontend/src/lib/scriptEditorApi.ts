@@ -99,4 +99,26 @@ export const scriptEditorApi = {
     );
     return res.data;
   },
+
+  /** 同步派生数据到后端 */
+  syncDerivation: async (projectId: string, data: any): Promise<void> => {
+    await axios.post(`${API_BASE}/projects/${projectId}/sync_derivation`, data);
+  },
+
+  /** L3 LLM 增量补全请求 */
+  deriveGaps: async (projectId: string, gapType: string): Promise<{ task_id: string; status: string }> => {
+    const res = await axios.post(`${API_BASE}/projects/${projectId}/derive_gaps`, {
+      gap_type: gapType,
+    });
+    return res.data;
+  },
+
+  /** 确认 ShotBlock */
+  confirmShotBlock: async (projectId: string, shotId: string, data: any): Promise<any> => {
+    const res = await axios.post(
+      `${API_BASE}/projects/${projectId}/shot_blocks/${shotId}/confirm`,
+      data
+    );
+    return res.data;
+  },
 };
