@@ -8,6 +8,8 @@ import { DualDialogue, DialogueColumn } from './DualDialogue'
 import { Note } from './Note'
 import { Section } from './Section'
 import { Keymap } from './Keymap'
+import { ShotBlock } from './ShotBlock'
+import { CharacterMention } from './CharacterMention'
 
 export { SceneHeading } from './SceneHeading'
 export { Action } from './Action'
@@ -19,6 +21,10 @@ export { DualDialogue, DialogueColumn } from './DualDialogue'
 export { Note } from './Note'
 export { Section } from './Section'
 export { Keymap } from './Keymap'
+export { ShotBlock } from './ShotBlock'
+export type { ShotBlockAttributes, ShotBlockOptions, ShotType, PipelineStatus } from './ShotBlock'
+export { CharacterMention, createCharacterSuggestion } from './CharacterMention'
+export type { CharacterMentionItem } from './CharacterMention'
 
 /**
  * All script editor node extensions bundled for one-shot registration.
@@ -36,4 +42,6 @@ export const scriptExtensions = [
   Note,
   Section,
   Keymap,
+  ShotBlock,
+  CharacterMention,
 ]
