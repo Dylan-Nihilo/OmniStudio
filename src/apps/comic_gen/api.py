@@ -4128,3 +4128,420 @@ def restore_document_snapshot(project_id: str, timestamp: str):
         raise HTTPException(status_code=500, detail=f"Failed to restore snapshot: {e}")
 
     return content
+
+
+# ═══════════════════════════════════════════════════════════════
+# Document Import/Export
+# ═══════════════════════════════════════════════════════════════
+
+
+class ImportDocRequest(BaseModel):
+    filename: str
+    content: str  # base64 encoded file content
+    file_type: str  # "fdx" | "fountain" | "txt"
+
+
+class ExportDocRequest(BaseModel):
+    content: dict  # Tiptap JSON document
+    format: str  # "pdf" | "docx"
+    options: dict = {}
+
+
+def _parse_fdx(xml_text: str) -> dict:
+    """Parse FDX (Final Draft XML) into Tiptap JSON."""
+    import re
+    from xml.etree import ElementTree as ET
+
+    FDX_TO_NODE: dict = {
+        "Scene Heading": "sceneHeading",
+        "Action": "action",
+        "Character": "characterCue",
+        "Dialogue": "dialogue",
+        "Parenthetical": "parenthetical",
+        "Transition": "transition",
+    }
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid FDX XML: {e}")
+
+    content_nodes = []
+    # Find all Paragraph elements (support both with and without Content wrapper)
+    paragraphs = root.findall(".//Paragraph")
+
+    for para in paragraphs:
+        para_type = para.get("Type", "Action")
+        node_type = FDX_TO_NODE.get(para_type, "action")
+
+        # Extract text from Text elements
+        texts = []
+        for text_el in para.findall(".//Text"):
+            text_content = text_el.text or ""
+            style = text_el.get("Style", "")
+            marks = []
+            if "Bold" in style:
+                marks.append({"type": "bold"})
+            if "Italic" in style:
+                marks.append({"type": "italic"})
+            if "Underline" in style:
+                marks.append({"type": "underline"})
+
+            text_node: dict = {"type": "text", "text": text_content}
+            if marks:
+                text_node["marks"] = marks
+            texts.append(text_node)
+
+        if not texts:
+            texts = [{"type": "text", "text": ""}]
+
+        node: dict = {"type": node_type, "content": texts}
+
+        # Add attributes for scene headings
+        if node_type == "sceneHeading":
+            full_text = "".join(t.get("text", "") for t in texts)
+            match = re.match(r"^(INT|EXT|INT/EXT|I/E)[\./\s]", full_text, re.IGNORECASE)
+            attrs: dict = {"id": str(uuid.uuid4())}
+            if match:
+                attrs["intExt"] = match.group(1).upper()
+            node["attrs"] = attrs
+
+        content_nodes.append(node)
+
+    return {"type": "doc", "content": content_nodes}
+
+
+def _parse_fountain(text: str) -> dict:
+    """Parse Fountain format text into Tiptap JSON."""
+    import re
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    content_nodes = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Empty lines - skip
+        if not stripped:
+            i += 1
+            continue
+
+        # Forced scene heading (starts with .)
+        if stripped.startswith(".") and len(stripped) > 1 and not stripped.startswith(".."):
+            heading_text = stripped[1:]
+            match = re.match(r"^(INT|EXT|INT/EXT|I/E)[\./\s]", heading_text, re.IGNORECASE)
+            attrs: dict = {"id": str(uuid.uuid4())}
+            if match:
+                attrs["intExt"] = match.group(1).upper()
+            content_nodes.append({
+                "type": "sceneHeading",
+                "attrs": attrs,
+                "content": [{"type": "text", "text": heading_text}],
+            })
+            i += 1
+            continue
+
+        # Scene heading: INT./EXT. pattern
+        if re.match(r"^(INT|EXT|INT/EXT|I/E)[\./\s]", stripped, re.IGNORECASE):
+            match = re.match(r"^(INT|EXT|INT/EXT|I/E)", stripped, re.IGNORECASE)
+            attrs = {"id": str(uuid.uuid4())}
+            if match:
+                attrs["intExt"] = match.group(1).upper()
+            content_nodes.append({
+                "type": "sceneHeading",
+                "attrs": attrs,
+                "content": [{"type": "text", "text": stripped}],
+            })
+            i += 1
+            continue
+
+        # Transition: all caps ending with colon, or starts with >
+        if stripped.startswith(">"):
+            t_text = stripped[1:].strip()
+            content_nodes.append({
+                "type": "transition",
+                "content": [{"type": "text", "text": t_text}],
+            })
+            i += 1
+            continue
+
+        if (
+            stripped.isupper()
+            and stripped.endswith(":")
+            and len(stripped) > 2
+            and not stripped.startswith("(")
+        ):
+            content_nodes.append({
+                "type": "transition",
+                "content": [{"type": "text", "text": stripped}],
+            })
+            i += 1
+            continue
+
+        # Character cue: all uppercase, preceded by empty line (check)
+        # In Fountain spec: a line of all-uppercase text
+        if (
+            stripped.isupper()
+            and len(stripped) > 1
+            and not stripped.endswith(":")
+            and (i == 0 or not lines[i - 1].strip())
+        ):
+            content_nodes.append({
+                "type": "characterCue",
+                "content": [{"type": "text", "text": stripped}],
+            })
+            i += 1
+
+            # Following lines until empty line are dialogue/parenthetical
+            while i < len(lines) and lines[i].strip():
+                dline = lines[i].strip()
+                if dline.startswith("(") and dline.endswith(")"):
+                    content_nodes.append({
+                        "type": "parenthetical",
+                        "content": [{"type": "text", "text": dline}],
+                    })
+                else:
+                    content_nodes.append({
+                        "type": "dialogue",
+                        "content": [{"type": "text", "text": dline}],
+                    })
+                i += 1
+            continue
+
+        # Default: Action
+        content_nodes.append({
+            "type": "action",
+            "content": [{"type": "text", "text": stripped}],
+        })
+        i += 1
+
+    return {"type": "doc", "content": content_nodes}
+
+
+def _parse_txt(text: str) -> dict:
+    """Parse plain text into Tiptap JSON (all as action nodes)."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    content_nodes = []
+
+    for line in lines:
+        if line.strip():
+            content_nodes.append({
+                "type": "action",
+                "content": [{"type": "text", "text": line.strip()}],
+            })
+
+    if not content_nodes:
+        content_nodes = [{"type": "action", "content": [{"type": "text", "text": ""}]}]
+
+    return {"type": "doc", "content": content_nodes}
+
+
+@app.post("/projects/{project_id}/document/import")
+def import_document(project_id: str, req: ImportDocRequest):
+    """Import FDX/Fountain/TXT file and convert to Tiptap JSON."""
+    import base64
+
+    try:
+        raw_bytes = base64.b64decode(req.content)
+        text = raw_bytes.decode("utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to decode file content: {e}")
+
+    file_type = req.file_type.lower()
+
+    if file_type == "fdx":
+        doc = _parse_fdx(text)
+    elif file_type == "fountain":
+        doc = _parse_fountain(text)
+    elif file_type == "txt":
+        doc = _parse_txt(text)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_type}")
+
+    return {"content": doc, "filename": req.filename, "file_type": file_type}
+
+
+@app.post("/projects/{project_id}/document/export")
+def export_document(project_id: str, req: ExportDocRequest):
+    """Export Tiptap JSON to PDF/DOCX. Returns HTML fallback if libraries unavailable."""
+    from fastapi.responses import Response
+
+    doc = req.content
+    fmt = req.format.lower()
+
+    # Helper to extract plain text from Tiptap doc
+    def extract_text(node: dict) -> str:
+        if node.get("text"):
+            return node["text"]
+        children = node.get("content", [])
+        return "".join(extract_text(c) for c in children)
+
+    def doc_to_lines(doc: dict) -> list:
+        lines = []
+        for node in doc.get("content", []):
+            node_type = node.get("type", "action")
+            text = extract_text(node)
+            lines.append((node_type, text))
+        return lines
+
+    if fmt == "pdf":
+        # Try reportlab first, fallback to HTML
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.units import inch
+            from reportlab.platypus import SimpleDocTemplate, Paragraph as RLParagraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+            import io
+
+            buffer = io.BytesIO()
+            doc_pdf = SimpleDocTemplate(buffer, pagesize=letter,
+                                        leftMargin=1.5 * inch, rightMargin=1 * inch,
+                                        topMargin=1 * inch, bottomMargin=1 * inch)
+
+            styles = getSampleStyleSheet()
+            styles.add(ParagraphStyle("SceneHeading", parent=styles["Heading3"],
+                                      fontName="Helvetica-Bold", fontSize=12,
+                                      spaceAfter=6, spaceBefore=18))
+            styles.add(ParagraphStyle("CharacterCue", parent=styles["Normal"],
+                                      fontName="Helvetica-Bold", fontSize=10,
+                                      alignment=TA_CENTER, spaceBefore=12))
+            styles.add(ParagraphStyle("DialogueStyle", parent=styles["Normal"],
+                                      fontName="Helvetica", fontSize=10,
+                                      leftIndent=1.5 * inch, rightIndent=1.5 * inch))
+            styles.add(ParagraphStyle("TransitionStyle", parent=styles["Normal"],
+                                      fontName="Helvetica-Bold", fontSize=10,
+                                      alignment=TA_RIGHT, spaceBefore=12))
+
+            story = []
+            lines = doc_to_lines(doc)
+            style_map = {
+                "sceneHeading": "SceneHeading",
+                "characterCue": "CharacterCue",
+                "dialogue": "DialogueStyle",
+                "transition": "TransitionStyle",
+            }
+
+            for node_type, text in lines:
+                style_name = style_map.get(node_type, "Normal")
+                story.append(RLParagraph(text or " ", styles[style_name]))
+
+            doc_pdf.build(story)
+            pdf_bytes = buffer.getvalue()
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'attachment; filename="script.pdf"'},
+            )
+
+        except ImportError:
+            # Fallback: generate printable HTML
+            lines = doc_to_lines(doc)
+            html_parts = [
+                "<!DOCTYPE html><html><head><meta charset='utf-8'>",
+                "<title>Script Export</title>",
+                "<style>body{font-family:Courier,monospace;max-width:7in;margin:1in auto;}",
+                ".scene-heading{font-weight:bold;text-transform:uppercase;margin-top:1.5em;}",
+                ".character-cue{text-align:center;font-weight:bold;margin-top:1em;text-transform:uppercase;}",
+                ".dialogue{margin-left:1.5in;margin-right:1.5in;}",
+                ".parenthetical{margin-left:2in;margin-right:1.5in;font-style:italic;}",
+                ".transition{text-align:right;font-weight:bold;margin-top:1em;}",
+                "</style></head><body>",
+            ]
+            for node_type, text in lines:
+                css_class = {
+                    "sceneHeading": "scene-heading",
+                    "characterCue": "character-cue",
+                    "dialogue": "dialogue",
+                    "parenthetical": "parenthetical",
+                    "transition": "transition",
+                    "action": "action",
+                }.get(node_type, "action")
+                html_parts.append(f'<p class="{css_class}">{text}</p>')
+            html_parts.append("</body></html>")
+            html_content = "\n".join(html_parts)
+
+            return Response(
+                content=html_content.encode("utf-8"),
+                media_type="text/html",
+                headers={
+                    "Content-Disposition": 'attachment; filename="script.html"',
+                    "X-Export-Fallback": "true",
+                },
+            )
+
+    elif fmt == "docx":
+        # Try python-docx, fallback to plain text
+        try:
+            from docx import Document as DocxDocument
+            from docx.shared import Pt, Inches
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            import io
+
+            document = DocxDocument()
+            lines = doc_to_lines(doc)
+
+            for node_type, text in lines:
+                if node_type == "sceneHeading":
+                    p = document.add_paragraph()
+                    p.style = document.styles["Heading 3"]
+                    run = p.add_run(text.upper())
+                    run.bold = True
+                elif node_type == "characterCue":
+                    p = document.add_paragraph()
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run = p.add_run(text.upper())
+                    run.bold = True
+                elif node_type == "dialogue":
+                    p = document.add_paragraph()
+                    p.paragraph_format.left_indent = Inches(1.5)
+                    p.paragraph_format.right_indent = Inches(1.5)
+                    p.add_run(text)
+                elif node_type == "transition":
+                    p = document.add_paragraph()
+                    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                    run = p.add_run(text.upper())
+                    run.bold = True
+                else:
+                    document.add_paragraph(text)
+
+            buffer = io.BytesIO()
+            document.save(buffer)
+            docx_bytes = buffer.getvalue()
+
+            return Response(
+                content=docx_bytes,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": 'attachment; filename="script.docx"'},
+            )
+
+        except ImportError:
+            # Fallback: plain text
+            lines = doc_to_lines(doc)
+            text_parts = []
+            for node_type, text in lines:
+                if node_type == "sceneHeading":
+                    text_parts.append(f"\n{text.upper()}\n")
+                elif node_type == "characterCue":
+                    text_parts.append(f"\n    {text.upper()}")
+                elif node_type == "dialogue":
+                    text_parts.append(f"        {text}")
+                elif node_type == "transition":
+                    text_parts.append(f"\n{'':>60}{text.upper()}")
+                else:
+                    text_parts.append(text)
+            plain = "\n".join(text_parts)
+
+            return Response(
+                content=plain.encode("utf-8"),
+                media_type="text/plain",
+                headers={
+                    "Content-Disposition": 'attachment; filename="script.txt"',
+                    "X-Export-Fallback": "true",
+                },
+            )
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported export format: {fmt}")

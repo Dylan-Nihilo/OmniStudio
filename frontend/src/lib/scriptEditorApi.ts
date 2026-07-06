@@ -71,4 +71,32 @@ export const scriptEditorApi = {
     );
     return res.data;
   },
+
+  /** 导入文档（FDX/Fountain/TXT → Tiptap JSON） */
+  importDocument: async (projectId: string, file: File): Promise<any> => {
+    const buffer = await file.arrayBuffer();
+    const base64 = btoa(
+      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+    );
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'txt';
+    const fileType = ext === 'fdx' ? 'fdx' : ext === 'fountain' ? 'fountain' : 'txt';
+
+    const res = await axios.post(`${API_BASE}/projects/${projectId}/document/import`, {
+      filename: file.name,
+      content: base64,
+      file_type: fileType,
+    });
+    return res.data;
+  },
+
+  /** 导出文档（Tiptap JSON → PDF/DOCX，返回 Blob） */
+  exportDocument: async (projectId: string, content: any, format: string): Promise<Blob> => {
+    const res = await axios.post(
+      `${API_BASE}/projects/${projectId}/document/export`,
+      { content, format, options: {} },
+      { responseType: 'blob' }
+    );
+    return res.data;
+  },
 };
