@@ -7,6 +7,7 @@ import { useEditorSetup } from './hooks/useEditorSetup';
 import FormatToolbar from './toolbar/FormatToolbar';
 import { usePasteHandler } from './hooks/usePasteHandler';
 import { PasteHintBar } from './components/PasteHintBar';
+import RightPanelContainer from './panels';
 
 export interface ScriptEditorShellProps {
   mode?: 'full' | 'embedded' | 'focus';
@@ -137,16 +138,13 @@ export default function ScriptEditorShell({
         </main>
 
         {/* Right Sidebar - Panel */}
-        {!hideAllSidebars && showRight && (
-          <aside className="w-[320px] shrink-0 border-l border-white/10 bg-white/[0.02] backdrop-blur-xl overflow-y-auto">
-            <div className="p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-                面板
-              </h3>
-              <p className="text-xs text-text-muted italic">
-                选中编辑器内容以查看相关面板
-              </p>
-            </div>
+        {!hideAllSidebars && (showRight || mode === 'embedded') && (
+          <aside className="w-[320px] shrink-0 border-l border-white/10 bg-white/[0.02] backdrop-blur-xl overflow-hidden">
+            <RightPanelContainer
+              editor={editor}
+              mode={mode}
+              projectId={projectId}
+            />
           </aside>
         )}
       </div>
