@@ -885,3 +885,101 @@ html.atelier-dark .atelier-new-tile:hover > span:first-child,
 html.atelier-light .atelier-new-tile:hover > span:first-child {
   box-shadow: var(--glow-primary);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Script Editor Format Engine — CSS Variable System
+   ────────────────────────────────────────────────────────────────────
+   Two-dimensional system: format × rendering.
+   Container: .script-editor[data-format][data-rendering]
+   ════════════════════════════════════════════════════════════════════ */
+
+.script-editor {
+  --script-font-family: 'Courier Prime', 'Courier New', monospace;
+  --script-font-size: 12pt;
+  --script-line-height: 1.0;
+  --script-page-width: 8.5in;
+  --script-margin-left: 1.5in;
+  --script-margin-right: 1in;
+}
+
+/* Latin/Hollywood rendering */
+.script-editor[data-rendering="latin"] {
+  --script-font-family: 'Courier Prime', 'Courier New', monospace;
+  --script-font-size: 12pt;
+  --script-line-height: 1.0;
+}
+
+/* CJK Chinese rendering */
+.script-editor[data-rendering="cjk_zh"] {
+  --script-font-family: 'Noto Serif SC', 'SimSun', 'STSong', serif;
+  --script-font-size: 12pt;
+  --script-line-height: 1.6;
+}
+
+/* CJK Japanese rendering */
+.script-editor[data-rendering="cjk_ja"] {
+  --script-font-family: 'Noto Serif JP', 'Yu Mincho', serif;
+  --script-font-size: 10.5pt;
+  --script-line-height: 1.7;
+}
+
+/* Apply variables to ProseMirror content */
+.script-editor .ProseMirror {
+  font-family: var(--script-font-family);
+  font-size: var(--script-font-size);
+  line-height: var(--script-line-height);
+}
+
+/* === Format-specific indentation === */
+
+/* Hollywood format */
+.script-editor[data-format="hollywood"] .ProseMirror .scene-heading {
+  text-transform: uppercase;
+  font-weight: bold;
+}
+.script-editor[data-format="hollywood"] .ProseMirror .character-cue {
+  margin-left: 3.7in;
+  text-transform: uppercase;
+}
+.script-editor[data-format="hollywood"] .ProseMirror .dialogue {
+  margin-left: 2.5in;
+  margin-right: 2.5in;
+}
+.script-editor[data-format="hollywood"] .ProseMirror .parenthetical {
+  margin-left: 3.1in;
+  margin-right: 2.9in;
+}
+.script-editor[data-format="hollywood"] .ProseMirror .transition {
+  text-align: right;
+}
+
+/* Chinese Film format */
+.script-editor[data-format="chinese_film"] .ProseMirror .scene-heading {
+  font-weight: bold;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.25rem;
+}
+.script-editor[data-format="chinese_film"] .ProseMirror .character-cue {
+  text-align: center;
+}
+.script-editor[data-format="chinese_film"] .ProseMirror .dialogue {
+  margin-left: 2rem;
+  margin-right: 2rem;
+}
+
+/* Chinese Short-form format */
+.script-editor[data-format="chinese_short"] .ProseMirror .character-cue {
+  font-weight: bold;
+}
+.script-editor[data-format="chinese_short"] .ProseMirror .dialogue {
+  margin-left: 1rem;
+}
+
+/* Japanese Anime format */
+.script-editor[data-format="japanese_anime"] .ProseMirror .scene-heading {
+  border-left: 3px solid #666;
+  padding-left: 0.5rem;
+}
+.script-editor[data-format="japanese_anime"] .ProseMirror .character-cue {
+  font-weight: bold;
+}

@@ -4,6 +4,9 @@ import { EditorContent } from '@tiptap/react';
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useEditorStore } from '@/store/editorStore';
 import { useEditorSetup } from './hooks/useEditorSetup';
+import FormatToolbar from './toolbar/FormatToolbar';
+import { usePasteHandler } from './hooks/usePasteHandler';
+import { PasteHintBar } from './components/PasteHintBar';
 
 export interface ScriptEditorShellProps {
   mode?: 'full' | 'embedded' | 'focus';
@@ -17,6 +20,7 @@ export default function ScriptEditorShell({
   initialContent,
 }: ScriptEditorShellProps) {
   const { editor, isReady } = useEditorSetup({ content: initialContent });
+  const { showHint, analysis, applyFormatting, dismissHint } = usePasteHandler(editor);
 
   const isDirty = useEditorStore((s) => s.isDirty);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
@@ -36,6 +40,9 @@ export default function ScriptEditorShell({
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[#050508]">
+      {/* Format Toolbar */}
+      {!hideAllSidebars && <FormatToolbar editor={editor} />}
+
       {/* Top Toolbar */}
       {!hideAllSidebars && (
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 px-4">
@@ -103,9 +110,16 @@ export default function ScriptEditorShell({
         )}
 
         {/* Editor Content Area */}
-        <main className="flex-1 min-w-0 overflow-y-auto">
+        <main className="relative flex-1 min-w-0 overflow-y-auto">
+          {/* Paste Hint Bar */}
+          <PasteHintBar
+            visible={showHint}
+            analysis={analysis}
+            onApply={applyFormatting}
+            onDismiss={dismissHint}
+          />
           <div
-            className="script-editor-content mx-auto max-w-[720px] px-8 py-10"
+            className="script-editor script-editor-content mx-auto max-w-[720px] px-8 py-10"
             data-format={currentFormat}
             data-rendering={currentRendering}
           >
