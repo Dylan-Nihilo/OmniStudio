@@ -23,14 +23,15 @@ function extractProps(text: string): string[] {
   const props = new Set<string>();
 
   // 中文引号内容：「xxx」或 "xxx" 或 'xxx'
-  const zhMatches = text.matchAll(/[「"']([\u4e00-\u9fff\w]{1,10})[」"']/g);
-  for (const m of zhMatches) {
+  const zhRe = /[「"']([\u4e00-\u9fff\w]{1,10})[」"']/g;
+  let m: RegExpExecArray | null;
+  while ((m = zhRe.exec(text)) !== null) {
     props.add(m[1]);
   }
 
   // 英文：大写开头的名词（排除句首）
-  const enMatches = text.matchAll(/(?<=\s)([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/g);
-  for (const m of enMatches) {
+  const enRe = /(?<=\s)([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/g;
+  while ((m = enRe.exec(text)) !== null) {
     props.add(m[0]);
   }
 

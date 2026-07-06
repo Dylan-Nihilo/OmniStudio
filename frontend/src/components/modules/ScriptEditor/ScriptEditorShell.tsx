@@ -12,6 +12,7 @@ import { PasteHintBar } from './components/PasteHintBar';
 import { ShortcutHelpPanel } from './components/ShortcutHelpPanel';
 import { ContinuityIndicator } from './components/ContinuityIndicator';
 import RightPanelContainer from './panels';
+import LeftSidebar from './sidebar';
 
 export interface ScriptEditorShellProps {
   mode?: 'full' | 'embedded' | 'focus';
@@ -91,28 +92,10 @@ export default function ScriptEditorShell({
 
       {/* Main content area: Three-column layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar - Scene Navigation */}
+        {/* Left Sidebar */}
         {!hideAllSidebars && !hideLeftOnly && showLeft && (
-          <aside className="w-[260px] shrink-0 border-r border-white/10 bg-white/[0.02] backdrop-blur-xl overflow-y-auto">
-            <div className="p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-                场景导航
-              </h3>
-              {derivedScenes.length > 0 ? (
-                <ul className="space-y-1">
-                  {derivedScenes.map((scene) => (
-                    <li
-                      key={scene.id}
-                      className="text-sm text-text-secondary hover:text-foreground cursor-pointer px-2 py-1.5 rounded hover:bg-white/5 transition-colors"
-                    >
-                      {scene.title || `场景 ${scene.number ?? '?'}`}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-text-muted italic">暂无场景</p>
-              )}
-            </div>
+          <aside className="w-[260px] shrink-0 border-r border-white/10 bg-white/[0.02] backdrop-blur-xl overflow-hidden">
+            <LeftSidebar editor={editor} />
           </aside>
         )}
 
