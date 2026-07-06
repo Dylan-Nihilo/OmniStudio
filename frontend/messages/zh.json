@@ -414,6 +414,7 @@
   "nav": {
     "workspace": "工作区",
     "library": "资产库",
+    "editor": "剧本编辑器",
     "playground": "创作台",
     "settings": "设置",
     "workspaceAria": "LumenX Studio · 工作区",

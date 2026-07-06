@@ -26,6 +26,7 @@ const ImportFileDialog = dynamic(() => import("@/components/series/ImportFileDia
 const SettingsPage = dynamic(() => import("@/components/settings/SettingsPage"), { ssr: false });
 const AssetLibraryPage = dynamic(() => import("@/components/library/AssetLibraryPage"), { ssr: false });
 const PlaygroundPage = dynamic(() => import("@/components/modules/playground/PlaygroundPage"), { ssr: false });
+const ScriptEditorShell = dynamic(() => import("@/components/modules/ScriptEditor/ScriptEditorShell"), { ssr: false });
 
 // ── Create Series Dialog ──
 function CreateSeriesDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -460,7 +461,7 @@ export default function Home() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showCreateDropdown, setShowCreateDropdown] = useState(false);
-  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [wsSearch, setWsSearch] = useState("");
   const online = useOnline();
@@ -579,6 +580,23 @@ export default function Home() {
         setCurrentView('series');
         return;
       }
+      if (hash === '#/studio/editor') {
+        setCurrentView('studio/editor');
+        setActiveTab('editor' as GlobalTab);
+        setProjectId(null);
+        setSeriesId(null);
+        setEpisodeId(null);
+        return;
+      }
+      // Match #/project/{id}/editor
+      const projectEditorMatch = hash.match(/^#\/project\/([^/]+)\/editor$/);
+      if (projectEditorMatch) {
+        setProjectId(projectEditorMatch[1]);
+        setSeriesId(null);
+        setEpisodeId(null);
+        setCurrentView('project-editor');
+        return;
+      }
       if (hash.startsWith('#/project/')) {
         const id = hash.replace('#/project/', '');
         setProjectId(id);
@@ -664,6 +682,12 @@ export default function Home() {
     }
     if (currentView === 'playground') {
       return <PlaygroundPage />;
+    }
+    if (currentView === 'studio/editor') {
+      return <ScriptEditorShell mode="full" />;
+    }
+    if (currentView === 'project-editor' && projectId) {
+      return <ScriptEditorShell mode="embedded" projectId={projectId} />;
     }
 
     // Workspace view — Line B skeleton

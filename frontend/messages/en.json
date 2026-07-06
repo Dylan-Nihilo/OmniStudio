@@ -414,6 +414,7 @@
   "nav": {
     "workspace": "Workspace",
     "library": "Library",
+    "editor": "Script Editor",
     "playground": "Playground",
     "settings": "Settings",
     "workspaceAria": "LumenX Studio · Workspace",
