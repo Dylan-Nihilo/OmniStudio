@@ -1,0 +1,74 @@
+import axios from 'axios';
+
+// Reuse the same API URL detection logic as the main api.ts
+const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || '17177';
+
+const getApiUrl = (): string => {
+  const override = process.env.NEXT_PUBLIC_API_URL;
+  if (override && override.trim()) {
+    return override.trim().replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname, port } = window.location;
+
+    if (process.env.NODE_ENV === 'development') {
+      return `${protocol}//${hostname}:${BACKEND_PORT}`;
+    }
+
+    return `${protocol}//${hostname}${port ? ':' + port : ''}`;
+  }
+
+  return `http://localhost:${BACKEND_PORT}`;
+};
+
+const API_BASE = getApiUrl();
+
+export interface DocumentResponse {
+  project_id: string;
+  content: object;
+  updated_at: string;
+}
+
+export interface SnapshotResponse {
+  project_id: string;
+  timestamp: string;
+  created_at: string;
+}
+
+export const scriptEditorApi = {
+  /** 保存文档 */
+  saveDocument: async (projectId: string, content: object, createSnapshot = false): Promise<DocumentResponse> => {
+    const res = await axios.post(`${API_BASE}/projects/${projectId}/document`, {
+      content,
+      create_snapshot: createSnapshot,
+    });
+    return res.data;
+  },
+
+  /** 加载文档 */
+  loadDocument: async (projectId: string): Promise<DocumentResponse> => {
+    const res = await axios.get(`${API_BASE}/projects/${projectId}/document`);
+    return res.data;
+  },
+
+  /** 列出快照 */
+  listSnapshots: async (projectId: string): Promise<SnapshotResponse[]> => {
+    const res = await axios.get(`${API_BASE}/projects/${projectId}/document/snapshots`);
+    return res.data;
+  },
+
+  /** 创建快照 */
+  createSnapshot: async (projectId: string): Promise<SnapshotResponse> => {
+    const res = await axios.post(`${API_BASE}/projects/${projectId}/document/snapshots`);
+    return res.data;
+  },
+
+  /** 恢复快照 */
+  restoreSnapshot: async (projectId: string, timestamp: string): Promise<DocumentResponse> => {
+    const res = await axios.post(
+      `${API_BASE}/projects/${projectId}/document/snapshots/${timestamp}/restore`
+    );
+    return res.data;
+  },
+};
