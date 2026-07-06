@@ -139,17 +139,29 @@ export default function SceneNavigator({ editor }: SceneNavigatorProps) {
       setActiveSceneId(scene.id);
       if (!editor) return;
 
+      // Dispatch event to auto-unfold the target scene if it's collapsed
+      document.dispatchEvent(
+        new CustomEvent('script-editor:navigate-to-scene', {
+          detail: { sceneId: scene.id },
+        })
+      );
+
       // Find the scene heading node position
       const doc = editor.state.doc;
       let targetPos: number | null = null;
 
       doc.descendants((node, pos) => {
         if (node.type.name === 'sceneHeading' && targetPos === null) {
-          const text = node.textContent;
-          if (scene.title && text.includes(scene.title)) {
+          const nodeId = node.attrs.id as string | null;
+          if (nodeId === scene.id) {
             targetPos = pos;
-          } else if (scene.location && text.includes(scene.location)) {
-            targetPos = pos;
+          } else {
+            const text = node.textContent;
+            if (scene.title && text.includes(scene.title)) {
+              targetPos = pos;
+            } else if (scene.location && text.includes(scene.location)) {
+              targetPos = pos;
+            }
           }
         }
         return targetPos === null;

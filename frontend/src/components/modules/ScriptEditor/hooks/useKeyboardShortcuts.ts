@@ -42,8 +42,7 @@ export function useKeyboardShortcuts(editor: Editor | null) {
       // Cmd+Shift+E: 切换场景折叠/展开
       if (mod && e.shiftKey && e.key === 'E') {
         e.preventDefault();
-        // Phase 1.4 实现，此处占位
-        console.log('[ScriptEditor] Toggle scene collapse — placeholder for Phase 1.4');
+        document.dispatchEvent(new CustomEvent('script-editor:toggle-scene-folding'));
         return;
       }
 

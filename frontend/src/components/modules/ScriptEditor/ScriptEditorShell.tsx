@@ -8,6 +8,7 @@ import FormatToolbar from './toolbar/FormatToolbar';
 import { usePasteHandler } from './hooks/usePasteHandler';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useContinuityCheck } from './hooks/useContinuityCheck';
+import { useSceneFolding } from './hooks/useSceneFolding';
 import { PasteHintBar } from './components/PasteHintBar';
 import { ShortcutHelpPanel } from './components/ShortcutHelpPanel';
 import { ContinuityIndicator } from './components/ContinuityIndicator';
@@ -29,6 +30,7 @@ export default function ScriptEditorShell({
   const { showHint, analysis, applyFormatting, dismissHint } = usePasteHandler(editor);
   const { showShortcutHelp, closeShortcutHelp } = useKeyboardShortcuts(editor);
   const continuityReport = useContinuityCheck(editor);
+  const { enabled: foldingEnabled, isAllExpanded, totalScenes: foldingTotal } = useSceneFolding(editor);
 
   const isDirty = useEditorStore((s) => s.isDirty);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
@@ -143,7 +145,14 @@ export default function ScriptEditorShell({
         <div className="flex h-8 shrink-0 items-center gap-4 border-t border-white/10 px-4 text-xs text-text-muted">
           <span>{wordCount} 字</span>
           <span className="text-white/20">|</span>
-          <span>{derivedScenes.length} 个场景</span>
+          <span>
+            {derivedScenes.length} 个场景
+            {foldingEnabled && (
+              <span className="ml-1 text-text-muted/60">
+                ({isAllExpanded ? '全展开' : '智能折叠'})
+              </span>
+            )}
+          </span>
           <span className="text-white/20">|</span>
           <span>
             {isDirty
