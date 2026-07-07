@@ -24,11 +24,13 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, R
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+import concurrent.futures
+import hashlib
 import json
 import os
 import shutil
@@ -4561,9 +4563,23 @@ class SyncDerivationRequest(BaseModel):
     confidence_score: float = 0
 
 
+class DeriveGapEntity(BaseModel):
+    type: str  # 'character' | 'prop' | 'beat' | 'location'
+    name: str
+    description: Optional[str] = None
+    confidence: float  # 0.0-1.0
+    scene_index: Optional[int] = None  # 关联场景
+
+
+class DeriveGapsResponse(BaseModel):
+    entities: List[DeriveGapEntity]
+    cached: bool = False  # 是否来自缓存
+
+
 class DeriveGapsRequest(BaseModel):
-    gap_type: str = "full"  # "full" | "characters" | "locations" | "shots"
-    context: Dict[str, Any] = Field(default_factory=dict)
+    already_extracted: Optional[Dict[str, List[str]]] = None  # {"scenes": [...], "characters": [...]}
+    gaps: List[str] = Field(default_factory=lambda: ["characters", "props", "beats", "locations"])
+    raw_text_blocks: Optional[List[str]] = None  # 原始文本块（可选，否则从项目文档读取）
 
 
 class ConfirmShotBlockRequest(BaseModel):
@@ -4595,30 +4611,189 @@ def sync_derivation(project_id: str, req: SyncDerivationRequest):
     return {"status": "ok", "synced_at": data["synced_at"]}
 
 
+# ── derive_gaps cache & helpers ──────────────────────────────────────────
+_derive_cache: Dict[str, Tuple[float, List[dict]]] = {}
+_DERIVE_CACHE_TTL = 6 * 3600  # 6 hours
+
+
+def _derive_cache_key(text_blocks: List[str], gaps: List[str]) -> str:
+    content = "".join(text_blocks) + "|" + "|".join(sorted(gaps))
+    return hashlib.md5(content.encode()).hexdigest()
+
+
+def _derive_cache_get(key: str) -> Optional[List[dict]]:
+    if key in _derive_cache:
+        timestamp, result = _derive_cache[key]
+        if time.time() - timestamp < _DERIVE_CACHE_TTL:
+            return result
+        del _derive_cache[key]
+    return None
+
+
+def _build_derive_gaps_prompt(
+    text_blocks: List[str],
+    gaps: List[str],
+    already_extracted: Dict[str, List[str]],
+) -> str:
+    """Construct the LLM prompt for incremental gap extraction."""
+    text_content = "\n---\n".join(text_blocks)
+
+    already_section = ""
+    if already_extracted:
+        parts = []
+        for k, v in already_extracted.items():
+            parts.append(f"  - {k}: {', '.join(v)}")
+        already_section = (
+            "\n\n以下内容已被提取，请勿重复输出：\n" + "\n".join(parts)
+        )
+
+    gap_descriptions = {
+        "characters": "角色（人物名称、简短描述）",
+        "props": "道具（从动作描述中识别关键道具）",
+        "beats": "节拍（场景中的情感转折点或关键节奏）",
+        "locations": "地点（从场景描述中提取具体地点）",
+    }
+    requested = ", ".join(gap_descriptions.get(g, g) for g in gaps)
+
+    return f"""你是一名专业的剧本分析助手。请从以下文本中提取缺失的结构化信息。
+
+需要提取的类型：{requested}
+{already_section}
+
+请以 JSON 数组格式返回结果，每个元素包含：
+- type: 类型（"character" | "prop" | "beat" | "location"）
+- name: 名称
+- description: 简短描述（可选）
+- confidence: 置信度 0.0-1.0
+- scene_index: 关联场景序号（从 0 开始，可选）
+
+仅返回 JSON 数组，不要包含其他文字。
+
+# 文本内容
+{text_content}"""
+
+
+def _call_llm_for_gaps(
+    text_blocks: List[str],
+    gaps: List[str],
+    already_extracted: Dict[str, List[str]],
+) -> List[DeriveGapEntity]:
+    """Call LLM (Qwen) for incremental gap extraction with 2s timeout."""
+    from .llm_adapter import LLMAdapter
+    from .llm import _strip_markdown_json
+
+    adapter = LLMAdapter()
+    if not adapter.is_configured:
+        logger.warning("derive_gaps: LLM not configured, returning empty")
+        return []
+
+    prompt = _build_derive_gaps_prompt(text_blocks, gaps, already_extracted)
+    messages = [{"role": "user", "content": prompt}]
+
+    def _do_call():
+        return adapter.chat(
+            messages=messages,
+            response_format={"type": "json_object"},
+        )
+
+    # Timeout control: 2 seconds
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_call)
+            raw = future.result(timeout=2)
+    except concurrent.futures.TimeoutError:
+        logger.warning("derive_gaps: LLM call timed out (2s), returning empty")
+        return []
+    except Exception as e:
+        logger.error(f"derive_gaps: LLM call failed: {e}")
+        return []
+
+    # Parse response
+    try:
+        raw = _strip_markdown_json(raw)
+        data = json.loads(raw)
+        # Handle both top-level array and {"entities": [...]}
+        if isinstance(data, dict):
+            data = data.get("entities", data.get("items", []))
+        if not isinstance(data, list):
+            data = []
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("derive_gaps: failed to parse LLM JSON response")
+        return []
+
+    entities = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        entity_type = item.get("type", "")
+        name = item.get("name", "")
+        if not entity_type or not name:
+            continue
+        entities.append(DeriveGapEntity(
+            type=entity_type,
+            name=name,
+            description=item.get("description"),
+            confidence=max(0.0, min(1.0, float(item.get("confidence", 0.5)))),
+            scene_index=item.get("scene_index"),
+        ))
+    return entities
+
+
 @app.post("/projects/{project_id}/derive_gaps")
 def derive_gaps(project_id: str, req: DeriveGapsRequest):
-    """L3 LLM 增量补全请求（异步占位）"""
-    _get_project_dir(project_id)  # validate project exists
+    """L3 LLM 增量补全：支持缓存、超时降级、增量去重。"""
+    project_dir = _get_project_dir(project_id)
 
-    task_id = str(uuid.uuid4())
+    # 1. Resolve text blocks
+    text_blocks = req.raw_text_blocks
+    if not text_blocks:
+        # Fallback: try to read project script file
+        script_path = project_dir / "script.json"
+        if script_path.exists():
+            try:
+                script_data = json.loads(script_path.read_text(encoding="utf-8"))
+                scenes = script_data.get("scenes", [])
+                text_blocks = [s.get("description", "") or s.get("name", "") for s in scenes if isinstance(s, dict)]
+            except Exception:
+                text_blocks = []
+        if not text_blocks:
+            return DeriveGapsResponse(entities=[], cached=False)
 
-    # Store the pending task
-    project_dir = _TRON_PROJECTS_DIR / project_id
-    queue_dir = project_dir / "gap_tasks"
-    queue_dir.mkdir(parents=True, exist_ok=True)
+    # 2. Check cache
+    cache_key = _derive_cache_key(text_blocks, req.gaps)
+    cached_result = _derive_cache_get(cache_key)
+    if cached_result is not None:
+        entities = [DeriveGapEntity(**e) for e in cached_result]
+        # Filter against already_extracted even for cached results
+        if req.already_extracted:
+            entities = _filter_already_extracted(entities, req.already_extracted)
+        return DeriveGapsResponse(entities=entities, cached=True)
 
-    task_data = {
-        "task_id": task_id,
-        "gap_type": req.gap_type,
-        "context": req.context,
-        "status": "queued",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    # 3. Call LLM
+    already = req.already_extracted or {}
+    entities = _call_llm_for_gaps(text_blocks, req.gaps, already)
 
-    task_path = queue_dir / f"{task_id}.json"
-    task_path.write_text(json.dumps(task_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 4. Filter duplicates against already_extracted
+    if req.already_extracted:
+        entities = _filter_already_extracted(entities, req.already_extracted)
 
-    return {"task_id": task_id, "status": "queued"}
+    # 5. Store in cache
+    _derive_cache[cache_key] = (time.time(), [e.dict() for e in entities])
+
+    return DeriveGapsResponse(entities=entities, cached=False)
+
+
+def _filter_already_extracted(
+    entities: List[DeriveGapEntity],
+    already_extracted: Dict[str, List[str]],
+) -> List[DeriveGapEntity]:
+    """Remove entities whose name already appears in already_extracted."""
+    # Build a set of known names (normalized)
+    known_names: set = set()
+    for names_list in already_extracted.values():
+        for n in names_list:
+            known_names.add(n.strip().lower())
+    return [e for e in entities if e.name.strip().lower() not in known_names]
 
 
 @app.post("/projects/{project_id}/shot_blocks/{shot_id}/confirm")
