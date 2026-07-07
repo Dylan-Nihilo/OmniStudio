@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { Film, TreePine, Search } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -15,14 +16,15 @@ export interface LeftSidebarProps {
 
 type SidebarTab = 'scenes' | 'outline' | 'search';
 
-const TABS: { id: SidebarTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'scenes', label: '场景', icon: <Film size={16} /> },
-  { id: 'outline', label: '大纲', icon: <TreePine size={16} /> },
-  { id: 'search', label: '搜索', icon: <Search size={16} /> },
-];
-
 export default function LeftSidebar({ editor, collapsed = false }: LeftSidebarProps) {
+  const t = useTranslations('scriptEditor');
   const [activeTab, setActiveTab] = useState<SidebarTab>('scenes');
+
+  const TABS: { id: SidebarTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'scenes', label: t('sidebar.scenes'), icon: <Film size={16} /> },
+    { id: 'outline', label: t('sidebar.outline'), icon: <TreePine size={16} /> },
+    { id: 'search', label: t('sidebar.search'), icon: <Search size={16} /> },
+  ];
 
   // Collapsed mode: only show icon bar
   if (collapsed) {

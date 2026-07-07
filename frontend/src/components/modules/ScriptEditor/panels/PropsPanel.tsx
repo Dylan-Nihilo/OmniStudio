@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Package } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
+import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
 
 export interface PropsPanelProps {
@@ -39,6 +40,7 @@ function extractProps(text: string): string[] {
 }
 
 export default function PropsPanel({ editor }: PropsPanelProps) {
+  const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
 
   const propEntries = useMemo<PropEntry[]>(() => {
@@ -50,7 +52,7 @@ export default function PropsPanel({ editor }: PropsPanelProps) {
 
     doc.descendants((node) => {
       if (node.type.name === 'sceneHeading') {
-        currentSceneTitle = node.textContent || '未命名场景';
+        currentSceneTitle = node.textContent || t('sidebar.untitledScene');
         return true;
       }
       if (node.type.name === 'action') {
@@ -77,9 +79,9 @@ export default function PropsPanel({ editor }: PropsPanelProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
           <Package size={20} className="text-zinc-500" />
         </div>
-        <p className="text-sm text-text-muted">道具将从动作描述中自动识别</p>
+        <p className="text-sm text-text-muted">{t('panels.propsEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">
-          在动作中使用引号标记道具名称
+          {t('panels.propsEmptyHint')}
         </p>
       </div>
     );
@@ -90,7 +92,7 @@ export default function PropsPanel({ editor }: PropsPanelProps) {
       <div className="flex items-center gap-2 mb-3">
         <Package size={14} className="text-text-muted" />
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-          道具 ({propEntries.length})
+          {t('panels.propsCount', { count: propEntries.length })}
         </span>
       </div>
       <div className="space-y-1">

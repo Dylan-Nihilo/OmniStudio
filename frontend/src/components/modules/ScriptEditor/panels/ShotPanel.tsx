@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { Film, Camera, Plus, Eye } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -21,14 +22,14 @@ interface ShotBlockData {
   pos: number;
 }
 
-const STATUS_CONFIG: Record<ShotStatus, { label: string; className: string }> = {
-  suggested: { label: '建议', className: 'bg-zinc-600/50 text-zinc-300' },
-  reviewing: { label: '审阅', className: 'bg-blue-600/30 text-blue-300' },
-  confirmed: { label: '确认', className: 'bg-green-600/30 text-green-300' },
-  queued: { label: '排队', className: 'bg-yellow-600/30 text-yellow-300' },
-  generating: { label: '生成中', className: 'bg-orange-600/30 text-orange-300 animate-pulse' },
-  done: { label: '完成 ✓', className: 'bg-green-600/40 text-green-200' },
-  failed: { label: '失败', className: 'bg-red-600/30 text-red-300' },
+const STATUS_CLASSNAMES: Record<ShotStatus, string> = {
+  suggested: 'bg-zinc-600/50 text-zinc-300',
+  reviewing: 'bg-blue-600/30 text-blue-300',
+  confirmed: 'bg-green-600/30 text-green-300',
+  queued: 'bg-yellow-600/30 text-yellow-300',
+  generating: 'bg-orange-600/30 text-orange-300 animate-pulse',
+  done: 'bg-green-600/40 text-green-200',
+  failed: 'bg-red-600/30 text-red-300',
 };
 
 function ShotCard({
@@ -38,7 +39,20 @@ function ShotCard({
   shot: ShotBlockData;
   onClick: () => void;
 }) {
-  const config = STATUS_CONFIG[shot.status] || STATUS_CONFIG.suggested;
+  const t = useTranslations('scriptEditor');
+
+  const STATUS_LABELS: Record<ShotStatus, string> = {
+    suggested: t('panels.shotStatusSuggested'),
+    reviewing: t('panels.shotStatusReviewing'),
+    confirmed: t('panels.shotStatusConfirmed'),
+    queued: t('panels.shotStatusQueued'),
+    generating: t('panels.shotStatusGenerating'),
+    done: t('panels.shotStatusDone'),
+    failed: t('panels.shotStatusFailed'),
+  };
+
+  const className = STATUS_CLASSNAMES[shot.status] || STATUS_CLASSNAMES.suggested;
+  const label = STATUS_LABELS[shot.status] || STATUS_LABELS.suggested;
 
   return (
     <motion.div
@@ -68,14 +82,15 @@ function ShotCard({
       </div>
 
       {/* Status badge */}
-      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${config.className}`}>
-        {config.label}
+      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${className}`}>
+        {label}
       </span>
     </motion.div>
   );
 }
 
 export default function ShotPanel({ editor }: ShotPanelProps) {
+  const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
 
   // Extract ShotBlock nodes from editor JSON
@@ -127,15 +142,15 @@ export default function ShotPanel({ editor }: ShotPanelProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
           <Film size={20} className="text-zinc-500" />
         </div>
-        <p className="text-sm text-text-muted">当前场景暂无镜头</p>
-        <p className="text-xs text-text-muted/60 mt-1">添加 ShotBlock 节点以拆分镜头</p>
+        <p className="text-sm text-text-muted">{t('panels.shotsEmpty')}</p>
+        <p className="text-xs text-text-muted/60 mt-1">{t('panels.shotsEmptyHint')}</p>
         <button
           type="button"
           onClick={handleAddShot}
           className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-700 hover:bg-zinc-600 text-sm text-foreground transition-colors"
         >
           <Plus size={14} />
-          添加镜头
+          {t('panels.addShot')}
         </button>
       </div>
     );
@@ -147,7 +162,7 @@ export default function ShotPanel({ editor }: ShotPanelProps) {
         <div className="flex items-center gap-2">
           <Eye size={14} className="text-text-muted" />
           <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-            镜头 ({shotBlocks.length})
+            {t('panels.shotsCount', { count: shotBlocks.length })}
           </span>
         </div>
       </div>
@@ -169,7 +184,7 @@ export default function ShotPanel({ editor }: ShotPanelProps) {
         className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/10 py-2.5 text-sm text-text-muted hover:text-foreground hover:border-white/20 transition-colors"
       >
         <Plus size={14} />
-        添加镜头
+        {t('panels.addShot')}
       </button>
     </div>
   );

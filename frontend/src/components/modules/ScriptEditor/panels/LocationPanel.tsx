@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, ChevronDown } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
+import { useTranslations } from 'next-intl';
 import { useEditorStore, type DerivedScene } from '@/store/editorStore';
 
 export interface LocationPanelProps {
@@ -17,6 +18,7 @@ interface LocationEntry {
 
 function LocationCard({ entry }: { entry: LocationEntry }) {
   const [expanded, setExpanded] = useState(false);
+  const t = useTranslations('scriptEditor');
 
   return (
     <motion.div
@@ -30,7 +32,7 @@ function LocationCard({ entry }: { entry: LocationEntry }) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{entry.name}</p>
-          <span className="text-xs text-text-muted">{entry.scenes.length} 个场景</span>
+          <span className="text-xs text-text-muted">{t('panels.characterScenes', { count: entry.scenes.length })}</span>
         </div>
         <motion.div
           animate={{ rotate: expanded ? 180 : 0 }}
@@ -50,7 +52,7 @@ function LocationCard({ entry }: { entry: LocationEntry }) {
             className="overflow-hidden"
           >
             <div className="mt-3 pt-2 border-t border-white/5">
-              <p className="text-xs text-text-muted mb-1.5">关联场景</p>
+              <p className="text-xs text-text-muted mb-1.5">{t('panels.relatedScenes')}</p>
               <ul className="space-y-1">
                 {entry.scenes.map((scene) => (
                   <li
@@ -58,7 +60,7 @@ function LocationCard({ entry }: { entry: LocationEntry }) {
                     className="text-xs text-text-secondary px-2 py-1 rounded bg-zinc-900/50"
                   >
                     {scene.number != null ? `#${scene.number} ` : ''}
-                    {scene.title || '无标题场景'}
+                    {scene.title || t('panels.untitledScene')}
                   </li>
                 ))}
               </ul>
@@ -71,6 +73,7 @@ function LocationCard({ entry }: { entry: LocationEntry }) {
 }
 
 export default function LocationPanel({ editor }: LocationPanelProps) {
+  const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
 
   const locations = useMemo<LocationEntry[]>(() => {
@@ -93,9 +96,9 @@ export default function LocationPanel({ editor }: LocationPanelProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
           <MapPin size={20} className="text-zinc-500" />
         </div>
-        <p className="text-sm text-text-muted">添加场景标题后地点将自动提取</p>
+        <p className="text-sm text-text-muted">{t('panels.locationEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">
-          场景标题格式：内/外. 地点 - 时间
+          {t('panels.locationEmptyHint')}
         </p>
       </div>
     );
@@ -106,7 +109,7 @@ export default function LocationPanel({ editor }: LocationPanelProps) {
       <div className="flex items-center gap-2 mb-3">
         <MapPin size={14} className="text-text-muted" />
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-          地点 ({locations.length})
+          {t('panels.locationCount', { count: locations.length })}
         </span>
       </div>
       <div className="space-y-2">

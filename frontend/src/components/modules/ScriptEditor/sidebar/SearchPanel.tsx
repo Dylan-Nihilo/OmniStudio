@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Search, X, Film } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
+import { useTranslations } from 'next-intl';
 
 export interface SearchPanelProps {
   editor: Editor | null;
@@ -19,25 +20,26 @@ interface SearchResult {
   pos: number;
 }
 
-const NODE_TYPE_OPTIONS: { id: NodeTypeFilter; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'sceneHeading', label: '场景标题' },
-  { id: 'characterCue', label: '角色' },
-  { id: 'dialogue', label: '对白' },
-  { id: 'action', label: '动作' },
-  { id: 'note', label: '笔记' },
+const NODE_TYPE_OPTIONS: { id: NodeTypeFilter; labelKey: string }[] = [
+  { id: 'all', labelKey: 'sidebar.filterAll' },
+  { id: 'sceneHeading', labelKey: 'sidebar.nodeSceneHeading' },
+  { id: 'characterCue', labelKey: 'sidebar.nodeCharacter' },
+  { id: 'dialogue', labelKey: 'sidebar.nodeDialogue' },
+  { id: 'action', labelKey: 'sidebar.nodeAction' },
+  { id: 'note', labelKey: 'sidebar.nodeNote' },
 ];
 
-const NODE_TYPE_LABELS: Record<string, string> = {
-  sceneHeading: '场景',
-  characterCue: '角色',
-  dialogue: '对白',
-  action: '动作',
-  note: '笔记',
-  paragraph: '段落',
+const NODE_TYPE_LABEL_KEYS: Record<string, string> = {
+  sceneHeading: 'sidebar.labelScene',
+  characterCue: 'sidebar.nodeCharacter',
+  dialogue: 'sidebar.nodeDialogue',
+  action: 'sidebar.nodeAction',
+  note: 'sidebar.nodeNote',
+  paragraph: 'sidebar.labelParagraph',
 };
 
 export default function SearchPanel({ editor }: SearchPanelProps) {
+  const t = useTranslations('scriptEditor');
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<NodeTypeFilter>('all');
 
@@ -47,11 +49,11 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
     const searchTerm = query.trim().toLowerCase();
     const matches: SearchResult[] = [];
     const doc = editor.state.doc;
-    let currentScene = '未知场景';
+    let currentScene = t('sidebar.unknownScene');
 
     doc.descendants((node, pos) => {
       if (node.type.name === 'sceneHeading') {
-        currentScene = node.textContent || '未命名场景';
+        currentScene = node.textContent || t('sidebar.untitledScene');
       }
 
       // Filter by node type
@@ -76,7 +78,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
             id: `result-${pos}`,
             text: snippet,
             nodeType: node.type.name,
-            nodeTypeLabel: NODE_TYPE_LABELS[node.type.name] || node.type.name,
+            nodeTypeLabel: NODE_TYPE_LABEL_KEYS[node.type.name] || node.type.name,
             sceneName: currentScene,
             pos,
           });
@@ -108,7 +110,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索内容..."
+            placeholder={t('sidebar.searchPlaceholder')}
             className="w-full rounded-lg bg-zinc-800 border border-white/10 py-2 pl-8 pr-8 text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-indigo-500/50"
           />
           {query && (
@@ -130,7 +132,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
         >
           {NODE_TYPE_OPTIONS.map((opt) => (
             <option key={opt.id} value={opt.id}>
-              {opt.label}
+              {t(opt.labelKey)}
             </option>
           ))}
         </select>
@@ -141,16 +143,16 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
         {query.trim() === '' ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Search size={16} className="text-zinc-500 mb-2" />
-            <p className="text-xs text-text-muted">输入关键词搜索</p>
+            <p className="text-xs text-text-muted">{t('sidebar.searchHint')}</p>
           </div>
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <p className="text-xs text-text-muted">无匹配结果</p>
+            <p className="text-xs text-text-muted">{t('sidebar.noResults')}</p>
           </div>
         ) : (
           <div className="space-y-1">
             <p className="text-[10px] text-text-muted px-1 mb-2">
-              {results.length} 个结果
+              {t('sidebar.resultsCount', { count: results.length })}
             </p>
             {results.map((result) => (
               <button
@@ -161,7 +163,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
               >
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] px-1 py-0.5 rounded bg-zinc-700 text-zinc-300 shrink-0">
-                    {result.nodeTypeLabel}
+                    {t(result.nodeTypeLabel)}
                   </span>
                   <span className="text-[10px] text-text-muted truncate flex items-center gap-1">
                     <Film size={8} />

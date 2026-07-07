@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { Film } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -36,6 +37,7 @@ function SceneItem({
   onDragOver,
   onDrop,
 }: SceneItemProps) {
+  const t = useTranslations('scriptEditor');
   const [showColors, setShowColors] = useState(false);
 
   return (
@@ -77,7 +79,7 @@ function SceneItem({
             </span>
           )}
           <span className="text-sm text-foreground truncate">
-            {scene.location || scene.title || '无标题'}
+            {scene.location || scene.title || t('sidebar.untitled')}
           </span>
         </div>
       </div>
@@ -129,6 +131,7 @@ function SceneItem({
 }
 
 export default function SceneNavigator({ editor }: SceneNavigatorProps) {
+  const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
   const [sceneColors, setSceneColors] = useState<Record<string, string | null>>({});
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
@@ -200,7 +203,7 @@ export default function SceneNavigator({ editor }: SceneNavigatorProps) {
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 mb-2">
           <Film size={16} className="text-zinc-500" />
         </div>
-        <p className="text-xs text-text-muted">暂无场景</p>
+        <p className="text-xs text-text-muted">{t('sidebar.noScenes')}</p>
       </div>
     );
   }

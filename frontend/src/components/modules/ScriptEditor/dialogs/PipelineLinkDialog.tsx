@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FolderPlus, Link2, Search, Loader2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useProjectStore } from '@/store/projectStore';
 import { useEditorStore } from '@/store/editorStore';
 
@@ -15,6 +16,7 @@ export interface PipelineLinkDialogProps {
 type LinkMode = 'create' | 'existing';
 
 export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLinkDialogProps) {
+  const t = useTranslations('scriptEditor');
   const [mode, setMode] = useState<LinkMode>('existing');
   const [newProjectName, setNewProjectName] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
             <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-                <h2 className="text-base font-semibold text-foreground">关联管线项目</h2>
+                <h2 className="text-base font-semibold text-foreground">{t('dialogs.pipeline.title')}</h2>
                 <button
                   type="button"
                   onClick={onClose}
@@ -103,7 +105,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                     }`}
                   >
                     <Link2 size={14} />
-                    关联已有项目
+                    {t('dialogs.pipeline.linkExisting')}
                   </button>
                   <button
                     type="button"
@@ -115,7 +117,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                     }`}
                   >
                     <FolderPlus size={14} />
-                    创建新项目
+                    {t('dialogs.pipeline.createNew')}
                   </button>
                 </div>
               </div>
@@ -138,7 +140,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="搜索项目..."
+                          placeholder={t('dialogs.pipeline.searchPlaceholder')}
                           className="w-full rounded-lg border border-white/10 bg-zinc-800 pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-indigo-500/50 focus:outline-none transition-colors"
                         />
                       </div>
@@ -160,14 +162,14 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                               <div className="flex-1 min-w-0">
                                 <p className="truncate font-medium">{project.title}</p>
                                 <p className="text-xs text-text-muted truncate">
-                                  {project.scenes?.length || 0} 场景 · {project.characters?.length || 0} 角色
+                                  {t('dialogs.pipeline.projectStats', { scenes: project.scenes?.length || 0, characters: project.characters?.length || 0 })}
                                 </p>
                               </div>
                             </button>
                           ))
                         ) : (
                           <p className="py-6 text-center text-xs text-text-muted italic">
-                            {searchQuery ? '未找到匹配的项目' : '暂无可关联的项目'}
+                            {searchQuery ? t('dialogs.pipeline.noMatch') : t('dialogs.pipeline.noProjects')}
                           </p>
                         )}
                       </div>
@@ -181,18 +183,18 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                       transition={{ duration: 0.15 }}
                     >
                       <label className="block text-sm text-text-secondary mb-2">
-                        项目名称
+                        {t('dialogs.pipeline.projectName')}
                       </label>
                       <input
                         type="text"
                         value={newProjectName}
                         onChange={(e) => setNewProjectName(e.target.value)}
-                        placeholder="输入新项目名称..."
+                        placeholder={t('dialogs.pipeline.projectNamePlaceholder')}
                         className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2.5 text-sm text-foreground placeholder:text-text-muted focus:border-indigo-500/50 focus:outline-none transition-colors"
                         autoFocus
                       />
                       <p className="mt-2 text-xs text-text-muted">
-                        将创建一个新的管线项目并自动关联到当前剧本
+                        {t('dialogs.pipeline.createHint')}
                       </p>
                     </motion.div>
                   )}
@@ -206,7 +208,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                   onClick={onClose}
                   className="rounded-lg px-4 py-2 text-sm text-text-muted hover:text-foreground transition-colors"
                 >
-                  取消
+                  {t('dialogs.pipeline.cancel')}
                 </button>
                 <button
                   type="button"
@@ -215,7 +217,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                   className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isCreating && <Loader2 size={14} className="animate-spin" />}
-                  {mode === 'create' ? '创建并关联' : '确认关联'}
+                  {mode === 'create' ? t('dialogs.pipeline.createAndLink') : t('dialogs.pipeline.confirmLink')}
                 </button>
               </div>
             </div>

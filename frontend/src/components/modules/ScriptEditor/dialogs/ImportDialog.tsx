@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Upload, FileText, FileCode, X, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { scriptEditorApi } from '@/lib/scriptEditorApi'
 
 export interface ImportDialogProps {
@@ -34,6 +35,7 @@ function getFileIcon(ext: string) {
 }
 
 export default function ImportDialog({ open, onClose, projectId, onImportSuccess }: ImportDialogProps) {
+  const t = useTranslations('scriptEditor')
   const [isDragOver, setIsDragOver] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
@@ -56,13 +58,13 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
   const validateFile = useCallback((file: File): string | null => {
     const ext = getFileExtension(file.name)
     if (!ACCEPTED_EXTENSIONS[ext]) {
-      return `不支持的文件类型 "${ext}"。支持 .fdx、.fountain、.txt`
+      return t('dialogs.import.unsupportedType', { ext })
     }
     if (file.size > MAX_FILE_SIZE) {
-      return `文件过大（${(file.size / 1024 / 1024).toFixed(1)} MB）。最大支持 10 MB`
+      return t('dialogs.import.fileTooLarge', { size: (file.size / 1024 / 1024).toFixed(1) })
     }
     return null
-  }, [])
+  }, [t])
 
   const handleFile = useCallback(async (file: File) => {
     const err = validateFile(file)
@@ -93,7 +95,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
       }, 1200)
     } catch (e: any) {
       setStatus('error')
-      setErrorMsg(e?.response?.data?.detail || e?.message || '导入失败，请重试')
+      setErrorMsg(e?.response?.data?.detail || e?.message || t('dialogs.import.failed'))
     }
   }, [validateFile, projectId, onImportSuccess, handleClose])
 
@@ -153,7 +155,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white">导入剧本</h2>
+              <h2 className="text-lg font-semibold text-white">{t('dialogs.import.title')}</h2>
               <button
                 onClick={handleClose}
                 className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white transition-colors"
@@ -192,10 +194,10 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                 <>
                   <Upload size={32} className="text-white/40 mb-3" />
                   <p className="text-sm text-white/70 text-center">
-                    拖放文件到此处，或点击选择
+                    {t('dialogs.import.dropzone')}
                   </p>
                   <p className="text-xs text-white/40 mt-2">
-                    支持 .fdx (Final Draft) · .fountain · .txt
+                    {t('dialogs.import.supportedFormats')}
                   </p>
                 </>
               )}
@@ -207,7 +209,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                     {getFileIcon(ext)}
                     <span className="text-sm text-white/80">{selectedFile?.name}</span>
                   </div>
-                  <p className="text-xs text-white/50">正在解析...</p>
+                  <p className="text-xs text-white/50">{t('dialogs.import.parsing')}</p>
                 </div>
               )}
 
@@ -219,7 +221,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                     <span className="text-sm text-white/80">{selectedFile?.name}</span>
                   </div>
                   <p className="text-xs text-green-400/80">
-                    导入成功 · 检测到 {sceneCount} 个场景
+                    {t('dialogs.import.success', { count: sceneCount })}
                   </p>
                 </div>
               )}
@@ -235,7 +237,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                     }}
                     className="text-xs text-white/60 hover:text-white underline mt-1"
                   >
-                    重试
+                    {t('dialogs.import.retry')}
                   </button>
                 </div>
               )}
@@ -243,7 +245,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
 
             {/* Footer hint */}
             <p className="mt-4 text-xs text-white/30 text-center">
-              导入将替换当前编辑器中的内容
+              {t('dialogs.import.replaceWarning')}
             </p>
           </motion.div>
         </motion.div>

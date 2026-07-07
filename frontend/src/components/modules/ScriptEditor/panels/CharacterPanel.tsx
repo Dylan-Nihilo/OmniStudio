@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Users, ChevronDown } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -11,6 +12,7 @@ export interface CharacterPanelProps {
 }
 
 function CharacterCard({ character, scenes }: { character: DerivedCharacter; scenes: string[] }) {
+  const t = useTranslations('scriptEditor');
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -26,9 +28,9 @@ function CharacterCard({ character, scenes }: { character: DerivedCharacter; sce
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{character.name}</p>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-text-muted">{character.occurrences} 次出场</span>
+            <span className="text-xs text-text-muted">{t('panels.characterOccurrences', { count: character.occurrences })}</span>
             <span className="text-white/20">·</span>
-            <span className="text-xs text-text-muted">{scenes.length} 个场景</span>
+            <span className="text-xs text-text-muted">{t('panels.characterScenes', { count: scenes.length })}</span>
           </div>
         </div>
         <motion.div
@@ -49,7 +51,7 @@ function CharacterCard({ character, scenes }: { character: DerivedCharacter; sce
             className="overflow-hidden"
           >
             <div className="mt-3 pt-2 border-t border-white/5">
-              <p className="text-xs text-text-muted mb-1.5">出现场景</p>
+              <p className="text-xs text-text-muted mb-1.5">{t('panels.appearsInScenes')}</p>
               {scenes.length > 0 ? (
                 <ul className="space-y-1">
                   {scenes.map((scene, i) => (
@@ -59,7 +61,7 @@ function CharacterCard({ character, scenes }: { character: DerivedCharacter; sce
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-text-muted italic">暂无关联场景</p>
+                <p className="text-xs text-text-muted italic">{t('panels.noRelatedScenes')}</p>
               )}
             </div>
           </motion.div>
@@ -70,6 +72,7 @@ function CharacterCard({ character, scenes }: { character: DerivedCharacter; sce
 }
 
 export default function CharacterPanel({ editor }: CharacterPanelProps) {
+  const t = useTranslations('scriptEditor');
   const derivedCharacters = useEditorStore((s) => s.derivedCharacters);
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
 
@@ -78,7 +81,7 @@ export default function CharacterPanel({ editor }: CharacterPanelProps) {
     // Use firstAppearance to show which scene the character first appeared in
     const firstScene = derivedScenes.find((s) => s.number === character.firstAppearance);
     if (firstScene) {
-      return [firstScene.title || `场景 ${firstScene.number ?? '?'}`];
+      return [firstScene.title || t('panels.sceneLabel', { number: firstScene.number ?? '?' })];
     }
     return [];
   };
@@ -89,8 +92,8 @@ export default function CharacterPanel({ editor }: CharacterPanelProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
           <Users size={20} className="text-zinc-500" />
         </div>
-        <p className="text-sm text-text-muted">开始写作后角色将自动出现</p>
-        <p className="text-xs text-text-muted/60 mt-1">在剧本中使用角色名标记即可识别</p>
+        <p className="text-sm text-text-muted">{t('panels.characterEmpty')}</p>
+        <p className="text-xs text-text-muted/60 mt-1">{t('panels.characterEmptyHint')}</p>
       </div>
     );
   }
@@ -100,7 +103,7 @@ export default function CharacterPanel({ editor }: CharacterPanelProps) {
       <div className="flex items-center gap-2 mb-3">
         <Users size={14} className="text-text-muted" />
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-          角色 ({derivedCharacters.length})
+          {t('panels.characterCount', { count: derivedCharacters.length })}
         </span>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

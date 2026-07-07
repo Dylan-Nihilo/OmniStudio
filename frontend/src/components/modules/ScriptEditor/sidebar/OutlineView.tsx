@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, TreePine, Film } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -24,6 +25,7 @@ interface OutlineScene {
 }
 
 export default function OutlineView({ editor }: OutlineViewProps) {
+  const t = useTranslations('scriptEditor');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const outline = useMemo(() => {
@@ -47,14 +49,14 @@ export default function OutlineView({ editor }: OutlineViewProps) {
         return true; // traverse children
       }
       if (node.type.name === 'sectionHeading' && currentSection) {
-        currentSection.title = node.textContent || `幕 ${sections.length}`;
+        currentSection.title = node.textContent || t('sidebar.actLabel', { number: sections.length });
         return false;
       }
       if (node.type.name === 'sceneHeading') {
         sceneIndex++;
         const scene: OutlineScene = {
           id: `scene-${pos}`,
-          title: node.textContent || `场景 ${sceneIndex}`,
+          title: node.textContent || t('sidebar.sceneLabel', { number: sceneIndex }),
           number: sceneIndex,
           pos,
         };
@@ -93,7 +95,7 @@ export default function OutlineView({ editor }: OutlineViewProps) {
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 mb-2">
           <TreePine size={16} className="text-zinc-500" />
         </div>
-        <p className="text-xs text-text-muted">暂无大纲结构</p>
+        <p className="text-xs text-text-muted">{t('sidebar.noOutline')}</p>
       </div>
     );
   }

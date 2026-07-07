@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GripVertical, Film, Clock, CheckCircle2 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -71,13 +72,8 @@ const STATUS_COLORS: Record<string, string> = {
   rendered: 'bg-emerald-900/60 text-emerald-300',
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: '草稿',
-  confirmed: '已确认',
-  rendered: '已渲染',
-};
-
 export default function StoryboardView({ editor, onShotClick }: StoryboardViewProps) {
+  const t = useTranslations('scriptEditor');
   const [shots, setShots] = useState<ShotBlockData[]>([]);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -146,8 +142,8 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
     return (
       <div className="flex h-full flex-col items-center justify-center text-zinc-500">
         <Film size={48} className="mb-4 opacity-30" />
-        <p className="text-sm">暂无 ShotBlock 节点</p>
-        <p className="mt-1 text-xs text-zinc-600">在编辑模式中添加分镜节点后可在此预览</p>
+        <p className="text-sm">{t('views.storyboardEmpty')}</p>
+        <p className="mt-1 text-xs text-zinc-600">{t('views.storyboardEmptyHint')}</p>
       </div>
     );
   }
@@ -210,13 +206,13 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
                 {/* Card body */}
                 <div className="px-3 py-2.5">
                   <p className="line-clamp-2 text-xs text-zinc-300">
-                    {shot.description || '无描述'}
+                    {shot.description || t('views.noDescription')}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[shot.status]}`}
                     >
-                      {STATUS_LABELS[shot.status]}
+                      {t(`views.status${shot.status.charAt(0).toUpperCase() + shot.status.slice(1)}` as any)}
                     </span>
                     <span className="flex items-center gap-0.5 text-[10px] text-zinc-500">
                       <Clock size={10} />
@@ -234,17 +230,17 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
       <div className="flex shrink-0 items-center gap-4 border-t border-white/10 bg-zinc-900/80 px-6 py-2.5 text-xs text-zinc-400">
         <span className="flex items-center gap-1">
           <Film size={12} />
-          总镜数: {stats.totalShots}
+          {t('views.totalShots', { count: stats.totalShots })}
         </span>
         <span className="text-white/20">|</span>
         <span className="flex items-center gap-1">
           <Clock size={12} />
-          总时长: {formatDuration(stats.totalDuration)}
+          {t('views.totalDuration', { time: formatDuration(stats.totalDuration) })}
         </span>
         <span className="text-white/20">|</span>
         <span className="flex items-center gap-1">
           <CheckCircle2 size={12} />
-          已完成: {stats.completedShots}
+          {t('views.completedShots', { count: stats.completedShots })}
         </span>
       </div>
     </div>

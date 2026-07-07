@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Camera, Workflow, MapPin, Package, StickyNote, Lock, Unlock } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -28,30 +29,31 @@ interface TabDef {
   group: 'primary' | 'secondary';
 }
 
-const ALL_TABS: TabDef[] = [
-  { id: 'characters', label: '角色', icon: <Users size={14} />, group: 'primary' },
-  { id: 'shots', label: '镜头', icon: <Camera size={14} />, group: 'primary' },
-  { id: 'pipeline', label: '管线', icon: <Workflow size={14} />, group: 'primary' },
-  { id: 'locations', label: '地点', icon: <MapPin size={14} />, group: 'secondary' },
-  { id: 'props', label: '道具', icon: <Package size={14} />, group: 'secondary' },
-  { id: 'notes', label: '笔记', icon: <StickyNote size={14} />, group: 'secondary' },
-];
-
-const TABS_EMBEDDED: TabDef[] = [
-  { id: 'shots', label: '镜头', icon: <Camera size={14} />, group: 'primary' },
-  { id: 'pipeline', label: '管线', icon: <Workflow size={14} />, group: 'primary' },
-];
-
 export default function RightPanelContainer({
   editor,
   mode = 'full',
   projectId,
   onEnterPipeline,
 }: RightPanelContainerProps) {
+  const t = useTranslations('scriptEditor');
   const activePanel = useEditorStore((s) => s.activeRightPanel);
   const setActivePanel = useEditorStore((s) => s.setActiveRightPanel);
   const panelLocked = useEditorStore((s) => s.rightPanelLocked);
   const setRightPanelLocked = useEditorStore((s) => s.setRightPanelLocked);
+
+  const ALL_TABS: TabDef[] = [
+    { id: 'characters', label: t('panels.characters'), icon: <Users size={14} />, group: 'primary' },
+    { id: 'shots', label: t('panels.shots'), icon: <Camera size={14} />, group: 'primary' },
+    { id: 'pipeline', label: t('panels.pipeline'), icon: <Workflow size={14} />, group: 'primary' },
+    { id: 'locations', label: t('panels.locations'), icon: <MapPin size={14} />, group: 'secondary' },
+    { id: 'props', label: t('panels.props'), icon: <Package size={14} />, group: 'secondary' },
+    { id: 'notes', label: t('panels.notes'), icon: <StickyNote size={14} />, group: 'secondary' },
+  ];
+
+  const TABS_EMBEDDED: TabDef[] = [
+    { id: 'shots', label: t('panels.shots'), icon: <Camera size={14} />, group: 'primary' },
+    { id: 'pipeline', label: t('panels.pipeline'), icon: <Workflow size={14} />, group: 'primary' },
+  ];
 
   const togglePanelLock = useCallback(() => {
     setRightPanelLocked(!panelLocked);

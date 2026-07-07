@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { StickyNote, Check, MessageSquare } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
+import { useTranslations } from 'next-intl';
 
 export interface NotesPanelProps {
   editor: Editor | null;
@@ -21,6 +22,7 @@ interface NoteEntry {
 type FilterMode = 'all' | 'unresolved' | 'resolved';
 
 export default function NotesPanel({ editor }: NotesPanelProps) {
+  const t = useTranslations('scriptEditor');
   const [filter, setFilter] = useState<FilterMode>('all');
 
   const notes = useMemo<NoteEntry[]>(() => {
@@ -33,8 +35,8 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
       if (node.type.name === 'note') {
         entries.push({
           id: `note-${pos}`,
-          content: node.textContent || '(空批注)',
-          author: (node.attrs.author as string) || '未知',
+          content: node.textContent || t('panels.emptyNote'),
+          author: (node.attrs.author as string) || t('panels.unknownAuthor'),
           timestamp: (node.attrs.timestamp as string) || '',
           resolved: Boolean(node.attrs.resolved),
           pos,
@@ -67,8 +69,8 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
           <StickyNote size={20} className="text-zinc-500" />
         </div>
-        <p className="text-sm text-text-muted">使用 Cmd+/ 插入批注</p>
-        <p className="text-xs text-text-muted/60 mt-1">批注用于标记修改建议和备忘</p>
+        <p className="text-sm text-text-muted">{t('panels.notesEmpty')}</p>
+        <p className="text-xs text-text-muted/60 mt-1">{t('panels.notesEmptyHint')}</p>
       </div>
     );
   }
@@ -78,16 +80,16 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
       <div className="flex items-center gap-2 mb-3">
         <StickyNote size={14} className="text-text-muted" />
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-          笔记 ({notes.length})
+          {t('panels.notesCount', { count: notes.length })}
         </span>
       </div>
 
       {/* Filter Tabs */}
       <div className="flex gap-1 mb-3 rounded-lg bg-zinc-900/60 p-0.5">
         {([
-          { id: 'all', label: '全部' },
-          { id: 'unresolved', label: '未解决' },
-          { id: 'resolved', label: '已解决' },
+          { id: 'all', label: t('panels.filterAll') },
+          { id: 'unresolved', label: t('panels.filterUnresolved') },
+          { id: 'resolved', label: t('panels.filterResolved') },
         ] as const).map((f) => (
           <button
             key={f.id}
@@ -145,7 +147,7 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
 
       {filteredNotes.length === 0 && (
         <p className="text-xs text-text-muted text-center py-4 italic">
-          {filter === 'unresolved' ? '没有未解决的笔记' : '没有已解决的笔记'}
+          {filter === 'unresolved' ? t('panels.noUnresolved') : t('panels.noResolved')}
         </p>
       )}
     </div>

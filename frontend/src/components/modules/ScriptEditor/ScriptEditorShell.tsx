@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { EditorContent } from '@tiptap/react';
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, WifiOff, RotateCcw, X } from 'lucide-react';
 import { useEditorStore } from '@/store/editorStore';
@@ -30,6 +31,7 @@ export default function ScriptEditorShell({
   projectId,
   initialContent,
 }: ScriptEditorShellProps) {
+  const t = useTranslations('scriptEditor');
   const { editor, isReady } = useEditorSetup({ content: initialContent });
   const { showHint, analysis, applyFormatting, dismissHint } = usePasteHandler(editor);
   const { showShortcutHelp, closeShortcutHelp } = useKeyboardShortcuts(editor);
@@ -94,7 +96,7 @@ export default function ScriptEditorShell({
               </button>
             )}
             <span className="text-sm font-medium text-foreground">
-              剧本编辑器
+              {t('shell.title')}
             </span>
             {projectId && (
               <span className="text-xs text-text-muted">{projectId}</span>
@@ -102,7 +104,7 @@ export default function ScriptEditorShell({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-text-muted">
-              {isDirty ? '未保存' : lastSavedAt ? `已保存 ${lastSavedAt.toLocaleTimeString()}` : ''}
+              {isDirty ? t('status.unsaved') : lastSavedAt ? t('status.savedAt', { time: lastSavedAt.toLocaleTimeString() }) : ''}
             </span>
             {mode === 'full' && (
               <button
@@ -140,14 +142,14 @@ export default function ScriptEditorShell({
             {isOffline && (
               <div className="sticky top-0 z-10 flex items-center gap-2 bg-amber-900/30 px-4 py-2 text-xs text-amber-200 border-b border-amber-700/30">
                 <WifiOff size={14} />
-                <span>离线模式 — 内容已缓存到本地</span>
+                <span>{t('status.offlineBanner')}</span>
               </div>
             )}
             {hasNewerLocal && (
               <div className="sticky top-0 z-10 flex items-center justify-between bg-blue-900/30 px-4 py-2 text-xs text-blue-200 border-b border-blue-700/30">
                 <div className="flex items-center gap-2">
                   <RotateCcw size={14} />
-                  <span>发现本地缓存的更新版本</span>
+                  <span>{t('status.localCacheFound')}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -155,7 +157,7 @@ export default function ScriptEditorShell({
                     onClick={restoreFromLocal}
                     className="rounded bg-blue-700/60 px-2 py-0.5 text-xs hover:bg-blue-700/80 transition-colors"
                   >
-                    恢复
+                    {t('status.restore')}
                   </button>
                   <button
                     type="button"
@@ -190,7 +192,7 @@ export default function ScriptEditorShell({
                 />
               ) : (
                 <div className="flex items-center justify-center h-40 text-text-muted text-sm">
-                  编辑器加载中...
+                  {t('shell.loading')}
                 </div>
               )}
             </div>
@@ -212,25 +214,25 @@ export default function ScriptEditorShell({
       {/* Status Bar */}
       {!hideAllSidebars && showToolbar && (
         <div className="flex h-8 shrink-0 items-center gap-4 border-t border-white/10 px-4 text-xs text-text-muted">
-          <span>{wordCount} 字</span>
+          <span>{t('status.wordCount', { count: wordCount })}</span>
           <span className="text-white/20">|</span>
           <span>
-            {derivedScenes.length} 个场景
+            {t('status.sceneCount', { count: derivedScenes.length })}
             {foldingEnabled && (
               <span className="ml-1 text-text-muted/60">
-                ({isAllExpanded ? '全展开' : '智能折叠'})
+                ({isAllExpanded ? t('status.allExpanded') : t('status.smartFolding')})
               </span>
             )}
           </span>
           <span className="text-white/20">|</span>
           <span>
             {isOffline
-              ? '🟠 离线模式'
+              ? t('status.offlineShort')
               : isDirty
-                ? '● 未保存'
+                ? t('status.unsavedDot')
                 : lastSavedAt
-                  ? `已保存 ${lastSavedAt.toLocaleTimeString()}`
-                  : '就绪'}
+                  ? t('status.savedAt', { time: lastSavedAt.toLocaleTimeString() })
+                  : t('status.ready')}
           </span>
           <span className="text-white/20">|</span>
           <ContinuityIndicator report={continuityReport} />

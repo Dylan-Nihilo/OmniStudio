@@ -14,6 +14,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
+import { useTranslations } from 'next-intl'
 import { toFountain, toFDX, toPlainText } from './serializers'
 import { scriptEditorApi } from '@/lib/scriptEditorApi'
 
@@ -26,8 +27,9 @@ export interface ExportDialogProps {
 
 interface FormatOption {
   id: string
-  label: string
-  description: string
+  label?: string
+  labelKey?: string
+  descKey: string
   icon: React.ReactNode
   ext: string
   backend: boolean
@@ -37,7 +39,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
   {
     id: 'fountain',
     label: 'Fountain',
-    description: '行业标准纯文本剧本格式',
+    descKey: 'dialogs.export.fountainDesc',
     icon: <FileText size={20} className="text-green-400" />,
     ext: '.fountain',
     backend: false,
@@ -45,15 +47,15 @@ const FORMAT_OPTIONS: FormatOption[] = [
   {
     id: 'fdx',
     label: 'Final Draft (FDX)',
-    description: 'Final Draft XML 格式',
+    descKey: 'dialogs.export.fdxDesc',
     icon: <FileCode size={20} className="text-blue-400" />,
     ext: '.fdx',
     backend: false,
   },
   {
     id: 'txt',
-    label: '纯文本',
-    description: '无格式纯文本',
+    labelKey: 'dialogs.export.txtLabel',
+    descKey: 'dialogs.export.txtDesc',
     icon: <FileDown size={20} className="text-gray-400" />,
     ext: '.txt',
     backend: false,
@@ -61,7 +63,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
   {
     id: 'pdf',
     label: 'PDF',
-    description: '便携文档格式，适合打印',
+    descKey: 'dialogs.export.pdfDesc',
     icon: <Printer size={20} className="text-red-400" />,
     ext: '.pdf',
     backend: true,
@@ -69,7 +71,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
   {
     id: 'docx',
     label: 'DOCX',
-    description: 'Microsoft Word 格式',
+    descKey: 'dialogs.export.docxDesc',
     icon: <FileSpreadsheet size={20} className="text-indigo-400" />,
     ext: '.docx',
     backend: true,
@@ -95,6 +97,7 @@ function downloadText(content: string, filename: string, mimeType = 'text/plain'
 }
 
 export default function ExportDialog({ open, onClose, projectId, editor }: ExportDialogProps) {
+  const t = useTranslations('scriptEditor')
   const [status, setStatus] = useState<'idle' | 'exporting' | 'success' | 'error'>('idle')
   const [activeFormat, setActiveFormat] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
@@ -149,7 +152,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
         }
       } catch (e: any) {
         setStatus('error')
-        setErrorMsg(e?.response?.data?.detail || e?.message || '导出失败')
+        setErrorMsg(e?.response?.data?.detail || e?.message || t('dialogs.export.failed'))
       }
     },
     [editor, projectId, handleClose]
@@ -179,7 +182,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white">导出剧本</h2>
+              <h2 className="text-lg font-semibold text-white">{t('dialogs.export.title')}</h2>
               <button
                 onClick={handleClose}
                 className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white transition-colors"
@@ -226,9 +229,9 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white">{format.label}</p>
+                      <p className="text-sm font-medium text-white">{format.labelKey ? t(format.labelKey) : format.label}</p>
                       <p className="text-xs text-white/50 truncate">
-                        {isError ? errorMsg : format.description}
+                        {isError ? errorMsg : t(format.descKey)}
                       </p>
                     </div>
                     <span className="shrink-0 text-xs text-white/30">{format.ext}</span>
@@ -239,7 +242,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
 
             {/* Footer */}
             <p className="mt-4 text-xs text-white/30 text-center">
-              FDX / Fountain / TXT 在本地生成 · PDF / DOCX 通过服务端生成
+              {t('dialogs.export.footer')}
             </p>
           </motion.div>
         </motion.div>
