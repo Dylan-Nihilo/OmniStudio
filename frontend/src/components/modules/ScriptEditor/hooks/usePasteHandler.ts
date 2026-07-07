@@ -36,7 +36,7 @@ interface HeuristicRule {
 const HEURISTIC_RULES: HeuristicRule[] = [
   {
     id: 'scene_heading_western',
-    // Match: INT/EXT at start
+    // Match: INT/EXT at start (supports Japanese/CJK descriptions after prefix)
     pattern: /^(INT|EXT|INT\/EXT|内|外|内\/外)[.\s．]/i,
     suggest: 'SceneHeading',
   },
@@ -45,6 +45,18 @@ const HEURISTIC_RULES: HeuristicRule[] = [
     // Match: ○ at start (Japanese scene heading)
     pattern: /^○\s*.+/,
     suggest: 'SceneHeading',
+  },
+  {
+    id: 'section_heading_japanese_bracket',
+    // Match: 【…】 at start (Japanese section/chapter title, e.g. 【第一話】、【シーン1】)
+    pattern: /^【.+】/,
+    suggest: 'SceneHeading',
+  },
+  {
+    id: 'transition_japanese',
+    // Match: ◆ or ◇ at start (Japanese scene separator/transition)
+    pattern: /^[◆◇]\s*.*/,
+    suggest: 'Transition',
   },
   {
     id: 'transition',
@@ -139,6 +151,7 @@ function buildFormattedContent(text: string, suggestions: PasteSuggestion[]) {
     switch (suggestion.ruleId) {
       case 'scene_heading_western':
       case 'scene_heading_japanese':
+      case 'section_heading_japanese_bracket':
         nodes.push({
           type: 'sceneHeading',
           attrs: { id: crypto.randomUUID() },
@@ -147,6 +160,7 @@ function buildFormattedContent(text: string, suggestions: PasteSuggestion[]) {
         break;
 
       case 'transition':
+      case 'transition_japanese':
         nodes.push({
           type: 'transition',
           attrs: { type: 'custom' },
