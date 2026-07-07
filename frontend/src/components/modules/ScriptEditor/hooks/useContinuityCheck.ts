@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo } from 'react';
 import { Editor } from '@tiptap/react';
+import { useTranslations } from 'next-intl';
 import { useEditorStore, DerivedScene, DerivedCharacter } from '@/store/editorStore';
 
 const DEBOUNCE_MS = 1000;
@@ -102,7 +103,8 @@ function extractLocationStats(scenes: DerivedScene[]): LocationStat[] {
  */
 function detectDisappearanceWarnings(
   characterScenes: Map<string, number[]>,
-  totalScenes: number
+  totalScenes: number,
+  t: (key: string, params?: Record<string, string | number | Date>) => string
 ): ContinuityWarning[] {
   const warnings: ContinuityWarning[] = [];
 
@@ -116,7 +118,7 @@ function detectDisappearanceWarnings(
       warnings.push({
         type: 'character_disappeared',
         severity: 'warning',
-        message: `角色「${name}」已连续 ${gap} 个场景未出现（共出场 ${scenes.length} 次）`,
+        message: t('continuity.disappeared', { name, count: gap, total: scenes.length }),
         sceneIndex: lastAppearance,
         relatedEntity: name,
       });
@@ -129,7 +131,7 @@ function detectDisappearanceWarnings(
         warnings.push({
           type: 'character_disappeared',
           severity: 'info',
-          message: `角色「${name}」在场景 ${scenes[i - 1]} 到 ${scenes[i]} 之间消失了 ${midGap} 个场景`,
+          message: t('continuity.midGap', { name, from: scenes[i - 1], to: scenes[i], count: midGap }),
           sceneIndex: scenes[i - 1],
           relatedEntity: name,
         });
@@ -151,6 +153,7 @@ function detectDisappearanceWarnings(
  */
 export function useContinuityCheck(editor: Editor | null): ContinuityReport {
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
+  const t = useTranslations('scriptEditor');
   const reportRef = useRef<ContinuityReport>(EMPTY_REPORT);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const updateCountRef = useRef(0);
@@ -180,11 +183,11 @@ export function useContinuityCheck(editor: Editor | null): ContinuityReport {
       const locationStats = extractLocationStats(derivedScenes);
 
       // 检测警告
-      const warnings = detectDisappearanceWarnings(characterScenes, totalScenes);
+      const warnings = detectDisappearanceWarnings(characterScenes, totalScenes, t);
 
       return { characterStats, locationStats, warnings };
     };
-  }, [editor, derivedScenes]);
+  }, [editor, derivedScenes, t]);
 
   // Debounced update on editor changes
   useEffect(() => {

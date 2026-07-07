@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
 import History from '@tiptap/extension-history';
+import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
 import { scriptExtensions } from '../extensions';
 
@@ -29,6 +30,7 @@ interface UseEditorSetupOptions {
  */
 export function useEditorSetup(options: UseEditorSetupOptions = {}) {
   const { content = '', editable = true } = options;
+  const t = useTranslations('scriptEditor');
 
   const editor = useEditor({
     extensions: [
@@ -41,9 +43,9 @@ export function useEditorSetup(options: UseEditorSetupOptions = {}) {
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === 'sceneHeading') {
-            return 'INT./EXT. 场景 - 时间';
+            return t('placeholders.sceneHeading');
           }
-          return '开始输入...';
+          return t('placeholders.startTyping');
         },
       }),
       CharacterCount,
