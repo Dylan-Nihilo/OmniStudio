@@ -1788,6 +1788,10 @@
     }
   },
   "scriptEditor": {
+    "shell": {
+      "title": "Script Editor",
+      "loading": "Loading editor..."
+    },
     "toolbar": {
       "format": "Format",
       "rendering": "Rendering",
@@ -1799,8 +1803,8 @@
     },
     "formats": {
       "hollywood": "Hollywood",
-      "chinese_film": "Chinese Film",
-      "chinese_short": "Chinese Short Drama",
+      "chinese_film": "Chinese Film Script",
+      "chinese_short": "Chinese Short Drama Script",
       "japanese_anime": "Japanese Anime"
     },
     "renderings": {
@@ -1814,24 +1818,136 @@
       "pipeline": "Pipeline",
       "locations": "Locations",
       "props": "Props",
-      "notes": "Notes"
+      "notes": "Notes",
+      "characterOccurrences": "{count} appearances",
+      "characterScenes": "{count} scenes",
+      "appearsInScenes": "Appears in scenes",
+      "noRelatedScenes": "No related scenes",
+      "characterEmpty": "Characters will appear automatically as you write",
+      "characterEmptyHint": "Use character name cues in the script to identify them",
+      "characterCount": "Characters ({count})",
+      "sceneLabel": "Scene {number}",
+      "relatedScenes": "Related scenes",
+      "untitledScene": "Untitled scene",
+      "locationEmpty": "Locations will be extracted automatically from scene headings",
+      "locationEmptyHint": "Scene heading format: INT/EXT. Location - Time",
+      "locationCount": "Locations ({count})",
+      "emptyNote": "(empty note)",
+      "unknownAuthor": "Unknown",
+      "notesEmpty": "Use Cmd+/ to insert a note",
+      "notesEmptyHint": "Notes are used to mark suggestions and reminders",
+      "notesCount": "Notes ({count})",
+      "filterAll": "All",
+      "filterUnresolved": "Unresolved",
+      "filterResolved": "Resolved",
+      "noUnresolved": "No unresolved notes",
+      "noResolved": "No resolved notes",
+      "statsOverview": "Overview",
+      "statScenes": "Scenes",
+      "statCharacters": "Characters",
+      "statDuration": "Est. Duration",
+      "statWordCount": "Words",
+      "durationSeconds": "{count}s",
+      "durationMinSec": "{min}m{sec}s",
+      "durationMin": "{min}m",
+      "enterPipeline": "Enter Pipeline",
+      "generationProgress": "Generation Progress",
+      "noActiveTasks": "No active tasks",
+      "recentGeneration": "Recent Generations",
+      "noHistory": "No generation history",
+      "propsEmpty": "Props will be recognized automatically from action descriptions",
+      "propsEmptyHint": "Use quotation marks in actions to mark prop names",
+      "propsCount": "Props ({count})",
+      "shotStatusSuggested": "Suggested",
+      "shotStatusReviewing": "Reviewing",
+      "shotStatusConfirmed": "Confirmed",
+      "shotStatusQueued": "Queued",
+      "shotStatusGenerating": "Generating",
+      "shotStatusDone": "Done \u2713",
+      "shotStatusFailed": "Failed",
+      "shotsEmpty": "No shots in current scene",
+      "shotsEmptyHint": "Add ShotBlock nodes to split into shots",
+      "addShot": "Add Shot",
+      "shotsCount": "Shots ({count})"
     },
     "sidebar": {
       "scenes": "Scenes",
       "outline": "Outline",
-      "search": "Search"
+      "search": "Search",
+      "noScenes": "No scenes yet",
+      "untitled": "Untitled",
+      "filterAll": "All",
+      "nodeSceneHeading": "Scene Heading",
+      "nodeCharacter": "Character",
+      "nodeDialogue": "Dialogue",
+      "nodeAction": "Action",
+      "nodeNote": "Note",
+      "labelScene": "Scene",
+      "labelParagraph": "Paragraph",
+      "unknownScene": "Unknown scene",
+      "untitledScene": "Untitled scene",
+      "searchPlaceholder": "Search content...",
+      "searchHint": "Enter keywords to search",
+      "noResults": "No results",
+      "resultsCount": "{count} results",
+      "actLabel": "Act {number}",
+      "sceneLabel": "Scene {number}",
+      "noOutline": "No outline structure yet"
     },
     "views": {
       "edit": "Edit",
       "storyboard": "Storyboard",
       "read": "Read",
-      "focus": "Focus"
+      "focus": "Focus",
+      "statusDraft": "Draft",
+      "statusConfirmed": "Confirmed",
+      "statusRendered": "Rendered",
+      "storyboardEmpty": "No ShotBlock nodes yet",
+      "storyboardEmptyHint": "Add storyboard nodes in edit mode to preview here",
+      "noDescription": "No description",
+      "totalShots": "Total shots: {count}",
+      "totalDuration": "Total duration: {time}",
+      "completedShots": "Completed: {count}"
     },
     "status": {
       "saved": "Saved",
       "saving": "Saving...",
       "unsaved": "Unsaved",
-      "offline": "Offline Mode"
+      "offline": "Offline Mode",
+      "savedAt": "Saved {time}",
+      "ready": "Ready",
+      "offlineBanner": "Offline mode \u2014 content cached locally",
+      "localCacheFound": "A newer local version was found",
+      "restore": "Restore",
+      "wordCount": "{count} words",
+      "sceneCount": "{count} scenes",
+      "allExpanded": "All expanded",
+      "smartFolding": "Smart folding",
+      "offlineShort": "\ud83d\udfe0 Offline",
+      "unsavedDot": "\u25cf Unsaved"
+    },
+    "shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "close": "Close",
+      "groupEdit": "Editing",
+      "groupNavigation": "Navigation",
+      "groupFormat": "Format",
+      "groupView": "View",
+      "cycleNodeType": "Cycle node type",
+      "reverseNodeType": "Reverse cycle node type",
+      "createNextNode": "Create next logical node",
+      "newScene": "New scene",
+      "insertNote": "Insert note",
+      "dualDialogue": "Dual dialogue",
+      "mentionCharacter": "Mention character",
+      "search": "Search",
+      "toggleFolding": "Toggle scene folding",
+      "exitFocus": "Exit focus mode",
+      "undo": "Undo",
+      "redo": "Redo",
+      "save": "Save",
+      "showHelp": "Show shortcuts help",
+      "footer": "Press Escape or click outside to close \u00b7 \u2318 means Cmd (Mac) / Ctrl (Win)"
     },
     "snapshots": {
       "title": "Version History",
@@ -1842,12 +1958,75 @@
     "continuity": {
       "allGood": "Story is consistent",
       "warnings": "Continuity warnings",
-      "characterDisappeared": "{name} has been absent for {count} consecutive scenes"
+      "characterDisappeared": "{name} has been absent for {count} consecutive scenes",
+      "warningsCount": "{count} continuity warnings",
+      "warningsBadge": "{count} warnings",
+      "characterCount": "{count} characters",
+      "locationCount": "{count} locations",
+      "jumpToScene": "Jump to scene {index}",
+      "sceneLabel": "Scene #{index}",
+      "severityWarning": "Warning",
+      "severityHint": "Info",
+      "allConsistent": "All characters and locations are used consistently",
+      "disappeared": "Character \"{name}\" has been absent for {count} consecutive scenes (appeared {total} times)",
+      "midGap": "Character \"{name}\" disappeared for {count} scenes between scene {from} and {to}"
     },
     "paste": {
       "detected": "Formattable content detected",
       "format": "Format Now",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "detectedDetail": "Formattable content detected ({percent}% match rate, {lines} lines)"
+    },
+    "dialogs": {
+      "export": {
+        "title": "Export Script",
+        "fountainDesc": "Industry-standard plain text screenplay format",
+        "fdxDesc": "Final Draft XML format",
+        "txtLabel": "Plain Text",
+        "txtDesc": "Unformatted plain text",
+        "pdfDesc": "Portable document format, suitable for printing",
+        "docxDesc": "Microsoft Word format",
+        "failed": "Export failed",
+        "footer": "FDX / Fountain / TXT generated locally \u00b7 PDF / DOCX via server"
+      },
+      "import": {
+        "title": "Import Script",
+        "unsupportedType": "Unsupported file type \"{ext}\". Supports .fdx, .fountain, .txt",
+        "fileTooLarge": "File too large ({size} MB). Maximum 10 MB",
+        "failed": "Import failed, please retry",
+        "dropzone": "Drop file here, or click to select",
+        "supportedFormats": "Supports .fdx (Final Draft) \u00b7 .fountain \u00b7 .txt",
+        "parsing": "Parsing...",
+        "success": "Import successful \u00b7 {count} scenes detected",
+        "retry": "Retry",
+        "replaceWarning": "Import will replace current editor content"
+      },
+      "pipeline": {
+        "title": "Link Pipeline Project",
+        "linkExisting": "Link Existing Project",
+        "createNew": "Create New Project",
+        "searchPlaceholder": "Search projects...",
+        "projectStats": "{scenes} scenes \u00b7 {characters} characters",
+        "noMatch": "No matching projects found",
+        "noProjects": "No projects available to link",
+        "projectName": "Project Name",
+        "projectNamePlaceholder": "Enter new project name...",
+        "createHint": "A new pipeline project will be created and linked to the current script",
+        "cancel": "Cancel",
+        "createAndLink": "Create & Link",
+        "confirmLink": "Confirm Link"
+      },
+      "snapshots": {
+        "justNow": "Just now",
+        "minutesAgo": "{count} min ago",
+        "hoursAgo": "{count}h ago",
+        "daysAgo": "{count}d ago",
+        "loading": "Loading...",
+        "restoring": "Restoring...",
+        "confirmBtn": "Confirm Restore",
+        "cancel": "Cancel",
+        "restore": "Restore"
+      }
     },
     "import": {
       "title": "Import File",
@@ -1857,6 +2036,14 @@
     "export": {
       "title": "Export",
       "selectFormat": "Select export format"
+    },
+    "components": {
+      "noMatchCharacter": "No matching characters",
+      "occurrenceCount": "{count} appearances",
+      "notePrefix": "[Note]",
+      "characterAPlaceholder": "Character A",
+      "characterBPlaceholder": "Character B",
+      "dialoguePlaceholder": "(dialogue)"
     }
   }
 }
