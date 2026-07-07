@@ -1868,7 +1868,18 @@
       "shotsEmpty": "当前场景暂无镜头",
       "shotsEmptyHint": "添加 ShotBlock 节点以拆分镜头",
       "addShot": "添加镜头",
-      "shotsCount": "镜头 ({count})"
+      "shotsCount": "镜头 ({count})",
+      "lockPanel": "锁定面板：禁止自动切换",
+      "unlockPanel": "解锁面板：恢复光标自动切换",
+      "aiCompletion": "AI 补全",
+      "aiIdle": "当内容结构化率较低时，AI 将自动分析并补全缺失信息",
+      "aiLoading": "AI 分析中...",
+      "aiError": "AI 分析失败",
+      "aiRetry": "重试",
+      "aiEmpty": "AI 未发现额外信息",
+      "aiApply": "应用",
+      "aiReject": "忽略",
+      "aiConfidence": "置信度"
     },
     "sidebar": {
       "scenes": "场景",
@@ -2044,6 +2055,10 @@
       "characterAPlaceholder": "角色A",
       "characterBPlaceholder": "角色B",
       "dialoguePlaceholder": "（对白）"
+    },
+    "placeholders": {
+      "sceneHeading": "INT./EXT. 场景 - 时间",
+      "startTyping": "开始输入..."
     }
   }
 }

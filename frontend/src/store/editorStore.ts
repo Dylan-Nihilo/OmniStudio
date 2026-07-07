@@ -49,7 +49,7 @@ interface EditorState {
   editorMode: EditorMode;
   leftSidebarCollapsed: boolean;
   rightSidebarCollapsed: boolean;
-  activeRightPanel: 'characters' | 'locations' | 'props' | 'shots' | 'pipeline' | 'notes';
+  activeRightPanel: 'characters' | 'locations' | 'props' | 'shots' | 'pipeline' | 'notes' | 'ai';
   rightPanelLocked: boolean;
 
   // 派生数据

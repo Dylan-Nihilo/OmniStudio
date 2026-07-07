@@ -3,7 +3,7 @@
 import { useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Camera, Workflow, MapPin, Package, StickyNote, Lock, Unlock } from 'lucide-react';
+import { Users, Camera, Workflow, MapPin, Package, StickyNote, Sparkles, Lock, Unlock } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useEditorStore } from '@/store/editorStore';
 import CharacterPanel from './CharacterPanel';
@@ -12,6 +12,7 @@ import PipelinePanel from './PipelinePanel';
 import LocationPanel from './LocationPanel';
 import PropsPanel from './PropsPanel';
 import NotesPanel from './NotesPanel';
+import L3CompletionPanel from './L3CompletionPanel';
 
 export interface RightPanelContainerProps {
   editor: Editor | null;
@@ -20,7 +21,7 @@ export interface RightPanelContainerProps {
   onEnterPipeline?: () => void;
 }
 
-type PanelTab = 'characters' | 'shots' | 'pipeline' | 'locations' | 'props' | 'notes';
+type PanelTab = 'characters' | 'shots' | 'pipeline' | 'locations' | 'props' | 'notes' | 'ai';
 
 interface TabDef {
   id: PanelTab;
@@ -48,6 +49,7 @@ export default function RightPanelContainer({
     { id: 'locations', label: t('panels.locations'), icon: <MapPin size={14} />, group: 'secondary' },
     { id: 'props', label: t('panels.props'), icon: <Package size={14} />, group: 'secondary' },
     { id: 'notes', label: t('panels.notes'), icon: <StickyNote size={14} />, group: 'secondary' },
+    { id: 'ai', label: t('panels.aiCompletion'), icon: <Sparkles size={14} />, group: 'secondary' },
   ];
 
   const TABS_EMBEDDED: TabDef[] = [
@@ -140,7 +142,7 @@ export default function RightPanelContainer({
         <button
           type="button"
           onClick={togglePanelLock}
-          title={panelLocked ? '解锁面板：恢复光标自动切换' : '锁定面板：禁止自动切换'}
+          title={panelLocked ? t('panels.unlockPanel') : t('panels.lockPanel')}
           className={`flex items-center justify-center px-2.5 py-2.5 text-xs transition-colors border-l border-white/5 ${
             panelLocked
               ? 'text-amber-400 hover:text-amber-300'
@@ -209,6 +211,9 @@ export default function RightPanelContainer({
             )}
             {currentTab === 'notes' && !isEmbedded && (
               <NotesPanel editor={editor} />
+            )}
+            {currentTab === 'ai' && !isEmbedded && (
+              <L3CompletionPanel />
             )}
           </motion.div>
         </AnimatePresence>

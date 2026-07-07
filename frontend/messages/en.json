@@ -1863,12 +1863,23 @@
       "shotStatusConfirmed": "Confirmed",
       "shotStatusQueued": "Queued",
       "shotStatusGenerating": "Generating",
-      "shotStatusDone": "Done \u2713",
+      "shotStatusDone": "Done ✓",
       "shotStatusFailed": "Failed",
       "shotsEmpty": "No shots in current scene",
       "shotsEmptyHint": "Add ShotBlock nodes to split into shots",
       "addShot": "Add Shot",
-      "shotsCount": "Shots ({count})"
+      "shotsCount": "Shots ({count})",
+      "lockPanel": "Lock panel: disable auto-switch",
+      "unlockPanel": "Unlock panel: restore cursor auto-switch",
+      "aiCompletion": "AI Completion",
+      "aiIdle": "AI will automatically analyze and fill gaps when content structure confidence is low",
+      "aiLoading": "AI analyzing...",
+      "aiError": "AI analysis failed",
+      "aiRetry": "Retry",
+      "aiEmpty": "No additional information found",
+      "aiApply": "Apply",
+      "aiReject": "Dismiss",
+      "aiConfidence": "Confidence"
     },
     "sidebar": {
       "scenes": "Scenes",
@@ -1916,15 +1927,15 @@
       "offline": "Offline Mode",
       "savedAt": "Saved {time}",
       "ready": "Ready",
-      "offlineBanner": "Offline mode \u2014 content cached locally",
+      "offlineBanner": "Offline mode — content cached locally",
       "localCacheFound": "A newer local version was found",
       "restore": "Restore",
       "wordCount": "{count} words",
       "sceneCount": "{count} scenes",
       "allExpanded": "All expanded",
       "smartFolding": "Smart folding",
-      "offlineShort": "\ud83d\udfe0 Offline",
-      "unsavedDot": "\u25cf Unsaved"
+      "offlineShort": "🟠 Offline",
+      "unsavedDot": "● Unsaved"
     },
     "shortcuts": {
       "title": "Keyboard Shortcuts",
@@ -1947,7 +1958,7 @@
       "redo": "Redo",
       "save": "Save",
       "showHelp": "Show shortcuts help",
-      "footer": "Press Escape or click outside to close \u00b7 \u2318 means Cmd (Mac) / Ctrl (Win)"
+      "footer": "Press Escape or click outside to close · ⌘ means Cmd (Mac) / Ctrl (Win)"
     },
     "snapshots": {
       "title": "Version History",
@@ -1987,7 +1998,7 @@
         "pdfDesc": "Portable document format, suitable for printing",
         "docxDesc": "Microsoft Word format",
         "failed": "Export failed",
-        "footer": "FDX / Fountain / TXT generated locally \u00b7 PDF / DOCX via server"
+        "footer": "FDX / Fountain / TXT generated locally · PDF / DOCX via server"
       },
       "import": {
         "title": "Import Script",
@@ -1995,9 +2006,9 @@
         "fileTooLarge": "File too large ({size} MB). Maximum 10 MB",
         "failed": "Import failed, please retry",
         "dropzone": "Drop file here, or click to select",
-        "supportedFormats": "Supports .fdx (Final Draft) \u00b7 .fountain \u00b7 .txt",
+        "supportedFormats": "Supports .fdx (Final Draft) · .fountain · .txt",
         "parsing": "Parsing...",
-        "success": "Import successful \u00b7 {count} scenes detected",
+        "success": "Import successful · {count} scenes detected",
         "retry": "Retry",
         "replaceWarning": "Import will replace current editor content"
       },
@@ -2006,7 +2017,7 @@
         "linkExisting": "Link Existing Project",
         "createNew": "Create New Project",
         "searchPlaceholder": "Search projects...",
-        "projectStats": "{scenes} scenes \u00b7 {characters} characters",
+        "projectStats": "{scenes} scenes · {characters} characters",
         "noMatch": "No matching projects found",
         "noProjects": "No projects available to link",
         "projectName": "Project Name",
@@ -2044,6 +2055,10 @@
       "characterAPlaceholder": "Character A",
       "characterBPlaceholder": "Character B",
       "dialoguePlaceholder": "(dialogue)"
+    },
+    "placeholders": {
+      "sceneHeading": "INT./EXT. SCENE - TIME",
+      "startTyping": "Start typing..."
     }
   }
 }
