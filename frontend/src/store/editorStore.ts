@@ -1,5 +1,16 @@
 import { create } from 'zustand';
 
+// L3 补全结果类型
+export interface L3Result {
+  type: 'character' | 'prop' | 'beat' | 'location';
+  name: string;
+  description?: string;
+  confidence: number; // 0-1
+  sceneIndex?: number;
+}
+
+export type L3Status = 'idle' | 'loading' | 'success' | 'error';
+
 // 类型定义
 export interface DerivedScene {
   id: string;
@@ -48,6 +59,11 @@ interface EditorState {
   wordCount: number;
   confidenceScore: number; // 0-1
 
+  // L3 LLM 补全状态
+  l3Status: L3Status;
+  l3Results: L3Result[] | null;
+  l3LastFetchTime: number | null;
+
   // Actions
   setProjectId: (id: string | null) => void;
   setDirty: (dirty: boolean) => void;
@@ -70,6 +86,11 @@ interface EditorState {
     wordCount?: number;
     confidenceScore?: number;
   }) => void;
+
+  // L3 actions
+  setL3Status: (status: L3Status) => void;
+  setL3Results: (results: L3Result[] | null) => void;
+  setL3LastFetchTime: (time: number | null) => void;
 
   // 重置
   reset: () => void;
@@ -96,6 +117,10 @@ const initialState = {
   estimatedDuration: 0,
   wordCount: 0,
   confidenceScore: 0,
+
+  l3Status: 'idle' as L3Status,
+  l3Results: null as L3Result[] | null,
+  l3LastFetchTime: null as number | null,
 };
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -123,6 +148,11 @@ export const useEditorStore = create<EditorState>((set) => ({
       ...(data.wordCount !== undefined && { wordCount: data.wordCount }),
       ...(data.confidenceScore !== undefined && { confidenceScore: data.confidenceScore }),
     })),
+
+  // L3 actions
+  setL3Status: (status) => set({ l3Status: status }),
+  setL3Results: (results) => set({ l3Results: results }),
+  setL3LastFetchTime: (time) => set({ l3LastFetchTime: time }),
 
   reset: () => set(initialState),
 }));

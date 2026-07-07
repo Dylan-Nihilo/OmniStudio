@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { L3Result } from '@/store/editorStore';
 
 // Reuse the same API URL detection logic as the main api.ts
 const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || '17177';
@@ -106,10 +107,14 @@ export const scriptEditorApi = {
   },
 
   /** L3 LLM 增量补全请求 */
-  deriveGaps: async (projectId: string, gapType: string): Promise<{ task_id: string; status: string }> => {
-    const res = await axios.post(`${API_BASE}/projects/${projectId}/derive_gaps`, {
-      gap_type: gapType,
-    });
+  deriveGaps: async (
+    projectId: string,
+    params: {
+      already_extracted?: { scenes: string[]; characters: string[] };
+      gaps?: string[]; // e.g. ['props', 'beats', 'locations']
+    }
+  ): Promise<{ results: L3Result[]; task_id?: string }> => {
+    const res = await axios.post(`${API_BASE}/projects/${projectId}/derive_gaps`, params);
     return res.data;
   },
 
