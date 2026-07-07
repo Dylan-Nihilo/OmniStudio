@@ -15,10 +15,12 @@ import { useEditorStore } from '@/store/editorStore';
  * 本 Hook 新增注册：
  * - Cmd+Shift+E: 切换场景折叠/展开（Phase 1.4 实现，此处占位 console.log）
  * - Cmd+Shift+F: 聚焦到左侧栏搜索面板（dispatch 自定义事件）
- * - Cmd+/: 在当前位置插入 Note 节点
+ * - Cmd+/: 显示/隐藏快捷键帮助面板
+ * - Cmd+B: 加粗切换
+ * - Cmd+I: 斜体切换
  * - Cmd+D: 插入 DualDialogue 结构
  * - Escape: 退出 focus 模式（如果在 focus 模式中）
- * - Cmd+?: 打开快捷键帮助面板
+ * - Cmd+?: 打开快捷键帮助面板（备用）
  */
 export function useKeyboardShortcuts(editor: Editor | null) {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -53,21 +55,24 @@ export function useKeyboardShortcuts(editor: Editor | null) {
         return;
       }
 
-      // Cmd+/: 插入 Note 节点
-      if (mod && e.key === '/') {
+      // Cmd+/: 显示/隐藏快捷键帮助面板
+      if (mod && !e.shiftKey && e.key === '/') {
         e.preventDefault();
-        // 尝试插入 note 节点，如果 schema 中不存在则 fallback 到 paragraph
-        try {
-          const nodeType = editor.schema.nodes.note;
-          if (nodeType) {
-            editor.chain().focus().setNode('note').run();
-          } else {
-            // note 节点尚未在 schema 注册时，插入普通段落并加前缀
-            editor.chain().focus().insertContent({ type: 'paragraph', content: [{ type: 'text', text: '【批注】' }] }).run();
-          }
-        } catch {
-          editor.chain().focus().insertContent({ type: 'paragraph', content: [{ type: 'text', text: '【批注】' }] }).run();
-        }
+        toggleShortcutHelp();
+        return;
+      }
+
+      // Cmd+B: 加粗切换
+      if (mod && !e.shiftKey && e.key === 'b') {
+        e.preventDefault();
+        editor.chain().focus().toggleBold().run();
+        return;
+      }
+
+      // Cmd+I: 斜体切换
+      if (mod && !e.shiftKey && e.key === 'i') {
+        e.preventDefault();
+        editor.chain().focus().toggleItalic().run();
         return;
       }
 

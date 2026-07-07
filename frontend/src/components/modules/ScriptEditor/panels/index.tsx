@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Camera, Workflow, MapPin, Package, StickyNote } from 'lucide-react';
+import { Users, Camera, Workflow, MapPin, Package, StickyNote, Lock, Unlock } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useEditorStore } from '@/store/editorStore';
 import CharacterPanel from './CharacterPanel';
@@ -51,6 +51,11 @@ export default function RightPanelContainer({
   const activePanel = useEditorStore((s) => s.activeRightPanel);
   const setActivePanel = useEditorStore((s) => s.setActiveRightPanel);
   const panelLocked = useEditorStore((s) => s.rightPanelLocked);
+  const setRightPanelLocked = useEditorStore((s) => s.setRightPanelLocked);
+
+  const togglePanelLock = useCallback(() => {
+    setRightPanelLocked(!panelLocked);
+  }, [panelLocked, setRightPanelLocked]);
 
   const isEmbedded = mode === 'embedded';
   const tabs = isEmbedded ? TABS_EMBEDDED : ALL_TABS;
@@ -128,6 +133,20 @@ export default function RightPanelContainer({
             )}
           </button>
         ))}
+
+        {/* Lock/Unlock toggle */}
+        <button
+          type="button"
+          onClick={togglePanelLock}
+          title={panelLocked ? '解锁面板：恢复光标自动切换' : '锁定面板：禁止自动切换'}
+          className={`flex items-center justify-center px-2.5 py-2.5 text-xs transition-colors border-l border-white/5 ${
+            panelLocked
+              ? 'text-amber-400 hover:text-amber-300'
+              : 'text-text-muted hover:text-text-secondary'
+          }`}
+        >
+          {panelLocked ? <Lock size={13} /> : <Unlock size={13} />}
+        </button>
       </div>
 
       {/* Tab bar - Secondary group */}

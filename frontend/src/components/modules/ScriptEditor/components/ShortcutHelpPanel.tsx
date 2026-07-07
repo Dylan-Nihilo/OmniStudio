@@ -26,7 +26,6 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: 'Shift+Tab', description: '反向切换节点类型' },
       { keys: 'Enter', description: '创建下一个逻辑节点' },
       { keys: '⌘+Enter', description: '新建场景' },
-      { keys: '⌘+/', description: '插入批注' },
       { keys: '⌘+D', description: '双人对话' },
       { keys: '@', description: '呼出角色选择' },
     ],
@@ -42,6 +41,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: '格式',
     items: [
+      { keys: '⌘+B', description: '加粗' },
+      { keys: '⌘+I', description: '斜体' },
       { keys: '⌘+Z', description: '撤销' },
       { keys: '⌘+Shift+Z', description: '重做' },
     ],
@@ -50,7 +51,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: '视图',
     items: [
       { keys: '⌘+S', description: '保存' },
-      { keys: '⌘+?', description: '显示快捷键帮助' },
+      { keys: '⌘+/', description: '显示快捷键帮助' },
     ],
   },
 ];
