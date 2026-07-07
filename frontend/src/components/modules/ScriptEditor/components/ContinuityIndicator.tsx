@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle, ChevronDown, ChevronUp, MapPin, User } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { ContinuityReport, ContinuityWarning } from '../hooks/useContinuityCheck';
 
 interface ContinuityIndicatorProps {
@@ -30,6 +31,7 @@ function WarningIcon({ type }: { type: ContinuityWarning['type'] }) {
  */
 export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
   const [expanded, setExpanded] = useState(false);
+  const t = useTranslations('scriptEditor');
   const { warnings, characterStats, locationStats } = report;
 
   const hasWarnings = warnings.length > 0;
@@ -45,17 +47,17 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
             ? 'text-amber-400 hover:bg-amber-400/10'
             : 'text-emerald-400 hover:bg-emerald-400/10'
         }`}
-        aria-label={hasWarnings ? `${warnings.length} 个连贯性警告` : '故事连贯'}
+        aria-label={hasWarnings ? t('continuity.warningsCount', { count: warnings.length }) : t('continuity.allGood')}
       >
         {hasWarnings ? (
           <>
             <AlertTriangle size={12} />
-            <span>{warnings.length} 警告</span>
+            <span>{t('continuity.warningsBadge', { count: warnings.length })}</span>
           </>
         ) : (
           <>
             <CheckCircle size={12} />
-            <span>故事连贯</span>
+            <span>{t('continuity.allGood')}</span>
           </>
         )}
         {expanded ? <ChevronDown size={10} /> : <ChevronUp size={10} />}
@@ -69,11 +71,11 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
             <div className="flex items-center gap-4 text-xs text-text-muted">
               <span className="flex items-center gap-1">
                 <User size={11} />
-                {characterStats.length} 角色
+                {t('continuity.characterCount', { count: characterStats.length })}
               </span>
               <span className="flex items-center gap-1">
                 <MapPin size={11} />
-                {locationStats.length} 地点
+                {t('continuity.locationCount', { count: locationStats.length })}
               </span>
             </div>
           </div>
@@ -85,7 +87,7 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
                 <div
                   key={`${warning.relatedEntity}-${warning.sceneIndex}-${idx}`}
                   className="flex items-start gap-2 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer"
-                  title={`跳转到场景 ${warning.sceneIndex}`}
+                  title={t('continuity.jumpToScene', { index: warning.sceneIndex })}
                 >
                   <div className="mt-0.5 shrink-0">
                     <WarningIcon type={warning.type} />
@@ -95,7 +97,7 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
                       {warning.message}
                     </p>
                     <p className="text-[10px] text-text-muted mt-0.5">
-                      场景 #{warning.sceneIndex} · {warning.severity === 'warning' ? '警告' : '提示'}
+                      {t('continuity.sceneLabel', { index: warning.sceneIndex })} · {warning.severity === 'warning' ? t('continuity.severityWarning') : t('continuity.severityHint')}
                     </p>
                   </div>
                 </div>
@@ -104,7 +106,7 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
           ) : (
             <div className="px-4 py-6 text-center">
               <CheckCircle size={20} className="mx-auto text-emerald-400 mb-2" />
-              <p className="text-xs text-text-muted">所有角色和地点使用连贯</p>
+              <p className="text-xs text-text-muted">{t('continuity.allConsistent')}</p>
             </div>
           )}
         </div>

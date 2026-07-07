@@ -7,6 +7,7 @@ import React, {
   useImperativeHandle,
   useState,
 } from 'react'
+import { useTranslations } from 'next-intl'
 import type { DerivedCharacter } from '@/store/editorStore'
 
 export interface MentionListProps {
@@ -20,6 +21,7 @@ export interface MentionListRef {
 
 const MentionList = forwardRef<MentionListRef, MentionListProps>(
   ({ items, command }, ref) => {
+    const t = useTranslations('scriptEditor')
     const [selectedIndex, setSelectedIndex] = useState(0)
 
     // Reset selection when items change
@@ -65,7 +67,7 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
     if (!items.length) {
       return (
         <div className="bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl p-2 text-sm text-zinc-400">
-          无匹配角色
+          {t('components.noMatchCharacter')}
         </div>
       )
     }
@@ -87,7 +89,7 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
             <span className="font-medium">{item.name}</span>
             {item.occurrences > 0 && (
               <span className="ml-2 text-xs text-zinc-500">
-                出场 {item.occurrences} 次
+                {t('components.occurrenceCount', { count: item.occurrences })}
               </span>
             )}
           </button>

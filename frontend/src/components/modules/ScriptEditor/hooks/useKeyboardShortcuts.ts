@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import { Editor } from '@tiptap/react';
+import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
 
 /**
@@ -24,6 +25,7 @@ import { useEditorStore } from '@/store/editorStore';
  */
 export function useKeyboardShortcuts(editor: Editor | null) {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const t = useTranslations('scriptEditor');
   const viewMode = useEditorStore((s) => s.viewMode);
   const setViewMode = useEditorStore((s) => s.setViewMode);
 
@@ -85,9 +87,9 @@ export function useKeyboardShortcuts(editor: Editor | null) {
             .chain()
             .focus()
             .insertContent([
-              { type: 'characterCue', content: [{ type: 'text', text: '角色A' }] },
+              { type: 'characterCue', content: [{ type: 'text', text: t('components.characterAPlaceholder') }] },
               { type: 'dialogue', content: [{ type: 'text', text: '' }] },
-              { type: 'characterCue', content: [{ type: 'text', text: '角色B' }] },
+              { type: 'characterCue', content: [{ type: 'text', text: t('components.characterBPlaceholder') }] },
               { type: 'dialogue', content: [{ type: 'text', text: '' }] },
             ])
             .run();
@@ -97,10 +99,10 @@ export function useKeyboardShortcuts(editor: Editor | null) {
             .chain()
             .focus()
             .insertContent([
-              { type: 'paragraph', content: [{ type: 'text', text: '【角色A】' }] },
-              { type: 'paragraph', content: [{ type: 'text', text: '（对白）' }] },
-              { type: 'paragraph', content: [{ type: 'text', text: '【角色B】' }] },
-              { type: 'paragraph', content: [{ type: 'text', text: '（对白）' }] },
+              { type: 'paragraph', content: [{ type: 'text', text: `【${t('components.characterAPlaceholder')}】` }] },
+              { type: 'paragraph', content: [{ type: 'text', text: t('components.dialoguePlaceholder') }] },
+              { type: 'paragraph', content: [{ type: 'text', text: `【${t('components.characterBPlaceholder')}】` }] },
+              { type: 'paragraph', content: [{ type: 'text', text: t('components.dialoguePlaceholder') }] },
             ])
             .run();
         }
@@ -132,7 +134,7 @@ export function useKeyboardShortcuts(editor: Editor | null) {
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editor, viewMode, setViewMode, showShortcutHelp, closeShortcutHelp, toggleShortcutHelp]);
+  }, [editor, viewMode, setViewMode, showShortcutHelp, closeShortcutHelp, toggleShortcutHelp, t]);
 
   return { showShortcutHelp, toggleShortcutHelp, closeShortcutHelp };
 }

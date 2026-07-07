@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 interface ShortcutHelpPanelProps {
   open: boolean;
@@ -10,48 +11,46 @@ interface ShortcutHelpPanelProps {
 
 interface ShortcutItem {
   keys: string;
-  description: string;
+  descKey: string;
 }
 
 interface ShortcutGroup {
-  title: string;
+  titleKey: string;
   items: ShortcutItem[];
 }
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
-    title: '编辑',
+    titleKey: 'shortcuts.groupEdit',
     items: [
-      { keys: 'Tab', description: '切换节点类型（循环）' },
-      { keys: 'Shift+Tab', description: '反向切换节点类型' },
-      { keys: 'Enter', description: '创建下一个逻辑节点' },
-      { keys: '⌘+Enter', description: '新建场景' },
-      { keys: '⌘+D', description: '双人对话' },
-      { keys: '@', description: '呼出角色选择' },
+      { keys: 'Tab', descKey: 'shortcuts.cycleNodeType' },
+      { keys: 'Shift+Tab', descKey: 'shortcuts.reverseNodeType' },
+      { keys: 'Enter', descKey: 'shortcuts.createNextNode' },
+      { keys: '⌘+Enter', descKey: 'shortcuts.newScene' },
+      { keys: '⌘+D', descKey: 'shortcuts.dualDialogue' },
+      { keys: '@', descKey: 'shortcuts.mentionCharacter' },
     ],
   },
   {
-    title: '导航',
+    titleKey: 'shortcuts.groupNavigation',
     items: [
-      { keys: '⌘+Shift+F', description: '搜索' },
-      { keys: '⌘+Shift+E', description: '折叠/展开场景' },
-      { keys: 'Escape', description: '退出专注模式' },
+      { keys: '⌘+Shift+F', descKey: 'shortcuts.search' },
+      { keys: '⌘+Shift+E', descKey: 'shortcuts.toggleFolding' },
+      { keys: 'Escape', descKey: 'shortcuts.exitFocus' },
     ],
   },
   {
-    title: '格式',
+    titleKey: 'shortcuts.groupFormat',
     items: [
-      { keys: '⌘+B', description: '加粗' },
-      { keys: '⌘+I', description: '斜体' },
-      { keys: '⌘+Z', description: '撤销' },
-      { keys: '⌘+Shift+Z', description: '重做' },
+      { keys: '⌘+Z', descKey: 'shortcuts.undo' },
+      { keys: '⌘+Shift+Z', descKey: 'shortcuts.redo' },
     ],
   },
   {
-    title: '视图',
+    titleKey: 'shortcuts.groupView',
     items: [
-      { keys: '⌘+S', description: '保存' },
-      { keys: '⌘+/', description: '显示快捷键帮助' },
+      { keys: '⌘+S', descKey: 'shortcuts.save' },
+      { keys: '⌘+/', descKey: 'shortcuts.showHelp' },
     ],
   },
 ];
@@ -64,6 +63,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
  */
 export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const t = useTranslations('scriptEditor');
 
   // Escape 关闭
   useEffect(() => {
@@ -101,12 +101,12 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
       >
         {/* Header */}
         <div className="sticky top-0 flex items-center justify-between border-b border-white/10 bg-[#0c0c12] px-6 py-4">
-          <h2 className="text-base font-semibold text-foreground">键盘快捷键</h2>
+          <h2 className="text-base font-semibold text-foreground">{t('shortcuts.title')}</h2>
           <button
             type="button"
             onClick={onClose}
             className="rounded-md p-1 text-text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-            aria-label="关闭"
+            aria-label={t('shortcuts.close')}
           >
             <X size={16} />
           </button>
@@ -115,9 +115,9 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
         {/* Shortcut Groups */}
         <div className="px-6 py-4 space-y-6">
           {SHORTCUT_GROUPS.map((group) => (
-            <div key={group.title}>
+            <div key={group.titleKey}>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">
-                {group.title}
+                {t(group.titleKey)}
               </h3>
               <div className="space-y-1.5">
                 {group.items.map((item) => (
@@ -125,7 +125,7 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
                     key={item.keys}
                     className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.03] transition-colors"
                   >
-                    <span className="text-sm text-text-secondary">{item.description}</span>
+                    <span className="text-sm text-text-secondary">{t(item.descKey)}</span>
                     <kbd className="inline-flex items-center gap-0.5 rounded border border-white/10 bg-white/5 px-2 py-0.5 text-xs font-mono text-text-muted">
                       {item.keys}
                     </kbd>
@@ -139,7 +139,7 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
         {/* Footer */}
         <div className="border-t border-white/10 px-6 py-3">
           <p className="text-xs text-text-muted/60 text-center">
-            按 Escape 或点击外部关闭 · ⌘ 表示 Cmd (Mac) / Ctrl (Win)
+            {t('shortcuts.footer')}
           </p>
         </div>
       </div>
