@@ -61,10 +61,21 @@ export const Keymap = Extension.create({
           return false
         }
 
-        // Split at the cursor via the high-level command so ProseMirror maps
-        // positions and moves the selection into the newly created block.
-        // Then convert that new block: setNode re-derives its target range from
-        // the post-split selection, so no stale (pre-split) position is reused.
+        if (nextType === currentName) {
+          // Same-type split (e.g. action -> action): splitBlock() already
+          // produces a correct same-type block. Running setNode afterwards
+          // would re-run clearNodes/nodesBetween against post-split positions
+          // that can be out of range in a real browser, throwing
+          // "Position out of range" and discarding the whole transaction.
+          // Short-circuit setNode entirely for the same-type case.
+          return editor.commands.splitBlock()
+        }
+
+        // Cross-type: split at the cursor via the high-level command so
+        // ProseMirror maps positions and moves the selection into the newly
+        // created block. Then convert that new block: setNode re-derives its
+        // target range from the post-split selection, so no stale (pre-split)
+        // position is reused.
         return editor
           .chain()
           .splitBlock()
@@ -73,6 +84,15 @@ export const Keymap = Extension.create({
       },
 
       'Mod-Enter': ({ editor }) => {
+        const { $from } = editor.state.selection
+        const currentName = $from.parent.type.name
+
+        if (currentName === 'sceneHeading') {
+          // Already a scene heading: splitBlock() yields another scene heading.
+          // Skip setNode to avoid the same post-split out-of-range hazard.
+          return editor.commands.splitBlock()
+        }
+
         // Same position-safe pattern: split first, then convert the new block
         // to a scene heading using positions derived from the updated state.
         return editor
