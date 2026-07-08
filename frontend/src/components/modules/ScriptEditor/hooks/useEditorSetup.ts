@@ -4,7 +4,6 @@ import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
-import History from '@tiptap/extension-history';
 import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
 import { scriptExtensions } from '../extensions';
@@ -48,6 +47,22 @@ export function useEditorSetup(options: UseEditorSetupOptions = {}) {
         orderedList: false,
         listItem: false,
         listKeymap: false,
+        // Disable unused block nodes. These are NOT used by the screenplay
+        // editor, and blockquote (content 'block+') is registered before our
+        // custom nodes: with paragraph disabled it becomes the FIRST fillable
+        // block-group node, so ProseMirror's createAndFill picks it to fill
+        // the empty doc and recurses on its own `block+` content forever
+        // (RangeError: Maximum call stack size exceeded). Removing them makes
+        // Action (inline*) the first, empty-completable block-group node.
+        blockquote: false,
+        codeBlock: false,
+        horizontalRule: false,
+        // Configure the built-in undo/redo here. StarterKit (v3) already
+        // bundles the `undoRedo` extension, so adding a separate History
+        // extension caused: Duplicate extension names ['undoRedo'].
+        undoRedo: {
+          depth: 200,
+        },
       }),
       ...scriptExtensions,
       Placeholder.configure({
@@ -59,9 +74,6 @@ export function useEditorSetup(options: UseEditorSetupOptions = {}) {
         },
       }),
       CharacterCount,
-      History.configure({
-        depth: 200,
-      }),
     ],
     content: content || '',
     editable,

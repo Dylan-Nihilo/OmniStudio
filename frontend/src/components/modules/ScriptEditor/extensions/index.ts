@@ -31,8 +31,15 @@ export type { CharacterMentionItem } from './CharacterMention'
  * Usage: useEditorSetup({ extensions: [...scriptExtensions, ...otherExtensions] })
  */
 export const scriptExtensions = [
-  SceneHeading,
+  // Action must be registered FIRST so it becomes the first member of the
+  // 'block' group. ProseMirror's ContentMatch.fillBefore picks the first
+  // block-group node to fill any `block+` requirement (including the empty
+  // top doc). Action's content is `inline*` (empty-completable), so it
+  // terminates the fill recursion. If a `block+` node (e.g. blockquote,
+  // section) were first, createAndFill would recurse infinitely → stack
+  // overflow on empty-doc init.
   Action,
+  SceneHeading,
   CharacterCue,
   Dialogue,
   Transition,
