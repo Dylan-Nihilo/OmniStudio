@@ -38,6 +38,16 @@ export function useEditorSetup(options: UseEditorSetupOptions = {}) {
         // Disable defaults that conflict with our custom nodes
         heading: false,
         paragraph: false,
+        // The list extensions depend on the paragraph node
+        // (listItem content = 'paragraph block*'). Since paragraph is
+        // disabled above, they must be disabled too, otherwise the
+        // ProseMirror schema fails to build at runtime:
+        //   "No node type or group 'paragraph' found".
+        // The script editor does not use bullet/ordered lists.
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+        listKeymap: false,
       }),
       ...scriptExtensions,
       Placeholder.configure({
