@@ -50,10 +50,8 @@ export const Keymap = Extension.create({
       },
 
       Enter: ({ editor }) => {
-        const { state } = editor
-        const { $from } = state.selection
-        const currentNode = $from.parent
-        const currentName = currentNode.type.name
+        const { $from } = editor.state.selection
+        const currentName = $from.parent.type.name
 
         // Determine next node type based on current
         const nextType = ENTER_NEXT[currentName]
@@ -63,32 +61,24 @@ export const Keymap = Extension.create({
           return false
         }
 
-        // Split current block and set new block type
-        const endOfNode = $from.end()
-
+        // Split at the cursor via the high-level command so ProseMirror maps
+        // positions and moves the selection into the newly created block.
+        // Then convert that new block: setNode re-derives its target range from
+        // the post-split selection, so no stale (pre-split) position is reused.
         return editor
           .chain()
-          .command(({ tr }) => {
-            // Insert a new paragraph after current position, then convert
-            tr.split(endOfNode)
-            return true
-          })
-          .setNode(nextType)
+          .splitBlock()
+          .command(({ commands }) => commands.setNode(nextType))
           .run()
       },
 
       'Mod-Enter': ({ editor }) => {
-        const { state } = editor
-        const { $from } = state.selection
-        const endOfNode = $from.end()
-
+        // Same position-safe pattern: split first, then convert the new block
+        // to a scene heading using positions derived from the updated state.
         return editor
           .chain()
-          .command(({ tr }) => {
-            tr.split(endOfNode)
-            return true
-          })
-          .setNode('sceneHeading')
+          .splitBlock()
+          .command(({ commands }) => commands.setNode('sceneHeading'))
           .run()
       },
     }
