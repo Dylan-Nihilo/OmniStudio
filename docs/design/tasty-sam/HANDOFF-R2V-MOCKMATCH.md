@@ -100,7 +100,7 @@ kill $(lsof -ti:3009); git worktree remove /tmp/r2v-before-wt --force
 截前点「全部展开」让模型选择器（pills vs 下拉）可见——否则折叠面板里藏住，图看起来一样。
 
 ### 5.3 before/after HTML（已存在，续用）
-`docs/design/tasty-sam/theming/r2v-before-after.html` + 截图在 `theming/review-assets/`。续做时把新截图覆盖进去、更新 diff 注记。**别覆盖其他轮次的 compare**（`playground-compare/`、`theming/modal-compare.html` 是别的）。
+`docs/6-visual-design-v0.2/05-theming-system/r2v-before-after.html` + 截图在 `docs/6-visual-design-v0.2/05-theming-system/review-assets/`。续做时把新截图覆盖进去、更新 diff 注记。**别覆盖其他轮次的 compare**（`playground-compare/`、`docs/6-visual-design-v0.2/05-theming-system/modal-compare.html` 是别的）。
 
 ### 5.4 ⚠️ 视觉自检（本会话的致命伤）
 **本会话的 Read 工具无法渲染 PNG**（读截图返回空，换了 4 个模型都没用——是 harness 工具层限制，非模型能力）。导致我靠 DOM 文本推断"应该不同"，反复翻车（before/after 拍成 identical、误判 no-op）。
@@ -108,10 +108,10 @@ kill $(lsof -ti:3009); git worktree remove /tmp/r2v-before-wt --force
 **新会话务必先确认你能看到截图**：`Read` 一张 `review-assets/r2v-sb-after.png`，若返回空，就改用**别的方式自检视觉**（如：把截图转 base64 内联进 HTML 自己看、或直接肉眼看运行中的 app vs mock）。**别重蹈覆辙靠 DOM 文本假设视觉。**
 
 ## 6. 相关设计文档（背景）
-- `docs/design/r2v-workflow-v3-unified.md`：R2V 工作流 v3 spec（unified i2v+r2v、删 dead step 7/8/9、音频管线）。音频按 spec：**分开存储、Assembly 处一次性 mux**（别学 mock 早期版本里的"覆盖视频/dub offset"逐帧合成——那是错的，已纠正）。
+- `docs/3-atelier-r2v-exploration/r2v-workflow-v3-unified.md`：R2V 工作流 v3 spec（unified i2v+r2v、删 dead step 7/8/9、音频管线）。音频按 spec：**分开存储、Assembly 处一次性 mux**（别学 mock 早期版本里的"覆盖视频/dub offset"逐帧合成——那是错的，已纠正）。
 - `docs/design/tasty-sam/storyboard-r2v-unified.html`：**本次对齐的 mock spec**。
 - `docs/design/tasty-sam/line-b-atelier/`：Line B（Luminous Atelier）原 mock 们（皮参考）。
-- `docs/design/tasty-sam/theming/storyboard-r2v.html`：theming 定稿版（五主题）。
+- `docs/6-visual-design-v0.2/05-theming-system/storyboard-r2v.html`：theming 定稿版（五主题）。
 
 ## 7. 本会话未解决的小遗留
 - `tests/test_model_catalog.py` 有 **2 个预存失败**（断言 `r2v_model == wan2.7-r2v`，但 `catalog.meta.yaml` 早已写 `happyhorse-1.0-r2v`）——**与本会话改动无关**（我用 stash 基线证实过）。可顺手修断言。

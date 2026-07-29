@@ -34,7 +34,7 @@ Tasty Sam 的方案给你**两个可并排比较的答案**：
 把这三屏在浏览器里**并排打开**，看同一个最复杂界面的三种答案：
 
 ```
-docs/design/mock-02-storyboard-r2v.html            ← QoderWork 基线
+docs/6-visual-design-v0.2/02-design-prototypes/mock-02-storyboard-r2v.html ← QoderWork 基线
 docs/design/tasty-sam/line-a-cyber/storyboard-r2v.html   ← 我的延续线
 docs/design/tasty-sam/line-b-atelier/storyboard-r2v.html ← 我的突破线
 ```
