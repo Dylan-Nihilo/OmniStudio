@@ -132,3 +132,6 @@ docs/plans/*
 .gstack/
 docs/agents/
 frontend/docs/
+
+# Rust/Tauri build artifacts
+src-tauri/target/
