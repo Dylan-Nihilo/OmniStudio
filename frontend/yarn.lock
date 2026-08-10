@@ -133,25 +133,25 @@
   resolved "https://registry.npmjs.org/@eslint/js/-/js-8.57.1.tgz"
   integrity sha512-d9zaMRSTIKDLhctzH12MtXvJKSSUhaHcjV+2Z+GK+EEY7XKpP5yR4x+N3TAcHTcu963nIr+TMcCb4DBCYX1z6Q==
 
-"@floating-ui/core@^1.7.5":
-  version "1.7.5"
-  resolved "https://registry.anpm.alibaba-inc.com/@floating-ui/core/-/core-1.7.5.tgz"
-  integrity sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ==
+"@floating-ui/core@^1.8.0":
+  version "1.8.0"
+  resolved "https://registry.anpm.alibaba-inc.com/@floating-ui/core/-/core-1.8.0.tgz"
+  integrity sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==
   dependencies:
-    "@floating-ui/utils" "^0.2.11"
+    "@floating-ui/utils" "^0.2.12"
 
 "@floating-ui/dom@^1.0.0":
-  version "1.7.6"
-  resolved "https://registry.anpm.alibaba-inc.com/@floating-ui/dom/-/dom-1.7.6.tgz"
-  integrity sha512-9gZSAI5XM36880PPMm//9dfiEngYoC6Am2izES1FF406YFsjvyBMmeJ2g4SAju3xWwtuynNRFL2s9hgxpLI5SQ==
+  version "1.8.0"
+  resolved "https://registry.anpm.alibaba-inc.com/@floating-ui/dom/-/dom-1.8.0.tgz"
+  integrity sha512-yXSrzeHZBTZadLOlfyhCkJHNeLJnHRnRInwdZ40L7ZiaAtrBwoYlsDrX3v5zB1Utk7CLfzcOVnVVWoXEky7Ceg==
   dependencies:
-    "@floating-ui/core" "^1.7.5"
-    "@floating-ui/utils" "^0.2.11"
+    "@floating-ui/core" "^1.8.0"
+    "@floating-ui/utils" "^0.2.12"
 
-"@floating-ui/utils@^0.2.11":
-  version "0.2.11"
-  resolved "https://registry.anpm.alibaba-inc.com/@floating-ui/utils/-/utils-0.2.11.tgz"
-  integrity sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==
+"@floating-ui/utils@^0.2.12":
+  version "0.2.12"
+  resolved "https://registry.anpm.alibaba-inc.com/@floating-ui/utils/-/utils-0.2.12.tgz"
+  integrity sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==
 
 "@formatjs/fast-memoize@^3.1.0", "@formatjs/fast-memoize@3.1.2":
   version "3.1.2"
@@ -488,6 +488,11 @@
   dependencies:
     "@swc/counter" "^0.1.3"
 
+"@tauri-apps/api@^2.11.1":
+  version "2.11.1"
+  resolved "https://registry.anpm.alibaba-inc.com/@tauri-apps/api/-/api-2.11.1.tgz"
+  integrity sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==
+
 "@testing-library/dom@^10.0.0":
   version "10.4.1"
   resolved "https://registry.npmjs.org/@testing-library/dom/-/dom-10.4.1.tgz"
@@ -521,159 +526,159 @@
   dependencies:
     "@babel/runtime" "^7.12.5"
 
-"@tiptap/core@^3.27.2", "@tiptap/core@3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/core/-/core-3.27.2.tgz"
-  integrity sha512-zRWROdDbeIghFIT05ZYc+0cCkQFBy7sN/VjFc41qJ1fuq+lfgGDotVUXLuVqVe288jSpo/VGmy/iFLIQTc9mwg==
+"@tiptap/core@^3.29.2", "@tiptap/core@3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/core/-/core-3.29.2.tgz"
+  integrity sha512-oKUkiPUB7noilVYxI9lNzUD4rX17sHub+PYjMfHMWHG9A3nvIy+FdePIVIIhThKWF7ijhr3eIqHY51Bn+GAFtw==
 
-"@tiptap/extension-blockquote@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-blockquote/-/extension-blockquote-3.27.2.tgz"
-  integrity sha512-pafmW5GPZnRktQ4TegU8PIP+udboPw0O0AWYKk9HVDTI+VAqGwe1Xmb9k8tPCyn3et7LO62r14pK3S8Av+dxWQ==
+"@tiptap/extension-blockquote@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-blockquote/-/extension-blockquote-3.29.2.tgz"
+  integrity sha512-ca4OzKDh0yaxg2+Z56bC2QnWsNsFp2YMRfVig1PDXyMVFMNJpLcnhxgq/9btn+xYAlYrj8RymOeCTYREOR6Zjg==
 
-"@tiptap/extension-bold@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-bold/-/extension-bold-3.27.2.tgz"
-  integrity sha512-R+HZ/symZZhhnxZf3xyGbm2mWf48K+/kYucm88TMzMUWBjXhnL1G2JwaURxXUXb0nvsz6T2IqOhPKwCvAtb7oQ==
+"@tiptap/extension-bold@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-bold/-/extension-bold-3.29.2.tgz"
+  integrity sha512-elYbGxJsYnBb4leqrcjdIJuiG380BcOgN+UUzvOv+qEjfGVzHodFOMBl3qnmD6urYHNu5/qQK2S0qSSRXKCLNQ==
 
-"@tiptap/extension-bubble-menu@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-bubble-menu/-/extension-bubble-menu-3.27.2.tgz"
-  integrity sha512-XqJiV/KqJ7hehz0KNQwg2lnp8SyUMhLWd9e1zYi2dLgasZvV11EiVbcmwRjMsvVKIuTsglji9w6lDk6yGkQ+pQ==
+"@tiptap/extension-bubble-menu@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-bubble-menu/-/extension-bubble-menu-3.29.2.tgz"
+  integrity sha512-kzcWarcpr031rZu+R3Hzut5uxb3Qj/xxMDEYZIQ3uiq1yb5vEMXj8/SIyWautk6Nu8Rr1leV3rGdR4NzhzyFAA==
   dependencies:
     "@floating-ui/dom" "^1.0.0"
 
-"@tiptap/extension-bullet-list@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-bullet-list/-/extension-bullet-list-3.27.2.tgz"
-  integrity sha512-YYJfm3IBTOccraVUavKIPQEspZlfCmL1zlcve93OVwujo0ndgk0fy6tp7Xs2EA4dXy303fnu5xKs1H08hkqQMg==
+"@tiptap/extension-bullet-list@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-bullet-list/-/extension-bullet-list-3.29.2.tgz"
+  integrity sha512-3bWcCUPbCHv0XttlMdnAtXLNYWx2pblByMgxmGsaP9FU0QnslGXty6A6gHCqI33ygRg1vrA6U5Wtpwbi5aKu5g==
 
 "@tiptap/extension-character-count@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-character-count/-/extension-character-count-3.27.2.tgz"
-  integrity sha512-jP/s5GhfNlOw2CVHtoavzY1B23rVdMmr9fwTMzJTrLQzgvMsRq3bbf9GPgNeIMnadC156cNPXXZX45e3zYY3Hw==
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-character-count/-/extension-character-count-3.29.2.tgz"
+  integrity sha512-tEORzLUIjPQJYYj1wnO5d3XfYhcqJGRBJCQ6tvr572m9ApDRsnEfrQmNUGG4Hnqpjebrn2oSk+oX54UuRT1GUw==
 
-"@tiptap/extension-code-block@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-code-block/-/extension-code-block-3.27.2.tgz"
-  integrity sha512-RlrQdRLIHapi3YDYzNJa1cWnpM9aynGPoqmoEk3qdyOrXO/FFBQk/tUy+IsxZhaNSnuYPo/5cgzwG2z6Ofa9Sw==
+"@tiptap/extension-code-block@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-code-block/-/extension-code-block-3.29.2.tgz"
+  integrity sha512-w153ct8g6dLiPTdXQ6SOIMxX4SEo5Q50AmjdEEEcJ7ZcYUcde/ScSskLHfOYmyt5ZFAiyEwr121+pux+p3/oAQ==
 
-"@tiptap/extension-code@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-code/-/extension-code-3.27.2.tgz"
-  integrity sha512-IeWL8DP6dlvSfj3hvluX+pztpNi4tZdyUvcCYG8ODj4WVHom0Vrfila88hNsL8YXbbQ0iNPLoYgcffjfWEm6aA==
+"@tiptap/extension-code@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-code/-/extension-code-3.29.2.tgz"
+  integrity sha512-c6W5UGuB7WNLpYocsgRzpO2OOTI4QjaI9jjHRMuty9z+s9DtaYM/HrRLNwVh6MopkHb+i/89Wkv8gCS34fftig==
 
-"@tiptap/extension-document@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-document/-/extension-document-3.27.2.tgz"
-  integrity sha512-RkvCVKsAUEBxdc5EltXQfaiC33/PFByokRuVI08IeQDukwF9lrvba/O8vHAcHAh+XWTiy+U88m5ORLUO1MIlJA==
+"@tiptap/extension-document@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-document/-/extension-document-3.29.2.tgz"
+  integrity sha512-YUamvefLnsqu6124GavVTI7nqcFlQJ12ROB0oSwG69eSBZYNjg1tIs05LFrBxkwf4Xgqd6YzfJ9+FeG428RvzQ==
 
-"@tiptap/extension-dropcursor@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-dropcursor/-/extension-dropcursor-3.27.2.tgz"
-  integrity sha512-PUMhuvP4zyv41iRR06m87DoeLCBbT6SFstz9QZCZcK6+17rk8cdifFE+LIfRPAoPYEO/+jRoCcJ7BhGrOJDWzA==
+"@tiptap/extension-dropcursor@^3.27.2", "@tiptap/extension-dropcursor@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-dropcursor/-/extension-dropcursor-3.29.2.tgz"
+  integrity sha512-KKno7cU9r1HdR48CRrsDu69/1UjZdoslq/UcE+Kx+tdhAv/aljXMkRSNzGMrBNOBDmHRgS1+58zm21WQWdQzwA==
 
-"@tiptap/extension-floating-menu@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-floating-menu/-/extension-floating-menu-3.27.2.tgz"
-  integrity sha512-XDBfNhR0XKdSC1Kqm8GZs8lfKptfJP8PHtW+TwIxkfm2oxRv6vY5n+W+FyYYViGTlBPW31ODyw+YtEKAPKnrww==
+"@tiptap/extension-floating-menu@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-floating-menu/-/extension-floating-menu-3.29.2.tgz"
+  integrity sha512-CBTq4Xs5aGWr65uFCIkKBms796OhmirWf/ax//iJ4fl9IfwqjwFuc2vQs9PmuwpKn9ctDHo2sMTtvyeCvIt5LQ==
 
-"@tiptap/extension-gapcursor@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-gapcursor/-/extension-gapcursor-3.27.2.tgz"
-  integrity sha512-yT5/qzjJHVNfbXOWaQBbIqomhEWgi9ScB6gbY6TdYREqSIZiLVCEjXo9mDU2kiTFLoOznJ6p7BlhmluzKpI6NQ==
+"@tiptap/extension-gapcursor@^3.27.2", "@tiptap/extension-gapcursor@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-gapcursor/-/extension-gapcursor-3.29.2.tgz"
+  integrity sha512-8Q39UR4/Tit759IeW9xZIe3NMwN11GsuA3FLheDyyGn7RrW02HD3HhUDlazE54Ki4HoosjFmChPlN4Ik2ubdRQ==
 
-"@tiptap/extension-hard-break@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-hard-break/-/extension-hard-break-3.27.2.tgz"
-  integrity sha512-nlr095C2FOOXF77gp1xKUUdpnvACckyVhIQJyurxOpHFtKFNEL/850MX/QhPHMAbGb/VdkcBqyLvQI59i0pA9A==
+"@tiptap/extension-hard-break@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-hard-break/-/extension-hard-break-3.29.2.tgz"
+  integrity sha512-eUW3LN3fq8rXnjEUeI3D2QONYdLsU3yYQm4jxlErs2h4cfwrFjgf19VSUFVmm6LrFbbQ0OnDVPeVLL6iOwDw2w==
 
-"@tiptap/extension-heading@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-heading/-/extension-heading-3.27.2.tgz"
-  integrity sha512-AERG0GecEYhQ3j4y1VK+FsDcl1PN5IPMTFZNEbsqyo/ZZBE1bIGriTV5/dTAWPfmUFnJEfR7FYTkqu2cMvL+oA==
+"@tiptap/extension-heading@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-heading/-/extension-heading-3.29.2.tgz"
+  integrity sha512-6W4aIy70Mh7BNlbG9zZ5FBLhJhU2UUEzgZJ/jwYSCcB30o8McLxJSEjhtoHiX8R78Ah2/JzBGvIe5olZlbeE4A==
 
 "@tiptap/extension-history@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-history/-/extension-history-3.27.2.tgz"
-  integrity sha512-4PC2XJ/+PfG7jQwXSEVA4dJmYQNTFx8IH8jNmxBLl/X1XgVPJcKVTohJzlqhKRvV7qZ0uxgZSaD6kHcTilFulw==
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-history/-/extension-history-3.29.2.tgz"
+  integrity sha512-AMpvoJxz/gqTMAiUo2LOujR44FoICe9ADaSTJMMV+mc+GxAw3YF3Q6frxIKRZkMGMHYDnHLFei7J2fLvCa4ecA==
 
-"@tiptap/extension-horizontal-rule@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-horizontal-rule/-/extension-horizontal-rule-3.27.2.tgz"
-  integrity sha512-kuDRRmV5Hz/S6eYh5DRtG6RwbQdbThMEOs65d9MjLyNdJi+o9LMtmEm1Bd3ZLYRuIDKbdaNyXe8D6auGzsPHuQ==
+"@tiptap/extension-horizontal-rule@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-horizontal-rule/-/extension-horizontal-rule-3.29.2.tgz"
+  integrity sha512-8/ZPzbB9X85Mc9/7xVLZupQKBr2UVcQTGr512xtqMW+XkCQRHCph46tRo828YE13IMWI5fWn/FaNCqXG9cULSw==
 
-"@tiptap/extension-italic@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-italic/-/extension-italic-3.27.2.tgz"
-  integrity sha512-iAnhS/UbQkk8jioeIMyn98clQGF+6eozrYqABmmzE/lxvYew0PfeNbNnj2poOCZ93USU1pYcf06Kp2Q85wpfwA==
+"@tiptap/extension-italic@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-italic/-/extension-italic-3.29.2.tgz"
+  integrity sha512-iH63V/5wsaMnY4Jz0+meaAGhaec4AiOzOduzl6ZZr5IyGhZ1kthyW84ELt0dyLI3hNceAUhaNWc+I7+vX0aoXA==
 
-"@tiptap/extension-link@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-link/-/extension-link-3.27.2.tgz"
-  integrity sha512-I3VvI5/J4afMEQbjkcW2sw0ediJMy+Asz46nI2C6cK+qDtGatE9jOZo/rFMG5scTwSx3nrIZkbCcTMTJz1TFEw==
+"@tiptap/extension-link@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-link/-/extension-link-3.29.2.tgz"
+  integrity sha512-DcVer5SqrexKCEP6Ip1UPxJUMvcRCCItSv0wxoGytanrimBh2smvcg6X0DWnjlsi5H0updhyl+atYCmmQXUIXA==
   dependencies:
     linkifyjs "^4.3.3"
 
-"@tiptap/extension-list-item@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list-item/-/extension-list-item-3.27.2.tgz"
-  integrity sha512-k3D6CMZMn5GhxiCLCMizAs1uEXyQOzhR/ySiwqE3SCvz2R1Uvyg68WKcs0j5Mto5OQoD+e1H2SaLFP6+dyez4A==
+"@tiptap/extension-list-item@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list-item/-/extension-list-item-3.29.2.tgz"
+  integrity sha512-s8vBVHHFT0Qpu7CzAZ7S1kYmSiVaDvUNvMNcZUWnxj6VPfiwmx0eXd9FsjePrRCMoM5tFmPnhFTHDxY3D/eZeQ==
 
-"@tiptap/extension-list-keymap@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list-keymap/-/extension-list-keymap-3.27.2.tgz"
-  integrity sha512-0Iy8+6/LPvD1+wpRr/RnHQ73ykoovjUf6HEw6RFyXDnUWWVnU6YLUNLxMUpuiKQ+k3d/gRRKITrCqghIuqiwJQ==
+"@tiptap/extension-list-keymap@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list-keymap/-/extension-list-keymap-3.29.2.tgz"
+  integrity sha512-R+3k8OLnxdCH7Xy9ieOwUt5m2Je74u8mikothGmsYVO2Zyq48fIbmZ+X6RBPCu7DBOI2FIUhHEFbKQeDWvDNmA==
 
-"@tiptap/extension-list@^3.27.2", "@tiptap/extension-list@3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list/-/extension-list-3.27.2.tgz"
-  integrity sha512-SsVnh5ruM9QjgOGbhJjegHAIADuoE+9Sb0UV+lyxAeuEwO98JpVmE926Yur9abzUAA9MWZZ/XBIzoA5q0a4dBQ==
+"@tiptap/extension-list@^3.29.2", "@tiptap/extension-list@3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-list/-/extension-list-3.29.2.tgz"
+  integrity sha512-WPZ9BHAPT6QeIm1vdVkuoOWvy9a8/EZeJwV2VhU8LXyTAttvzyj4rsbbHyJWvYWlUSTt/QF2AZ2zhKo7u1w3/A==
 
 "@tiptap/extension-mention@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-mention/-/extension-mention-3.27.2.tgz"
-  integrity sha512-KMsPDL6P0pD4u+Aq6xCkpDRemUqhihK5y//Q2wvycHtXolRwtUr/cZCgOhrvAUcuacxGHHUk2tjGxjpgQ/UIuw==
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-mention/-/extension-mention-3.29.2.tgz"
+  integrity sha512-WF8ugDa2IRbgyRW+PffPYg8ZI+Qp9azvIsNoyuf+VSg5Vp7ze2TuJXUTObSckyiN5Ann8bDNM9Hbu3TdoI0DFQ==
 
-"@tiptap/extension-ordered-list@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-ordered-list/-/extension-ordered-list-3.27.2.tgz"
-  integrity sha512-AqPDtnwm9QR50BYTC30Pas5fQhRQZvOOBykhbbPefYta8GzSF4sD4L/dSWqitDbZCOTQgL9EbtsJdpmKGF5hJQ==
+"@tiptap/extension-ordered-list@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-ordered-list/-/extension-ordered-list-3.29.2.tgz"
+  integrity sha512-ndCunC+UsYOpkOtL7vGnDz21UNa45WUlcO9wMT1fbuYow2QnRhsuMlCWENXI52YPPARWuQ0RDgN7q6TaxPERBg==
 
-"@tiptap/extension-paragraph@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-paragraph/-/extension-paragraph-3.27.2.tgz"
-  integrity sha512-On4uQqEbdmV5sgDRisIkLUqrhSEjr38QnIr7Zl2Lvnd4//RGkuJALhyJrZBkHh0VXNMbqPeJ3lL7l/beG1RXDg==
+"@tiptap/extension-paragraph@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-paragraph/-/extension-paragraph-3.29.2.tgz"
+  integrity sha512-7qJj5YTr11vvjNgjDN1ypOfwTovc0QOCYcit/rskeuVgnmQZOZQzC/BbyKLLG7UGnpRLemU/mEGbW9pAqjAXkQ==
 
 "@tiptap/extension-placeholder@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-placeholder/-/extension-placeholder-3.27.2.tgz"
-  integrity sha512-dTK0W7Tp74pnbnwhF7uRU6XCnkAVLFehcyWw2Gms4xJyw5RRXg2W5RKJ2toqu8lgt/wNcdKmeeJVZJ+PBdyH1A==
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-placeholder/-/extension-placeholder-3.29.2.tgz"
+  integrity sha512-/BlpPIq2JZk6zLaeYVOXazi6dmd0iRriTymNEnFn1doManN1y5HED9LsMeb/AhNhauL5AgmcHgpvAjbsN9k4SA==
 
-"@tiptap/extension-strike@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-strike/-/extension-strike-3.27.2.tgz"
-  integrity sha512-5trECNOg49bQEWJmxmEHg1KqWaPzCS3FYwU73Cy/XsJuOllTV2MoHP3si+pmSXtDGptpPIumZ6BPE9v2/QqzXw==
+"@tiptap/extension-strike@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-strike/-/extension-strike-3.29.2.tgz"
+  integrity sha512-aEvLAbddUQZ+FukCreV3q4G2HfNI+odE7E9U+wbq6XsSWKyo8/pDu1muz+TFKNre4blSMOQ3JQmw5UeHDKy+fg==
 
-"@tiptap/extension-text@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-text/-/extension-text-3.27.2.tgz"
-  integrity sha512-ZipAYrdVLtWU/YwdXkSGrW/PJnxqLGtx/GR5f0BSMO/OzxJppSc+5GSu+MEbwlFaptloSKQEHRbkACXDqm4IJg==
+"@tiptap/extension-text@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-text/-/extension-text-3.29.2.tgz"
+  integrity sha512-Ubko45JWWHe8glBt2PiGNF8hcbys/JNalFhiR7Y1X4iOOtAxAKJJxh3+eq+//NTlGuBPdWGp7zw8EEUp7anjKA==
 
-"@tiptap/extension-underline@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-underline/-/extension-underline-3.27.2.tgz"
-  integrity sha512-5/1XpKxBqAkiR6ND2P/jcPQ06Opcz/Nidd6dasMkjxwuRJPU5OSz3Qy1fsfLlduRU8TzSqjT8vpQJgaqsHqbLA==
+"@tiptap/extension-underline@^3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extension-underline/-/extension-underline-3.29.2.tgz"
+  integrity sha512-K7XwH/xS/5AIREWQ00VTEf/W5U0olp7j6wwit7cdd/8nHv6h6AGr1+iEApHKoLXWQZLfGQKzJlT9W61LAl+fHA==
 
-"@tiptap/extensions@^3.27.2", "@tiptap/extensions@3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extensions/-/extensions-3.27.2.tgz"
-  integrity sha512-WPmMf6+CXEgVpsxFGj20DYLt0gNU2zBATmxSPN5L+sDUx3gKXVjFtQxhKvrhaba5ubO45rIV1hJdo0AGu9TmBA==
+"@tiptap/extensions@^3.29.2", "@tiptap/extensions@3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/extensions/-/extensions-3.29.2.tgz"
+  integrity sha512-BCz+FCAChSYtUe4BFj97HEO+nSK+J7GxbJgZG4Hg7DT/gI+hRyeNndU8efiQAx3WGdzsFi3UxRpcF1tTQM7iMQ==
 
-"@tiptap/pm@^3.27.2", "@tiptap/pm@3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/pm/-/pm-3.27.2.tgz"
-  integrity sha512-4eBV9Fx16ZZUJuO4AvHzykxdYXfF/iMjpoI8q9PHvxOe+xx8tNa4ONhZMKJLpgCKEECJiBkQmr0gOmarzB0MtA==
+"@tiptap/pm@^3.27.2", "@tiptap/pm@^3.29.2", "@tiptap/pm@3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/pm/-/pm-3.29.2.tgz"
+  integrity sha512-GCOme7xHaS+DSoaA4CDcAD3l6JyBlvZhvCyfsy2Vp6j8tEoBkZWio7soYVosmlyn7zq8/64VeFZP5s47yfG7fQ==
   dependencies:
     prosemirror-changeset "^2.4.1"
     prosemirror-commands "^1.7.1"
@@ -682,7 +687,7 @@
     prosemirror-history "^1.5.0"
     prosemirror-inputrules "^1.5.1"
     prosemirror-keymap "^1.2.3"
-    prosemirror-model "^1.25.9"
+    prosemirror-model "^1.25.11"
     prosemirror-schema-list "^1.5.1"
     prosemirror-state "^1.4.4"
     prosemirror-tables "^1.8.5"
@@ -690,51 +695,51 @@
     prosemirror-view "^1.41.9"
 
 "@tiptap/react@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/react/-/react-3.27.2.tgz"
-  integrity sha512-NjDUyC0X+cZVAALDDdUGIUJVMrNRkewC9NaWPiDkqq+QzsXk8tDMHZ+z0D8QuG+nuCS6ot4+lMXCUPYFSIc+EA==
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/react/-/react-3.29.2.tgz"
+  integrity sha512-ZMKgteYmZXnq7C22U9fbCTC6jAF8XlQM5n2K2FLWCdYAlP4FNV3XeQ9hY2a13KSQ0Q3yltWXZlcWBpt5ClxScg==
   dependencies:
     "@types/use-sync-external-store" "^0.0.6"
     fast-equals "^5.3.3"
     use-sync-external-store "^1.4.0"
   optionalDependencies:
-    "@tiptap/extension-bubble-menu" "^3.27.2"
-    "@tiptap/extension-floating-menu" "^3.27.2"
+    "@tiptap/extension-bubble-menu" "^3.29.2"
+    "@tiptap/extension-floating-menu" "^3.29.2"
 
 "@tiptap/starter-kit@^3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/starter-kit/-/starter-kit-3.27.2.tgz"
-  integrity sha512-X28UrkkJPli8f2eCRkpaxE0PDbpwKNCxKrHE6tH40hHtd7SG4zgMw0bBmNYa9o+DJGc5dXipjK6sSc+2sud3cg==
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/starter-kit/-/starter-kit-3.29.2.tgz"
+  integrity sha512-oTu0tysiqk4zgjEtxRHjAQgxUKaAevZwueOWwSWubHdokqp7SpcbE5n9USJv89HKuTUDm3GjnQH6q8HNn/2DsA==
   dependencies:
-    "@tiptap/core" "^3.27.2"
-    "@tiptap/extension-blockquote" "^3.27.2"
-    "@tiptap/extension-bold" "^3.27.2"
-    "@tiptap/extension-bullet-list" "^3.27.2"
-    "@tiptap/extension-code" "^3.27.2"
-    "@tiptap/extension-code-block" "^3.27.2"
-    "@tiptap/extension-document" "^3.27.2"
-    "@tiptap/extension-dropcursor" "^3.27.2"
-    "@tiptap/extension-gapcursor" "^3.27.2"
-    "@tiptap/extension-hard-break" "^3.27.2"
-    "@tiptap/extension-heading" "^3.27.2"
-    "@tiptap/extension-horizontal-rule" "^3.27.2"
-    "@tiptap/extension-italic" "^3.27.2"
-    "@tiptap/extension-link" "^3.27.2"
-    "@tiptap/extension-list" "^3.27.2"
-    "@tiptap/extension-list-item" "^3.27.2"
-    "@tiptap/extension-list-keymap" "^3.27.2"
-    "@tiptap/extension-ordered-list" "^3.27.2"
-    "@tiptap/extension-paragraph" "^3.27.2"
-    "@tiptap/extension-strike" "^3.27.2"
-    "@tiptap/extension-text" "^3.27.2"
-    "@tiptap/extension-underline" "^3.27.2"
-    "@tiptap/extensions" "^3.27.2"
-    "@tiptap/pm" "^3.27.2"
+    "@tiptap/core" "^3.29.2"
+    "@tiptap/extension-blockquote" "^3.29.2"
+    "@tiptap/extension-bold" "^3.29.2"
+    "@tiptap/extension-bullet-list" "^3.29.2"
+    "@tiptap/extension-code" "^3.29.2"
+    "@tiptap/extension-code-block" "^3.29.2"
+    "@tiptap/extension-document" "^3.29.2"
+    "@tiptap/extension-dropcursor" "^3.29.2"
+    "@tiptap/extension-gapcursor" "^3.29.2"
+    "@tiptap/extension-hard-break" "^3.29.2"
+    "@tiptap/extension-heading" "^3.29.2"
+    "@tiptap/extension-horizontal-rule" "^3.29.2"
+    "@tiptap/extension-italic" "^3.29.2"
+    "@tiptap/extension-link" "^3.29.2"
+    "@tiptap/extension-list" "^3.29.2"
+    "@tiptap/extension-list-item" "^3.29.2"
+    "@tiptap/extension-list-keymap" "^3.29.2"
+    "@tiptap/extension-ordered-list" "^3.29.2"
+    "@tiptap/extension-paragraph" "^3.29.2"
+    "@tiptap/extension-strike" "^3.29.2"
+    "@tiptap/extension-text" "^3.29.2"
+    "@tiptap/extension-underline" "^3.29.2"
+    "@tiptap/extensions" "^3.29.2"
+    "@tiptap/pm" "^3.29.2"
 
-"@tiptap/suggestion@^3.27.2", "@tiptap/suggestion@3.27.2":
-  version "3.27.2"
-  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/suggestion/-/suggestion-3.27.2.tgz"
-  integrity sha512-X43P44e0lUWrbEqrR7NNcxYsr/KtIwv6yNeEK8lgUEopb2kaukP+1lfP9xZq/gOLNutYU0/ZnwyFx8jHyPzN1g==
+"@tiptap/suggestion@^3.27.2", "@tiptap/suggestion@3.29.2":
+  version "3.29.2"
+  resolved "https://registry.anpm.alibaba-inc.com/@tiptap/suggestion/-/suggestion-3.29.2.tgz"
+  integrity sha512-ZEhRm0gnRCwCScR9IrnIBhm9sr6U8vpR9oeznYk3hiedZ48zsgohqvgoIYpWcwYWrT2Pb0NrfhCT8IuSzdJHzQ==
 
 "@tweenjs/tween.js@~23.1.3":
   version "23.1.3"
@@ -2096,9 +2101,9 @@ fast-deep-equal@^3.1.1, fast-deep-equal@^3.1.3:
   integrity sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==
 
 fast-equals@^5.3.3:
-  version "5.4.0"
-  resolved "https://registry.anpm.alibaba-inc.com/fast-equals/-/fast-equals-5.4.0.tgz"
-  integrity sha512-jt2DW/aNFNwke7AUd+Z+e6pz39KO5rzdbbFCg2sGafS4mk13MI7Z8O5z9cADNn5lhGODIgLwug6TZO2ctf7kcw==
+  version "5.4.1"
+  resolved "https://registry.anpm.alibaba-inc.com/fast-equals/-/fast-equals-5.4.1.tgz"
+  integrity sha512-DjlFSM5Pk9cGcL0q5QXl66eGzx0N6szNgaswwc5ZphlBohjTVJSnGgI+rJVOgOi65qUoQnDZN4nDqi33udtydQ==
 
 fast-glob@^3.3.2:
   version "3.3.3"
@@ -3497,9 +3502,9 @@ prosemirror-changeset@^2.4.1:
     prosemirror-transform "^1.0.0"
 
 prosemirror-commands@^1.7.1:
-  version "1.7.1"
-  resolved "https://registry.anpm.alibaba-inc.com/prosemirror-commands/-/prosemirror-commands-1.7.1.tgz"
-  integrity sha512-rT7qZnQtx5c0/y/KlYaGvtG411S97UaL6gdp6RIZ23DLHanMYLyfGBV5DtSnZdthQql7W+lEVbpSfwtO8T+L2w==
+  version "1.7.2"
+  resolved "https://registry.anpm.alibaba-inc.com/prosemirror-commands/-/prosemirror-commands-1.7.2.tgz"
+  integrity sha512-q6Q6szxqdu9Xd6EcdKsqXghu5nQdZTpB4Q9yd04WRc7/jt763e/rT60Owh0L1GYY+T46o5rD+9lEN36dZS43tw==
   dependencies:
     prosemirror-model "^1.0.0"
     prosemirror-state "^1.0.0"
@@ -3550,10 +3555,10 @@ prosemirror-keymap@^1.0.0, prosemirror-keymap@^1.2.3:
     prosemirror-state "^1.0.0"
     w3c-keyname "^2.2.0"
 
-prosemirror-model@^1.0.0, prosemirror-model@^1.21.0, prosemirror-model@^1.25.4, prosemirror-model@^1.25.8, prosemirror-model@^1.25.9:
-  version "1.25.10"
-  resolved "https://registry.anpm.alibaba-inc.com/prosemirror-model/-/prosemirror-model-1.25.10.tgz"
-  integrity sha512-9n6rH4DbJU1eH4SxLt6Y0HhJIo6cZsb7DJ/30uob1hOKPeO6TAaMWI2tc7kwR92BjfPOU2fFHWbZLovLi3XQfA==
+prosemirror-model@^1.0.0, prosemirror-model@^1.21.0, prosemirror-model@^1.25.11, prosemirror-model@^1.25.4, prosemirror-model@^1.25.8:
+  version "1.25.11"
+  resolved "https://registry.anpm.alibaba-inc.com/prosemirror-model/-/prosemirror-model-1.25.11.tgz"
+  integrity sha512-QWg9RhnpLlogAmp3p96uEFrE5txQpFynd4vhBAELkwgOCWQs/X0yCzB3/hrHqiPwf91RG5KyWq6553zs9JqIOQ==
   dependencies:
     orderedmap "^2.0.0"
 
@@ -3594,9 +3599,9 @@ prosemirror-transform@^1.0.0, prosemirror-transform@^1.1.0, prosemirror-transfor
     prosemirror-model "^1.21.0"
 
 prosemirror-view@^1.0.0, prosemirror-view@^1.1.0, prosemirror-view@^1.27.0, prosemirror-view@^1.31.0, prosemirror-view@^1.41.4, prosemirror-view@^1.41.9:
-  version "1.42.0"
-  resolved "https://registry.anpm.alibaba-inc.com/prosemirror-view/-/prosemirror-view-1.42.0.tgz"
-  integrity sha512-N54DF3OXNWDuP81G1kbfCys8ZzIjuL1VnvJ2mk5STSu/fNxWIcX/EutQLA3s9KR/2wVhgDi4hzBB/1fINVxk0A==
+  version "1.42.2"
+  resolved "https://registry.anpm.alibaba-inc.com/prosemirror-view/-/prosemirror-view-1.42.2.tgz"
+  integrity sha512-Pdg0l5kXm8aLDquFAnQFTCITg0q44sLqBlHlpsVLD9segdOao8TOfQdAhCrCXyVgPSRr6UDDROOIWA3bIrN9YQ==
   dependencies:
     prosemirror-model "^1.25.8"
     prosemirror-state "^1.0.0"

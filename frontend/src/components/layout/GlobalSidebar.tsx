@@ -4,6 +4,7 @@ import { LayoutGrid, Layers, Wand2, Settings, FileText } from "lucide-react";
 import { useTranslations } from "next-intl";
 import clsx from "clsx";
 import LumenXBranding from "./LumenXBranding";
+import { isTauri } from "@/lib/transport";
 
 export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
 
@@ -81,7 +82,12 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
   };
 
   return (
-    <aside className="w-52 flex-shrink-0 h-full hidden md:flex flex-col border-r border-glass-border bg-surface/60 backdrop-blur-xl">
+    <aside
+      className="w-52 flex-shrink-0 h-full hidden md:flex flex-col border-r border-glass-border bg-surface/60 backdrop-blur-xl"
+      data-tauri-drag-region
+    >
+      {/* Traffic Light inset for Tauri desktop */}
+      {isTauri() && <div className="tauri-titlebar-inset" />}
       {/* Brand lockup — Logo + LUMENX + Slogan, click → workspace */}
       <button
         type="button"

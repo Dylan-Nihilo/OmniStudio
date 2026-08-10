@@ -16,6 +16,7 @@
   "dependencies": {
     "@react-three/drei": "^9.108.0",
     "@react-three/fiber": "^8.16.8",
+    "@tauri-apps/api": "^2.11.1",
     "@tiptap/extension-character-count": "^3.27.2",
     "@tiptap/extension-dropcursor": "^3.27.2",
     "@tiptap/extension-gapcursor": "^3.27.2",

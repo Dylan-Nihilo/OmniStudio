@@ -443,13 +443,24 @@ body {
 }
 /* Firefox — both properties inherit, so html cascades to every scroll region */
 html {
-  /* T11 global type-scale knob: 112.5% of the 16px UA default = 18px root.
-     Keeps the Playground consistent with workspace/library (the app's own
-     scale) rather than the mockup's tighter chrome. Single source of truth
-     for app-wide font scaling — every rem-based token scales off this. */
-  font-size: 112.5%;
+  /* T11 global type-scale knob — responsive scaling.
+     Desktop app windows (≤1440px) get a tighter scale (87.5% = 14px) to
+     maximise usable area; full browser viewports keep 100% (16px).
+     Single source of truth for app-wide font scaling — every rem-based
+     token scales off this. */
+  font-size: 87.5%;
   scrollbar-width: thin;
   scrollbar-color: var(--p-graphite-700, #292430) transparent;
+}
+@media (min-width: 1440px) {
+  html {
+    font-size: 100%;
+  }
+}
+@media (min-width: 1920px) {
+  html {
+    font-size: 112.5%;
+  }
 }
 
 @layer utilities {
@@ -1029,4 +1040,41 @@ html.atelier-light .atelier-new-tile:hover > span:first-child {
 /* Hide content blocks belonging to a collapsed scene */
 .script-editor .ProseMirror [data-scene-content-collapsed="true"] {
   display: none;
+}
+
+/* ===== Tauri Desktop: Window Drag Region ===== */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] [role="button"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Tauri desktop: Traffic Light avoidance padding */
+.tauri-titlebar-inset {
+  padding-top: 38px;
+}
+
+/* Tauri desktop: Top drag bar for window movement (drag via JS API) */
+.tauri-drag-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  z-index: 9999;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.tauri-drag-bar button,
+.tauri-drag-bar a,
+.tauri-drag-bar input {
+  pointer-events: auto;
 }

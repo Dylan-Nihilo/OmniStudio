@@ -90,6 +90,7 @@ logs/
 
 # Project outputs
 static/output/
+output
 output/
 static/
 
@@ -133,5 +134,7 @@ docs/plans/*
 docs/agents/
 frontend/docs/
 
-# Rust/Tauri build artifacts
+# Tauri
 src-tauri/target/
+src-tauri/binaries/*.app
+src-tauri/gen/
