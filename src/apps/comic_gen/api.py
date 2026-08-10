@@ -4154,14 +4154,13 @@ def _parse_fdx(xml_text: str) -> dict:
     import re
     from xml.etree.ElementTree import ParseError
 
-    try:
-        # defusedxml guards against entity-expansion attacks (XML bomb)
-        from defusedxml.ElementTree import fromstring as _xml_fromstring
-    except ImportError:
-        from xml.etree.ElementTree import fromstring as _xml_fromstring
+    # defusedxml guards against entity-expansion attacks (XML bomb).
+    # Hard dependency (declared in requirements.txt) so the parse path is
+    # always the hardened one; no stdlib fallback.
+    from defusedxml.ElementTree import fromstring as _xml_fromstring
 
-    # Reject DTD/entity declarations outright (defense-in-depth for the
-    # stdlib fallback; FDX files never legitimately contain them)
+    # Reject DTD/entity declarations outright (defense-in-depth;
+    # FDX files never legitimately contain them)
     if "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:
         raise HTTPException(status_code=400, detail="FDX XML with DTD/entity declarations is not allowed")
 
