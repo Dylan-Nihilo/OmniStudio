@@ -19,6 +19,7 @@ import type { GlobalTab } from "@/components/layout/GlobalSidebar";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import { useTranslations } from "next-intl";
+import TauriMenuListener from "@/components/layout/TauriMenuListener";
 
 const ProjectClient = dynamic(() => import("@/components/project/ProjectClient"), { ssr: false });
 const SeriesDetailPage = dynamic(() => import("@/components/series/SeriesDetailPage"), { ssr: false });
@@ -611,6 +612,18 @@ export default function Home() {
         setEpisodeId(null);
         return;
       }
+      // Menu action: open new project dialog then land on workspace
+      if (hash === '#/new-project') {
+        setCurrentView('home');
+        setActiveTab('workspace');
+        setProjectId(null);
+        setSeriesId(null);
+        setEpisodeId(null);
+        setIsDialogOpen(true);
+        // Clean URL without triggering another hashchange
+        history.replaceState(null, '', '#/');
+        return;
+      }
       // Default: workspace
       setCurrentView('home');
       setActiveTab('workspace');
@@ -1069,6 +1082,9 @@ export default function Home() {
         onClose={() => setIsImportDialogOpen(false)}
         onSuccess={() => fetchSeriesList()}
       />
+
+      {/* Tauri native menu event listener */}
+      <TauriMenuListener onNewProject={() => setIsDialogOpen(true)} />
     </main>
   );
 }
