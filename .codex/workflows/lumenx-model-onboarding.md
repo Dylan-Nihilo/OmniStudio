@@ -9,7 +9,7 @@ Use this workflow when working in this repository and the user asks to:
 
 - onboard a new model or model family into LumenX
 - update model docs, versions, defaults, parameters, or UI exposure
-- refresh DashScope proxy mappings for Wan, Kling, Vidu, or future families
+- refresh catalog definitions for the Wan, Kling, Vidu, or PixVerse model families
 - review whether a model change is catalog-only or requires runtime adapter work
 - run `/lumenx-model-onboarding`
 

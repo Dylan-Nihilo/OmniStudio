@@ -61,6 +61,8 @@ This repository does not rely on native slash commands in Codex. The strings `/l
 
 If both Claude and Codex guidance exist, preserve behavior parity unless the user asks for divergence.
 
+After editing any file in `.claude/commands/` or `.codex/workflows/`, run `python3 scripts/check_workflow_parity.py` to verify mirror parity. Record intentional divergences with reasons in the script's `WAIVERS` table.
+
 # LumenX Product Family (Core + Studio + Atelier)
 
 ## Overview
@@ -220,6 +222,9 @@ npm install
 npm run dev
 # Frontend available at: http://localhost:3008
 ```
+
+### Verification Commands
+Keep in sync with the same section in `CLAUDE.md`.
 
 Frontend verification commands:
 ```bash

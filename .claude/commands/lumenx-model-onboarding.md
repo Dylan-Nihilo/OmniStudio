@@ -161,6 +161,7 @@ description: LumenX 模型接入与文档更新流程 - 厂商文档抓取、mod
 - `src/utils/provider_media.py`
 - `src/models/`
 - `src/apps/comic_gen/models.py`
+- 各 provider 专属 model wrapper 里的请求 / 响应处理
 
 如果 UI 行为发生变化，检查：
 
