@@ -4152,7 +4152,18 @@ class ExportDocRequest(BaseModel):
 def _parse_fdx(xml_text: str) -> dict:
     """Parse FDX (Final Draft XML) into Tiptap JSON."""
     import re
-    from xml.etree import ElementTree as ET
+    from xml.etree.ElementTree import ParseError
+
+    try:
+        # defusedxml guards against entity-expansion attacks (XML bomb)
+        from defusedxml.ElementTree import fromstring as _xml_fromstring
+    except ImportError:
+        from xml.etree.ElementTree import fromstring as _xml_fromstring
+
+    # Reject DTD/entity declarations outright (defense-in-depth for the
+    # stdlib fallback; FDX files never legitimately contain them)
+    if "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:
+        raise HTTPException(status_code=400, detail="FDX XML with DTD/entity declarations is not allowed")
 
     FDX_TO_NODE: dict = {
         "Scene Heading": "sceneHeading",
@@ -4164,8 +4175,8 @@ def _parse_fdx(xml_text: str) -> dict:
     }
 
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
+        root = _xml_fromstring(xml_text)
+    except (ParseError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid FDX XML: {e}")
 
     content_nodes = []
@@ -4440,6 +4451,8 @@ def export_document(project_id: str, req: ExportDocRequest):
 
         except ImportError:
             # Fallback: generate printable HTML
+            from html import escape as _esc
+
             lines = doc_to_lines(doc)
             html_parts = [
                 "<!DOCTYPE html><html><head><meta charset='utf-8'>",
@@ -4461,7 +4474,7 @@ def export_document(project_id: str, req: ExportDocRequest):
                     "transition": "transition",
                     "action": "action",
                 }.get(node_type, "action")
-                html_parts.append(f'<p class="{css_class}">{text}</p>')
+                html_parts.append(f'<p class="{css_class}">{_esc(text)}</p>')
             html_parts.append("</body></html>")
             html_content = "\n".join(html_parts)
 
