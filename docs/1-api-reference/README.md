@@ -1,6 +1,6 @@
 # API Reference Staging Notes
 
-`docs/api-reference/` in this repository is a **repo-local evidence area**, not the long-term canonical vendor-doc archive.
+`docs/1-api-reference/` in this repository is a **repo-local evidence area**, not the long-term canonical vendor-doc archive.
 
 Use this folder for:
 

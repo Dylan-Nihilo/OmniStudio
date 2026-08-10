@@ -99,7 +99,7 @@
 
 你只有当前 LumenX 仓库，于是：
 
-- 原始文档先抓到 `docs/api-reference/`
+- 原始文档先抓到 `docs/1-api-reference/`
 - `model_catalog` 在本仓库更新
 - 在实现说明或 PR 中注明：外部 raw archive / Context Hub 还需要后续补同步
 
@@ -123,11 +123,11 @@
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [docs/plans/2026-04-03-model-docs-and-catalog-architecture.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-03-model-docs-and-catalog-architecture.md) | 最初的架构设计文档，回答“为什么要做这套系统” | 已同步到真实实现，补了前端本地 mirror 和校验入口 |
-| [docs/plans/2026-04-04-lumenx-model-onboarding-system.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-04-lumenx-model-onboarding-system.md) | 本轮实现计划文档，回答“这次具体要做哪些落地工作” | 新增 |
-| [docs/model-onboarding-implementation.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/model-onboarding-implementation.md) | 当前这份实现说明，解释系统已经怎么工作、每个文件负责什么 | 新增 |
-| [docs/api-reference/README.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/api-reference/README.md) | 解释 `docs/api-reference/` 的角色，避免误把它当成 canonical archive | 新增 |
-| [docs/api-reference/*.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/api-reference) | 仓库内的文档证据区 / 本地 staging 区 | 继续保留，用于 repo-only 模式下的文档证据 |
+| [docs/2-model-catalog-design/plans/2026-04-03-model-docs-and-catalog-architecture.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/2-model-catalog-design/plans/2026-04-03-model-docs-and-catalog-architecture.md) | 最初的架构设计文档，回答“为什么要做这套系统” | 已同步到真实实现，补了前端本地 mirror 和校验入口 |
+| [docs/2-model-catalog-design/plans/2026-04-04-lumenx-model-onboarding-system.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/2-model-catalog-design/plans/2026-04-04-lumenx-model-onboarding-system.md) | 本轮实现计划文档，回答“这次具体要做哪些落地工作” | 新增 |
+| [docs/2-model-catalog-design/model-onboarding-implementation.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/2-model-catalog-design/model-onboarding-implementation.md) | 当前这份实现说明，解释系统已经怎么工作、每个文件负责什么 | 新增 |
+| [docs/1-api-reference/README.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/1-api-reference/README.md) | 解释 `docs/1-api-reference/` 的角色，避免误把它当成 canonical archive | 新增 |
+| [docs/1-api-reference/*.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/1-api-reference) | 仓库内的文档证据区 / 本地 staging 区 | 继续保留，用于 repo-only 模式下的文档证据 |
 
 ### 4.3 Catalog 源文件层
 
@@ -230,7 +230,7 @@
 如果是一次常规模型更新，直接照下面做：
 
 1. 触发 `/lumenx-model-onboarding`
-2. 抓文档证据到外部 raw archive，或者当前仓库 `docs/api-reference/`
+2. 抓文档证据到外部 raw archive，或者当前仓库 `docs/1-api-reference/`
 3. 更新 `config/model_catalog/families/*.yaml`
 4. 运行 `python scripts/build_model_catalog.py`
 5. 运行 `python scripts/validate_model_catalog.py`
