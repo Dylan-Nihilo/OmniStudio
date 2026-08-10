@@ -252,7 +252,7 @@ export default function NewLibraryAssetDialog({ onClose, onCreated }: NewLibrary
             </label>
             <input
               id="lib-asset-image"
-              type="url"
+              type="text"
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
               placeholder={t("imageUrlPlaceholder")}
