@@ -589,7 +589,7 @@ const SHOT = {workspace:"workspace",storyboard:"storyboard",pipeline:"pipeline-s
 
 function liveURL(styleKey, modKey){
   if(styleKey==="original") return liveOriginal[modKey];
-  if(styleKey==="qoderwork") return `../02-design-prototypes/${QW[modKey]}.html`;
+  if(styleKey==="qoderwork") return modKey==="storyboard" ? "../../design/mock-02-storyboard-r2v.html" : `../02-design-prototypes/${QW[modKey]}.html`;
   if(styleKey==="linea") return `../../design/tasty-sam/line-a-cyber/${LINEFILE[modKey]}.html`;
   if(styleKey==="lineb") return `../../design/tasty-sam/line-b-atelier/${LINEFILE[modKey]}.html`;
 }
