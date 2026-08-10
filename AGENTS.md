@@ -60,6 +60,8 @@ This repository does not rely on native slash commands in Codex. The strings `/l
 
 If both Claude and Codex guidance exist, preserve behavior parity unless the user asks for divergence.
 
+After editing any file in `.claude/commands/` or `.codex/workflows/`, run `python3 scripts/check_workflow_parity.py` to verify mirror parity. Record intentional divergences with reasons in the script's `WAIVERS` table.
+
 # AI Comic Generator Platform
 
 ## Overview
@@ -147,6 +149,26 @@ npm run dev
 # Frontend available at: http://localhost:3008
 ```
 
+### Verification Commands
+Keep in sync with the same section in `CLAUDE.md`.
+
+Frontend verification commands:
+```bash
+cd frontend
+npm run typecheck
+npm run test
+npm run test:ui
+npm run test:all
+npm run build
+```
+
+Backend/catalog verification commands:
+```bash
+pytest -q
+python scripts/build_model_catalog.py
+python scripts/validate_model_catalog.py
+```
+
 ### Full Development Mode
 ```bash
 # Terminal 1: Start backend
@@ -180,9 +202,15 @@ output/
 ```
 
 ### Project Data
-User project data is stored in `~/.tron/comic/`:
-- `projects.json` - Main project database
-- `app.log` - Application logs
+Development project data is stored in this repository under `output/`:
+- `output/projects.json` - Studio main project database
+- `output/series.json` - Studio series database
+- `output/atelier_projects.json` - Atelier canvas/node/agent-turn persistence (independent of Studio)
+- generated media under `output/assets/`, `output/storyboard/`, `output/video/`, and `output/uploads/`
+
+Packaged desktop app configuration and logs are stored under `~/.lumen-x/`:
+- `~/.lumen-x/config.json` - App settings, API keys, and OSS configuration
+- `~/.lumen-x/logs/app.log` - Desktop app log file
 
 ## Key API Endpoints
 
@@ -240,7 +268,7 @@ User project data is stored in `~/.tron/comic/`:
 
 ### Logs
 - Backend logs appear in terminal when running start_backend.sh
-- Desktop app logs saved to: `~/.tron/comic/app.log`
+- Desktop app logs saved to: `~/.lumen-x/logs/app.log`
 
 ## Deployment
 - Frontend: Built with Next.js, can be deployed as static files
