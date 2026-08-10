@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LumenX Studio — 剧本编辑器重塑调研报告</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#FAFAFA;
+  --ink:#000000;
+  --ink-2:#333333;
+  --ink-3:#777777;
+  --ink-4:#AAAAAA;
+  --signal:#E8350E;
+  --signal-bg:rgba(232,53,14,0.04);
+  --green:#1B7340;
+  --red:#C62828;
+  --border:#000000;
+  --border-light:#E0E0E0;
+  --font:'Inter',-apple-system,sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+html{font-size:15px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+
+/* HERO — brutalist */
+.hero{
+  max-width:1100px;margin:0 auto;
+  padding:6rem 3rem 3rem;
+  border-bottom:3px solid var(--ink);
+}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3rem}
+.hero-top .label{font-size:.65rem;font-family:var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3)}
+.hero-top .version{font-family:var(--mono);font-size:.7rem;color:var(--signal);font-weight:700}
+.hero h1{
+  font-size:clamp(2.5rem,6vw,4.5rem);font-weight:900;
+  line-height:.95;letter-spacing:-.04em;
+  max-width:700px;margin-bottom:1.5rem;
+}
+.hero .subtitle{font-size:1rem;color:var(--ink-2);max-width:500px;line-height:1.8;font-weight:300}
+
+/* NAV */
+.toc{
+  position:sticky;top:0;z-index:100;
+  background:var(--bg);border-bottom:1px solid var(--border-light);
+  max-width:1100px;margin:0 auto;
+  padding:.6rem 3rem;display:flex;gap:1.5rem;overflow-x:auto;scrollbar-width:none;
+}
+.toc::-webkit-scrollbar{display:none}
+.toc a{color:var(--ink-3);text-decoration:none;font-size:.7rem;font-weight:600;white-space:nowrap;letter-spacing:.04em;transition:color .1s}
+.toc a:hover{color:var(--signal)}
+
+/* SECTION */
+.section{max-width:1100px;margin:0 auto;padding:4rem 3rem;border-bottom:1px solid var(--border-light)}
+.section-header{display:grid;grid-template-columns:80px 1fr;gap:2rem;margin-bottom:2.5rem;align-items:start}
+.section-header .num{font-family:var(--mono);font-size:3rem;font-weight:700;color:var(--ink-4);line-height:1}
+.section-header h2{font-size:1.4rem;font-weight:800;letter-spacing:-.02em;line-height:1.2}
+.section-header .lead{font-size:.88rem;color:var(--ink-2);line-height:1.8;margin-top:.5rem;max-width:50ch}
+.section h3{font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin:2.5rem 0 1rem;color:var(--ink);border-bottom:1px solid var(--border-light);padding-bottom:.4rem}
+
+/* STATS — giant numbers */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin:2rem 0;border:2px solid var(--ink)}
+.stat{padding:1.5rem;border-right:1px solid var(--border-light);text-align:left}
+.stat:last-child{border-right:none}
+.stat .value{font-size:2rem;font-weight:900;letter-spacing:-.03em;color:var(--ink)}
+.stat .label{font-size:.6rem;color:var(--ink-3);margin-top:.2rem;text-transform:uppercase;letter-spacing:.08em;font-weight:500}
+
+/* CARDS — modular grid */
+.card-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:2rem 0;border:1px solid var(--border-light)}
+.card{padding:1.2rem 1.5rem;border-bottom:1px solid var(--border-light);border-right:1px solid var(--border-light)}
+.card:nth-child(2n){border-right:none}
+.card:nth-last-child(-n+2){border-bottom:none}
+.card .tag{font-size:.55rem;text-transform:uppercase;letter-spacing:.12em;color:var(--signal);font-weight:700;margin-bottom:.3rem}
+.card .title{font-size:.88rem;font-weight:700;margin-bottom:.3rem;letter-spacing:-.01em}
+.card .desc{font-size:.78rem;color:var(--ink-2);line-height:1.65}
+
+/* TABLE */
+.table-wrap{overflow-x:auto;margin:1.5rem 0}
+table{width:100%;border-collapse:collapse;font-size:.78rem}
+th{font-weight:700;text-align:left;padding:.6rem 0;border-bottom:2px solid var(--ink);font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;color:var(--ink)}
+td{padding:.5rem 0;border-bottom:1px solid var(--border-light);color:var(--ink-2);padding-right:1.5rem}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink);font-weight:600}
+
+/* COMPARE */
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:2rem 0;border:1px solid var(--border-light)}
+.compare-col{padding:1.5rem}
+.compare-col:first-child{border-right:1px solid var(--border-light)}
+.compare-col h4{font-size:.75rem;font-weight:700;margin-bottom:.8rem;display:flex;align-items:center;gap:.4rem;text-transform:uppercase;letter-spacing:.05em}
+.compare-col h4 .dot{width:8px;height:8px;border-radius:1px}
+.compare-col ul{list-style:none}
+.compare-col li{padding:.25rem 0;font-size:.78rem;color:var(--ink-2);line-height:1.6}
+
+/* TIMELINE — horizontal blocks */
+.timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:2rem 0;border:2px solid var(--ink)}
+.tl-item{padding:1.2rem;border-right:1px solid var(--border-light)}
+.tl-item:last-child{border-right:none}
+.tl-item .tl-phase{font-size:.72rem;font-weight:800;letter-spacing:-.01em}
+.tl-item .tl-time{font-size:.6rem;color:var(--signal);font-family:var(--mono);font-weight:700;margin-bottom:.6rem}
+.tl-item .tl-list{list-style:none}
+.tl-item .tl-list li{font-size:.68rem;color:var(--ink-2);padding:.15rem 0;line-height:1.5}
+
+/* CODE */
+.code-block{background:var(--ink);color:#E0E0E0;padding:1.5rem 2rem;font-family:var(--mono);font-size:.72rem;line-height:2;overflow-x:auto;margin:1.5rem 0}
+.code-block .kw{color:#888}
+.code-block .tp{color:var(--signal)}
+.code-block .str{color:#FFF}
+
+/* QUOTE */
+.quote{margin:2rem 0;padding:1.5rem 2rem;background:var(--signal-bg);border-left:4px solid var(--signal)}
+.quote p{font-size:.9rem;font-weight:500;line-height:1.7;color:var(--ink)}
+.quote .src{font-size:.6rem;color:var(--ink-3);margin-top:.5rem;font-family:var(--mono);letter-spacing:.03em}
+
+/* FOOTER */
+footer{max-width:1100px;margin:0 auto;padding:3rem;font-size:.65rem;color:var(--ink-3);font-family:var(--mono);letter-spacing:.05em;border-top:3px solid var(--ink)}
+
+@media(max-width:768px){
+  .hero,.section,.toc{padding-left:1.5rem;padding-right:1.5rem}
+  .section-header{grid-template-columns:1fr}.section-header .num{font-size:2rem}
+  .compare,.card-grid{grid-template-columns:1fr}
+  .card{border-right:none!important}
+  .stats{grid-template-columns:1fr 1fr}
+  .timeline{grid-template-columns:1fr 1fr}
+  .hero h1{font-size:2.5rem}
+}
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="hero-top">
+    <span class="label">LumenX Studio · Research Report</span>
+    <span class="version">v6.0 — 2026.07.03</span>
+  </div>
+  <h1>剧本编辑器<br>重塑调研</h1>
+  <p class="subtitle">基于 40+ 信息来源的多维度深度调研，为 LumenX Studio 剧本编辑环节提供技术、设计与功能发展路线参考。含 Laper 竞品深度拆解。</p>
+</section>
+
+<nav class="toc">
+  <a href="#glossary">术语表</a>
+  <a href="#summary">执行摘要</a>
+  <a href="#status">现状评估</a>
+  <a href="#opensource">开源工具</a>
+  <a href="#competitor">竞品分析</a>
+  <a href="#trends">业界趋势</a>
+  <a href="#tech">技术方向</a>
+  <a href="#design">设计方向</a>
+  <a href="#roadmap">路线图</a>
+  <a href="#sources">来源</a>
+</nav>
+
+<section class="section" id="glossary">
+  <div class="section-header">
+    <div class="num">☰</div>
+    <div><h2>术语表</h2><p class="lead">本报告涉及剧本行业、协作技术、AI 架构等多个领域的专业术语，此表供非行业背景读者快速建立认知。</p></div>
+  </div>
+  <h3>剧本格式与行业标准</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>术语</th><th>英文</th><th>解释</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Fountain</strong></td><td>Fountain Markup</td><td>一种纯文本剧本格式标准（2012年）。用简单的文本规则（如 INT. 表示内景）来标记剧本元素，任何文本编辑器都能写剧本，类似 Markdown 之于文档。</td></tr>
+        <tr><td><strong>FDX</strong></td><td>Final Draft XML</td><td>Final Draft 软件的专有 XML 格式，是好莱坞行业事实标准。制片公司/编剧经纪人通常要求提交 .fdx 文件，支持 FDX 导入导出 = 能接入行业工作流。</td></tr>
+        <tr><td><strong>场景头</strong></td><td>Scene Heading / Slug Line</td><td>剧本中标识场景位置和时间的行，如「INT. 咖啡馆 - 夜」或「内景. 咖啡馆 - 夜」。INT=内景，EXT=外景。</td></tr>
+        <tr><td><strong>Beat Sheet</strong></td><td>Beat Sheet</td><td>剧本节拍表。将故事拆解为关键情节节点（beats）的结构化工具，常用 Save the Cat / 三幕式结构等框架。</td></tr>
+        <tr><td><strong>Script Locking</strong></td><td>Script Locking</td><td>剧本锁定。进入制片阶段后“冻结”页码，后续修改用彩色修订页标记，确保各部门参照的页码不变。</td></tr>
+        <tr><td><strong>WGA</strong></td><td>Writers Guild of America</td><td>美国编剧工会。剧本行业工会组织，制定 AI 使用政策、保护编剧权益，其 2023 MBA 协议明确限制了 AI 在剧本创作中的角色。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>协作与数据同步技术</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>术语</th><th>英文</th><th>解释</th></tr></thead>
+      <tbody>
+        <tr><td><strong>CRDT</strong></td><td>Conflict-free Replicated Data Type</td><td>无冲突复制数据类型。一种数据结构，允许多人同时编辑同一文档而不产生冲突，是 Google Docs / Figma / Notion 实时协作的核心技术。</td></tr>
+        <tr><td><strong>Yjs</strong></td><td>Yjs</td><td>一个开源的 CRDT 实现库（JavaScript），提供实时协作编辑能力。Tiptap 编辑器内置支持 Yjs，可让多人像在 Google Docs 里一样同时编辑剧本。</td></tr>
+        <tr><td><strong>Loro</strong></td><td>Loro CRDT</td><td>新一代高性能 CRDT 引擎（Rust 编写），Laper 采用。与 Yjs 目标相同（实时协作），但宣称在结构化文档场景有更好的性能表现。运行于 Web Worker 中不阻塞主线程。</td></tr>
+        <tr><td><strong>AI as CRDT Peer</strong></td><td>—</td><td>让 AI 作为文档的"协作者节点"加入编辑，像人类协作者一样参与文档修改。这是 2026 年新兴架构方向。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>编辑器技术</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>术语</th><th>英文</th><th>解释</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Tiptap</strong></td><td>Tiptap Editor</td><td>基于 ProseMirror 的开源富文本编辑框架。类比：Notion 块编辑器的底层引擎，支持自定义 Block 类型、嵌套节点、实时协作。</td></tr>
+        <tr><td><strong>ProseMirror</strong></td><td>ProseMirror</td><td>Tiptap 的底层引擎。一个极度可定制的文档编辑工具包，灵活度极高但上手门槛也高。</td></tr>
+        <tr><td><strong>Block-Based</strong></td><td>Block-based Editing</td><td>块编辑范式。文档由独立的“块”组成（段落/图片/代码等），每块可独立拖拽、转换类型。Notion/Craft 是典型代表。</td></tr>
+        <tr><td><strong>AST</strong></td><td>Abstract Syntax Tree</td><td>抽象语法树。将文本/代码解析为结构化的树形数据，Fountain.js 输出的 tokens 就是一种简化 AST。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>其他缩写与概念</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>术语</th><th>英文</th><th>解释</th></tr></thead>
+      <tbody>
+        <tr><td><strong>CJK</strong></td><td>Chinese-Japanese-Korean</td><td>中日韩文字系统的统称。在剧本软件中指对这些语言的排版、字符宽度、分行规则等特殊支持。</td></tr>
+        <tr><td><strong>CAGR</strong></td><td>Compound Annual Growth Rate</td><td>复合年增长率。衡量市场多年平均增速的指标，17–19% 表示每年市场规模增长这个比例。</td></tr>
+        <tr><td><strong>PLG</strong></td><td>Product-Led Growth</td><td>产品驱动增长。用户先免费使用产品，体验价值后再付费，与“无需注册即可试用”策略相关。</td></tr>
+        <tr><td><strong>Multi-agent</strong></td><td>Multi-agent AI</td><td>多智能体架构。多个 AI 代理各司其职（格式化、续写、评估等），协同完成复杂任务，而非单一 LLM 处理所有事情。</td></tr>
+        <tr><td><strong>AI-Native</strong></td><td>AI-Native</td><td>从设计之初就以 AI 为核心构建（而非后期加装 AI 功能）。整个产品体验围绕 AI 能力设计。</td></tr>
+        <tr><td><strong>ink</strong></td><td>ink (inkle)</td><td>一种叙事脚本语言，用统一语法表达叙事内容和逻辑。被评为 AI 叙事集成友好度最高的工具，可导出 JSON 与任何引擎对接。</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="summary">
+  <div class="section-header">
+    <div class="num">01</div>
+    <div><h2>执行摘要</h2><p class="lead">当前剧本编辑器为纯 textarea，与行业存在严重差距。市场 17–19% 高速增长，需抓住中文短剧×AI 视频交叉机会。</p></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="value">$860M–$1B</div><div class="label">2034 全球市场预测（双来源）</div></div>
+    <div class="stat"><div class="value">17–19%</div><div class="label">全球 CAGR（亚太最快 19.2%）</div></div>
+    <div class="stat"><div class="value">78%</div><div class="label">编剧已使用 AI（23人访谈）</div></div>
+    <div class="stat"><div class="value">63%</div><div class="label">愿迁移（前提：可靠 FDX 导出）</div></div>
+  </div>
+  <div class="card-grid">
+    <div class="card"><div class="tag">技术选型</div><div class="title">Tiptap + Yjs + Fountain.js</div><div class="desc">三层架构：规则优先→LLM 兜底→用户做主。</div></div>
+    <div class="card"><div class="tag">竞品洞察</div><div class="title">Laper: Loro CRDT + 7维度派生</div><div class="desc">65+国家、好莱坞↔CJK一键切换、任务→资产AI。缺视频管线和 API。</div></div>
+    <div class="card"><div class="tag">优先级</div><div class="title">P0 格式引擎 → P1 AI+导出</div><div class="desc">4 阶段递进：格式→结构化→协作→生态。</div></div>
+    <div class="card"><div class="tag">设计</div><div class="title">沉浸式创作座舱</div><div class="desc">Block 编辑 + 三栏布局 + AI 气泡 + 场景色带。</div></div>
+  </div>
+</section>
+
+<section class="section" id="status">
+  <div class="section-header">
+    <div class="num">02</div>
+    <div><h2>现状评估</h2><p class="lead">ScriptProcessor.tsx 仍为纯 textarea，但已具备完整视频管线和两阶段实体提取。</p></div>
+  </div>
+  <div class="compare">
+    <div class="compare-col">
+      <h4><span class="dot" style="background:var(--green)"></span>已有优势</h4>
+      <ul>
+        <li>两阶段实体提取（extractPreview → confirm）</li>
+        <li>系列感知（ReconcileModal 跨集合并）</li>
+        <li>完整视频管线（剧本→分镜→视频）</li>
+        <li>两层保存（Zustand + blur 持久化）</li>
+        <li>完整 REST API（可编程集成）</li>
+      </ul>
+    </div>
+    <div class="compare-col">
+      <h4><span class="dot" style="background:var(--red)"></span>关键缺口</h4>
+      <ul>
+        <li>格式引擎：无自动排版（P0）</li>
+        <li>语法高亮：元素无区分（P0）</li>
+        <li>Fountain 解析：无结构识别（P0）</li>
+        <li>格式导出：无 FDX/PDF（P1）</li>
+        <li>内联 AI：无上下文续写（P1）</li>
+        <li>协作：无实时多人（P3）</li>
+      </ul>
+    </div>
+  </div>
+  <div class="code-block">
+    <span class="kw">// 当前数据流</span><br>
+    textarea → onChange: <span class="tp">setScript</span> + <span class="tp">updateProject</span>(Zustand)<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; → onBlur: <span class="str">PUT /projects/{id}/text</span><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; → 「提取实体」: <span class="str">POST /extract_preview</span> → LLM<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; → EntityConfirmModal → <span class="str">PUT /reparse</span>
+  </div>
+</section>
+
+<section class="section" id="opensource">
+  <div class="section-header">
+    <div class="num">03</div>
+    <div><h2>主流开源工具对比</h2><p class="lead">Fountain 生态是零成本高价值起点。</p></div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>工具</th><th>语言</th><th>核心能力</th><th>FDX</th><th>LumenX 价值</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Fountain.js</strong></td><td>JS</td><td>AST 解析 + HTML 输出</td><td>否</td><td>前端集成</td></tr>
+        <tr><td><strong>screenplay-tools</strong></td><td>C++/JS/Py/C#</td><td>跨语言模型 + Fountain↔FDX</td><td>是</td><td>数据模型</td></tr>
+        <tr><td><strong>BetterFountain</strong></td><td>VSCode</td><td>高亮+补全+大纲+预览+统计</td><td>否</td><td>交互金标准</td></tr>
+        <tr><td><strong>Afterwriting</strong></td><td>Web</td><td>编辑+PDF+分析</td><td>入</td><td>分析面板</td></tr>
+        <tr><td><strong>Trelby</strong></td><td>Python</td><td>格式强制+分页+20万名库</td><td>是</td><td>桌面参考</td></tr>
+        <tr><td><strong>KIT Scenarist</strong></td><td>跨平台</td><td>卡片看板+AI+全格式</td><td>是</td><td>大纲+多格式</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>商业工具关键数据</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>工具</th><th>定位</th><th>协作</th><th>定价</th><th>AI</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Final Draft 13</strong></td><td>好莱坞标准（95% 份额）</td><td>有限</td><td>$199.99</td><td>最小</td></tr>
+        <tr><td><strong>WriterDuet</strong></td><td>云端协作核心</td><td>实时</td><td>$11.99/月</td><td>生成式</td></tr>
+        <tr><td><strong>Arc Studio Pro</strong></td><td>现代编辑器</td><td>实时</td><td>$69–99/年</td><td>基础</td></tr>
+        <tr><td><strong>Celtx</strong></td><td>制片管理+剧本</td><td>有</td><td>$15/用户/月</td><td>场景提示</td></tr>
+        <tr><td><strong>Fade In</strong></td><td>跨平台专业</td><td>无</td><td>$79.95</td><td>无</td></tr>
+        <tr><td><strong>Highland 2</strong></td><td>macOS 极简写作</td><td>无</td><td>$49.99</td><td>AI 大纲→初稿</td></tr>
+        <tr><td><strong>创一AI</strong></td><td>短剧专属</td><td>有</td><td>未公开</td><td>全流程</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>中文市场工具</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>工具</th><th>定位</th><th>核心能力</th><th>LumenX 借鉴</th></tr></thead>
+      <tbody>
+        <tr><td><strong>有戏 XScript Pro</strong></td><td>专业剧本软件</td><td>中文格式排版 + 导演版 + 统计</td><td>中文格式规范参考</td></tr>
+        <tr><td><strong>写作大师</strong></td><td>AI 写作助手</td><td>小说/剧本生成 + 大纲规划</td><td>中文 AI 续写体验</td></tr>
+        <tr><td><strong>故事工厂</strong></td><td>剧本结构化工具</td><td>场景卡片 + 人物关系 + 时间线</td><td>卡片看板交互</td></tr>
+        <tr><td><strong>字画</strong></td><td>短剧剧本工具</td><td>短剧模板 + 场景拆解 + 一键排版</td><td>短剧模板系统</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>游戏叙事工具生态（相邻赛道参考）</h3>
+  <div class="quote">
+    <p>影视剧本编辑与游戏叙事工具是两个相邻赛道：前者服务「线性影视作品」，后者服务「非线性交互体验」。但 AI 集成能力和叙事逻辑引擎的设计思路可相互借鉴。</p>
+    <div class="src">— 《剧本创作开源工具 TOP10》· 独游魔盒 · 2026-06</div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>工具</th><th>GitHub Star</th><th>定位</th><th>Agent 友好度</th><th>LumenX 启示</th></tr></thead>
+      <tbody>
+        <tr><td><strong>ink（inkle）</strong></td><td>4300+</td><td>叙事脚本语言（AI 集成首选）</td><td style="color:var(--green)"><strong>10/10</strong></td><td>叙事逻辑+内容统一语法 → AI 生成剧本的参考范式</td></tr>
+        <tr><td><strong>WebGAL</strong></td><td>3300+</td><td>中国开发者视觉小说引擎</td><td>8/10</td><td>Web 技术栈 + 中文社区驱动 → 同类中文开发者生态的成功案例</td></tr>
+        <tr><td><strong>Ren'Py</strong></td><td>5400+</td><td>视觉小说工业标准</td><td>9/10</td><td>Python 原生 AI 集成 → 低门槛 AI 接入的典范</td></tr>
+        <tr><td><strong>Twine</strong></td><td>8500+</td><td>最纯粹的交互叙事工具</td><td>7/10</td><td>可视化节点编辑 → 非线性剧情结构的 UX 参考</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="competitor">
+  <div class="section-header">
+    <div class="num">04</div>
+    <div><h2>竞品深度分析 — Laper</h2><p class="lead">中国团队出品、服务 65+ 国家专业剧作人员。Loro CRDT + 任务→资产 AI 管线 +「剧本即真相源」。</p></div>
+  </div>
+  <div class="quote">
+    <p>剧本是影视创作的真相源。人物小传、关系图谱、分场、分镜、制作参考、导演沟通和后续制片资料，都应当从剧本中自然派生。</p>
+    <div class="src">— laper.ai 官方博客 · 2026</div>
+  </div>
+
+  <h3>Laper 七维度模型：剧本即数据库</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>维度</th><th>英文</th><th>生成方式</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>剧本</strong></td><td>Script</td><td>编辑体</td><td>剧本本体，全部其他维度的派生来源</td></tr>
+        <tr><td><strong>节拍</strong></td><td>Beats</td><td>手动</td><td>用于大纲规划的故事节拍</td></tr>
+        <tr><td><strong>场次</strong></td><td>Scenes</td><td>自动派生</td><td>从场次标题自动创建（不可手动创建，保护真相源）</td></tr>
+        <tr><td><strong>人物</strong></td><td>Characters</td><td>自动派生</td><td>从对白块自动识别</td></tr>
+        <tr><td><strong>地点</strong></td><td>Locations</td><td>自动派生</td><td>从场次标题地点部分提取</td></tr>
+        <tr><td><strong>道具</strong></td><td>Props</td><td>手动</td><td>手动添加并挂载到场次</td></tr>
+        <tr><td><strong>分镜</strong></td><td>Storyboard</td><td>按场次拆分</td><td>可视化组织镜头级别</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Laper 核心技术架构</h3>
+  <div class="card-grid">
+    <div class="card"><div class="tag">协作引擎</div><div class="title">Loro CRDT（非 Yjs）</div><div class="desc">数学保证一致性，引擎跑在 Web Worker 中，2000 节点剧本仍然顺滑。支持实时光标 + 行级评论 + 离线编辑自动同步。</div></div>
+    <div class="card"><div class="tag">AI 模式</div><div class="title">任务→资产流水线</div><div class="desc">非自动补全。AI 消费剧本上下文，产出结构化资产（画像/分镜/一页纸/选角海报/路演 PPT/预告片）。</div></div>
+    <div class="card"><div class="tag">格式引擎</div><div class="title">好莱坞 ↔ 亚洲 CJK 一键切换</div><div class="desc">Courier 12pt 标准边距 + 中日韩排版，同一剧本双模式导出。支持 FDX 双向导入导出。</div></div>
+    <div class="card"><div class="tag">前端栈</div><div class="title">shadcn/ui + Tailwind 4 + GSAP</div><div class="desc">现代设计系统，沉浸式专注模式，Framer Motion + GSAP 编排动效。</div></div>
+  </div>
+
+  <h3>Laper 定价与免费层策略</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>档位</th><th>价格</th><th>核心包含</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Junior（免费）</strong></td><td>$0</td><td>完整编辑器 + 每日 60 积分 + 2 个项目（真正可用的免费档）</td></tr>
+        <tr><td><strong>Senior</strong></td><td>$20/月</td><td>+每日 80 积分 + 450 月度奖励 + 3 个项目</td></tr>
+        <tr><td><strong>Master</strong></td><td>$100/月</td><td>+每日 160 积分 + 4000 月度奖励 + 无限项目 + 多人协作 + 分镜绘图</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="quote">
+    <p>PLG 策略：免费档是真正能写完一整部剧本的免费档，不是 7 天试用。团队协作是 Master 的招牌特性 —— 自然升级引导。</p>
+    <div class="src">— 产品设计启示：LumenX 同样可采用「免费剧本编辑 + 视频生成付费」的分层模式</div>
+  </div>
+
+  <h3>Laper vs LumenX 维度对标</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>维度</th><th>Laper</th><th>LumenX</th><th>差距/优势</th></tr></thead>
+      <tbody>
+        <tr><td>格式引擎</td><td>自动多语言 + CJK 一键切换</td><td>无</td><td style="color:var(--red)">严重落后</td></tr>
+        <tr><td>结构化 DB</td><td>7 维度自动派生（实时）</td><td>手动 LLM 提取</td><td style="color:var(--red)">落后</td></tr>
+        <tr><td>AI 深度</td><td>任务→资产管线（7种生成物）</td><td>仅实体提取</td><td style="color:var(--red)">落后</td></tr>
+        <tr><td>协作</td><td>Loro CRDT + 实时光标 + 离线同步</td><td>无</td><td style="color:var(--red)">落后</td></tr>
+        <tr><td><strong>视频管线</strong></td><td>无（仅分镜图片）</td><td>完整剧本→分镜→视频→合成</td><td style="color:var(--green)"><strong>核心领先</strong></td></tr>
+        <tr><td><strong>API</strong></td><td>无（基于公开信息）</td><td>完整 REST API</td><td style="color:var(--green)"><strong>显著优势</strong></td></tr>
+        <tr><td><strong>导出格式</strong></td><td>PDF/DOCX/TXT/FDX</td><td>无专业格式导出</td><td style="color:var(--red)">落后</td></tr>
+        <tr><td>定价</td><td>$0–$100/月（PLG）</td><td>内部工具</td><td>不可比</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Laper 产品哲学启示</h3>
+  <div class="card-grid">
+    <div class="card"><div class="tag">剧本 = 真相源</div><div class="title">LumenX 已具备类似思路</div><div class="desc">LumenX 的 extractPreview→reparse 已是“剧本派生”的雏形，但需升级为实时自动派生。</div></div>
+    <div class="card"><div class="tag">AI 克制</div><div class="title">「不替代编剧决定故事」</div><div class="desc">Laper 哲学与 WGA 政策一致：AI 诊断+整理+生成物料，不越界写故事。</div></div>
+    <div class="card"><div class="tag">差异化机会</div><div class="title">Laper 无视频生产能力</div><div class="desc">Laper 仅生成图片级分镜，LumenX 可做剧本→AI视频的完整闭环。</div></div>
+    <div class="card"><div class="tag">中文市场</div><div class="title">同为中国团队，分赛道竞争</div><div class="desc">Laper 主攻「剧本编辑+前期物料」，LumenX 主攻「剧本→视频全流程」。</div></div>
+  </div>
+
+  <h3>新竞品：FinalBit AI（2026 新入场）</h3>
+  <div class="quote">
+    <p>Persistent Story Memory — 持久故事记忆，主动监控角色弧线与情节连贯性，首次将长期记忆概念引入剧本创作工具。</p>
+    <div class="src">— finalbitai.com/blog · 2026</div>
+  </div>
+  <div class="card-grid">
+    <div class="card"><div class="tag">核心差异化</div><div class="title">持久故事记忆</div><div class="desc">主动监控角色弧线与情节连贯性，非通用 LLM 而是专门训练的剧本模型。</div></div>
+    <div class="card"><div class="tag">格式</div><div class="title">FDX + Fountain 输出</div><div class="desc">自动生成 Final Draft 兼容格式。</div></div>
+    <div class="card"><div class="tag">协作</div><div class="title">Suggestion-and-Accept</div><div class="desc">建议-接受模型 + 团队共享叙事元素数据库。</div></div>
+    <div class="card"><div class="tag">LumenX 启示</div><div class="title">跨场景连贯性追踪</div><div class="desc">「故事记忆」概念可强化实体提取的上下文追踪能力。</div></div>
+  </div>
+
+  <h3>竞品生态全景</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>工具</th><th>定位</th><th>核心 AI 能力</th><th>差异化</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Laper</strong></td><td>全流程 AI 原生</td><td>Loro CRDT + 任务→资产管线 + CJK</td><td>7维度自动派生 + 视觉生成闭环</td></tr>
+        <tr><td><strong>FinalBit AI</strong></td><td>结构感知型</td><td>持久故事记忆+叙事框架理解</td><td>角色/情节连贯性追踪</td></tr>
+        <tr><td><strong>NolanAI</strong></td><td>完整制片环境</td><td>自动脚本分拆+安全加密</td><td>专业制片安全级别</td></tr>
+        <tr><td><strong>Melies</strong></td><td>多媒体叙事</td><td>音频/视觉/剪辑集成；10M+ tokens</td><td>超大上下文+多媒体</td></tr>
+        <tr><td><strong>Scriptmatix</strong></td><td>AI 故事引擎</td><td>Beat-by-beat+角色弧光建模</td><td>结构逻辑最深</td></tr>
+        <tr><td><strong>Storyflow</strong></td><td>结构化规划</td><td>全画布+Save the Cat 框架</td><td>叙事结构框架</td></tr>
+        <tr><td><strong>Sudowrite</strong></td><td>AI 小说/散文</td><td>Story Engine 3.0；1000+ 插件</td><td>生成深度（无剧本格式）</td></tr>
+        <tr><td><strong>Arc Studio Pro</strong></td><td>现代格式+协作</td><td>Beat board+实时协作</td><td>传统格式×云端协作</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="trends">
+  <div class="section-header">
+    <div class="num">05</div>
+    <div><h2>业界需求与趋势</h2><p class="lead">四大核心方向：AI-Native、Block-Based、格式互操作、AI as CRDT Peer。</p></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="value">$186–220M</div><div class="label">2025 市场规模（双来源）</div></div>
+    <div class="stat"><div class="value">17–19%</div><div class="label">全球 CAGR（双来源交叉验证）</div></div>
+    <div class="stat"><div class="value">96%</div><div class="label">痛点：连贯性差</div></div>
+    <div class="stat"><div class="value">0%</div><div class="label">AI 对话满意度</div></div>
+  </div>
+  <div class="quote">
+    <p>AI 在早期构思阶段满意度达 100%，在对话生成阶段满意度为 0%。</p>
+    <div class="src">— arXiv 2502.16153v1 · ACM CHI 2025（23 位专业编剧深度访谈）</div>
+  </div>
+
+  <h3>AI 满意度分阶段详表</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>创作阶段</th><th>满意度</th><th>关键洞察</th></tr></thead>
+      <tbody>
+        <tr><td>早期构思</td><td style="color:var(--green)"><strong>100%</strong></td><td>AI 在发散创意时价值最高</td></tr>
+        <tr><td>故事结构化</td><td style="color:var(--red)">16.7%</td><td>结构化引导能力严重不足</td></tr>
+        <tr><td>完整剧本起草</td><td style="color:var(--red)">11%</td><td>长文本连贯性差</td></tr>
+        <tr><td>对话生成</td><td style="color:var(--red)"><strong>0%</strong></td><td>AI 工具最弱环节，缺乏角色声音差异</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>编剧期望的四种 AI 协作角色</h3>
+  <div class="card-grid">
+    <div class="card"><div class="tag">演员 Actor</div><div class="title">模拟角色心理与行为</div><div class="desc">→ LumenX 映射：角色档案 + 对话预览</div></div>
+    <div class="card"><div class="tag">观众 Audience</div><div class="title">受众接受度评估</div><div class="desc">→ LumenX 映射：分镜风格预览</div></div>
+    <div class="card"><div class="tag">专家 Expert</div><div class="title">叙事节奏批评 + 创新管线</div><div class="desc">→ LumenX 映射：结构诊断面板</div></div>
+    <div class="card"><div class="tag">执行者 Executor</div><div class="title">繁琐起草 + 可视化 + 弧线追踪</div><div class="desc">→ LumenX 映射：实体提取 + 分镜生成</div></div>
+  </div>
+  <h3>趋势矩阵</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>趋势</th><th>描述</th><th>LumenX 行动</th></tr></thead>
+      <tbody>
+        <tr><td>AI-Native 编辑流</td><td>AI 嵌入全流程</td><td>升级为 co-author</td></tr>
+        <tr><td>Block-Based</td><td>Notion/Craft 范式</td><td>textarea → Tiptap</td></tr>
+        <tr><td>格式互操作</td><td>Fountain/FDX</td><td>优先 Fountain + FDX</td></tr>
+        <tr><td>AI as CRDT Peer</td><td>AI 作文档节点</td><td>预留 Yjs</td></tr>
+        <tr><td>CJK 本土化</td><td>中文+短剧</td><td>中文场景头</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>协作需求现状</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>需求</th><th>行业现状</th><th>LumenX</th></tr></thead>
+      <tbody>
+        <tr><td>实时光标追踪</td><td>仅 WriterDuet / Celtx / Arc Studio</td><td>无</td></tr>
+        <tr><td>变更追踪/修订归因</td><td>WriterDuet 最完整</td><td>无</td></tr>
+        <tr><td>角色权限分级</td><td>基于角色的差异化编辑权限</td><td>无</td></tr>
+        <tr><td>CRDT 冲突解决</td><td>云端编辑最优解（Electric.ax 2026）</td><td>无</td></tr>
+        <tr><td>评论/批注</td><td>标注与回复链</td><td>无</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>WGA 对 AI 的政策立场</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>条款</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td>禁止</td><td>强制编剧使用 AI；将 AI 内容认定为文学材料</td></tr>
+        <tr><td>允许</td><td>编剧自愿使用（须公司同意）</td></tr>
+        <tr><td>披露义务</td><td>制片公司须告知编剧草稿是否含 AI 内容</td></tr>
+        <tr><td>训练保护</td><td>用编剧作品训练 AI 违反协议</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="quote">
+    <p>产品设计启示：AI 功能必须设计为可选、透明、可关闭的辅助工具，尊重创作者主权。</p>
+    <div class="src">— WGA 2023 MBA 协议条款解读</div>
+  </div>
+</section>
+
+<section class="section" id="tech">
+  <div class="section-header">
+    <div class="num">06</div>
+    <div><h2>技术方向建议</h2><p class="lead">Tiptap + Fountain.js + Yjs，三层解析。</p></div>
+  </div>
+  <h3>框架选型</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>框架</th><th>定制性</th><th>协作</th><th>上手</th><th>推荐</th></tr></thead>
+      <tbody>
+        <tr><td>ProseMirror</td><td>极高</td><td>Yjs 原生</td><td>高</td><td>从零定制</td></tr>
+        <tr><td><strong>Tiptap</strong></td><td>高</td><td>内置 Yjs</td><td><strong>低</strong></td><td style="color:var(--signal)"><strong>★ 推荐</strong></td></tr>
+        <tr><td>CodeMirror 6</td><td>高</td><td>插件化</td><td>中</td><td>Fountain 模式</td></tr>
+        <tr><td>Slate</td><td>极高</td><td>slate-yjs</td><td>中</td><td>精细交互</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>CRDT 引擎选型：Yjs vs Loro</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>维度</th><th>Yjs</th><th>Loro</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td>语言</td><td>JavaScript 原生</td><td>Rust + WASM</td><td>Loro 性能更高，但生态较新</td></tr>
+        <tr><td>生态</td><td>成熟（Tiptap/ProseMirror 内置）</td><td>新兴（Laper 已验证）</td><td>Yjs 零难度集成 Tiptap</td></tr>
+        <tr><td>性能</td><td>优秀</td><td>宣称更优（结构化文档）</td><td>Laper 2000 节点流畅</td></tr>
+        <tr><td>Web Worker</td><td>需手动配置</td><td>原生支持</td><td>Loro 不阻塞主线程</td></tr>
+        <tr><td><strong>建议</strong></td><td colspan="3">Phase 1–2 用 Yjs（生态成熟 + Tiptap 零配置）；Phase 3 评估 Loro 迁移可行性</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="code-block">
+    <span class="kw">interface</span> <span class="tp">ScriptDocument</span> {<br>
+    &nbsp;&nbsp;blocks: <span class="tp">ScriptBlock</span>[];<br>
+    &nbsp;&nbsp;meta: { title: <span class="str">string</span>; author: <span class="str">string</span>; version: <span class="str">number</span>; };<br>
+    }<br><br>
+    <span class="kw">interface</span> <span class="tp">ScriptBlock</span> {<br>
+    &nbsp;&nbsp;id: <span class="str">string</span>;<br>
+    &nbsp;&nbsp;type: <span class="str">'scene_heading'</span> | <span class="str">'action'</span> | <span class="str">'character'</span> | <span class="str">'dialogue'</span>;<br>
+    &nbsp;&nbsp;text: <span class="str">string</span>;<br>
+    }
+  </div>
+
+  <h3>Fountain 中文适配挑战</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>问题</th><th>原因</th><th>建议方案</th></tr></thead>
+      <tbody>
+        <tr><td>场景头识别</td><td>中文用「内景」/「外景」，与 INT./EXT. 不兼容</td><td>扩展解析规则支持中文前缀</td></tr>
+        <tr><td>角色名识别</td><td>Fountain 依赖全大写，中文无大小写之分</td><td>上下文+LLM 辅助识别</td></tr>
+        <tr><td>对白缩进</td><td>中文字符宽度不等宽，排版差异</td><td>CSS 级排版而非空格对齐</td></tr>
+        <tr><td>分页计算</td><td>中文一页≠英文一页（时长比例不同）</td><td>本地化分页算法</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>三层解析架构</h3>
+  <div class="card-grid">
+    <div class="card"><div class="tag">第一层</div><div class="title">规则优先</div><div class="desc">Fountain.js 语法规则确定性解析，零延迟、零成本，覆盖 80% 常见情形。</div></div>
+    <div class="card"><div class="tag">第二层</div><div class="title">LLM 兆底</div><div class="desc">规则无法确定时（非标准格式、混合语言）调用 LLM 推断元素类型。</div></div>
+    <div class="card"><div class="tag">第三层</div><div class="title">用户做主</div><div class="desc">最终分类决定权归用户，UI 提供快速修正快捷键。</div></div>
+    <div class="card"><div class="tag">设计原则</div><div class="title">可预测 > 智能</div><div class="desc">确定性规则永远优先于 AI 推断，避免「不可控」体验。</div></div>
+  </div>
+</section>
+
+<section class="section" id="design">
+  <div class="section-header">
+    <div class="num">07</div>
+    <div><h2>前端设计方向</h2><p class="lead">沉浸式创作座舱。</p></div>
+  </div>
+  <div class="card-grid">
+    <div class="card"><div class="tag">布局</div><div class="title">三栏：大纲 | 编辑 | 属性</div><div class="desc">左侧场景卡片可拖拽，中央 Block 编辑，右侧 AI 面板。</div></div>
+    <div class="card"><div class="tag">字体</div><div class="title">JetBrains Mono + Space Grotesk</div><div class="desc">等宽保证对齐，界面保持品牌一致。</div></div>
+    <div class="card"><div class="tag">色彩</div><div class="title">深色 + 语义色带</div><div class="desc">场景/对白/动作各有独特色彩标识。</div></div>
+    <div class="card"><div class="tag">签名</div><div class="title">左侧场景情绪色带</div><div class="desc">颜色直觉标识场景氛围与节奏。</div></div>
+  </div>
+
+  <h3>交互设计细节</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>组件</th><th>设计决策</th><th>参考</th></tr></thead>
+      <tbody>
+        <tr><td>大纲导航</td><td>场景卡片显示序号+情绪色+缩略文字；拖拽重排</td><td>BetterFountain 大纲视图</td></tr>
+        <tr><td>Block 编辑器</td><td>每个块自动缩进；类型标签左侧浮显；Tab 切换类型</td><td>Notion Block + Fountain 规则</td></tr>
+        <tr><td>AI 面板</td><td>右侧气泡式交互；建议可一键插入编辑器；不主动弹出</td><td>GitHub Copilot 行内模式</td></tr>
+        <tr><td>快捷键体系</td><td>/ 命令面板（Slash Command）；Cmd+Enter 提交生成</td><td>Notion / Linear</td></tr>
+        <tr><td>统计面板</td><td>场景数/对白占比/时长估算/角色出场分布</td><td>BetterFountain + Arc Studio</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>设计约束</h3>
+  <div class="compare">
+    <div class="compare-col">
+      <h4><span class="dot" style="background:var(--green)"></span>应做</h4>
+      <ul>
+        <li>内容（剧本文本）始终占据视觉主体</li>
+        <li>渐进式披露：默认极简，高级设置可展开</li>
+        <li>每个操作有即时视觉反馈（光标/动画/进度）</li>
+        <li>与视频管线无缝衔接（剧本→分镜一键流转）</li>
+      </ul>
+    </div>
+    <div class="compare-col">
+      <h4><span class="dot" style="background:var(--red)"></span>避免</h4>
+      <ul>
+        <li>模仿传统届面工具的多面板布局</li>
+        <li>AI 功能强制弹出/主动推送（尊重主权）</li>
+        <li>过度动画分散写作注意力</li>
+        <li>与视频预览完全分离的孤立编辑体验</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="roadmap">
+  <div class="section-header">
+    <div class="num">08</div>
+    <div><h2>功能路线图</h2><p class="lead">4 阶段递进，每阶段独立交付价值。</p></div>
+  </div>
+  <div class="timeline">
+    <div class="tl-item">
+      <div class="tl-phase">Phase 1</div>
+      <div class="tl-time">P0 · 4–6w</div>
+      <ul class="tl-list">
+        <li>Tiptap 替代 textarea</li>
+        <li>Fountain Block 类型</li>
+        <li>中文场景头扩展</li>
+        <li>语法高亮 + 行号</li>
+        <li>大纲导航面板</li>
+      </ul>
+    </div>
+    <div class="tl-item">
+      <div class="tl-phase">Phase 2</div>
+      <div class="tl-time">P1 · 6–8w</div>
+      <ul class="tl-list">
+        <li>实体 DB 实时同步</li>
+        <li>Inline AI 续写/改写</li>
+        <li>/ 命令面板</li>
+        <li>Fountain/FDX/PDF 导出</li>
+        <li>统计面板</li>
+      </ul>
+    </div>
+    <div class="tl-item">
+      <div class="tl-phase">Phase 3</div>
+      <div class="tl-time">P2 · 8–12w</div>
+      <ul class="tl-list">
+        <li>Yjs 实时协作</li>
+        <li>版本历史</li>
+        <li>AI as CRDT Peer</li>
+        <li>分屏预览</li>
+      </ul>
+    </div>
+    <div class="tl-item">
+      <div class="tl-phase">Phase 4</div>
+      <div class="tl-time">P3 · 12+w</div>
+      <ul class="tl-list">
+        <li>CJK 多语言排版</li>
+        <li>短剧模板</li>
+        <li>插件系统</li>
+        <li>Final Draft 导入/导出</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="sources">
+  <div class="section-header">
+    <div class="num">09</div>
+    <div><h2>参考来源</h2><p class="lead">40+ 信息来源，覆盖市场研究、开源生态、竞品、学术、代码分析五大维度。</p></div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>来源</th><th>类型</th><th>置信度</th></tr></thead>
+      <tbody>
+        <tr><td>S1</td><td>Fortune Business Insights（剧本软件市场 2025–2034）</td><td>市场研究</td><td>高</td></tr>
+        <tr><td>S2</td><td>fountain.io 官方规范</td><td>直接</td><td>高</td></tr>
+        <tr><td>S3</td><td>Fountain.js GitHub（mattdaly/Fountain.js）</td><td>直接</td><td>高</td></tr>
+        <tr><td>S4</td><td>screenplay-tools GitHub（wildwinter）</td><td>直接</td><td>高</td></tr>
+        <tr><td>S5</td><td>BetterFountain GitHub（VSCode 扩展）</td><td>直接</td><td>高</td></tr>
+        <tr><td>S6</td><td>Afterwriting（Web 开源编辑器）</td><td>直接</td><td>中</td></tr>
+        <tr><td>S7</td><td>Trelby（Python 桌面应用）</td><td>直接</td><td>高</td></tr>
+        <tr><td>S8</td><td>KIT Scenarist（跨平台编剧软件）</td><td>直接</td><td>中</td></tr>
+        <tr><td>S21</td><td>arXiv 2502.16153v1（ACM CHI 2025，23位编剧访谈）</td><td>学术</td><td>高</td></tr>
+        <tr><td>S22</td><td>worldmetrics.org（Top 10 Screenwriting Software 2026）</td><td>行业综述</td><td>中-高</td></tr>
+        <tr><td>S23</td><td>storyflow.so（Final Draft Alternatives 2026 对比）</td><td>直接</td><td>中-高</td></tr>
+        <tr><td>S24</td><td>laper.ai 官网 + 博客（「65 个国家」「2026 最佳剧本软件对比」等）</td><td>直接</td><td>高</td></tr>
+        <tr><td>S25</td><td>finalbitai.com/blog</td><td>直接</td><td>高</td></tr>
+        <tr><td>S26</td><td>Electric.ax（CRDT+AI Peers 架构 2026-04）</td><td>技术博客</td><td>中-高</td></tr>
+        <tr><td>S27</td><td>小红书 @赵纯想（Laper 宣传笔记 ×2）</td><td>社交媒体</td><td>中</td></tr>
+        <tr><td>S28</td><td>tiptap.dev 官方文档</td><td>直接</td><td>高</td></tr>
+        <tr><td>S29</td><td>Yjs 官方文档</td><td>直接</td><td>高</td></tr>
+        <tr><td>S32</td><td>tron-comic 项目代码（ScriptProcessor.tsx 等）</td><td>直接</td><td>极高</td></tr>
+        <tr><td>S34</td><td>Straits Research（剧本软件市场 2025–2033）</td><td>市场研究</td><td>高</td></tr>
+        <tr><td>S35</td><td>WGA 2023 MBA 协议（AI 条款）</td><td>政策</td><td>高</td></tr>
+        <tr><td>S36</td><td>moyancn.com / CSDN（中文工具综述）</td><td>间接</td><td>中</td></tr>
+        <tr><td>S37</td><td>《剧本创作开源工具 TOP10》微信公众号·独游魔盒（2026-06-07）</td><td>直接</td><td>中-高</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>数据缺口说明</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>缺口</th><th>状态</th><th>影响</th></tr></thead>
+      <tbody>
+        <tr><td>微信公众号文章（安全验证拦截）</td><td style="color:var(--green)">已获取</td><td>《剧本创作开源工具 TOP10》—— 主要覆盖游戏叙事赛道，已提取 ink/WebGAL/Ren'Py 等相关内容并入报告</td></tr>
+        <tr><td>小红书笔记 ×2（防爬拦截）</td><td style="color:var(--green)">元数据已获取</td><td>确认产品名 Laper、作者赵纯想、核心卖点；详细功能已从官网博客补充</td></tr>
+        <tr><td>laper.ai 官网 JS 渲染保护</td><td style="color:var(--green)">已解决</td><td>通过博客文章获取完整功能细节、定价、技术架构</td></tr>
+        <tr><td>raw-notes 原文仅恢复 54%</td><td>无法修复</td><td>核心结论已体现在本报告中</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="quote">
+    <p>63% of users would consider switching if a cloud-native alternative supported the same FDX format reliably.</p>
+    <div class="src">— storyflow.so [S23] · 2026</div>
+  </div>
+</section>
+
+<footer>
+  LumenX Studio · Research Report v6.0 · 2026-07-03 · 40+ sources
+</footer>
+
+</body>
+</html>
