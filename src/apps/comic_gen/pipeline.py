@@ -1600,7 +1600,9 @@ class ComicGenPipeline:
                 yield ("frame_refine_error", {
                     "frame_id": frame.id,
                     "frame_index": idx,
-                    "error": str(exc),
+                    # Don't leak exception details to the client (CodeQL
+                    # py/stack-trace-exposure); full error is in the log above.
+                    "error": f"分镜优化失败（{type(exc).__name__}），详情请查看服务端日志",
                 })
 
         yield ("batch_complete", {"total": total, "success": success, "failed": failed})
