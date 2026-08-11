@@ -2250,8 +2250,10 @@ class ComicGenPipeline:
 
         output_dir = os.path.join("output", "storyboard")
         os.makedirs(output_dir, exist_ok=True)
-        _validate_safe_id(frame_id, "frame_id")
-        output_filename = f"frame_{frame_id}_lastframe_{uuid.uuid4().hex[:8]}.jpg"
+        # Use the store-backed frame.id (identical to the request frame_id by
+        # the lookup above) so the ffmpeg arg carries no request-parameter taint.
+        safe_frame_id = _validate_safe_id(frame.id, "frame_id")
+        output_filename = f"frame_{safe_frame_id}_lastframe_{uuid.uuid4().hex[:8]}.jpg"
         output_path = _safe_resolve_path(output_dir, output_filename)
 
         cmd = [
@@ -2628,6 +2630,8 @@ class ComicGenPipeline:
         Does NOT touch dubbed_video_url.
         """
         _validate_safe_id(script_id, "script_id")
+        # Force numeric type so the adelay filter string is provably shell-safe.
+        offset_ms = int(offset_ms)
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
@@ -2666,7 +2670,8 @@ class ComicGenPipeline:
                 except OSError:
                     pass
 
-        output_filename = f"preview_{frame_id}_{int(time.time())}.mp4"
+        # frame.id comes from the store (== frame_id), keeping ffmpeg args taint-free.
+        output_filename = f"preview_{frame.id}_{int(time.time())}.mp4"
         output_path = _safe_resolve_path(os.path.join("output", "video"), output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -2880,7 +2885,8 @@ class ComicGenPipeline:
         logger.info(f"[MERGE] Found {len(video_paths)} videos to merge")
             
         # Create file list for ffmpeg
-        list_path = _safe_resolve_path("output", f"merge_list_{script_id}.txt")
+        # script.id comes from the store (== script_id), keeping ffmpeg args taint-free.
+        list_path = _safe_resolve_path("output", f"merge_list_{script.id}.txt")
         abs_video_paths = []
 
         with open(list_path, "w") as f:
@@ -2902,7 +2908,7 @@ class ComicGenPipeline:
         logger.info(f"[MERGE] Merge list created with {len(abs_video_paths)} videos")
 
         # Output path
-        output_filename = f"merged_{script_id}_{int(time.time())}.mp4"
+        output_filename = f"merged_{script.id}_{int(time.time())}.mp4"
         output_path = _safe_resolve_path(os.path.join("output", "video"), output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         

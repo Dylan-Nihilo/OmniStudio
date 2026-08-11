@@ -14,7 +14,9 @@ export function getAssetUrl(path: string | null | undefined): string {
         try {
             const protocol = new URL(path).protocol;
             if (protocol === "http:" || protocol === "https:" || protocol === "blob:") {
-                return path;
+                // Strip HTML metacharacters as well; well-formed URLs never
+                // contain them raw, so this is a no-op for legitimate values.
+                return path.replace(/[<>"'`]/g, "");
             }
         } catch {
             // malformed URL — fall through to reject
