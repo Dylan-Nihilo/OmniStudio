@@ -2223,14 +2223,20 @@ class ComicGenPipeline:
         if not video_task or video_task.status != "completed" or not video_task.video_url:
             raise ValueError("Video task not found or not completed")
 
-        # Resolve video path
+        # Resolve video path (managed output/ files, temp downloads, or URLs)
         video_path = video_task.video_url
-        if not video_path.startswith("/") and not video_path.startswith("http"):
-            video_path = _safe_resolve_path("output", video_path)
-
         if video_path.startswith("http"):
             # Download to temp file first
             video_path = self._download_temp_image(video_path)
+        elif video_path.startswith("/"):
+            # Legacy absolute path: must stay inside the managed output/ tree
+            resolved = os.path.realpath(video_path)
+            out_base = os.path.realpath("output")
+            if not resolved.startswith(out_base + os.sep):
+                raise ValueError(f"Video path outside managed output directory: {video_task.video_url}")
+            video_path = resolved
+        else:
+            video_path = _safe_resolve_path("output", video_path)
 
         if not os.path.exists(video_path):
             raise ValueError(f"Video file not found: {video_path}")
