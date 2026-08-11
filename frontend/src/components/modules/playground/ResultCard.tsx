@@ -294,7 +294,7 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
           {/* Size or resolution tag */}
           {generation.parameters.size && (
             <span className="font-mono text-[0.5625rem] bg-glass text-text-muted rounded px-[6px] py-[2px]">
-              {(generation.parameters.size as string).replace('*', '×').replace('x', '×')}
+              {(generation.parameters.size as string).replace(/[*x]/g, '×')}
             </span>
           )}
           {generation.parameters.resolution && !generation.parameters.size && (
