@@ -43,7 +43,7 @@ def _safe_resolve_path(base_dir: str, untrusted_rel: str) -> str:
     """
     base = os.path.realpath(base_dir)
     resolved = os.path.realpath(os.path.join(base, untrusted_rel))
-    if not resolved.startswith(base + os.sep) and resolved != base:
+    if not resolved.startswith(base + os.sep):
         raise ValueError(f"Path escapes base directory: {untrusted_rel}")
     return resolved
 
@@ -1600,7 +1600,9 @@ class ComicGenPipeline:
                 yield ("frame_refine_error", {
                     "frame_id": frame.id,
                     "frame_index": idx,
-                    "error": str(exc),
+                    # Don't leak exception details to the client (CodeQL
+                    # py/stack-trace-exposure); full error is in the log above.
+                    "error": f"分镜优化失败（{type(exc).__name__}），详情请查看服务端日志",
                 })
 
         yield ("batch_complete", {"total": total, "success": success, "failed": failed})
@@ -2223,14 +2225,20 @@ class ComicGenPipeline:
         if not video_task or video_task.status != "completed" or not video_task.video_url:
             raise ValueError("Video task not found or not completed")
 
-        # Resolve video path
+        # Resolve video path (managed output/ files, temp downloads, or URLs)
         video_path = video_task.video_url
-        if not video_path.startswith("/") and not video_path.startswith("http"):
-            video_path = _safe_resolve_path("output", video_path)
-
         if video_path.startswith("http"):
             # Download to temp file first
             video_path = self._download_temp_image(video_path)
+        elif video_path.startswith("/"):
+            # Legacy absolute path: must stay inside the managed output/ tree
+            resolved = os.path.realpath(video_path)
+            out_base = os.path.realpath("output")
+            if not resolved.startswith(out_base + os.sep):
+                raise ValueError(f"Video path outside managed output directory: {video_task.video_url}")
+            video_path = resolved
+        else:
+            video_path = _safe_resolve_path("output", video_path)
 
         if not os.path.exists(video_path):
             raise ValueError(f"Video file not found: {video_path}")

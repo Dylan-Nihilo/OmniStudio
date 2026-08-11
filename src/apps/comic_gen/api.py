@@ -116,6 +116,28 @@ app.mount("/files/playground", StaticFiles(directory="output/playground"), name=
 # Initialize pipeline
 pipeline = ComicGenPipeline()
 
+# Allow-list map for uploaded file extensions: keys come from the (untrusted)
+# client filename, values are trusted literals safe to embed in server paths.
+_UPLOAD_EXT_MAP = {
+    ".png": ".png", ".jpg": ".jpg", ".jpeg": ".jpeg", ".webp": ".webp",
+    ".gif": ".gif", ".bmp": ".bmp", ".svg": ".svg", ".ico": ".ico",
+    ".mp4": ".mp4", ".mov": ".mov", ".webm": ".webm", ".avi": ".avi",
+    ".mkv": ".mkv", ".mp3": ".mp3", ".wav": ".wav", ".m4a": ".m4a",
+    ".aac": ".aac", ".ogg": ".ogg", ".flac": ".flac",
+    ".txt": ".txt", ".md": ".md", ".pdf": ".pdf", ".json": ".json",
+}
+
+
+def _safe_upload_ext(filename: Optional[str]) -> str:
+    """Return a trusted file extension literal for an uploaded filename.
+
+    Unknown/missing extensions fall back to empty string so the stored file
+    is still saved under its random UUID name.
+    """
+    ext = os.path.splitext(filename or "")[1].lower()
+    return _UPLOAD_EXT_MAP.get(ext, "")
+
+
 @app.get("/debug/config")
 def debug_config():
     """Diagnostic endpoint to check OSS and path configuration."""
@@ -261,7 +283,7 @@ def check_system():
 def upload_file(file: UploadFile = File(...)):
     """Uploads a file and returns its URL (OSS if configured, else local)."""
     try:
-        file_ext = os.path.splitext(file.filename)[1]
+        file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
         file_path = os.path.join("output/uploads", filename)
 
@@ -303,7 +325,7 @@ def upload_asset(
     """
     try:
         # 1. Save file locally first
-        file_ext = os.path.splitext(file.filename)[1]
+        file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
         file_path = os.path.join("output/uploads", filename)
         
@@ -926,7 +948,7 @@ def upload_library_asset_image(file: UploadFile = File(...)):
     returns the {image_url} contract the library UI expects.
     """
     try:
-        file_ext = os.path.splitext(file.filename or "")[1]
+        file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
         file_path = os.path.join("output/uploads", filename)
         with open(file_path, "wb") as buffer:
@@ -3358,7 +3380,7 @@ def upload_frame_image(script_id: str, frame_id: str, file: UploadFile = File(..
     """Upload an image as a variant for a frame's rendered_image_asset."""
     try:
         # Save file locally first
-        file_ext = os.path.splitext(file.filename)[1]
+        file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
         file_path = os.path.join("output/uploads", filename)
 
