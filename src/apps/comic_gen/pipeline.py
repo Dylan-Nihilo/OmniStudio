@@ -43,7 +43,7 @@ def _safe_resolve_path(base_dir: str, untrusted_rel: str) -> str:
     """
     base = os.path.realpath(base_dir)
     resolved = os.path.realpath(os.path.join(base, untrusted_rel))
-    if not resolved.startswith(base + os.sep) and resolved != base:
+    if not resolved.startswith(base + os.sep):
         raise ValueError(f"Path escapes base directory: {untrusted_rel}")
     return resolved
 
