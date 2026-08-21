@@ -37,7 +37,7 @@ import shutil
 import uuid
 import logging
 import traceback
-from .pipeline import ComicGenPipeline, LibraryAssetInUseError
+from .pipeline import ComicGenPipeline, LibraryAssetInUseError, _resolve_export_settings
 from .models import (
     ArtDirection,
     PromptConfig,
@@ -3025,6 +3025,45 @@ def update_audio_mix(script_id: str, request: AudioMixRequest):
     if "sfx_volume" in fields_set and request.sfx_volume is not None:
         mix["sfx"] = max(0, min(100, request.sfx_volume))
     script.mix_settings = mix
+    pipeline._save_data()
+    return signed_response(script)
+
+
+class ExportSettingsRequest(BaseModel):
+    resolution: Optional[str] = None
+    fps: Optional[int] = None
+    crf: Optional[int] = None
+    preset: Optional[str] = None
+    audio_bitrate: Optional[str] = None
+
+
+@app.put("/projects/{script_id}/export_settings", response_model=Script)
+def update_export_settings(script_id: str, request: ExportSettingsRequest):
+    """Patch the FFmpeg settings used by the final video merge.
+
+    Only explicitly supplied fields are changed.  An explicit ``null``
+    removes that key and restores the merge pipeline default.
+    """
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    settings = dict(getattr(script, "export_settings", None) or {})
+    for field_name in request.model_fields_set:
+        value = getattr(request, field_name)
+        if value is None:
+            settings.pop(field_name, None)
+        else:
+            settings[field_name] = value
+
+    # Validate eagerly: invalid values surface as HTTP 400 at save time
+    # instead of failing much later inside the merge command.
+    try:
+        _resolve_export_settings(settings or None)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    script.export_settings = settings or None
     pipeline._save_data()
     return signed_response(script)
 

@@ -27,6 +27,19 @@ logger = get_logger(__name__)
 
 # Allowed pattern for IDs used in file paths (UUID hex + hyphens)
 _SAFE_ID_RE = re.compile(r'^[a-zA-Z0-9_\-]+$')
+_EXPORT_RESOLUTION_RE = re.compile(r'^\d{2,5}x\d{2,5}$')
+_EXPORT_AUDIO_BITRATE_RE = re.compile(r'^\d+k$')
+_EXPORT_PRESETS = {
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "veryslow",
+    "placebo",
+}
 
 
 def _validate_safe_id(value: str, label: str = "id") -> str:
@@ -47,6 +60,60 @@ def _safe_resolve_path(base_dir: str, untrusted_rel: str) -> str:
     if not resolved.startswith(base + os.sep):
         raise ValueError(f"Path escapes base directory: {untrusted_rel}")
     return resolved
+
+
+def _resolve_export_settings(export_settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Validate and normalize the settings used by the final FFmpeg command.
+
+    The returned values deliberately preserve the existing merge behavior when
+    a setting is omitted: resolution and fps remain disabled, while CRF,
+    preset, and audio bitrate use the historical FFmpeg defaults.
+    """
+    settings = {} if export_settings is None else export_settings
+    if not isinstance(settings, dict):
+        raise ValueError("Invalid export_settings: expected an object")
+
+    resolution = settings.get("resolution")
+    if resolution is not None:
+        if not isinstance(resolution, str) or not _EXPORT_RESOLUTION_RE.fullmatch(resolution):
+            raise ValueError(
+                "Invalid export setting 'resolution': expected format WxH "
+                "with 2-5 digits per dimension (for example, 1920x1080)"
+            )
+
+    fps = settings.get("fps")
+    if fps is not None:
+        if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 120:
+            raise ValueError("Invalid export setting 'fps': expected an integer between 1 and 120")
+
+    crf = settings.get("crf", 23)
+    if crf is None:
+        crf = 23
+    if isinstance(crf, bool) or not isinstance(crf, int) or not 18 <= crf <= 28:
+        raise ValueError("Invalid export setting 'crf': expected an integer between 18 and 28")
+
+    preset = settings.get("preset", "fast")
+    if preset is None:
+        preset = "fast"
+    if not isinstance(preset, str) or preset not in _EXPORT_PRESETS:
+        allowed = ", ".join(sorted(_EXPORT_PRESETS))
+        raise ValueError(f"Invalid export setting 'preset': expected one of {allowed}")
+
+    audio_bitrate = settings.get("audio_bitrate", "128k")
+    if audio_bitrate is None:
+        audio_bitrate = "128k"
+    if not isinstance(audio_bitrate, str) or not _EXPORT_AUDIO_BITRATE_RE.fullmatch(audio_bitrate):
+        raise ValueError(
+            "Invalid export setting 'audio_bitrate': expected a bitrate such as 128k"
+        )
+
+    return {
+        "resolution": resolution,
+        "fps": fps,
+        "crf": crf,
+        "preset": preset,
+        "audio_bitrate": audio_bitrate,
+    }
 
 
 class LibraryAssetInUseError(Exception):
@@ -504,6 +571,7 @@ class ComicGenPipeline:
         new_script.default_generation_mode = existing_script.default_generation_mode
         new_script.bgm_url = existing_script.bgm_url
         new_script.mix_settings = existing_script.mix_settings
+        new_script.export_settings = getattr(existing_script, "export_settings", None)
         
         # Replace the script in memory
         self.scripts[script_id] = new_script
@@ -3029,6 +3097,10 @@ class ComicGenPipeline:
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
+
+        # Validate before checking FFmpeg or touching merge inputs so invalid
+        # user settings cannot be silently replaced by defaults.
+        export_settings = _resolve_export_settings(getattr(script, "export_settings", None))
         
         logger.info(f"[MERGE] Starting video merge for script {script_id}")
         
@@ -3158,7 +3230,7 @@ class ComicGenPipeline:
                         "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
                         "-map", "0:v:0", "-map", "1:a:0",
                         "-c:v", "copy",
-                        "-c:a", "aac", "-b:a", "128k",
+                        "-c:a", "aac", "-b:a", export_settings["audio_bitrate"],
                         "-shortest",
                         normalized_path,
                     ],
@@ -3201,14 +3273,21 @@ class ComicGenPipeline:
             "-f", "concat",
             "-safe", "0",
             "-i", list_path,
+        ]
+        if export_settings["resolution"]:
+            width, height = export_settings["resolution"].split("x")
+            cmd.extend(["-vf", f"scale={width}:{height}"])
+        if export_settings["fps"] is not None:
+            cmd.extend(["-r", str(export_settings["fps"])])
+        cmd.extend([
             "-c:v", "libx264",  # Re-encode video with H.264
-            "-crf", "23",       # Quality (lower = better, 23 is default)
-            "-preset", "fast",  # Encoding speed
+            "-crf", str(export_settings["crf"]),  # Quality (lower = better)
+            "-preset", export_settings["preset"],  # Encoding speed
             "-c:a", "aac",      # Re-encode audio with AAC
-            "-b:a", "128k",     # Audio bitrate
+            "-b:a", export_settings["audio_bitrate"],
             "-movflags", "+faststart",  # Web optimization
             output_path
-        ]
+        ])
         
         logger.debug(f"[MERGE] Running FFmpeg command: {' '.join(cmd)}")
         logger.debug(f"[MERGE] Platform: {platform.system()} {platform.release()}")
@@ -3239,6 +3318,7 @@ class ComicGenPipeline:
             try:
                 mixed_path = self._maybe_apply_bgm_mux(
                     script, output_path, ffmpeg_path,
+                    audio_bitrate=export_settings["audio_bitrate"],
                 )
                 if mixed_path:
                     # Replace the concat output with the mixed one (same filename)
@@ -3434,6 +3514,7 @@ class ComicGenPipeline:
         script: Script,
         video_path: str,
         ffmpeg_path: str,
+        audio_bitrate: str = "192k",
     ) -> Optional[str]:
         """PR-3l · Overlay BGM at the configured mix level on top of the
         already-merged video. Returns the path of the new file, or None
@@ -3470,7 +3551,7 @@ class ComicGenPipeline:
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", audio_bitrate,
             "-shortest",
             "-movflags", "+faststart",
             mixed_path,
