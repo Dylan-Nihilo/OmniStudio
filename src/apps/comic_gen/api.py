@@ -3085,8 +3085,6 @@ def generate_dialogue_audio_batch(script_id: str):
         script = pipeline.get_script(script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Script not found")
-        char_lookup = {c.id: c for c in script.characters}
-        char_name_lookup = {c.name.strip().lower(): c for c in script.characters}
         generated = 0
         skipped = 0
         failed = 0
@@ -3098,20 +3096,7 @@ def generate_dialogue_audio_batch(script_id: str):
             )
             if not dialogue_text:
                 continue
-            speaker = None
-            if frame.character_ids:
-                speaker = char_lookup.get(frame.character_ids[0])
-            speaker_name = frame.speaker or (
-                frame.dialogue_structured.speaker if frame.dialogue_structured else None
-            )
-            if not speaker and speaker_name:
-                key = speaker_name.strip().lower()
-                speaker = char_name_lookup.get(key)
-                if not speaker:
-                    for name, char in char_name_lookup.items():
-                        if key in name or name in key:
-                            speaker = char
-                            break
+            speaker = pipeline._resolve_dialogue_speaker(script, frame)
             if not speaker or not speaker.voice_id:
                 no_voice += 1
                 continue
@@ -3119,7 +3104,13 @@ def generate_dialogue_audio_batch(script_id: str):
                 skipped += 1
                 continue
             try:
-                pipeline.generate_dialogue_line(script_id, frame.id)
+                pipeline.generate_dialogue_line(
+                    script_id,
+                    frame.id,
+                    speed=speaker.voice_speed,
+                    pitch=speaker.voice_pitch,
+                    volume=speaker.voice_volume,
+                )
                 generated += 1
             except Exception as exc:
                 logger.error(f"[batch_dialogue_audio] frame={frame.id} error={exc}")

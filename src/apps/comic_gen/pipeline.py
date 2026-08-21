@@ -2904,7 +2904,63 @@ class ComicGenPipeline:
         if not abs_video_paths:
             logger.error("[MERGE] No valid video files found on disk!")
             raise ValueError("No valid video files found. The video files may have been deleted or moved.")
-        
+
+        # The concat demuxer adopts the stream layout of its first input.  When
+        # silent generated shots are mixed with dubbed shots, a silent first
+        # clip can otherwise cause the final movie to lose every later audio
+        # track.  Normalize silent inputs by attaching an AAC silence stream so
+        # every segment has a consistent video+audio layout.
+        import tempfile
+        import shutil
+        normalization_dir = tempfile.mkdtemp(prefix=f"lumenx_merge_{script.id}_")
+        normalized_paths = []
+        try:
+            for index, source_path in enumerate(abs_video_paths):
+                probe = subprocess.run(
+                    [
+                        ffmpeg_path, "-v", "error", "-i", source_path,
+                        "-map", "0:a:0", "-frames:a", "1",
+                        "-f", "null", os.devnull,
+                    ],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if probe.returncode == 0:
+                    normalized_paths.append(source_path)
+                    continue
+
+                normalized_path = os.path.join(
+                    normalization_dir, f"segment_{index + 1:03d}.mp4"
+                )
+                logger.info(
+                    f"[MERGE] Input {index + 1} has no audio; attaching silent AAC track"
+                )
+                subprocess.run(
+                    [
+                        ffmpeg_path, "-y",
+                        "-i", source_path,
+                        "-f", "lavfi",
+                        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy",
+                        "-c:a", "aac", "-b:a", "128k",
+                        "-shortest",
+                        normalized_path,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=120,
+                )
+                normalized_paths.append(normalized_path)
+
+            abs_video_paths = normalized_paths
+            with open(list_path, "w", encoding="utf-8") as merge_list:
+                for path in abs_video_paths:
+                    merge_list.write(f"file '{path}'\n")
+        except Exception:
+            shutil.rmtree(normalization_dir, ignore_errors=True)
+            raise
+
         logger.info(f"[MERGE] Merge list created with {len(abs_video_paths)} videos")
 
         # Output path
@@ -2982,6 +3038,7 @@ class ComicGenPipeline:
             # Cleanup list file
             if os.path.exists(list_path):
                 os.remove(list_path)
+            shutil.rmtree(normalization_dir, ignore_errors=True)
 
             return script
         except subprocess.TimeoutExpired:
@@ -3467,6 +3524,41 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
+    @staticmethod
+    def _resolve_dialogue_speaker(script: Script, frame: StoryboardFrame) -> Optional[Character]:
+        """Resolve the speaking character, preferring the explicit speaker name.
+
+        A frame may contain several characters and ``character_ids[0]`` is not
+        necessarily the one delivering the line.  Prefer the storyboard's
+        speaker field, then fall back to the first referenced character for
+        legacy frames that do not carry a speaker name.
+        """
+        speaker_name = frame.speaker or (
+            frame.dialogue_structured.speaker if frame.dialogue_structured else None
+        )
+        if speaker_name:
+            key = speaker_name.strip().lower()
+            exact = next(
+                (c for c in script.characters if c.name.strip().lower() == key),
+                None,
+            )
+            if exact:
+                return exact
+            fuzzy = next(
+                (c for c in script.characters
+                 if key in c.name.strip().lower() or c.name.strip().lower() in key),
+                None,
+            )
+            if fuzzy:
+                return fuzzy
+
+        if frame.character_ids:
+            return next(
+                (c for c in script.characters if c.id == frame.character_ids[0]),
+                None,
+            )
+        return None
+
     def generate_audio(self, script_id: str) -> Script:
         """Step 5: Generate audio (Dialogue & SFX)."""
         script = self.scripts.get(script_id)
@@ -3478,10 +3570,8 @@ class ComicGenPipeline:
         for frame in script.frames:
             # Generate Dialogue
             if frame.dialogue:
-                speaker = None
-                if frame.character_ids:
-                    speaker = next((c for c in script.characters if c.id == frame.character_ids[0]), None)
-                
+                speaker = self._resolve_dialogue_speaker(script, frame)
+
                 if speaker:
                     self.audio_generator.generate_dialogue(
                         frame, speaker,
@@ -3533,20 +3623,7 @@ class ComicGenPipeline:
             or frame.dialogue
         )
         if dialogue_text:
-            speaker = None
-            if frame.character_ids:
-                speaker = next((c for c in script.characters if c.id == frame.character_ids[0]), None)
-            speaker_name = frame.speaker or (
-                frame.dialogue_structured.speaker if frame.dialogue_structured else None
-            )
-            if not speaker and speaker_name:
-                key = speaker_name.strip().lower()
-                speaker = next(
-                    (c for c in script.characters if c.name.strip().lower() == key
-                     or key in c.name.strip().lower()
-                     or c.name.strip().lower() in key),
-                    None,
-                )
+            speaker = self._resolve_dialogue_speaker(script, frame)
 
             if speaker:
                 model_override = None
