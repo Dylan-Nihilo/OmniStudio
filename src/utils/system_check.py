@@ -77,6 +77,63 @@ def get_ffmpeg_path() -> str:
     return None
 
 
+
+def get_ffprobe_path() -> str:
+    """
+    Get path to the ffprobe binary, preferring the directory next to ffmpeg.
+
+    ffprobe is distributed alongside ffmpeg in bundled and common Windows
+    installations.  Fall back to PATH when a sibling executable is not
+    available.
+
+    Returns:
+        Path to ffprobe executable, or None if not found
+    """
+    ffprobe_name = 'ffprobe.exe' if platform.system() == 'Windows' else 'ffprobe'
+
+    # Prefer ffprobe next to the ffmpeg executable selected by the existing
+    # dependency resolver (including PyInstaller bundles).
+    ffmpeg_path = get_ffmpeg_path()
+    if ffmpeg_path:
+        sibling_path = os.path.join(os.path.dirname(ffmpeg_path), ffprobe_name)
+        if os.path.isfile(sibling_path) and os.access(sibling_path, os.X_OK):
+            logger.info(f"Using ffprobe next to ffmpeg at: {sibling_path}")
+            return sibling_path
+
+    # Fall back to system ffprobe via PATH.
+    system_ffprobe = shutil.which("ffprobe")
+    if system_ffprobe:
+        logger.info(f"Using system ffprobe at: {system_ffprobe}")
+        return system_ffprobe
+
+    # Mirror the common Windows fallback locations used by get_ffmpeg_path().
+    if platform.system() == "Windows":
+        common_windows_paths = [
+            os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "ffmpeg", "bin", "ffprobe.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"), "ffmpeg", "bin", "ffprobe.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "ffmpeg", "bin", "ffprobe.exe"),
+            os.path.join(os.environ.get("USERPROFILE", ""), "ffmpeg", "bin", "ffprobe.exe"),
+            os.path.join(os.environ.get("USERPROFILE", ""), "Desktop", "ffmpeg", "bin", "ffprobe.exe"),
+            os.path.join(os.environ.get("USERPROFILE", ""), "Downloads", "ffmpeg", "bin", "ffprobe.exe"),
+            os.path.join(os.environ.get("USERPROFILE", ""), "scoop", "shims", "ffprobe.exe"),
+            os.path.join(os.environ.get("ChocolateyInstall", "C:\\ProgramData\\chocolatey"), "bin", "ffprobe.exe"),
+            "C:\\ffmpeg\\bin\\ffprobe.exe",
+            "C:\\tools\\ffmpeg\\bin\\ffprobe.exe",
+        ]
+        for path in common_windows_paths:
+            if path and os.path.isfile(path):
+                logger.info(f"Using ffprobe found at common Windows path: {path}")
+                return path
+
+        logger.warning(
+            "FFprobe not found next to ffmpeg, in PATH, or common Windows paths. "
+            "If FFmpeg is installed, ensure its 'bin' folder contains ffprobe.exe "
+            "and is in the system PATH."
+        )
+
+    return None
+
+
 def check_ffmpeg() -> Tuple[bool, str]:
     """
     Check if ffmpeg is available and get version info.

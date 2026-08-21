@@ -554,6 +554,7 @@ class Script(BaseModel):
 
     # Merged video URL
     merged_video_url: Optional[str] = Field(None, description="URL of the merged final video")
+    merge_verification: Optional[Dict[str, Any]] = None
 
     # PR-3k · Assembly audio mix. bgm_url points at a preset library entry
     # (e.g. "presets/bgm/calm_warm.mp3") or a user-uploaded URL. mix_settings

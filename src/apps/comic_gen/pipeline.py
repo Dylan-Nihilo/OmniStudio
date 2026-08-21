@@ -18,7 +18,7 @@ from .export import ExportManager
 from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
 from ...utils.provider_registry import resolve_provider_backend
-from ...utils.system_check import get_ffmpeg_path, get_ffmpeg_install_instructions
+from ...utils.system_check import get_ffmpeg_path, get_ffprobe_path, get_ffmpeg_install_instructions
 
 logger = get_logger(__name__)
 
@@ -3033,6 +3033,21 @@ class ComicGenPipeline:
                 # BGM is optional; log + carry on with the silent video
                 logger.warning(f"[MERGE] BGM mux skipped due to error: {bgm_err}")
 
+            script.merge_verification = self._verify_merged_video(output_path)
+            if script.merge_verification["ok"]:
+                verification = script.merge_verification
+                logger.info(
+                    f"[MERGE] ✅ Acceptance verification passed: "
+                    f"duration={verification['duration']:.3f}s, "
+                    f"has_audio={verification['checks']['has_audio']}, "
+                    f"video={verification['video']}"
+                )
+            else:
+                logger.error(
+                    f"[MERGE] ❌ Acceptance verification failed: "
+                    f"{json.dumps(script.merge_verification, ensure_ascii=False)}"
+                )
+
             self._save_data()
 
             # Cleanup list file
@@ -3059,6 +3074,146 @@ class ComicGenPipeline:
             user_msg = self._extract_ffmpeg_error_message(stderr_msg, abs_video_paths)
             raise RuntimeError(user_msg)
     
+    def _verify_merged_video(self, output_path: str) -> Dict[str, Any]:
+        """Probe a merged video and return a structured acceptance report."""
+        report: Dict[str, Any] = {
+            "ok": False,
+            "path": output_path,
+            "video": None,
+            "audio": None,
+            "duration": 0.0,
+            "checks": {
+                "has_video": False,
+                "has_audio": False,
+                "duration_valid": False,
+                "resolution_valid": False,
+            },
+            "errors": [],
+        }
+        errors = report["errors"]
+
+        ffprobe_path = get_ffprobe_path()
+        if not ffprobe_path:
+            errors.append("ffprobe not found in bundle, system PATH, or common installation paths")
+        if not os.path.isfile(output_path):
+            errors.append(f"Merged video output file not found: {output_path}")
+        if errors:
+            return report
+
+        try:
+            result = subprocess.run(
+                [
+                    ffprobe_path,
+                    "-v", "error",
+                    "-print_format", "json",
+                    "-show_streams",
+                    "-show_format",
+                    output_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            errors.append("ffprobe timed out while verifying the merged video")
+            return report
+        except OSError as exc:
+            errors.append(f"Unable to run ffprobe: {exc}")
+            return report
+        except Exception as exc:
+            errors.append(f"Unexpected ffprobe error: {type(exc).__name__}: {exc}")
+            return report
+
+        raw_stdout = getattr(result, "stdout", "")
+        raw_stderr = getattr(result, "stderr", "")
+        stdout = raw_stdout.decode(errors="replace") if isinstance(raw_stdout, bytes) else (raw_stdout or "")
+        stderr = raw_stderr.decode(errors="replace") if isinstance(raw_stderr, bytes) else (raw_stderr or "")
+        if result.returncode != 0:
+            detail = stderr.strip() or f"exit code {result.returncode}"
+            errors.append(f"ffprobe failed: {detail}")
+            return report
+
+        try:
+            probe_data = json.loads(stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            errors.append(f"ffprobe returned invalid JSON: {exc}")
+            return report
+
+        streams = probe_data.get("streams") or []
+        video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+        audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+
+        def _to_float(value: Any) -> Optional[float]:
+            try:
+                return float(value) if value not in (None, "", "N/A") else None
+            except (TypeError, ValueError):
+                return None
+
+        def _to_int(value: Any) -> Optional[int]:
+            try:
+                return int(value) if value not in (None, "", "N/A") else None
+            except (TypeError, ValueError):
+                return None
+
+        def _parse_fps(value: Any) -> Optional[float]:
+            if value in (None, "", "N/A"):
+                return None
+            try:
+                if isinstance(value, str) and "/" in value:
+                    numerator, denominator = value.split("/", 1)
+                    denominator_value = float(denominator)
+                    return float(numerator) / denominator_value if denominator_value else None
+                return float(value)
+            except (TypeError, ValueError, ZeroDivisionError):
+                return None
+
+        format_data = probe_data.get("format") or {}
+        duration = _to_float(format_data.get("duration"))
+        if duration is None and video_stream:
+            duration = _to_float(video_stream.get("duration"))
+        if duration is None and audio_stream:
+            duration = _to_float(audio_stream.get("duration"))
+        duration = duration if duration is not None else 0.0
+
+        if video_stream:
+            report["video"] = {
+                "codec": video_stream.get("codec_name"),
+                "width": _to_int(video_stream.get("width")),
+                "height": _to_int(video_stream.get("height")),
+                "fps": _parse_fps(video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")),
+                "duration": _to_float(video_stream.get("duration")) or duration,
+            }
+        if audio_stream:
+            report["audio"] = {
+                "codec": audio_stream.get("codec_name"),
+                "sample_rate": _to_int(audio_stream.get("sample_rate")),
+                "channels": _to_int(audio_stream.get("channels")),
+            }
+
+        has_video = video_stream is not None
+        has_audio = audio_stream is not None
+        video_width = _to_int(video_stream.get("width")) if video_stream else None
+        video_height = _to_int(video_stream.get("height")) if video_stream else None
+        duration_valid = duration > 0.5
+        resolution_valid = bool(video_width and video_height and video_width > 0 and video_height > 0)
+        report["duration"] = duration
+        report["checks"] = {
+            "has_video": has_video,
+            "has_audio": has_audio,
+            "duration_valid": duration_valid,
+            "resolution_valid": resolution_valid,
+        }
+
+        if not has_video:
+            errors.append("Merged video has no video stream")
+        if not duration_valid:
+            errors.append(f"Merged video duration is invalid: {duration:.3f}s (must be > 0.5s)")
+        if not resolution_valid:
+            errors.append("Merged video resolution is invalid: width and height must be > 0")
+
+        report["ok"] = has_video and duration_valid and resolution_valid
+        return report
+
     def _maybe_apply_bgm_mux(
         self,
         script: Script,
