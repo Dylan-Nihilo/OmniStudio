@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import json
 import os
 import re
+import shutil
 import time
 import uuid
 import subprocess
@@ -2807,6 +2808,220 @@ class ComicGenPipeline:
         frame.dubbed_video_task_id = None
         self._save_data()
         return script
+
+    def precheck_merge(self, script_id: str) -> dict:
+        """Check merge inputs and disk capacity before starting an export."""
+        output_dir = "output"
+        video_output_dir = os.path.join(output_dir, "video")
+        report: Dict[str, Any] = {
+            "ok": False,
+            "script_id": script_id,
+            "total_frames": 0,
+            "frames_with_video": 0,
+            "missing": [],
+            "unreadable": [],
+            "duration_anomalies": [],
+            "no_video_available": [],
+            "disk": {
+                "path": video_output_dir,
+                "free_bytes": 0,
+                "required_bytes": 0,
+                "sufficient": False,
+            },
+            "errors": [],
+        }
+        fatal_errors: List[str] = []
+
+        script = self.scripts.get(script_id)
+        if not script:
+            error = f"Script not found: {script_id}"
+            report["errors"].append(error)
+            return report
+
+        try:
+            _validate_safe_id(script_id, "script_id")
+        except ValueError as exc:
+            error = str(exc)
+            report["errors"].append(error)
+            return report
+
+        report["total_frames"] = len(script.frames)
+        ffprobe_path = get_ffprobe_path()
+        if not ffprobe_path:
+            error = "ffprobe was not found; video durations cannot be checked"
+            report["errors"].append(error)
+            fatal_errors.append(error)
+
+        candidate_files: List[Tuple[Any, str, str]] = []
+        for frame in script.frames:
+            candidate_url: Optional[str] = None
+
+            if frame.dubbed_video_url:
+                try:
+                    dubbed_path = _safe_resolve_path("output", frame.dubbed_video_url)
+                except ValueError as exc:
+                    error = f"Frame {frame.id}: {exc}"
+                    report["errors"].append(error)
+                    fatal_errors.append(error)
+                    continue
+                if os.path.isfile(dubbed_path):
+                    candidate_url = frame.dubbed_video_url
+
+            if not candidate_url and frame.selected_video_id:
+                selected_video = next(
+                    (
+                        video
+                        for video in script.video_tasks
+                        if video.id == frame.selected_video_id
+                        and video.status == "completed"
+                        and video.video_url
+                    ),
+                    None,
+                )
+                if selected_video:
+                    candidate_url = selected_video.video_url
+
+            if not candidate_url:
+                default_video = next(
+                    (
+                        video
+                        for video in script.video_tasks
+                        if video.frame_id == frame.id
+                        and video.status == "completed"
+                        and video.video_url
+                    ),
+                    None,
+                )
+                if default_video:
+                    candidate_url = default_video.video_url
+
+            if not candidate_url:
+                reason = "No completed video task with a video URL is available"
+                if frame.selected_video_id:
+                    reason = (
+                        f"Selected video {frame.selected_video_id} is unavailable and "
+                        "no completed fallback video exists"
+                    )
+                report["no_video_available"].append(
+                    {"frame_id": frame.id, "reason": reason}
+                )
+                continue
+
+            report["frames_with_video"] += 1
+            try:
+                candidate_path = _safe_resolve_path("output", candidate_url)
+            except ValueError as exc:
+                error = f"Frame {frame.id}: {exc}"
+                report["errors"].append(error)
+                fatal_errors.append(error)
+                continue
+
+            candidate_files.append((frame, candidate_url, candidate_path))
+
+        total_candidate_bytes = 0
+        for frame, candidate_url, candidate_path in candidate_files:
+            if not os.path.isfile(candidate_path):
+                report["missing"].append(
+                    {"frame_id": frame.id, "expected": candidate_url}
+                )
+                continue
+
+            try:
+                total_candidate_bytes += os.path.getsize(candidate_path)
+            except OSError as exc:
+                error = f"Frame {frame.id}: could not read file size: {exc}"
+                report["errors"].append(error)
+                fatal_errors.append(error)
+
+            if not os.access(candidate_path, os.R_OK):
+                report["unreadable"].append(
+                    {"frame_id": frame.id, "path": candidate_path}
+                )
+                continue
+
+            if not ffprobe_path:
+                report["duration_anomalies"].append(
+                    {
+                        "frame_id": frame.id,
+                        "path": candidate_path,
+                        "duration": None,
+                        "reason": "ffprobe was not found",
+                    }
+                )
+                continue
+
+            try:
+                result = subprocess.run(
+                    [
+                        ffprobe_path,
+                        "-v",
+                        "error",
+                        "-print_format",
+                        "json",
+                        "-show_format",
+                        candidate_path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or "").strip() or (
+                        f"exit code {result.returncode}"
+                    )
+                    raise RuntimeError(f"ffprobe failed: {detail}")
+
+                probe_data = json.loads(result.stdout)
+                raw_duration = (probe_data.get("format") or {}).get("duration")
+                duration = float(raw_duration)
+                if duration <= 0.5:
+                    report["duration_anomalies"].append(
+                        {
+                            "frame_id": frame.id,
+                            "path": candidate_path,
+                            "duration": duration,
+                        }
+                    )
+            except (
+                OSError,
+                subprocess.TimeoutExpired,
+                TypeError,
+                ValueError,
+                json.JSONDecodeError,
+                RuntimeError,
+            ) as exc:
+                reason = str(exc) or exc.__class__.__name__
+                report["duration_anomalies"].append(
+                    {
+                        "frame_id": frame.id,
+                        "path": candidate_path,
+                        "duration": None,
+                        "reason": reason,
+                    }
+                )
+                error = f"Frame {frame.id}: could not determine video duration: {reason}"
+                report["errors"].append(error)
+                fatal_errors.append(error)
+
+        required_bytes = int(total_candidate_bytes * 1.5 + 50 * 1024 * 1024)
+        report["disk"]["required_bytes"] = required_bytes
+        try:
+            disk_usage = shutil.disk_usage(output_dir)
+            report["disk"]["free_bytes"] = int(disk_usage.free)
+            report["disk"]["sufficient"] = disk_usage.free >= required_bytes
+        except OSError as exc:
+            error = f"Could not check disk space for {output_dir}: {exc}"
+            report["errors"].append(error)
+            fatal_errors.append(error)
+
+        report["ok"] = bool(
+            not report["missing"]
+            and not report["unreadable"]
+            and not report["no_video_available"]
+            and report["disk"]["sufficient"]
+            and not fatal_errors
+        )
+        return report
 
     def merge_videos(self, script_id: str) -> Script:
         """Step 5b: Merge selected videos into a single file."""

@@ -3473,6 +3473,15 @@ async def upload_t2i_frame(script_id: str, frame_id: str, file: UploadFile = Fil
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/projects/{script_id}/merge/precheck")
+def precheck_merge(script_id: str):
+    """Check merge inputs and disk capacity before starting an export."""
+    if not pipeline.get_script(script_id):
+        raise HTTPException(status_code=404, detail="Script not found")
+    report = pipeline.precheck_merge(script_id)
+    return report
+
+
 @app.post("/projects/{script_id}/merge", response_model=Script)
 def merge_videos(script_id: str):
     """Merge all selected frame videos into final output"""
