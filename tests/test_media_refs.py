@@ -52,3 +52,13 @@ def test_resolve_local_absolute_path_under_output():
     input_path = str(_project_root() / "output" / "video" / "clip.mp4")
     expected = str((_project_root() / "output" / "video" / "clip.mp4").resolve())
     assert resolve_local_media_path(input_path) == expected
+
+
+def test_classify_windows_style_local_relative_path():
+    assert classify_media_ref(r"storyboard\shot.png") == "local_path"
+
+
+def test_resolve_windows_style_local_relative_path_to_absolute():
+    resolved = resolve_local_media_path(r"storyboard\shot.png")
+    expected = str((_project_root() / "output" / "storyboard" / "shot.png").resolve())
+    assert resolved == expected

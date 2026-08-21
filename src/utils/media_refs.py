@@ -71,7 +71,7 @@ def classify_media_ref(
     if os.path.isabs(raw):
         return MEDIA_REF_LOCAL_PATH if _is_under(Path(raw), output_root) else MEDIA_REF_UNKNOWN
 
-    relative = raw.lstrip("/")
+    relative = raw.lstrip("/\\").replace("\\", "/")
     if relative.startswith(LOCAL_MEDIA_PREFIXES):
         return MEDIA_REF_LOCAL_PATH
 
@@ -99,7 +99,7 @@ def resolve_local_media_path(value: str, *, project_root: Optional[str] = None) 
             return abs_path
         return None
 
-    relative = raw.lstrip("/")
+    relative = raw.lstrip("/\\").replace("\\", "/")
     if relative.startswith("output/"):
         relative = relative[len("output/") :]
     elif relative.startswith("outputs/"):
