@@ -138,3 +138,8 @@ frontend/docs/
 src-tauri/target/
 src-tauri/binaries/*.app
 src-tauri/gen/
+
+# Local caches & scratch (regenerated constantly, keep on disk but untracked)
+.cache/
+frontend/.cache/
+.tmp_*
