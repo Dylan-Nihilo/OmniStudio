@@ -2,6 +2,10 @@
 
 This file provides guidance to AI coding agents (Codex CLI / Qoder) when working with code in this repository. It mirrors the project's `CLAUDE.md` so that Claude Code, Codex, and Qoder share identical project rules. When this file and `CLAUDE.md` diverge, treat `CLAUDE.md` as the source of truth and re-sync here.
 
+## 交流语言（Communication Language）
+
+- 与用户交流时（解释、总结、回答、报告、文档说明等）**默认使用中文（简体）回复**，除非用户明确要求使用其他语言或提供的内容本身是其他语言。
+
 ## Git Commit Rules
 
 - Git author is already configured for this repo, do not modify git config
