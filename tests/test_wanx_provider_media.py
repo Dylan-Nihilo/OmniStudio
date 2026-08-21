@@ -162,6 +162,79 @@ class TestWanxProviderMediaIntegration:
         ]
         assert captured["create_headers"]["X-DashScope-OssResourceResolve"] == "enable"
 
+    def test_wan27_r2v_builds_media_payload_with_first_frame_and_reference_images(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        _install_fake_uploader(monkeypatch, configured=False)
+
+        captured = {}
+        _install_fake_requests(monkeypatch, captured)
+        monkeypatch.setattr(
+            "src.models.wanx.WanxModel._create_dashscope_temp_url",
+            lambda self, local_path, model_name: f"oss://dashscope-temp/{Path(local_path).name}",
+        )
+
+        first_frame = _write_output_file(
+            "storyboard/wan27_r2v_first.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+        local_ref = _write_output_file(
+            "assets/wan27_r2v_ref.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+        provider_ids = []
+
+        model = WanxModel({"params": {}})
+        model.generate(
+            prompt="cinematic chase",
+            output_path="output/video/wan27_r2v.mp4",
+            img_path=first_frame,
+            model_name="wan2.7-r2v",
+            ref_image_urls=[
+                first_frame,
+                local_ref,
+                "https://example.com/reference.png",
+            ],
+            resolution="720p",
+            duration=12,
+            prompt_extend=False,
+            watermark=False,
+            audio=False,
+            shot_type="single",
+            ratio="16:9",
+            on_provider_ids=lambda *values: provider_ids.append(values),
+        )
+
+        payload = captured["create_payload"]
+        assert payload["input"] == {
+            "prompt": "cinematic chase",
+            "media": [
+                {
+                    "type": "first_frame",
+                    "url": "oss://dashscope-temp/wan27_r2v_first.png",
+                },
+                {
+                    "type": "reference_image",
+                    "url": "oss://dashscope-temp/wan27_r2v_ref.png",
+                },
+                {
+                    "type": "reference_image",
+                    "url": "https://example.com/reference.png",
+                },
+            ],
+        }
+        assert payload["parameters"] == {
+            "resolution": "720P",
+            "duration": 12,
+            "prompt_extend": False,
+            "watermark": False,
+        }
+        assert "reference_image_urls" not in payload["input"]
+        assert "audio" not in payload["parameters"]
+        assert "shot_type" not in payload["parameters"]
+        assert "ratio" not in payload["parameters"]
+        assert captured["create_headers"]["X-DashScope-OssResourceResolve"] == "enable"
+        assert provider_ids == [("dashscope", "task-1", None)]
+
     def test_i2v_object_key_with_oss_configured_uses_signed_url(self, monkeypatch):
         monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
         _install_fake_uploader(monkeypatch, configured=True)

@@ -348,34 +348,90 @@ class WanxModel(VideoGenModel):
                 backend = self._resolve_provider_backend_for_model(resolver_model)
                 temp_url_resolver = self._build_dashscope_temp_url_resolver(resolver_model)
 
-                modality = "image" if is_wan27_r2v else "reference_video"
-                resolved_ref_urls = resolve_media_inputs(
-                    ref_urls,
-                    model_name=resolver_model,
-                    modality=modality,
-                    backend=backend,
-                    uploader=uploader,
-                    dashscope_temp_url_resolver=temp_url_resolver,
-                )
-                ref_urls_resolved = [item.value for item in resolved_ref_urls]
-                for resolved_item in resolved_ref_urls:
-                    self._merge_media_headers(extra_media_headers, resolved_item.headers)
+                if is_wan27_r2v:
+                    first_frame_ref = img_path or img_url
+                    if not first_frame_ref:
+                        raise ValueError("img_path or img_url is required as first_frame for wan2.7-r2v")
 
-                shot_type = kwargs.get('shot_type', 'multi') # Default to multi for R2V as per PRD
-                ratio = kwargs.get('ratio')
+                    # Wan 2.7 R2V requires URL-like media entries. Local images initially
+                    # resolve to data URIs in image mode, so re-resolve them through the
+                    # DashScope temporary-file transport when needed.
+                    def resolve_wan27_image(image_ref: str):
+                        resolved = resolve_media_input(
+                            image_ref,
+                            model_name=resolver_model,
+                            modality="image",
+                            backend=backend,
+                            uploader=uploader,
+                            dashscope_temp_url_resolver=temp_url_resolver,
+                        )
+                        if resolved.value.startswith("data:image/"):
+                            resolved = resolve_media_input(
+                                image_ref,
+                                model_name=resolver_model,
+                                modality="reference_video",
+                                backend=backend,
+                                uploader=uploader,
+                                dashscope_temp_url_resolver=temp_url_resolver,
+                            )
+                        self._merge_media_headers(extra_media_headers, resolved.headers)
+                        return resolved.value
 
-                video_url = self._generate_wan_r2v_http(
-                    prompt=prompt,
-                    ref_video_urls=ref_urls_resolved,
-                    model_name=final_model_name,
-                    size=size if not is_wan27_r2v else None,
-                    ratio=ratio if is_wan27_r2v else None,
-                    duration=duration,
-                    audio=kwargs.get('audio', True), # Default to True for R2V
-                    shot_type=shot_type,
-                    seed=seed,
-                    extra_headers=extra_media_headers,
-                )
+                    first_frame_url = resolve_wan27_image(first_frame_ref)
+                    media = [{"type": "first_frame", "url": first_frame_url}]
+
+                    seen_refs = {str(first_frame_ref), first_frame_url}
+                    for ref_url in ref_urls:
+                        if not ref_url or str(ref_url) in seen_refs:
+                            continue
+                        resolved_url = resolve_wan27_image(ref_url)
+                        if resolved_url in seen_refs:
+                            continue
+                        media.append({"type": "reference_image", "url": resolved_url})
+                        seen_refs.update({str(ref_url), resolved_url})
+                        if len(media) >= 6:  # first frame + at most five reference images
+                            break
+
+                    if len(media) == 1:
+                        raise ValueError("At least one distinct ref_image_urls item is required for wan2.7-r2v")
+
+                    video_url = self._generate_wan_r2v_http(
+                        prompt=prompt,
+                        media=media,
+                        model_name=final_model_name,
+                        resolution=resolution,
+                        duration=duration,
+                        prompt_extend=prompt_extend,
+                        watermark=watermark,
+                        seed=seed,
+                        extra_headers=extra_media_headers,
+                        on_provider_ids=kwargs.get('on_provider_ids'),
+                    )
+                else:
+                    resolved_ref_urls = resolve_media_inputs(
+                        ref_urls,
+                        model_name=resolver_model,
+                        modality="reference_video",
+                        backend=backend,
+                        uploader=uploader,
+                        dashscope_temp_url_resolver=temp_url_resolver,
+                    )
+                    ref_urls_resolved = [item.value for item in resolved_ref_urls]
+                    for resolved_item in resolved_ref_urls:
+                        self._merge_media_headers(extra_media_headers, resolved_item.headers)
+
+                    video_url = self._generate_wan_r2v_http(
+                        prompt=prompt,
+                        ref_video_urls=ref_urls_resolved,
+                        model_name=final_model_name,
+                        size=size,
+                        duration=duration,
+                        audio=kwargs.get('audio', True), # Default to True for R2V
+                        shot_type=kwargs.get('shot_type', 'multi'),
+                        seed=seed,
+                        extra_headers=extra_media_headers,
+                        on_provider_ids=kwargs.get('on_provider_ids'),
+                    )
             elif final_model_name in ('wan2.7-t2v', 'wan2.7-videoedit'):
                 # Wan2.7 T2V and VideoEdit via HTTP API
                 ratio = kwargs.get('ratio')
@@ -658,11 +714,15 @@ class WanxModel(VideoGenModel):
         
         raise RuntimeError(f"{model_name} task timed out after {max_wait_time}s")
 
-    def _generate_wan_r2v_http(self, prompt: str, ref_video_urls: list, model_name: str = "wan2.6-r2v",
+    def _generate_wan_r2v_http(self, prompt: str, ref_video_urls: Optional[List[str]] = None,
+                                  model_name: str = "wan2.6-r2v",
                                   size: Optional[str] = "1280*720", ratio: Optional[str] = None,
-                                  duration: int = 5, audio: bool = True,
-                                  shot_type: str = "multi", seed: int = None,
-                                  extra_headers: Optional[Mapping[str, str]] = None) -> str:
+                                  resolution: str = "720P", duration: int = 5,
+                                  prompt_extend: bool = True, watermark: bool = False,
+                                  audio: bool = True, shot_type: str = "multi", seed: int = None,
+                                  media: Optional[List[Dict[str, str]]] = None,
+                                  extra_headers: Optional[Mapping[str, str]] = None,
+                                  on_provider_ids: Optional[Callable[[str, Optional[str], Optional[str]], None]] = None) -> str:
         """Generate video using Wan R2V (2.6/2.7) via HTTP API (asynchronous with polling)."""
         base = get_provider_base_url("DASHSCOPE")
         create_url = f"{base}/api/v1/services/aigc/video-generation/video-synthesis"
@@ -675,25 +735,39 @@ class WanxModel(VideoGenModel):
         if extra_headers:
             headers.update(dict(extra_headers))
 
-        input_key = "reference_image_urls" if model_name.startswith("wan2.7-") else "reference_video_urls"
-        payload = {
-            "model": model_name,
-            "input": {
-                "prompt": prompt,
-                input_key: ref_video_urls
-            },
-            "parameters": {
-                "duration": duration,
-                "audio": audio,
-                "shot_type": shot_type
+        if model_name == "wan2.7-r2v":
+            if not media:
+                raise ValueError("media is required for wan2.7-r2v")
+            payload = {
+                "model": model_name,
+                "input": {
+                    "prompt": prompt,
+                    "media": media,
+                },
+                "parameters": {
+                    "resolution": resolution,
+                    "duration": duration,
+                    "prompt_extend": prompt_extend,
+                    "watermark": watermark,
+                },
             }
-        }
-
-        # Wan2.7 uses ratio; older models use size
-        if ratio:
-            payload["parameters"]["ratio"] = ratio
-        elif size:
-            payload["parameters"]["size"] = size
+        else:
+            payload = {
+                "model": model_name,
+                "input": {
+                    "prompt": prompt,
+                    "reference_video_urls": ref_video_urls or [],
+                },
+                "parameters": {
+                    "duration": duration,
+                    "audio": audio,
+                    "shot_type": shot_type,
+                },
+            }
+            if ratio:
+                payload["parameters"]["ratio"] = ratio
+            elif size:
+                payload["parameters"]["size"] = size
         
         if seed:
             payload["parameters"]["seed"] = seed
@@ -714,10 +788,17 @@ class WanxModel(VideoGenModel):
         
         result = response.json()
         task_id = result.get('output', {}).get('task_id')
+        request_id = result.get('request_id')
         if not task_id:
             raise RuntimeError(f"No task_id in response: {result}")
         
-        logger.info(f"Task created: {task_id}")
+        logger.info(f"Task created: {task_id} (request_id={request_id})")
+
+        if on_provider_ids is not None:
+            try:
+                on_provider_ids("dashscope", task_id, request_id)
+            except Exception as cb_err:
+                logger.warning(f"on_provider_ids callback failed: {cb_err}")
         
         # Step 2: Poll for task completion
         poll_url = f"{base}/api/v1/tasks/{task_id}"
