@@ -2502,10 +2502,9 @@ class ComicGenPipeline:
     def auto_select_latest_video(self, script_id: str, frame_id: str) -> Script:
         """Auto select: pick the latest completed video task for this frame.
 
-        Idempotent. Skips the update entirely if the frame is pinned by the
-        user (is_video_pinned=True). Called by the frontend on every task
-        completion poll — the pin check is what makes latest-wins respect
-        user intent.
+        Idempotent. Skips the update entirely if the frame is manually pinned
+        (is_video_pinned=True) or asset-locked (locked=True). Both states protect
+        the current selection from latest-wins updates triggered by task polling.
         """
         script = self.scripts.get(script_id)
         if not script:
@@ -2515,8 +2514,8 @@ class ComicGenPipeline:
         if not frame:
             raise ValueError("Frame not found")
 
-        if frame.is_video_pinned:
-            return script  # user has manually pinned — don't overwrite
+        if frame.is_video_pinned or frame.locked:
+            return script  # manual pin or asset lock protects the current take
 
         # Latest completed task wins. VideoTask carries created_at
         # (default_factory=time.time); we use it as the "completion order"
