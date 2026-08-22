@@ -188,8 +188,11 @@ class StoryboardGenerator:
                 variant = ImageVariant(
                     id=variant_id,
                     url=rel_path,
-                    prompt=prompt,
-                    created_at=time.time()
+                    prompt_used=prompt,
+                    created_at=time.time(),
+                    model_name=model_name,
+                    params={"size": effective_size, "seed": None},
+                    source="generated",
                 )
                 frame.rendered_image_asset.variants.append(variant)
                 

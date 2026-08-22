@@ -799,7 +799,12 @@ def create_series_character(series_id: str, request: CreateSeriesAssetRequest):
     char_id = _new_id("char")
     ref_sheet = AssetUnit()
     if request.image_url:
-        variant = ImageVariant(id=_new_id("img"), url=request.image_url)
+        variant = ImageVariant(
+            id=_new_id("img"),
+            url=request.image_url,
+            source="uploaded",
+            is_uploaded_source=True,
+        )
         ref_sheet.image_variants.append(variant)
         ref_sheet.selected_image_id = variant.id
     char = Character(

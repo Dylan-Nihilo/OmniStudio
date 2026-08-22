@@ -111,6 +111,13 @@ class AssetGenerator:
                             url=rel_path,
                             created_at=time.time(),
                             prompt_used=effective_prompt,
+                            model_name=model_name,
+                            params={
+                                "size": effective_size,
+                                "negative_prompt": negative_prompt,
+                                "seed": None,
+                            },
+                            source="generated",
                         )
                         character.reference_sheet.image_variants.append(variant)
 
@@ -243,7 +250,14 @@ class AssetGenerator:
                             id=variant_id,
                             url=rel_fullbody_path,
                             created_at=time.time(),
-                            prompt_used=generation_prompt
+                            prompt_used=generation_prompt,
+                            model_name=effective_model_name,
+                            params={
+                                "size": effective_size,
+                                "negative_prompt": negative_prompt,
+                                "seed": None,
+                            },
+                            source="generated",
                         )
                         character.full_body_asset.variants.insert(0, variant) # Prepend new variants
                         
@@ -389,7 +403,14 @@ class AssetGenerator:
                             id=variant_id,
                             url=rel_sheet_path,
                             created_at=time.time(),
-                            prompt_used=generation_prompt
+                            prompt_used=generation_prompt,
+                            model_name=i2i_model_name,
+                            params={
+                                "size": effective_size,
+                                "negative_prompt": sheet_negative,
+                                "seed": None,
+                            },
+                            source="generated",
                         )
                         character.three_view_asset.variants.insert(0, variant)
                         
@@ -467,7 +488,14 @@ class AssetGenerator:
                             id=variant_id,
                             url=rel_avatar_path,
                             created_at=time.time(),
-                            prompt_used=generation_prompt
+                            prompt_used=generation_prompt,
+                            model_name=i2i_model_name,
+                            params={
+                                "size": effective_size,
+                                "negative_prompt": negative_prompt,
+                                "seed": None,
+                            },
+                            source="generated",
                         )
                         character.headshot_asset.variants.insert(0, variant)
                         
@@ -559,7 +587,14 @@ class AssetGenerator:
                     id=variant_id,
                     url=rel_path,
                     created_at=time.time(),
-                    prompt_used=prompt
+                    prompt_used=prompt,
+                    model_name=model_name,
+                    params={
+                        "size": effective_size,
+                        "negative_prompt": negative_prompt,
+                        "seed": None,
+                    },
+                    source="generated",
                 )
                 scene.image_asset.variants.insert(0, variant)
                 
@@ -621,7 +656,14 @@ class AssetGenerator:
                     id=variant_id,
                     url=rel_path,
                     created_at=time.time(),
-                    prompt_used=prompt
+                    prompt_used=prompt,
+                    model_name=model_name,
+                    params={
+                        "size": effective_size,
+                        "negative_prompt": negative_prompt,
+                        "seed": None,
+                    },
+                    source="generated",
                 )
                 prop.image_asset.variants.insert(0, variant)
                 

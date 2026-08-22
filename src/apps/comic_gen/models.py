@@ -128,6 +128,12 @@ class ImageVariant(BaseModel):
     url: str = Field(..., description="URL of the image")
     created_at: float = Field(default_factory=time.time, description="Timestamp of creation")
     prompt_used: Optional[str] = Field(None, description="Prompt used for this specific variant")
+    model_name: Optional[str] = Field(None, description="Model used to generate this variant")
+    params: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Generation parameters such as size, seed, and negative_prompt",
+    )
+    source: str = Field("generated", description="Variant source: generated or uploaded")
     is_favorited: bool = Field(False, description="Whether this variant is favorited/pinned (won't be auto-deleted)")
     # NEW: 上传来源标记
     is_uploaded_source: bool = Field(False, description="Whether this is a user-uploaded source file")

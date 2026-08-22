@@ -1311,7 +1311,8 @@ class ComicGenPipeline:
             url=image_url,
             prompt_used=description or target_asset.description,
             is_uploaded_source=True,
-            upload_type=upload_type
+            upload_type=upload_type,
+            source="uploaded",
         )
         
         # Update description if provided
@@ -1352,7 +1353,8 @@ class ComicGenPipeline:
                 url=image_url,
                 prompt_used=description or target_asset.description,
                 is_uploaded_source=True,
-                upload_type=upload_type
+                upload_type=upload_type,
+                source="uploaded",
             )
             
             if upload_type == "full_body":
@@ -2391,6 +2393,7 @@ class ComicGenPipeline:
             prompt_used="Extracted last frame from video",
             is_uploaded_source=True,
             upload_type="image",
+            source="uploaded",
         )
 
         # Initialize rendered_image_asset if needed
@@ -2434,6 +2437,7 @@ class ComicGenPipeline:
             prompt_used="User uploaded image",
             is_uploaded_source=True,
             upload_type="image",
+            source="uploaded",
         )
 
         if not frame.rendered_image_asset:
@@ -4573,7 +4577,12 @@ class ComicGenPipeline:
             if asset_type == "character":
                 ref_sheet = AssetUnit()
                 if image_url:
-                    variant = ImageVariant(id=f"img_{uuid.uuid4().hex[:12]}", url=image_url)
+                    variant = ImageVariant(
+                        id=f"img_{uuid.uuid4().hex[:12]}",
+                        url=image_url,
+                        source="uploaded",
+                        is_uploaded_source=True,
+                    )
                     ref_sheet.image_variants.append(variant)
                     ref_sheet.selected_image_id = variant.id
                 asset = Character(
