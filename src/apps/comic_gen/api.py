@@ -52,7 +52,7 @@ from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDE
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
 from ...utils.provider_errors import ProviderError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv, set_key
 
 app = FastAPI(title="AI Comic Gen API")
@@ -3543,6 +3543,151 @@ def merge_videos(script_id: str):
         logger.error(f"[MERGE ERROR] Unexpected error: {e}")
         logger.exception("An error occurred")
         raise HTTPException(status_code=500, detail=f"Merge failed: {str(e)}")
+
+
+# ===== Script Text Export Endpoint (SCRIPT-04) =====
+
+
+def _script_export_text(value: Any) -> str:
+    """Normalize an exported value without changing internal line breaks."""
+    return "" if value is None else str(value).strip()
+
+
+def build_script_export(script: Script, format: str = "md") -> str:
+    """Build a plain-text or Markdown export for one episode's script."""
+    export_format = _script_export_text(format).lower()
+    if export_format == "markdown":
+        export_format = "md"
+    if export_format not in {"md", "txt"}:
+        raise ValueError(f"Unsupported script export format: {format}")
+
+    title = _script_export_text(getattr(script, "title", ""))
+    original_text = _script_export_text(getattr(script, "original_text", ""))
+    frames = list(getattr(script, "frames", None) or [])
+    characters = list(getattr(script, "characters", None) or [])
+    scenes = list(getattr(script, "scenes", None) or [])
+
+    character_names = [
+        _script_export_text(getattr(character, "name", ""))
+        for character in characters
+        if _script_export_text(getattr(character, "name", ""))
+    ]
+    scene_names = [
+        _script_export_text(getattr(scene, "name", ""))
+        for scene in scenes
+        if _script_export_text(getattr(scene, "name", ""))
+    ]
+    scenes_by_id = {
+        _script_export_text(getattr(scene, "id", "")): _script_export_text(
+            getattr(scene, "name", "")
+        )
+        for scene in scenes
+    }
+
+    def frame_blocks(markdown: bool) -> list[str]:
+        blocks = []
+        previous_scene_id = None
+        for index, frame in enumerate(frames, start=1):
+            scene_id = _script_export_text(getattr(frame, "scene_id", ""))
+            if scene_id != previous_scene_id:
+                scene_name = scenes_by_id.get(scene_id) or scene_id
+                if markdown:
+                    blocks.append(f"## 场景：{scene_name}")
+                else:
+                    blocks.append(f"—— 场景：{scene_name} ——")
+                previous_scene_id = scene_id
+
+            duration = getattr(frame, "duration", None)
+            duration_text = _script_export_text(duration) if duration is not None else ""
+            action = next(
+                (
+                    _script_export_text(getattr(frame, field, ""))
+                    for field in (
+                        "action_description",
+                        "character_acting",
+                        "visual_description",
+                    )
+                    if _script_export_text(getattr(frame, field, ""))
+                ),
+                "",
+            )
+            speaker = _script_export_text(getattr(frame, "speaker", ""))
+            dialogue = _script_export_text(getattr(frame, "dialogue", ""))
+
+            if markdown:
+                shot = f"**镜 {index}**"
+                if duration_text:
+                    shot += f"（时长 {duration_text}s）"
+                frame_lines = [shot]
+                if action:
+                    frame_lines.append(f"*动作：{action}*")
+                if dialogue:
+                    if speaker:
+                        frame_lines.append(f"**{speaker}**：{dialogue}")
+                    else:
+                        frame_lines.append(dialogue)
+            else:
+                shot = f"【镜 {index}】"
+                if duration_text:
+                    shot += f"（{duration_text}s）"
+                frame_lines = [shot]
+                if action:
+                    frame_lines.append(f"【动作】{action}")
+                if dialogue:
+                    if speaker:
+                        frame_lines.append(f"【{speaker}】：{dialogue}")
+                    else:
+                        frame_lines.append(f"【对白】：{dialogue}")
+            blocks.append("\n".join(frame_lines))
+        return blocks
+
+    if export_format == "md":
+        header_lines = [f"# {title}"]
+        if original_text:
+            summary = original_text[:200]
+            if len(original_text) > 200:
+                summary += "…"
+            header_lines.append(f"> {summary}")
+        blocks = [
+            "\n".join(header_lines),
+            f"集/镜数：{len(frames)} 镜，角色：{'、'.join(character_names)}，场景：{'、'.join(scene_names)}",
+        ]
+        blocks.extend(frame_blocks(markdown=True))
+    else:
+        blocks = [
+            "\n".join(
+                [
+                    "================",
+                    title,
+                    "================",
+                ]
+            ),
+            f"{len(frames)} 镜 | 角色：{'、'.join(character_names)} | 场景：{'、'.join(scene_names)}",
+        ]
+        blocks.extend(frame_blocks(markdown=False))
+
+    return "\n\n".join(blocks).rstrip() + "\n"
+
+
+@app.get("/projects/{script_id}/export_script")
+def export_script_text(script_id: str, format: str = "md"):
+    """Export a single episode script as Markdown or plain text."""
+    export_format = _script_export_text(format).lower()
+    if export_format not in {"md", "markdown", "txt"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported script export format: {format}")
+
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    normalized_format = "md" if export_format == "markdown" else export_format
+    content = build_script_export(script, normalized_format)
+    media_type = (
+        "text/markdown; charset=utf-8"
+        if normalized_format == "md"
+        else "text/plain; charset=utf-8"
+    )
+    return PlainTextResponse(content=content, media_type=media_type)
 
 
 # ===== Export Endpoint =====
