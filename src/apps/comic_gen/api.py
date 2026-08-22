@@ -51,6 +51,7 @@ from .models import (
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
+from ...utils.provider_errors import ProviderError
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv, set_key
 
@@ -4900,3 +4901,15 @@ def confirm_shot_block(project_id: str, shot_id: str, req: ConfirmShotBlockReque
     )
 
     return confirmed
+
+@app.exception_handler(ProviderError)
+async def provider_error_handler(request: Request, exc: ProviderError):
+    """Translate provider failures into a stable, category-aware response."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "category": exc.category.value,
+            "provider": exc.provider,
+        },
+    )

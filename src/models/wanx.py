@@ -15,6 +15,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Tuple
 from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_input, resolve_media_inputs
 from ..utils.provider_registry import resolve_provider_backend
+from ..utils.provider_errors import raise_classified
 
 logger = get_logger(__name__)
 
@@ -683,7 +684,10 @@ class WanxModel(VideoGenModel):
             time.sleep(poll_interval)
             elapsed += poll_interval
             
-            poll_response = requests.get(poll_url, headers=poll_headers, timeout=30)
+            try:
+                poll_response = requests.get(poll_url, headers=poll_headers, timeout=30)
+            except (requests.exceptions.RequestException, OSError) as exc:
+                raise_classified(exc, provider="dashscope")
             
             if poll_response.status_code != 200:
                 logger.warning(f"Poll request failed: {poll_response.status_code}")
@@ -776,7 +780,10 @@ class WanxModel(VideoGenModel):
         logger.info(f"Payload: {payload}")
         
         # Step 1: Create task
-        response = requests.post(create_url, headers=headers, json=payload, timeout=120)
+        try:
+            response = requests.post(create_url, headers=headers, json=payload, timeout=120)
+        except (requests.exceptions.RequestException, OSError) as exc:
+            raise_classified(exc, provider="dashscope")
         
         logger.info(f"Create task response status: {response.status_code}")
         logger.info(f"Create task response body: {response.text[:500] if response.text else 'empty'}")
