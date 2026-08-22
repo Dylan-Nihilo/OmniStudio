@@ -3158,6 +3158,21 @@ class ComicGenPipeline:
         )
         return report
 
+    def _set_merge_progress(
+        self,
+        script: Script,
+        stage: str,
+        message: str,
+        progress: float,
+    ) -> None:
+        """Update merge progress in memory for project polling."""
+        script.merge_progress = {
+            "stage": stage,
+            "message": message,
+            "progress": float(progress),
+            "updated_at": time.time(),
+        }
+
     def merge_videos(self, script_id: str) -> Script:
         """Step 5b: Merge selected videos into a single file."""
         _validate_safe_id(script_id, "script_id")
@@ -3165,6 +3180,14 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
 
+        self._set_merge_progress(script, "preparing", "准备导出", 0.05)
+        try:
+            return self._merge_videos_impl(script_id, script)
+        except Exception as err:
+            self._set_merge_progress(script, "failed", str(err), 0)
+            raise
+
+    def _merge_videos_impl(self, script_id: str, script: Script) -> Script:
         # Validate before checking FFmpeg or touching merge inputs so invalid
         # user settings cannot be silently replaced by defaults.
         export_settings = _resolve_export_settings(getattr(script, "export_settings", None))
@@ -3237,6 +3260,7 @@ class ComicGenPipeline:
             raise ValueError("No videos selected to merge. Please select videos for each frame first.")
         
         logger.info(f"[MERGE] Found {len(video_paths)} videos to merge")
+        self._set_merge_progress(script, "collecting", "收集分镜视频", 0.15)
             
         # Create file list for ffmpeg
         # script.id comes from the store (== script_id), keeping ffmpeg args taint-free.
@@ -3315,6 +3339,7 @@ class ComicGenPipeline:
             shutil.rmtree(normalization_dir, ignore_errors=True)
             raise
 
+        self._set_merge_progress(script, "normalizing", "统一音轨", 0.3)
         logger.info(f"[MERGE] Merge list created with {len(abs_video_paths)} videos")
 
         # Output path
@@ -3358,11 +3383,13 @@ class ComicGenPipeline:
         
         logger.debug(f"[MERGE] Running FFmpeg command: {' '.join(cmd)}")
         logger.debug(f"[MERGE] Platform: {platform.system()} {platform.release()}")
+        self._set_merge_progress(script, "transcoding", "转码合并", 0.4)
         
         try:
             result = subprocess.run(cmd, check=True, capture_output=True, timeout=600)  # 10 min timeout for re-encoding
             logger.debug(f"[MERGE] FFmpeg stdout: {result.stdout.decode()[:500] if result.stdout else 'empty'}")
             logger.info(f"[MERGE] FFmpeg completed successfully")
+            self._set_merge_progress(script, "writing", "写入成片", 0.75)
             
             # Update script with merged video path
             # Use 'videos/' (plural) to match the /files/videos route
@@ -3395,6 +3422,8 @@ class ComicGenPipeline:
                 # BGM is optional; log + carry on with the silent video
                 logger.warning(f"[MERGE] BGM mux skipped due to error: {bgm_err}")
 
+            self._set_merge_progress(script, "mixing", "混音处理", 0.9)
+            self._set_merge_progress(script, "verifying", "验收成片", 0.95)
             script.merge_verification = self._verify_merged_video(output_path)
             if script.merge_verification["ok"]:
                 verification = script.merge_verification
@@ -3410,6 +3439,7 @@ class ComicGenPipeline:
                     f"{json.dumps(script.merge_verification, ensure_ascii=False)}"
                 )
 
+            self._set_merge_progress(script, "done", "导出完成", 1.0)
             self._save_data()
 
             # Cleanup list file

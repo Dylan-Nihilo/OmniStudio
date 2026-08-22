@@ -561,6 +561,7 @@ class Script(BaseModel):
     # Merged video URL
     merged_video_url: Optional[str] = Field(None, description="URL of the merged final video")
     merge_verification: Optional[Dict[str, Any]] = None
+    merge_progress: Optional[Dict[str, Any]] = None
 
     # Final FFmpeg output settings.  ``None`` (or an omitted key) keeps the
     # merge pipeline's existing defaults.
