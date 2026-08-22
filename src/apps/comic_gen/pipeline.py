@@ -62,6 +62,41 @@ def _safe_resolve_path(base_dir: str, untrusted_rel: str) -> str:
     return resolved
 
 
+def _validate_dub_offset_ms(offset_ms: int) -> int:
+    """Normalize and validate the dubbing offset accepted by FFmpeg filters."""
+    offset_ms = int(offset_ms)
+    if not -10000 <= offset_ms <= 10000:
+        raise ValueError(
+            "Dub audio offset_ms must be between -10000 and 10000 milliseconds"
+        )
+    return offset_ms
+
+
+def _build_dub_filter(offset_ms: int, has_bg: bool) -> Tuple[str, str]:
+    """Build only the dubbing audio filter and a readable offset log note.
+
+    Positive offsets delay the TTS audio with ``adelay``. Negative offsets
+    leave audio timestamps unchanged; ``preview_dub`` implements the advance
+    by delaying the video input during the final mux, preserving all samples.
+    """
+    offset_ms = _validate_dub_offset_ms(offset_ms)
+
+    if offset_ms >= 0:
+        delay_str = f"{offset_ms}|{offset_ms}"
+        tts_filter = f"[1:a]adelay={delay_str}[tts]"
+        offset_note = f"延后 {offset_ms}ms (adelay={offset_ms}ms)"
+    else:
+        tts_filter = "[1:a]adelay=0|0[tts]"
+        offset_note = f"提前 {abs(offset_ms)}ms（视频流延迟）"
+
+    if has_bg:
+        return (
+            f"{tts_filter};[0:a][tts]amix=inputs=2:duration=first:weights=1 1[out]",
+            offset_note,
+        )
+    return f"{tts_filter};[tts]apad[out]", offset_note
+
+
 def _resolve_export_settings(export_settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Validate and normalize the settings used by the final FFmpeg command.
 
@@ -2693,14 +2728,14 @@ class ComicGenPipeline:
             shutil.rmtree(work_dir, ignore_errors=True)
 
     def preview_dub(self, script_id: str, frame_id: str, video_task_id: str, offset_ms: int = 0) -> "Script":
-        """Generate a preview dubbed video (Demucs cached + fast adelay+amix+mux).
+        """Generate a preview dubbed video (Demucs cached + offset+amix+mux).
 
         Replaces any existing preview_video_url (lazy cleanup).
         Does NOT touch dubbed_video_url.
         """
         _validate_safe_id(script_id, "script_id")
-        # Force numeric type so the adelay filter string is provably shell-safe.
-        offset_ms = int(offset_ms)
+        # Force a bounded numeric type so FFmpeg filter strings stay shell-safe.
+        offset_ms = _validate_dub_offset_ms(offset_ms)
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
@@ -2747,25 +2782,52 @@ class ComicGenPipeline:
         # Ensure background audio is cached (Demucs runs only on first call or video change)
         bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_task.video_url)
 
+        video_input_args = ["-i", video_path]
+        if offset_ms < 0:
+            video_delay_seconds = abs(offset_ms) / 1000.0
+            video_input_args = [
+                "-itsoffset", f"{video_delay_seconds:.6f}", "-i", video_path
+            ]
+
+        try:
+            ffprobe_path = get_ffprobe_path()
+            probe_result = subprocess.run(
+                [
+                    ffprobe_path,
+                    '-v', 'error',
+                    '-show_entries', 'format=duration',
+                    '-of', 'csv=p=0', video_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if probe_result.returncode != 0:
+                raise RuntimeError("ffprobe failed")
+            video_duration = float(probe_result.stdout.strip())
+        except Exception:
+            video_duration = 600.0
+        total_seconds = video_duration + abs(offset_ms) / 1000.0 + 0.5
+
         import tempfile
         work_dir = tempfile.mkdtemp(prefix="dub_mix_")
         try:
             if bg_audio_path:
                 mixed_audio = os.path.join(work_dir, "mixed.wav")
-                delay_str = f"{offset_ms}|{offset_ms}"
+                filter_complex, offset_note = _build_dub_filter(offset_ms, has_bg=True)
 
                 mix_cmd = [
                     ffmpeg_path, "-y",
                     "-i", bg_audio_path,
                     "-i", tts_path,
                     "-filter_complex",
-                    f"[1:a]adelay={delay_str}[tts];[0:a][tts]amix=inputs=2:duration=first:weights=1 1[out]",
+                    filter_complex,
                     "-map", "[out]",
                     "-ac", "2", "-ar", "44100",
                     mixed_audio,
                 ]
 
-                logger.info(f"[DUB] Mixing TTS with background (adelay={offset_ms}ms)")
+                logger.info(f"[DUB] Mixing TTS with background ({offset_note})")
                 subprocess.run(mix_cmd, check=True, capture_output=True, timeout=60)
 
                 if not os.path.exists(mixed_audio):
@@ -2773,32 +2835,34 @@ class ComicGenPipeline:
 
                 mux_cmd = [
                     ffmpeg_path, "-y",
-                    "-i", video_path,
+                    *video_input_args,
                     "-i", mixed_audio,
                     "-map", "0:v",
                     "-map", "1:a",
                     "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "192k",
                     "-movflags", "+faststart",
+                    "-t", f"{total_seconds:.2f}",
                     output_path,
                 ]
                 subprocess.run(mux_cmd, check=True, capture_output=True, timeout=60)
             else:
-                delay_str = f"{offset_ms}|{offset_ms}"
+                filter_complex, offset_note = _build_dub_filter(offset_ms, has_bg=False)
                 cmd = [
                     ffmpeg_path, "-y",
-                    "-i", video_path,
+                    *video_input_args,
                     "-i", tts_path,
                     "-filter_complex",
-                    f"[1:a]adelay={delay_str}[tts];[tts]apad[out]",
+                    filter_complex,
                     "-map", "0:v",
                     "-map", "[out]",
                     "-c:v", "copy",
                     "-c:a", "aac", "-b:a", "192k",
                     "-movflags", "+faststart",
+                    "-t", f"{total_seconds:.2f}",
                     output_path,
                 ]
-                logger.info(f"[DUB] Simple replacement with adelay={offset_ms}ms")
+                logger.info(f"[DUB] Simple replacement ({offset_note})")
                 subprocess.run(cmd, check=True, capture_output=True, timeout=120)
 
         except subprocess.CalledProcessError as e:
