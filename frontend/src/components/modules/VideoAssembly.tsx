@@ -1,16 +1,120 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package } from "lucide-react";
+import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
+import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
 import { getAssetUrl, extractErrorDetail } from "@/lib/utils";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import SidePanelHeader from "@/components/shared/SidePanelHeader";
 
 type AssemblyPhase = "takes" | "mix" | "export";
+
+type ExportResolution = "1920x1080" | "1280x720" | "640x360";
+type ExportFps = 24 | 25 | 30;
+type ExportCrf = 18 | 20 | 23 | 26 | 28;
+type ExportPreset = "fast" | "medium" | "slow";
+type AudioBitrate = "128k" | "192k" | "256k";
+
+interface ExportSettings {
+    resolution?: ExportResolution;
+    fps?: ExportFps;
+    crf?: ExportCrf;
+    preset?: ExportPreset;
+    audio_bitrate?: AudioBitrate;
+}
+
+interface ExportSettingsDraft {
+    resolution: ExportResolution | "";
+    fps: ExportFps | "";
+    crf: ExportCrf;
+    preset: ExportPreset;
+    audio_bitrate: AudioBitrate;
+}
+
+interface MergeProgress {
+    stage: string;
+    message: string;
+    progress: number;
+}
+
+interface MergePrecheckItem {
+    frame_id?: string;
+    expected?: string;
+    path?: string;
+    reason?: string;
+}
+
+interface MergePrecheckReport {
+    ok: boolean;
+    total_frames: number;
+    frames_with_video: number;
+    missing?: MergePrecheckItem[];
+    unreadable?: MergePrecheckItem[];
+    no_video_available?: MergePrecheckItem[];
+    disk?: {
+        free_bytes?: number;
+        required_bytes?: number;
+        sufficient?: boolean;
+    };
+}
+
+interface MergeVerification {
+    ok: boolean;
+    video?: {
+        codec?: string | null;
+        width?: number | null;
+        height?: number | null;
+        fps?: number | null;
+    } | null;
+    audio?: {
+        codec?: string | null;
+        sample_rate?: number | null;
+        channels?: number | null;
+    } | null;
+    duration?: number;
+    errors?: string[];
+}
+
+const EXPORT_SETTINGS_DEFAULTS: ExportSettingsDraft = {
+    resolution: "",
+    fps: "",
+    crf: 23,
+    preset: "fast",
+    audio_bitrate: "128k",
+};
+
+function normalizeExportSettings(value: unknown): ExportSettings {
+    if (!value || typeof value !== "object") return {};
+    return { ...(value as ExportSettings) };
+}
+
+function toExportSettingsDraft(settings: ExportSettings): ExportSettingsDraft {
+    return {
+        resolution: settings.resolution ?? EXPORT_SETTINGS_DEFAULTS.resolution,
+        fps: settings.fps ?? EXPORT_SETTINGS_DEFAULTS.fps,
+        crf: settings.crf ?? EXPORT_SETTINGS_DEFAULTS.crf,
+        preset: settings.preset ?? EXPORT_SETTINGS_DEFAULTS.preset,
+        audio_bitrate: settings.audio_bitrate ?? EXPORT_SETTINGS_DEFAULTS.audio_bitrate,
+    };
+}
+
+function formatBytes(value?: number): string {
+    if (!Number.isFinite(value)) return "—";
+    const bytes = Math.max(0, Number(value));
+    if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let size = bytes / 1024;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex += 1;
+    }
+    return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
 
 export default function VideoAssembly() {
     const ta = useTranslations("assembly");
@@ -23,6 +127,17 @@ export default function VideoAssembly() {
     const [isMerging, setIsMerging] = useState(false);
     const [mergeError, setMergeError] = useState<string | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [exportSettings, setExportSettings] = useState<ExportSettings>(() =>
+        normalizeExportSettings((currentProject as any)?.export_settings)
+    );
+    const [precheckReport, setPrecheckReport] = useState<MergePrecheckReport | null>(null);
+    const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(
+        ((currentProject as any)?.merge_progress as MergeProgress | null | undefined) ?? null
+    );
+    const [mergeVerification, setMergeVerification] = useState<MergeVerification | null>(
+        ((currentProject as any)?.merge_verification as MergeVerification | null | undefined) ?? null
+    );
+    const mergePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // Group videos by frame
     const videosByFrame = useMemo(() => {
@@ -50,14 +165,91 @@ export default function VideoAssembly() {
         }
     };
 
+    const stopMergePolling = () => {
+        if (mergePollRef.current) {
+            clearInterval(mergePollRef.current);
+            mergePollRef.current = null;
+        }
+    };
+
+    useEffect(() => {
+        const project = currentProject as any;
+        setExportSettings(normalizeExportSettings(project?.export_settings));
+        setPrecheckReport(null);
+        setMergeProgress((project?.merge_progress as MergeProgress | null | undefined) ?? null);
+        setMergeVerification((project?.merge_verification as MergeVerification | null | undefined) ?? null);
+        setMergeError(null);
+        stopMergePolling();
+    }, [currentProject?.id]);
+
+    useEffect(() => {
+        return () => stopMergePolling();
+    }, []);
+
+    const startMergePolling = (scriptId: string) => {
+        stopMergePolling();
+        mergePollRef.current = setInterval(async () => {
+            try {
+                const project = await api.getProject(scriptId);
+                const progress = (project?.merge_progress as MergeProgress | null | undefined) ?? null;
+                const verification = (project?.merge_verification as MergeVerification | null | undefined) ?? null;
+                setMergeProgress(progress);
+                if (verification) setMergeVerification(verification);
+
+                if (progress?.stage === "done" || progress?.stage === "failed") {
+                    stopMergePolling();
+                    updateProject(scriptId, project);
+                }
+            } catch (error) {
+                console.error("Failed to poll merge progress:", error);
+            }
+        }, 2000);
+    };
+
+    const handleSaveExportSettings = async (settings: Record<string, unknown>) => {
+        if (!currentProject) return;
+        try {
+            const updatedProject = await api.updateExportSettings(currentProject.id, settings);
+            updateProject(currentProject.id, updatedProject);
+            setExportSettings(normalizeExportSettings(updatedProject?.export_settings));
+            toast.success(ta("settingsSaved"), {
+                projectId: currentProject.id,
+                projectTitle: currentProject.title,
+            });
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("settingsSaveFailed")), {
+                projectId: currentProject.id,
+                projectTitle: currentProject.title,
+            });
+        }
+    };
+
+    const handleRunPrecheck = async () => {
+        if (!currentProject) return;
+        try {
+            const report = await api.precheckMerge(currentProject.id);
+            setPrecheckReport(report as MergePrecheckReport);
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("precheckFailed")), {
+                projectId: currentProject.id,
+                projectTitle: currentProject.title,
+            });
+        }
+    };
+
     const handleMerge = async () => {
         if (!currentProject) return;
         setIsMerging(true);
         setMergeError(null);  // Clear previous errors
+        setMergeVerification(null);
+        setMergeProgress({ stage: "preparing", message: ta("stagePreparing"), progress: 0.05 });
+        startMergePolling(currentProject.id);
 
         try {
             const updatedProject = await api.mergeVideos(currentProject.id);
             updateProject(currentProject.id, updatedProject);
+            setMergeProgress((updatedProject?.merge_progress as MergeProgress | null | undefined) ?? null);
+            setMergeVerification((updatedProject?.merge_verification as MergeVerification | null | undefined) ?? null);
             // Success - error will be null, merged video will show below
         } catch (error: any) {
             console.error("Failed to merge videos:", error);
@@ -70,10 +262,10 @@ export default function VideoAssembly() {
             // Also show alert for immediate feedback
             alert(`${ta("mergeFailedAlert")}:\n\n${errorDetail}`);
         } finally {
+            stopMergePolling();
             setIsMerging(false);
         }
     };
-
 
     const handleDownload = async () => {
         if (!currentProject?.merged_video_url) return;
@@ -277,6 +469,12 @@ export default function VideoAssembly() {
                             mergeError={mergeError}
                             framesReady={framesReady}
                             framesTotal={framesTotal}
+                            exportSettings={exportSettings}
+                            precheckReport={precheckReport}
+                            mergeProgress={mergeProgress}
+                            mergeVerification={mergeVerification}
+                            onSaveSettings={handleSaveExportSettings}
+                            onRunPrecheck={handleRunPrecheck}
                             onMerge={handleMerge}
                             onDownload={handleDownload}
                             onDismissError={() => setMergeError(null)}
@@ -520,6 +718,12 @@ function ExportPhase({
     mergeError,
     framesReady,
     framesTotal,
+    exportSettings,
+    precheckReport,
+    mergeProgress,
+    mergeVerification,
+    onSaveSettings,
+    onRunPrecheck,
     onMerge,
     onDownload,
     onDismissError,
@@ -530,14 +734,215 @@ function ExportPhase({
     mergeError: string | null;
     framesReady: number;
     framesTotal: number;
+    exportSettings: ExportSettings;
+    precheckReport: MergePrecheckReport | null;
+    mergeProgress: MergeProgress | null;
+    mergeVerification: MergeVerification | null;
+    onSaveSettings: (settings: Record<string, unknown>) => Promise<void>;
+    onRunPrecheck: () => Promise<void>;
     onMerge: () => void;
     onDownload: () => void;
     onDismissError: () => void;
 }) {
     const ta = useTranslations("assembly");
     const allReady = framesTotal > 0 && framesReady === framesTotal;
+    const [draftSettings, setDraftSettings] = useState<ExportSettingsDraft>(() => toExportSettingsDraft(exportSettings));
+    const [isSavingSettings, setIsSavingSettings] = useState(false);
+    const [isPrechecking, setIsPrechecking] = useState(false);
+
+    useEffect(() => {
+        setDraftSettings(toExportSettingsDraft(exportSettings));
+    }, [exportSettings]);
+
+    const handleSaveSettings = async () => {
+        setIsSavingSettings(true);
+        try {
+            await onSaveSettings({
+                resolution: draftSettings.resolution || null,
+                fps: draftSettings.fps === "" ? null : draftSettings.fps,
+                crf: draftSettings.crf,
+                preset: draftSettings.preset,
+                audio_bitrate: draftSettings.audio_bitrate,
+            });
+        } finally {
+            setIsSavingSettings(false);
+        }
+    };
+
+    const handleRunPrecheck = async () => {
+        setIsPrechecking(true);
+        try {
+            await onRunPrecheck();
+        } finally {
+            setIsPrechecking(false);
+        }
+    };
+
+    const missingItems = precheckReport
+        ? [
+            ...(precheckReport.missing ?? []),
+            ...(precheckReport.unreadable ?? []),
+            ...(precheckReport.no_video_available ?? []),
+        ]
+        : [];
+    const progressValue = Math.min(1, Math.max(0, Number(mergeProgress?.progress ?? 0)));
+    const stageTranslationKeys: Record<string, string> = {
+        preparing: "stagePreparing",
+        collecting: "stageCollecting",
+        normalizing: "stageNormalizing",
+        transcoding: "stageTranscoding",
+        writing: "stageWriting",
+        mixing: "stageMixing",
+        verifying: "stageVerifying",
+        done: "stageDone",
+    };
+    const stageLabel = mergeProgress?.stage
+        ? stageTranslationKeys[mergeProgress.stage]
+            ? ta(stageTranslationKeys[mergeProgress.stage])
+            : mergeProgress.message || mergeProgress.stage
+        : ta("stagePreparing");
+    const selectClassName = "mt-1.5 w-full rounded-lg border border-glass-border bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary";
+
     return (
-        <div className="space-y-6 max-w-3xl">
+        <div className="space-y-6 max-w-4xl">
+            <section className="rounded-xl border border-glass-border bg-glass p-6">
+                <div className="flex items-start gap-3">
+                    <Settings2 size={18} className="mt-0.5 shrink-0 text-primary" />
+                    <div>
+                        <h3 className="text-display font-medium text-foreground">{ta("exportSettingsTitle")}</h3>
+                        <p className="mt-1 text-body-sm text-text-secondary">{ta("exportSettingsSubtitle")}</p>
+                    </div>
+                </div>
+
+                <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                    <label className="text-xs text-text-secondary">
+                        {ta("resolution")}
+                        <select
+                            value={draftSettings.resolution}
+                            onChange={(event) => setDraftSettings((current) => ({ ...current, resolution: event.target.value as ExportResolution | "" }))}
+                            className={selectClassName}
+                        >
+                            <option value="">—</option>
+                            <option value="1920x1080">1920×1080</option>
+                            <option value="1280x720">1280×720</option>
+                            <option value="640x360">640×360</option>
+                        </select>
+                    </label>
+                    <label className="text-xs text-text-secondary">
+                        {ta("fps")}
+                        <select
+                            value={draftSettings.fps}
+                            onChange={(event) => setDraftSettings((current) => ({ ...current, fps: event.target.value ? Number(event.target.value) as ExportFps : "" }))}
+                            className={selectClassName}
+                        >
+                            <option value="">—</option>
+                            {[24, 25, 30].map((fps) => <option key={fps} value={fps}>{fps}</option>)}
+                        </select>
+                    </label>
+                    <label className="text-xs text-text-secondary">
+                        {ta("crf")}
+                        <select
+                            value={draftSettings.crf}
+                            onChange={(event) => setDraftSettings((current) => ({ ...current, crf: Number(event.target.value) as ExportCrf }))}
+                            className={selectClassName}
+                        >
+                            {[18, 20, 23, 26, 28].map((crf) => <option key={crf} value={crf}>{crf}</option>)}
+                        </select>
+                    </label>
+                    <label className="text-xs text-text-secondary">
+                        {ta("preset")}
+                        <select
+                            value={draftSettings.preset}
+                            onChange={(event) => setDraftSettings((current) => ({ ...current, preset: event.target.value as ExportPreset }))}
+                            className={selectClassName}
+                        >
+                            {(["fast", "medium", "slow"] as const).map((preset) => <option key={preset} value={preset}>{preset}</option>)}
+                        </select>
+                    </label>
+                    <label className="text-xs text-text-secondary">
+                        {ta("audioBitrate")}
+                        <select
+                            value={draftSettings.audio_bitrate}
+                            onChange={(event) => setDraftSettings((current) => ({ ...current, audio_bitrate: event.target.value as AudioBitrate }))}
+                            className={selectClassName}
+                        >
+                            {(["128k", "192k", "256k"] as const).map((bitrate) => <option key={bitrate} value={bitrate}>{bitrate}</option>)}
+                        </select>
+                    </label>
+                </div>
+
+                <div className="mt-5 flex justify-end">
+                    <button
+                        onClick={handleSaveSettings}
+                        disabled={isSavingSettings || isMerging}
+                        className="inline-flex items-center gap-2 rounded-md border border-glass-border bg-glass px-4 py-2 text-[0.8125rem] font-medium text-foreground transition-colors hover:bg-hover-bg disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {isSavingSettings ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                        {ta("saveSettings")}
+                    </button>
+                </div>
+            </section>
+            <section className="rounded-xl border border-glass-border bg-glass p-6">
+                <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                        <HardDrive size={18} className="mt-0.5 shrink-0 text-primary" />
+                        <div>
+                            <h3 className="text-display font-medium text-foreground">{ta("precheckTitle")}</h3>
+                            {precheckReport && (
+                                <span className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold ${precheckReport.ok ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}`}>
+                                    {precheckReport.ok ? <Check size={12} /> : <AlertTriangle size={12} />}
+                                    {precheckReport.ok ? ta("precheckOk") : ta("precheckWarn")}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        onClick={handleRunPrecheck}
+                        disabled={isPrechecking || isMerging}
+                        className="shrink-0 inline-flex items-center gap-2 rounded-md border border-glass-border bg-glass px-4 py-2 text-[0.8125rem] font-medium text-foreground transition-colors hover:bg-hover-bg disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {isPrechecking ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                        {ta("precheckRun")}
+                    </button>
+                </div>
+
+                {precheckReport && (
+                    <div className="mt-5 space-y-4">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-lg border border-glass-border bg-surface p-3">
+                                <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">{ta("framesReadyCount", { ready: precheckReport.frames_with_video, total: precheckReport.total_frames })}</p>
+                                <p className="mt-1 text-lg font-semibold text-foreground">{precheckReport.frames_with_video} / {precheckReport.total_frames}</p>
+                            </div>
+                            <div className="rounded-lg border border-glass-border bg-surface p-3">
+                                <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">{ta("diskFree")}</p>
+                                <p className="mt-1 text-lg font-semibold text-foreground">{formatBytes(precheckReport.disk?.free_bytes)}</p>
+                            </div>
+                            <div className={`rounded-lg border p-3 ${precheckReport.disk?.sufficient ? "border-green-500/20 bg-green-500/5" : "border-red-500/30 bg-red-500/10"}`}>
+                                <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">{ta("diskRequired")}</p>
+                                <div className="mt-1 flex items-center justify-between gap-2">
+                                    <p className="text-lg font-semibold text-foreground">{formatBytes(precheckReport.disk?.required_bytes)}</p>
+                                    <span className={`text-xs font-semibold ${precheckReport.disk?.sufficient ? "text-green-400" : "text-red-400"}`}>
+                                        {precheckReport.disk?.sufficient ? ta("diskOk") : ta("diskInsufficient")}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {missingItems.length > 0 && (
+                            <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+                                <div className="space-y-1.5 font-mono text-[0.6875rem] text-amber-100/85">
+                                    {missingItems.map((item, index) => (
+                                        <p key={`${item.frame_id ?? "frame"}-${index}`} className="break-all">
+                                            {item.frame_id ?? "—"}{item.reason ? ` · ${item.reason}` : item.expected ? ` · ${item.expected}` : item.path ? ` · ${item.path}` : ""}
+                                        </p>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </section>
+
             <section className="rounded-xl border border-glass-border bg-glass p-6">
                 <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
@@ -558,6 +963,22 @@ function ExportPhase({
                         {ta("mergeAndProceed")}
                     </button>
                 </div>
+
+                {isMerging && (
+                    <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                            <span className="font-medium text-foreground">{ta("mergeProgressStage", { stage: stageLabel })}</span>
+                            <span className="font-mono text-text-secondary">{Math.round(progressValue * 100)}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-surface">
+                            <motion.div
+                                className="h-full rounded-full bg-primary"
+                                animate={{ width: `${progressValue * 100}%` }}
+                                transition={{ duration: 0.35, ease: "easeOut" }}
+                            />
+                        </div>
+                    </div>
+                )}
             </section>
 
             {mergeError && (
@@ -580,6 +1001,61 @@ function ExportPhase({
                         </div>
                     </div>
                 </div>
+            )}
+            {mergeVerification && (
+                <section className={`rounded-xl border p-5 ${mergeVerification.ok ? "border-green-500/25 bg-green-500/5" : "border-red-500/30 bg-red-500/10"}`}>
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck size={18} className={mergeVerification.ok ? "text-green-400" : "text-red-400"} />
+                            <h3 className="text-display font-medium text-foreground">{ta("verificationTitle")}</h3>
+                        </div>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold ${mergeVerification.ok ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-red-500/30 bg-red-500/10 text-red-400"}`}>
+                            {mergeVerification.ok ? <Check size={12} /> : <AlertTriangle size={12} />}
+                            {mergeVerification.ok ? ta("verificationOk") : ta("verificationFail")}
+                        </span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-lg border border-glass-border bg-surface p-3">
+                            <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">{ta("videoStream")}</p>
+                            <p className="mt-1 text-sm font-medium text-foreground">
+                                {mergeVerification.video
+                                    ? [
+                                        mergeVerification.video.codec,
+                                        mergeVerification.video.width && mergeVerification.video.height
+                                            ? `${mergeVerification.video.width}×${mergeVerification.video.height}`
+                                            : null,
+                                        mergeVerification.video.fps != null ? `${mergeVerification.video.fps.toFixed(2).replace(/\.00$/, "")} fps` : null,
+                                    ].filter(Boolean).join(" · ")
+                                    : "—"}
+                            </p>
+                        </div>
+                        <div className="rounded-lg border border-glass-border bg-surface p-3">
+                            <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">{ta("audioStream")}</p>
+                            <p className="mt-1 text-sm font-medium text-foreground">
+                                {mergeVerification.audio
+                                    ? [
+                                        mergeVerification.audio.codec,
+                                        mergeVerification.audio.sample_rate ? `${mergeVerification.audio.sample_rate} Hz` : null,
+                                        mergeVerification.audio.channels ? `${mergeVerification.audio.channels} ch` : null,
+                                    ].filter(Boolean).join(" · ")
+                                    : "—"}
+                            </p>
+                        </div>
+                        <div className="rounded-lg border border-glass-border bg-surface p-3">
+                            <p className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">{ta("durationSeconds")}</p>
+                            <p className="mt-1 text-sm font-medium text-foreground">{Number(mergeVerification.duration ?? 0).toFixed(2)}s</p>
+                        </div>
+                    </div>
+
+                    {!mergeVerification.ok && (mergeVerification.errors?.length ?? 0) > 0 && (
+                        <div className="mt-4 space-y-1.5 rounded-lg border border-red-500/25 bg-red-500/10 p-3">
+                            {mergeVerification.errors?.map((error, index) => (
+                                <p key={index} className="break-all font-mono text-[0.6875rem] leading-relaxed text-red-300">{error}</p>
+                            ))}
+                        </div>
+                    )}
+                </section>
             )}
 
             <AnimatePresence>

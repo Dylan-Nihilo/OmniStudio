@@ -703,6 +703,16 @@ export const api = {
         return res.data;
     },
 
+    precheckMerge: async (scriptId: string): Promise<any> => {
+        const res = await axios.post(`${API_URL}/projects/${scriptId}/merge/precheck`);
+        return res.data;
+    },
+
+    updateExportSettings: async (scriptId: string, settings: Record<string, unknown>): Promise<any> => {
+        const res = await axios.put(`${API_URL}/projects/${scriptId}/export_settings`, settings);
+        return res.data;
+    },
+
     // Art Direction APIs
     analyzeScriptForStyles: async (scriptId: string, scriptText: string) => {
         const res = await axios.post(`${API_URL}/projects/${scriptId}/art_direction/analyze`, {
