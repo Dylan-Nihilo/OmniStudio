@@ -1,4 +1,6 @@
 from typing import Dict, Any, List, Optional, Tuple
+
+from sqlalchemy import select
 import json
 import os
 import re
@@ -20,6 +22,14 @@ from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
 from ...utils.provider_registry import resolve_provider_backend
 from ...utils.system_check import get_ffmpeg_path, get_ffprobe_path, get_ffmpeg_install_instructions
+from ...storage import SQLiteRepository, create_engine, init_schema
+from ...storage.migration import (
+    MIGRATION_NAME,
+    SOURCE_NAME,
+    apply as apply_storage_migration,
+    preview as preview_storage_migration,
+)
+from ...storage.schema import MigrationRun
 
 logger = get_logger(__name__)
 
@@ -182,10 +192,62 @@ class ComicGenPipeline:
         self.audio_generator = AudioGenerator(self.config.get('audio'))
         self.export_manager = ExportManager(self.config.get('export'))
         
-        self.data_file = "output/projects.json"
-        self.series_data_file = "output/series.json"
+        storage_config = self.config.get("storage") or {}
+        self.data_file = storage_config.get("legacy_projects_path") or "output/projects.json"
+        self.series_data_file = storage_config.get("legacy_series_path") or "output/series.json"
         self.library_data_file = "output/library_assets.json"
+        self.storage_enabled = bool(storage_config.get("db_path"))
+        self.repository = None
+        self.storage_engine = None
         self._save_lock = threading.RLock()  # Reentrant lock to prevent concurrent file writes
+
+        if self.storage_enabled:
+            migration_mode = storage_config.get("migration_mode", "apply")
+            if migration_mode not in {"apply", "dry_run", "off"}:
+                raise ValueError(
+                    "storage.migration_mode must be one of 'apply', 'dry_run', or 'off'"
+                )
+
+            self.storage_engine = create_engine(storage_config["db_path"])
+            init_schema(self.storage_engine)
+
+            legacy_projects_path = self.data_file
+            if (
+                storage_config.get("auto_migrate", True)
+                and legacy_projects_path
+                and os.path.isfile(legacy_projects_path)
+            ):
+                # A completed legacy import is the authority that this source was
+                # handled. In particular, do not re-run migration on every Pipeline
+                # restart: a runtime SQLite write must never be overwritten by the
+                # older JSON snapshot.
+                with self.storage_engine.connect() as connection:
+                    has_import_record = connection.execute(
+                        select(MigrationRun.__table__.c.id).where(
+                            MigrationRun.__table__.c.migration_name == MIGRATION_NAME,
+                            MigrationRun.__table__.c.source_name == SOURCE_NAME,
+                            MigrationRun.__table__.c.status == "completed",
+                        )
+                    ).first() is not None
+
+                if not has_import_record:
+                    migration_kwargs = {
+                        "source_projects_path": legacy_projects_path,
+                        "source_series_path": self.series_data_file,
+                        "db_path": storage_config["db_path"],
+                    }
+                    if migration_mode == "apply":
+                        report = apply_storage_migration(
+                            **migration_kwargs,
+                            force=bool(storage_config.get("force_source_refresh", False)),
+                        )
+                        logger.info("Legacy JSON storage migration: %s", report)
+                    elif migration_mode == "dry_run":
+                        report = preview_storage_migration(**migration_kwargs)
+                        logger.info("Legacy JSON storage migration preview: %s", report)
+
+            self.repository = SQLiteRepository(self.storage_engine)
+
         self.scripts: Dict[str, Script] = self._load_data()
         self.series_store: Dict[str, Series] = self._load_series_data()
         # Project-independent global asset library (lowest resolver layer).
@@ -489,6 +551,13 @@ class ComicGenPipeline:
         return self.scripts.get(script_id)
 
     def _load_data(self) -> Dict[str, Script]:
+        if self.storage_enabled:
+            # SQLiteRepository validates each payload and deliberately raises
+            # StorageError for corruption or identity mismatches. Do not turn a
+            # damaged database into an apparently empty project list.
+            loaded_scripts = self.repository.load_scripts()
+            return {script.id: script for script in loaded_scripts.values()}
+
         if not os.path.exists(self.data_file):
             return {}
         try:
@@ -502,6 +571,12 @@ class ComicGenPipeline:
     def _save_data(self):
         """Save data with thread lock to prevent concurrent write issues."""
         with self._save_lock:
+            if self.storage_enabled:
+                # StorageError must reach the caller: a successful response must
+                # never hide a failed SQLite transaction.
+                self.repository.save_scripts(self.scripts)
+                return
+
             try:
                 os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
                 with open(self.data_file, 'w') as f:
@@ -4499,6 +4574,10 @@ class ComicGenPipeline:
     # ============================================================
 
     def _load_series_data(self) -> Dict[str, Series]:
+        if self.storage_enabled:
+            loaded_series = self.repository.load_series()
+            return {series.id: series for series in loaded_series.values()}
+
         if not os.path.exists(self.series_data_file):
             return {}
         try:
@@ -4511,6 +4590,10 @@ class ComicGenPipeline:
 
     def _save_series_data_unlocked(self):
         """Save series data without acquiring the lock (caller must hold self._save_lock)."""
+        if self.storage_enabled:
+            self.repository.save_series(self.series_store)
+            return
+
         try:
             os.makedirs(os.path.dirname(self.series_data_file) or ".", exist_ok=True)
             with open(self.series_data_file, 'w') as f:

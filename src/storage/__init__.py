@@ -12,6 +12,7 @@ from .db import (
     init_schema,
 )
 from .errors import LegacyDataError, MigrationError, StorageError
+from .repository import Repository, SQLiteRepository
 from .schema import (
     Base,
     Episode,
@@ -38,6 +39,8 @@ __all__ = [
     "StorageError",
     "MigrationError",
     "LegacyDataError",
+    "Repository",
+    "SQLiteRepository",
     "SchemaMigration",
     "MigrationRun",
     "User",
@@ -47,4 +50,3 @@ __all__ = [
     "Episode",
     "Script",
 ]
-
