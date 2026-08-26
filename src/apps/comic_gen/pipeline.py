@@ -4934,9 +4934,16 @@ class ComicGenPipeline:
                 if script:
                     script.series_id = None
                     script.episode_number = None
-            self._save_data()
-            del self.series_store[series_id]
-            self._save_series_data_unlocked()
+            if self.storage_enabled:
+                # R11 deletion semantics live in the repository: detach Episode
+                # envelopes and delete only the Series row without cascading into
+                # the surviving Script payloads or their Project container.
+                self.repository.delete_series(series_id)
+                del self.series_store[series_id]
+            else:
+                self._save_data()
+                del self.series_store[series_id]
+                self._save_series_data_unlocked()
 
     def add_episode_to_series(self, series_id: str, script_id: str, episode_number: Optional[int] = None) -> Series:
         """Add an existing Script/Project as an Episode to a Series."""
@@ -4947,18 +4954,23 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 raise ValueError("Script not found")
+            affected_series = {series.id: series}
             # If script already belongs to another series, remove it from the old one
             if script.series_id and script.series_id != series_id:
                 old_series = self.series_store.get(script.series_id)
                 if old_series and script_id in old_series.episode_ids:
                     old_series.episode_ids.remove(script_id)
+                    affected_series[old_series.id] = old_series
             if script_id not in series.episode_ids:
                 series.episode_ids.append(script_id)
             script.series_id = series_id
             script.episode_number = episode_number or len(series.episode_ids)
             series.updated_at = time.time()
-            self._save_data()
-            self._save_series_data_unlocked()
+            if self.storage_enabled:
+                self.repository.save_bundle({script.id: script}, affected_series)
+            else:
+                self._save_data()
+                self._save_series_data_unlocked()
             return series
 
     def remove_episode_from_series(self, series_id: str, script_id: str) -> Series:
@@ -4974,8 +4986,12 @@ class ComicGenPipeline:
                 script.series_id = None
                 script.episode_number = None
             series.updated_at = time.time()
-            self._save_data()
-            self._save_series_data_unlocked()
+            if self.storage_enabled:
+                affected_scripts = {script.id: script} if script else {}
+                self.repository.save_bundle(affected_scripts, {series.id: series})
+            else:
+                self._save_data()
+                self._save_series_data_unlocked()
             return series
 
     # ─────────────────────────────────────────────────────────────
@@ -5341,41 +5357,71 @@ class ComicGenPipeline:
                                    description: str = "") -> Dict:
         """Create a Series with Episodes from import data.
         episodes_data: list of dicts with episode_number, title, start_marker, end_marker."""
-        # Create the Series (already acquires lock internally)
-        series = self.create_series(title, description)
-
-        # Split text into episode chunks based on markers
-        episode_texts = self._split_text_by_markers(text, episodes_data)
-
-        with self._save_lock:
-            # Create Episode (Script) for each chunk
-            created_episodes = []
-            for idx, ep_data in enumerate(episodes_data):
-                ep_text = episode_texts[idx] if idx < len(episode_texts) else ""
-                ep_title = ep_data.get("title", f"第{idx+1}集")
-                episode_number = ep_data.get("episode_number", idx + 1)
-
-                # Create draft script (no LLM analysis yet — user can trigger later)
-                script = self.script_processor.create_draft_script(ep_title, ep_text)
-                script.series_id = series.id
-                script.episode_number = episode_number
-                self.scripts[script.id] = script
-
-                series.episode_ids.append(script.id)
-                created_episodes.append({
-                    "id": script.id,
-                    "title": ep_title,
-                    "episode_number": episode_number,
-                    "text_length": len(ep_text),
-                })
-
-            self._save_data()
-            self._save_series_data_unlocked()
+        if self.storage_enabled:
+            with self._save_lock:
+                now = time.time()
+                series = Series(
+                    id=str(uuid.uuid4()),
+                    title=title,
+                    description=description,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.series_store[series.id] = series
+                # Keep the legacy ordering: create the Series before splitting
+                # and creating its imported episode Scripts.
+                episode_texts = self._split_text_by_markers(text, episodes_data)
+                created_episodes = self._create_import_episodes_unlocked(
+                    series, episodes_data, episode_texts
+                )
+                created_scripts = {
+                    episode["id"]: self.scripts[episode["id"]]
+                    for episode in created_episodes
+                }
+                self.repository.save_bundle(created_scripts, {series.id: series})
+        else:
+            # Preserve the legacy JSON path, including the initial Series save.
+            series = self.create_series(title, description)
+            with self._save_lock:
+                episode_texts = self._split_text_by_markers(text, episodes_data)
+                created_episodes = self._create_import_episodes_unlocked(
+                    series, episodes_data, episode_texts
+                )
+                self._save_data()
+                self._save_series_data_unlocked()
 
         return {
             "series": series.model_dump(),
             "episodes": created_episodes,
         }
+
+    def _create_import_episodes_unlocked(
+        self,
+        series: Series,
+        episodes_data: List[Dict],
+        episode_texts: List[str],
+    ) -> List[Dict]:
+        """Populate imported episodes while the caller holds ``self._save_lock``."""
+        created_episodes = []
+        for idx, ep_data in enumerate(episodes_data):
+            ep_text = episode_texts[idx] if idx < len(episode_texts) else ""
+            ep_title = ep_data.get("title", f"第{idx+1}集")
+            episode_number = ep_data.get("episode_number", idx + 1)
+
+            # Create draft script (no LLM analysis yet — user can trigger later)
+            script = self.script_processor.create_draft_script(ep_title, ep_text)
+            script.series_id = series.id
+            script.episode_number = episode_number
+            self.scripts[script.id] = script
+
+            series.episode_ids.append(script.id)
+            created_episodes.append({
+                "id": script.id,
+                "title": ep_title,
+                "episode_number": episode_number,
+                "text_length": len(ep_text),
+            })
+        return created_episodes
 
     def _split_text_by_markers(self, text: str, episodes_data: List[Dict]) -> List[str]:
         """Split text into chunks using start/end markers from LLM.
