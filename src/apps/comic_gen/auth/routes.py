@@ -181,7 +181,20 @@ def setup(request: Request, payload: SetupRequest, response: Response, service: 
 
 @router.post("/login", response_model=LoginResponse)
 def login(request: Request, payload: LoginRequest, response: Response, service: Annotated[AuthService, Depends(get_auth_service)]) -> LoginResponse:
-    require_csrf(request, service, session_id=None)
+    try:
+        require_csrf(request, service, session_id=None)
+    except AuthError:
+        # A browser that was logged in (or whose session just expired) still
+        # carries a session-bound CSRF cookie.  Validate against that binding
+        # too so re-login after session expiry does not 403.  The HMAC
+        # signature is still required, so accepting both bindings does not
+        # weaken the CSRF protection.
+        sid = _unverified_session_id(request.cookies.get(ACCESS_COOKIE_NAME)) or _unverified_session_id(
+            request.cookies.get(REFRESH_COOKIE_NAME)
+        )
+        if not sid:
+            raise
+        require_csrf(request, service, session_id=sid)
     result = service.login(payload.identifier, payload.password, request=request, user_agent=request.headers.get("user-agent"))
     _set_auth_cookies(response, result, service)
     response.headers["Cache-Control"] = "no-store"
