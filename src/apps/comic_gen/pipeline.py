@@ -4922,6 +4922,31 @@ class ComicGenPipeline:
             self._save_series_data_unlocked()
             return series
 
+    def delete_project(self, script_id: str) -> None:
+        """Delete a project (Script + its storage envelope) permanently.
+
+        With storage enabled the repository explicitly deletes the Script row
+        and its Episode envelope (and the standalone Project envelope) so a
+        restart cannot resurrect the project from stale SQLite rows.
+        """
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            # If project belongs to a Series, remove from episode_ids
+            if script.series_id:
+                series = self.series_store.get(script.series_id)
+                if series and script_id in series.episode_ids:
+                    series.episode_ids.remove(script_id)
+            if self.storage_enabled:
+                self.repository.delete_script(script_id)
+                del self.scripts[script_id]
+            else:
+                del self.scripts[script_id]
+                self._save_data()
+                if script.series_id:
+                    self._save_series_data()
+
     def delete_series(self, series_id: str) -> None:
         """Delete a Series and disassociate its episodes."""
         with self._save_lock:
