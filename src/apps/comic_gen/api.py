@@ -58,6 +58,8 @@ from dotenv import load_dotenv, set_key
 
 from .auth.routes import auth_exception_handler, router as auth_router
 from .auth.service import AuthError, AuthService
+from .auth.dependencies import get_current_user
+from .auth.routes import require_csrf
 from .auth.settings import AuthSettings
 from ...storage.auth_repository import AuthRepository
 
@@ -144,12 +146,24 @@ except PermissionError:
     logger.warning("Auth signing secret persistence is unavailable; using a process-local development secret")
 
 
+# Credentials require an explicit origin and header/method allowlist; wildcard
+# methods/headers would make the CORS policy broader than the auth contract.
+_CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+_CORS_ALLOW_HEADERS = [
+    "Accept",
+    "Authorization",
+    "Content-Type",
+    "Range",
+    "X-CSRF-Token",
+    "X-Requested-With",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(auth_settings.allowed_origins),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=_CORS_ALLOW_METHODS,
+    allow_headers=_CORS_ALLOW_HEADERS,
     expose_headers=["Content-Disposition"],
 )
 app.add_exception_handler(AuthError, auth_exception_handler)
@@ -158,6 +172,73 @@ app.state.storage_engine = pipeline.storage_engine
 app.state.auth_settings = auth_settings
 app.state.auth_service = AuthService(AuthRepository(pipeline.storage_engine), auth_settings)
 app.include_router(auth_router)
+
+
+# W3.3 route guard: auth is enforced at the application boundary so the
+# legacy collection of ``@app`` business endpoints cannot accidentally omit a
+# dependency.  Auth/setup and operational documentation endpoints are public;
+# static media remains the explicit W3 scope gap and is handled by W5.
+_PUBLIC_ROUTE_PREFIXES = ("/auth/", "/files/")
+_PUBLIC_ROUTE_PATHS = {"/health", "/favicon.ico"}
+_DEVELOPMENT_ROUTE_PREFIXES = ("/docs", "/redoc", "/openapi.json")
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _is_public_route(path: str, settings: AuthSettings) -> bool:
+    if path in _PUBLIC_ROUTE_PATHS or any(path.startswith(prefix) for prefix in _PUBLIC_ROUTE_PREFIXES):
+        return True
+    return settings.app_env in {"development", "dev", "test"} and any(
+        path.startswith(prefix) for prefix in _DEVELOPMENT_ROUTE_PREFIXES
+    )
+
+
+def _apply_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
+
+@app.middleware("http")
+async def enforce_auth_and_security_headers(request: Request, call_next):
+    try:
+        service = getattr(request.app.state, "auth_service", None)
+        if service is None:
+            raise RuntimeError("Auth service is not configured")
+
+        # Browser CORS preflight requests do not carry application credentials.
+        # Let CORSMiddleware validate the exact origin/method/header allowlist
+        # before the default-deny auth guard handles the actual request.
+        if request.method.upper() == "OPTIONS":
+            response = await call_next(request)
+            return _apply_security_headers(response)
+
+        if not _is_public_route(request.url.path, service.settings):
+            # A test-only identity injection is explicit, opt-in, and impossible
+            # outside APP_ENV=test.  When a fixture provides a context it may
+            # exercise business routes without creating production auth state.
+            context = None
+            if service.settings.allow_test_bypass:
+                if service.settings.app_env != "test":
+                    raise RuntimeError("test auth bypass is only valid in APP_ENV=test")
+                context = getattr(request.app.state, "test_auth_context", None)
+            if context is None:
+                if not service.get_setup_status():
+                    raise AuthError("AUTH_SETUP_REQUIRED", "服务尚未初始化", status_code=428)
+                context = get_current_user(request, service)
+            request.state.auth_context = context
+            if request.method.upper() in _MUTATING_METHODS:
+                require_csrf(request, service, session_id=context.session.id)
+
+        response = await call_next(request)
+    except AuthError as exc:
+        # AuthError raised before ``call_next`` is outside FastAPI's endpoint
+        # exception handling path.  Convert it here so the real application
+        # returns the same stable envelope as the auth router and still clears
+        # cookies for failed refreshes.
+        response = auth_exception_handler(request, exc)
+    return _apply_security_headers(response)
 
 
 # Allow-list map for uploaded file extensions: keys come from the (untrusted)

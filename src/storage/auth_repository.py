@@ -205,6 +205,7 @@ class AuthRepository:
                 Session.refresh_token_hash == expected_hash,
                 Session.rotation_counter == expected_rotation,
                 Session.revoked_at.is_(None),
+                Session.expires_at > now,
             )
             .values(
                 refresh_token_hash=new_hash,
@@ -255,7 +256,7 @@ class AuthRepository:
                 result = connection.execute(
                     update(Session.__table__)
                     .where(Session.user_id == user_id, Session.revoked_at.is_(None))
-                    .values(revoked_at=now, revoke_reason="password_changed")
+                    .values(revoked_at=now, revoke_reason="password_change")
                 )
         return int(result.rowcount or 0)
 

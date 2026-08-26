@@ -24,6 +24,17 @@ class AuthSettings:
     issuer: str = "lumenx"
     audience: str = "lumenx-studio"
     trusted_proxy_cidrs: tuple[str, ...] = ()
+    app_env: str = "production"
+    allow_test_bypass: bool = False
+
+    def __post_init__(self) -> None:
+        # Keep the invariant at construction time as well as in from_env(): a
+        # test identity bypass can never be enabled by accidentally constructing
+        # production settings directly in application code.
+        normalized_env = self.app_env.strip().lower() or "production"
+        object.__setattr__(self, "app_env", normalized_env)
+        if self.allow_test_bypass and normalized_env != "test":
+            raise RuntimeError("test auth bypass is allowed only when APP_ENV=test")
 
     @classmethod
     def from_env(
@@ -34,6 +45,10 @@ class AuthSettings:
         environ: Mapping[str, str] | None = None,
     ) -> "AuthSettings":
         env = os.environ if environ is None else environ
+        app_env = str(env.get("APP_ENV", "production")).strip().lower() or "production"
+        allow_test_bypass = _bool_env(env, "LUMENX_AUTH_TEST_BYPASS", False)
+        if allow_test_bypass and app_env != "test":
+            raise RuntimeError("LUMENX_AUTH_TEST_BYPASS is allowed only when APP_ENV=test")
         path = Path(config_path or env.get("LUMENX_CONFIG_PATH", "~/.lumen-x/config.json")).expanduser()
         stored = _read_config(path)
         secret = env.get("LUMENX_AUTH_SIGNING_SECRET") or _stored_secret(stored)
@@ -75,6 +90,8 @@ class AuthSettings:
             issuer=env.get("LUMENX_AUTH_ISSUER", "lumenx"),
             audience=env.get("LUMENX_AUTH_AUDIENCE", "lumenx-studio"),
             trusted_proxy_cidrs=_csv(env.get("LUMENX_AUTH_TRUSTED_PROXY_CIDRS", "")),
+            app_env=app_env,
+            allow_test_bypass=allow_test_bypass,
         )
 
     load = from_env

@@ -84,6 +84,22 @@ class LoginResponse(BaseModel):
     session: SessionResponse
 
 
+class RefreshResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session: SessionResponse
+
+
+class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ChangePasswordResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reauthentication_required: bool = True
+
+
 class MeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user: UserResponse
@@ -109,4 +125,4 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
-__all__ = ["ErrorResponse", "LoginRequest", "LoginResponse", "MeResponse", "SetupRequest", "SetupResponse", "SetupStatusResponse", "UserResponse", "WorkspaceResponse"]
+__all__ = ["ChangePasswordRequest", "ChangePasswordResponse", "ErrorResponse", "LoginRequest", "LoginResponse", "MeResponse", "RefreshResponse", "SetupRequest", "SetupResponse", "SetupStatusResponse", "UserResponse", "WorkspaceResponse"]

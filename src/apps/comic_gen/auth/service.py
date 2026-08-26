@@ -18,7 +18,12 @@ from ....storage.schema import Session, User, Workspace
 from .passwords import hash_password, verify_password
 from .rate_limit import InMemoryAuthRateLimiter
 from .settings import AuthSettings
-from .tokens import hash_refresh_token, issue_access_token, issue_refresh_token
+from .tokens import (
+    decode_refresh_token,
+    hash_refresh_token,
+    issue_access_token,
+    issue_refresh_token,
+)
 
 
 class AuthError(Exception):
@@ -199,6 +204,125 @@ class AuthService:
         session = self.repository.create_session({"id": session_id, "user_id": user.id, "refresh_token_hash": hash_refresh_token(refresh_token), "rotation_counter": 0, "expires_at": refresh_expires_at, "created_at": now, "last_used_at": now, "user_agent": user_agent, "ip_address": ip})
         self.rate_limiter.clear(identifier_key)
         return AuthResult(user, workspace, session, access_token, refresh_token, min(now + self.settings.access_ttl_seconds, refresh_expires_at))
+
+    def refresh_session(self, refresh_token: str, *, now: float | None = None) -> AuthResult:
+        """Rotate a refresh token with a transactional CAS and detect reuse.
+
+        A refresh token is single-use.  A validly signed token whose hash or
+        rotation counter no longer matches the live session is treated as a
+        replay; all sessions for the user are revoked (the repository has no
+        separate family id, so the user-wide family boundary is the safest
+        available equivalent).
+        """
+        if not isinstance(refresh_token, str) or not refresh_token:
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        try:
+            payload = decode_refresh_token(
+                refresh_token,
+                self.settings.signing_secret,
+                issuer=self.settings.issuer,
+                audience=self.settings.audience,
+            )
+        except Exception as exc:
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401) from exc
+
+        now = time.time() if now is None else float(now)
+        session = self.repository.get_session(payload["sid"])
+        if session is None:
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        if session.user_id != payload["sub"]:
+            self.repository.revoke_all_user_sessions(session.user_id, reason="refresh_reuse", now=now)
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        if session.revoked_at is not None:
+            self.repository.revoke_all_user_sessions(session.user_id, reason="refresh_reuse", now=now)
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        if session.expires_at <= now or int(payload.get("exp", 0)) <= int(now):
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+
+        presented_hash = hash_refresh_token(refresh_token)
+        expected_hash = str(session.refresh_token_hash)
+        expected_rotation = int(session.rotation_counter)
+        if (
+            not hmac.compare_digest(presented_hash, expected_hash)
+            or int(payload.get("rot", -1)) != expected_rotation
+        ):
+            self.repository.revoke_all_user_sessions(session.user_id, reason="refresh_reuse", now=now)
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+
+        new_rotation = expected_rotation + 1
+        new_refresh = issue_refresh_token(
+            session.user_id,
+            session.id,
+            self.settings.signing_secret,
+            rotation_counter=new_rotation,
+            ttl_seconds=max(1, int(session.expires_at - now)),
+            now=now,
+            expires_at=session.expires_at,
+            issuer=self.settings.issuer,
+            audience=self.settings.audience,
+        )
+        new_access = issue_access_token(
+            session.user_id,
+            session.id,
+            self.settings.signing_secret,
+            ttl_seconds=self.settings.access_ttl_seconds,
+            now=now,
+            expires_at=session.expires_at,
+            issuer=self.settings.issuer,
+            audience=self.settings.audience,
+        )
+        rotated = self.repository.rotate_refresh_token(
+            session_id=session.id,
+            expected_hash=expected_hash,
+            expected_rotation=expected_rotation,
+            new_hash=hash_refresh_token(new_refresh),
+            now=now,
+        )
+        if not rotated or rotated.session is None:
+            self.repository.revoke_all_user_sessions(session.user_id, reason="refresh_reuse", now=now)
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        user = self.repository.get_user(session.user_id)
+        workspace = self.repository.get_default_workspace(session.user_id)
+        if user is None or workspace is None:
+            self.repository.revoke_all_user_sessions(session.user_id, reason="refresh_invalid", now=now)
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        live_session = rotated.session
+        return AuthResult(
+            user=user,
+            workspace=workspace,
+            session=live_session,
+            access_token=new_access,
+            refresh_token=new_refresh,
+            access_expires_at=min(now + self.settings.access_ttl_seconds, session.expires_at),
+        )
+
+    def logout(self, session_id: str, *, now: float | None = None) -> bool:
+        """Revoke one session; HTTP callers separately clear all auth cookies."""
+        return self.repository.revoke_session(
+            session_id, reason="logout", now=time.time() if now is None else float(now)
+        )
+
+    def change_password(self, user_id: str, old_password: str, new_password: str, *, now: float | None = None) -> int:
+        """Change password and revoke **all** sessions, including the caller.
+
+        W3.3 deliberately chooses forced re-authentication after a password
+        change.  This prevents a stolen concurrent session from surviving the
+        credential change and matches the response's ``reauthentication_required``
+        contract.
+        """
+        user = self.repository.get_user(user_id)
+        if user is None or not verify_password(old_password, getattr(user, "password_hash", None)):
+            raise AuthError("AUTH_CURRENT_PASSWORD_INVALID", "当前密码错误", status_code=400)
+        validate_password(
+            new_password,
+            username_normalized=str(user.username_normalized),
+            email_normalized=str(user.email_normalized),
+        )
+        return self.repository.update_password_and_revoke_sessions(
+            user_id,
+            new_password_hash=hash_password(new_password),
+            now=time.time() if now is None else float(now),
+        )
 
     def get_current_user(self, *, user_id: str, session_id: str, now: float | None = None) -> AuthContext:
         now = time.time() if now is None else now

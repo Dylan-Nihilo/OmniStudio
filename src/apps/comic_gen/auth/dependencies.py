@@ -52,7 +52,10 @@ def _access_token_from_request(request: Request) -> str:
 
 
 def get_current_user(request: Request, service: Annotated[AuthService, Depends(get_auth_service)]) -> AuthContext:
-    """Validate access JWT and its live DB session on every protected request."""
+    """Return middleware-authenticated context or validate access + live session."""
+    existing = getattr(request.state, "auth_context", None)
+    if existing is not None:
+        return existing
     token = _access_token_from_request(request)
     try:
         payload = decode_access_token(token, service.settings.signing_secret, issuer=service.settings.issuer, audience=service.settings.audience)

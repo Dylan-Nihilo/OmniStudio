@@ -45,6 +45,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "episodes",
         "scripts",
         "series",
+        "sessions",
     }
 
     expected_indexes = {
@@ -65,6 +66,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_episodes_updated",
         },
         "scripts": {"ix_scripts_updated", "ix_scripts_original_text_prefix"},
+        "sessions": {"ix_sessions_user_revoked", "ix_sessions_expires_at"},
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -79,6 +81,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "episodes",
         "scripts",
         "series",
+        "sessions",
     }
 
 
