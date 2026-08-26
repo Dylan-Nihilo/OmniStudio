@@ -20,6 +20,8 @@ import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import { useTranslations } from "next-intl";
 import TauriMenuListener from "@/components/layout/TauriMenuListener";
+import AuthGate from "@/components/auth/AuthGate";
+import EnvConfigChecker from "@/components/EnvConfigChecker";
 
 const ProjectClient = dynamic(() => import("@/components/project/ProjectClient"), { ssr: false });
 const SeriesDetailPage = dynamic(() => import("@/components/series/SeriesDetailPage"), { ssr: false });
@@ -455,7 +457,7 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
 }
 
 // ── Main Component ──
-export default function Home() {
+function AuthenticatedHome() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogSeries, setDialogSeries] = useState<{ id: string; title: string } | null>(null);
   const [isSeriesDialogOpen, setIsSeriesDialogOpen] = useState(false);
@@ -1110,5 +1112,14 @@ export default function Home() {
       {/* Tauri native menu event listener */}
       <TauriMenuListener onNewProject={() => setIsDialogOpen(true)} />
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <AuthGate>
+      <EnvConfigChecker />
+      <AuthenticatedHome />
+    </AuthGate>
   );
 }

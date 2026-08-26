@@ -1,30 +1,5 @@
-import axios from 'axios';
+import { apiClient, API_URL } from '@/lib/apiClient';
 import type { L3Result } from '@/store/editorStore';
-
-// Reuse the same API URL detection logic as the main api.ts
-const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || '17177';
-
-const getApiUrl = (): string => {
-  const override = process.env.NEXT_PUBLIC_API_URL;
-  if (override && override.trim()) {
-    return override.trim().replace(/\/+$/, '');
-  }
-
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname, port } = window.location;
-
-    if (process.env.NODE_ENV === 'development') {
-      return `${protocol}//${hostname}:${BACKEND_PORT}`;
-    }
-
-    return `${protocol}//${hostname}${port ? ':' + port : ''}`;
-  }
-
-  return `http://localhost:${BACKEND_PORT}`;
-};
-
-const API_BASE = getApiUrl();
-
 export interface DocumentResponse {
   project_id: string;
   content: object;
@@ -40,7 +15,7 @@ export interface SnapshotResponse {
 export const scriptEditorApi = {
   /** 保存文档 */
   saveDocument: async (projectId: string, content: object, createSnapshot = false): Promise<DocumentResponse> => {
-    const res = await axios.post(`${API_BASE}/projects/${projectId}/document`, {
+    const res = await apiClient.post(`${API_URL}/projects/${projectId}/document`, {
       content,
       create_snapshot: createSnapshot,
     });
@@ -49,26 +24,26 @@ export const scriptEditorApi = {
 
   /** 加载文档 */
   loadDocument: async (projectId: string): Promise<DocumentResponse> => {
-    const res = await axios.get(`${API_BASE}/projects/${projectId}/document`);
+    const res = await apiClient.get(`${API_URL}/projects/${projectId}/document`);
     return res.data;
   },
 
   /** 列出快照 */
   listSnapshots: async (projectId: string): Promise<SnapshotResponse[]> => {
-    const res = await axios.get(`${API_BASE}/projects/${projectId}/document/snapshots`);
+    const res = await apiClient.get(`${API_URL}/projects/${projectId}/document/snapshots`);
     return res.data;
   },
 
   /** 创建快照 */
   createSnapshot: async (projectId: string): Promise<SnapshotResponse> => {
-    const res = await axios.post(`${API_BASE}/projects/${projectId}/document/snapshots`);
+    const res = await apiClient.post(`${API_URL}/projects/${projectId}/document/snapshots`);
     return res.data;
   },
 
   /** 恢复快照 */
   restoreSnapshot: async (projectId: string, timestamp: string): Promise<DocumentResponse> => {
-    const res = await axios.post(
-      `${API_BASE}/projects/${projectId}/document/snapshots/${timestamp}/restore`
+    const res = await apiClient.post(
+      `${API_URL}/projects/${projectId}/document/snapshots/${timestamp}/restore`
     );
     return res.data;
   },
@@ -83,7 +58,7 @@ export const scriptEditorApi = {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'txt';
     const fileType = ext === 'fdx' ? 'fdx' : ext === 'fountain' ? 'fountain' : 'txt';
 
-    const res = await axios.post(`${API_BASE}/projects/${projectId}/document/import`, {
+    const res = await apiClient.post(`${API_URL}/projects/${projectId}/document/import`, {
       filename: file.name,
       content: base64,
       file_type: fileType,
@@ -93,8 +68,8 @@ export const scriptEditorApi = {
 
   /** 导出文档（Tiptap JSON → PDF/DOCX，返回 Blob） */
   exportDocument: async (projectId: string, content: any, format: string): Promise<Blob> => {
-    const res = await axios.post(
-      `${API_BASE}/projects/${projectId}/document/export`,
+    const res = await apiClient.post(
+      `${API_URL}/projects/${projectId}/document/export`,
       { content, format, options: {} },
       { responseType: 'blob' }
     );
@@ -103,7 +78,7 @@ export const scriptEditorApi = {
 
   /** 同步派生数据到后端 */
   syncDerivation: async (projectId: string, data: any): Promise<void> => {
-    await axios.post(`${API_BASE}/projects/${projectId}/sync_derivation`, data);
+    await apiClient.post(`${API_URL}/projects/${projectId}/sync_derivation`, data);
   },
 
   /** L3 LLM 增量补全请求 */
@@ -114,14 +89,14 @@ export const scriptEditorApi = {
       gaps?: string[]; // e.g. ['props', 'beats', 'locations']
     }
   ): Promise<{ results: L3Result[]; task_id?: string }> => {
-    const res = await axios.post(`${API_BASE}/projects/${projectId}/derive_gaps`, params);
+    const res = await apiClient.post(`${API_URL}/projects/${projectId}/derive_gaps`, params);
     return res.data;
   },
 
   /** 确认 ShotBlock */
   confirmShotBlock: async (projectId: string, shotId: string, data: any): Promise<any> => {
-    const res = await axios.post(
-      `${API_BASE}/projects/${projectId}/shot_blocks/${shotId}/confirm`,
+    const res = await apiClient.post(
+      `${API_URL}/projects/${projectId}/shot_blocks/${shotId}/confirm`,
       data
     );
     return res.data;

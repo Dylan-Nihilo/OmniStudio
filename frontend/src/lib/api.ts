@@ -1,45 +1,7 @@
-import axios from "axios";
+import { apiClient, apiStreamRequest, API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
-// Dynamic API URL detection (no port enumeration):
-// 1. Explicit override: NEXT_PUBLIC_API_URL (any env / proxy setup).
-// 2. Dev mode (`next dev`, NODE_ENV==='development'): backend runs on a separate
-//    port, so target the same host on the backend port — works for ANY dev port.
-// 3. Production / packaged (Electron): frontend is served by the backend, so use
-//    the same origin.
-const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || "17177";
-
-const getApiUrl = (): string => {
-    // Explicit override always wins (strip any trailing slash).
-    const override = process.env.NEXT_PUBLIC_API_URL;
-    if (override && override.trim()) {
-        return override.trim().replace(/\/+$/, "");
-    }
-
-    if (typeof window !== 'undefined') {
-        const { protocol, hostname, port } = window.location;
-
-        // Tauri desktop: frontend served via tauri:// protocol, backend on localhost.
-        if (protocol === 'tauri:' || protocol === 'https:' && hostname === 'tauri.localhost') {
-            return `http://127.0.0.1:${BACKEND_PORT}`;
-        }
-
-        // Dev server: backend lives on a different port regardless of which
-        // dev port Next.js picked (3008/3009/3018/...).
-        if (process.env.NODE_ENV === 'development') {
-            return `${protocol}//${hostname}:${BACKEND_PORT}`;
-        }
-
-        // Production / packaged: frontend is served by the backend → same origin.
-        return `${protocol}//${hostname}${port ? ':' + port : ''}`;
-    }
-
-    // SSR fallback
-    return `http://localhost:${BACKEND_PORT}`;
-};
-
-export const API_URL = getApiUrl();
-
+export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
 
 /**
@@ -217,58 +179,58 @@ export interface RefineSSEEvent {
 
 export const api = {
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
-        const res = await axios.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
+        const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
             params: { skip_analysis: skipAnalysis }
         });
         return { ...res.data, originalText: res.data.original_text };
     },
 
     getProjects: async () => {
-        const res = await axios.get(`${API_URL}/projects/`);
+        const res = await apiClient.get(`${API_URL}/projects/`);
         return res.data.map((p: any) => ({ ...p, originalText: p.original_text }));
     },
 
     getProject: async (scriptId: string) => {
-        const res = await axios.get(`${API_URL}/projects/${scriptId}`);
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}`);
         return { ...res.data, originalText: res.data.original_text };
     },
 
     deleteProject: async (scriptId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}`);
         return res.data;
     },
 
     /** Toggle the user-starred (featured) flag on a project. Returns the
      *  updated Script. No request body — the backend flips the current flag. */
     toggleProjectStarred: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/toggle_starred`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/toggle_starred`);
         return res.data;
     },
 
     reparseProject: async (scriptId: string, text: string) => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/reparse`, { text });
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, { text });
         return { ...res.data, originalText: res.data.original_text };
     },
 
     extractPreview: async (scriptId: string, text: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text });
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text });
         return res.data as { characters: any[]; scenes: any[]; props: any[] };
     },
 
     /** Persist `original_text` without LLM reparse. Used for textarea
      *  blur-saves so navigation/reload doesn't drop in-progress drafts. */
     updateScriptText: async (scriptId: string, text: string) => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/text`, { text });
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/text`, { text });
         return { ...res.data, originalText: res.data.original_text };
     },
 
     syncDescriptions: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/sync_descriptions`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/sync_descriptions`);
         return res.data;
     },
 
     generateAssets: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/generate_assets`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/generate_assets`);
         return res.data;
     },
 
@@ -308,7 +270,7 @@ export const api = {
         // off); explicit boolean is user's Advanced-section choice.
         watermark?: boolean
     ) => {
-        const res = await axios.post(`${API_URL}/projects/${id}/video_tasks`, {
+        const res = await apiClient.post(`${API_URL}/projects/${id}/video_tasks`, {
             image_url,
             prompt,
             duration,
@@ -354,10 +316,9 @@ export const api = {
     uploadT2IFrame: async (scriptId: string, frameId: string, file: File) => {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await axios.post(
+        const res = await apiClient.post(
             `${API_URL}/projects/${scriptId}/frames/${frameId}/upload_t2i`,
             formData,
-            { headers: { "Content-Type": "multipart/form-data" } },
         );
         return res.data;
     },
@@ -379,7 +340,7 @@ export const api = {
             workbench_generate_count?: number;
         },
     ) => {
-        const res = await axios.patch(
+        const res = await apiClient.patch(
             `${API_URL}/projects/${scriptId}/frames/${frameId}/workbench`,
             patch,
         );
@@ -390,12 +351,8 @@ export const api = {
     uploadFile: async (file: File) => {
         const formData = new FormData();
         formData.append("file", file);
-        const response = await fetch(`${API_URL}/upload`, {
-            method: "POST",
-            body: formData,
-        });
-        if (!response.ok) throw new Error("Failed to upload file");
-        return response.json();
+        const res = await apiClient.post(`${API_URL}/upload`, formData);
+        return res.data;
     },
 
     /** Lightweight liveness probe + log path. Used by the Diagnose UI
@@ -408,7 +365,7 @@ export const api = {
         log_dir: string;
         studio_projects: number;
     }> => {
-        const res = await axios.get(`${API_URL}/health`, { timeout: 5000 });
+        const res = await apiClient.get(`${API_URL}/health`, { timeout: 5000 });
         return res.data;
     },
 
@@ -422,7 +379,7 @@ export const api = {
         };
         status?: string;
     }> => {
-        const res = await axios.get(`${API_URL}/system/check`, { timeout: 10000 });
+        const res = await apiClient.get(`${API_URL}/system/check`, { timeout: 10000 });
         return res.data;
     },
 
@@ -437,7 +394,7 @@ export const api = {
         errors: string[];
         missing: boolean;
     }> => {
-        const res = await axios.get(`${API_URL}/diagnose/log_tail`, {
+        const res = await apiClient.get(`${API_URL}/diagnose/log_tail`, {
             params: { lines },
             timeout: 8000,
         });
@@ -453,7 +410,7 @@ export const api = {
         taskId: string,
         payload: { is_starred?: boolean; label?: string | null; clear_label?: boolean },
     ) => {
-        const res = await axios.patch(
+        const res = await apiClient.patch(
             `${API_URL}/projects/${scriptId}/video_tasks/${taskId}/annotate`,
             payload,
         );
@@ -464,7 +421,7 @@ export const api = {
      *  keeps going; this just unblocks the local UI. Already-completed
      *  tasks are a 404 no-op. */
     cancelVideoTask: async (scriptId: string, taskId: string) => {
-        const res = await axios.post(
+        const res = await apiClient.post(
             `${API_URL}/projects/${scriptId}/video_tasks/${taskId}/cancel`,
         );
         return res.data;
@@ -484,32 +441,16 @@ export const api = {
     ) => {
         const formData = new FormData();
         formData.append("file", file);
-
-        const params = new URLSearchParams({
-            upload_type: uploadType,
-        });
-        if (description) {
-            params.append("description", description);
-        }
-
-        const response = await fetch(
-            `${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/upload?${params.toString()}`,
-            {
-                method: "POST",
-                body: formData,
-            }
+        const res = await apiClient.post(
+            `${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/upload`,
+            formData,
+            { params: { upload_type: uploadType, description } },
         );
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || "Failed to upload asset");
-        }
-
-        return response.json();
+        return res.data;
     },
 
     generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/generate`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/generate`, {
             asset_id: assetId,
             asset_type: assetType,
             style_preset: stylePreset,
@@ -526,12 +467,12 @@ export const api = {
     },
 
     getTaskStatus: async (taskId: string) => {
-        const res = await axios.get(`${API_URL}/tasks/${taskId}`);
+        const res = await apiClient.get(`${API_URL}/tasks/${taskId}`);
         return res.data;
     },
 
     generateAssetVideo: async (scriptId: string, assetType: string, assetId: string, data: { prompt?: string, duration?: number, aspect_ratio?: string }) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/generate_video`, data);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/generate_video`, data);
         return res.data;
     },
 
@@ -548,7 +489,7 @@ export const api = {
         duration: number = 5,
         batchSize: number = 1
     ): Promise<any & { _task_id?: string }> => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/generate_motion_ref`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/generate_motion_ref`, {
             asset_id: assetId,
             asset_type: assetType,
             prompt,
@@ -560,12 +501,12 @@ export const api = {
     },
 
     deleteAssetVideo: async (scriptId: string, assetType: string, assetId: string, videoId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/videos/${videoId}`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/videos/${videoId}`);
         return res.data;
     },
 
     toggleAssetLock: async (scriptId: string, assetId: string, assetType: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/toggle_lock`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/toggle_lock`, {
             asset_id: assetId,
             asset_type: assetType
         });
@@ -573,7 +514,7 @@ export const api = {
     },
 
     toggleAssetStarred: async (scriptId: string, assetId: string, assetType: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/toggle_starred`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/toggle_starred`, {
             asset_id: assetId,
             asset_type: assetType
         });
@@ -581,7 +522,7 @@ export const api = {
     },
 
     toggleSeriesAssetStarred: async (seriesId: string, assetId: string, assetType: string) => {
-        const res = await axios.post(`${API_URL}/series/${seriesId}/assets/toggle_starred`, {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/toggle_starred`, {
             asset_id: assetId,
             asset_type: assetType
         });
@@ -589,7 +530,7 @@ export const api = {
     },
 
     updateAssetImage: async (scriptId: string, assetId: string, assetType: string, imageUrl: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/update_image`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/update_image`, {
             asset_id: assetId,
             asset_type: assetType,
             image_url: imageUrl
@@ -598,7 +539,7 @@ export const api = {
     },
 
     selectAssetVariant: async (scriptId: string, assetId: string, assetType: string, variantId: string, generationType?: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/variant/select`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/variant/select`, {
             asset_id: assetId,
             asset_type: assetType,
             variant_id: variantId,
@@ -608,7 +549,7 @@ export const api = {
     },
 
     deleteAssetVariant: async (scriptId: string, assetId: string, assetType: string, variantId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/variant/delete`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/variant/delete`, {
             asset_id: assetId,
             asset_type: assetType,
             variant_id: variantId
@@ -617,7 +558,7 @@ export const api = {
     },
 
     favoriteAssetVariant: async (scriptId: string, assetId: string, assetType: string, variantId: string, isFavorited: boolean, generationType?: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/variant/favorite`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/variant/favorite`, {
             asset_id: assetId,
             asset_type: assetType,
             variant_id: variantId,
@@ -639,7 +580,7 @@ export const api = {
         imageModel?: string,
         r2vModel?: string,
     ) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/model_settings`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/model_settings`, {
             t2i_model: t2iModel,
             i2i_model: i2iModel,
             i2v_model: i2vModel,
@@ -654,12 +595,12 @@ export const api = {
     },
 
     getPromptConfig: async (scriptId: string) => {
-        const res = await axios.get(`${API_URL}/projects/${scriptId}/prompt_config`);
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/prompt_config`);
         return res.data;
     },
 
     updatePromptConfig: async (scriptId: string, config: { storyboard_polish?: string; video_polish?: string; r2v_polish?: string; entity_extraction?: string; style_analysis?: string; storyboard_extraction?: string }) => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/prompt_config`, config);
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/prompt_config`, config);
         return res.data;
     },
 
@@ -669,7 +610,7 @@ export const api = {
      *  this; on save it stores "" for any field still equal to its default
      *  (delta semantics → backend uses the built-in). */
     fetchPromptDefaults: async (): Promise<Record<string, string>> => {
-        const res = await axios.get<Record<string, string>>(`${API_URL}/prompt_defaults`);
+        const res = await apiClient.get<Record<string, string>>(`${API_URL}/prompt_defaults`);
         return res.data;
     },
 
@@ -677,7 +618,7 @@ export const api = {
         // Manual pick — sets frame.is_video_pinned=true so future
         // auto_select_latest_video calls (fired by R2V poll completion)
         // skip this frame.
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/select_video`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/select_video`, {
             video_id: videoId
         });
         return res.data;
@@ -687,42 +628,42 @@ export const api = {
         // Fire-and-forget on every R2V poll completion. Backend picks the
         // latest completed task for this frame and updates frame.video_url
         // unless the user has pinned a different take.
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/auto_select_latest_video`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/auto_select_latest_video`);
         return res.data;
     },
 
     unpinVideo: async (scriptId: string, frameId: string) => {
         // Clear the pin; selected_video_id and video_url stay put until
         // the next auto-select picks a newer completed task.
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/unpin_video`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/unpin_video`);
         return res.data;
     },
 
     mergeVideos: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/merge`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/merge`);
         return res.data;
     },
 
     precheckMerge: async (scriptId: string): Promise<any> => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/merge/precheck`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/merge/precheck`);
         return res.data;
     },
 
     updateExportSettings: async (scriptId: string, settings: Record<string, unknown>): Promise<any> => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/export_settings`, settings);
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/export_settings`, settings);
         return res.data;
     },
 
     // Art Direction APIs
     analyzeScriptForStyles: async (scriptId: string, scriptText: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/art_direction/analyze`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/analyze`, {
             script_text: scriptText
         });
         return res.data;
     },
 
     saveArtDirection: async (scriptId: string, selectedStyleId: string, styleConfig: any, customStyles: any[] = [], aiRecommendations: any[] = []) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/art_direction/save`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/save`, {
             selected_style_id: selectedStyleId,
             style_config: styleConfig,
             custom_styles: customStyles,
@@ -732,7 +673,7 @@ export const api = {
     },
 
     getStylePresets: async () => {
-        const res = await axios.get(`${API_URL}/art_direction/presets`);
+        const res = await apiClient.get(`${API_URL}/art_direction/presets`);
         return res.data;
     },
 
@@ -759,7 +700,7 @@ export const api = {
         imageUrls: string[] = [],
         polishModel: string = "",
     ) => {
-        const res = await axios.post(`${API_URL}/video/polish_prompt`, {
+        const res = await apiClient.post(`${API_URL}/video/polish_prompt`, {
             draft_prompt: draftPrompt,
             feedback: feedback,
             script_id: scriptId,
@@ -778,7 +719,7 @@ export const api = {
         imageUrls: string[] = [],
         polishModel: string = "",
     ) => {
-        const res = await axios.post(`${API_URL}/video/polish_r2v_prompt`, {
+        const res = await apiClient.post(`${API_URL}/video/polish_r2v_prompt`, {
             draft_prompt: draftPrompt,
             slots: slots,
             feedback: feedback,
@@ -790,7 +731,7 @@ export const api = {
         return res.data;
     },
     updateAssetDescription: async (scriptId: string, assetId: string, assetType: string, description: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/update_description`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/update_description`, {
             asset_id: assetId,
             asset_type: assetType,
             description: description
@@ -799,7 +740,7 @@ export const api = {
     },
 
     updateAssetAttributes: async (scriptId: string, assetId: string, assetType: string, attributes: any) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/update_attributes`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/update_attributes`, {
             asset_id: assetId,
             asset_type: assetType,
             attributes: attributes
@@ -808,7 +749,7 @@ export const api = {
     },
 
     toggleFrameLock: async (scriptId: string, frameId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/toggle_lock`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/toggle_lock`, {
             frame_id: frameId
         });
         return res.data;
@@ -826,7 +767,7 @@ export const api = {
         camera_movement_description?: string;
         transition_hint?: string;
     }) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/update`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/update`, {
             frame_id: frameId,
             ...data
         });
@@ -834,7 +775,7 @@ export const api = {
     },
 
     updateProjectStyle: async (scriptId: string, stylePreset: string, stylePrompt?: string) => {
-        const res = await axios.patch(`${API_URL}/projects/${scriptId}/style`, {
+        const res = await apiClient.patch(`${API_URL}/projects/${scriptId}/style`, {
             style_preset: stylePreset,
             style_prompt: stylePrompt
         });
@@ -842,7 +783,7 @@ export const api = {
     },
 
     renderFrame: async (scriptId: string, frameId: string, compositionData: any, prompt: string, batchSize: number = 1) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/storyboard/render`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/render`, {
             frame_id: frameId,
             composition_data: compositionData,
             prompt: prompt,
@@ -858,7 +799,7 @@ export const api = {
      * Replaces existing frames with newly generated ones.
      */
     analyzeToStoryboard: async (scriptId: string, text: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/storyboard/analyze`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/analyze`, {
             text: text
         });
         return res.data;
@@ -869,7 +810,7 @@ export const api = {
      * Returns { prompt_cn, prompt_en, frame_updated }.
      */
     refineFramePrompt: async (scriptId: string, frameId: string, rawPrompt: string, assets: any[] = [], feedback: string = "") => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/storyboard/refine_prompt`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/refine_prompt`, {
             frame_id: frameId,
             raw_prompt: rawPrompt,
             assets: assets,
@@ -879,14 +820,13 @@ export const api = {
     },
 
     generateStoryboard: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/generate_storyboard`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/generate_storyboard`);
         return res.data;
     },
 
     getVoices: async (): Promise<VoiceMeta[]> => {
-        const response = await fetch(`${API_URL}/voices`);
-        if (!response.ok) throw new Error("Failed to fetch voices");
-        return response.json();
+        const res = await apiClient.get<VoiceMeta[]>(`${API_URL}/voices`);
+        return res.data;
     },
 
     /**
@@ -903,23 +843,15 @@ export const api = {
         volume?: number;
         instructions?: string;
     }): Promise<{ url: string; cached: boolean }> => {
-        const response = await fetch(`${API_URL}/voice/preview`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                voice_id: params.voice_id,
-                text: params.text,
-                speed: params.speed ?? 1.0,
-                pitch: params.pitch ?? 1.0,
-                volume: params.volume ?? 50,
-                instructions: params.instructions ?? null,
-            }),
+        const res = await apiClient.post<{ url: string; cached: boolean }>(`${API_URL}/voice/preview`, {
+            voice_id: params.voice_id,
+            text: params.text,
+            speed: params.speed ?? 1.0,
+            pitch: params.pitch ?? 1.0,
+            volume: params.volume ?? 50,
+            instructions: params.instructions ?? null,
         });
-        if (!response.ok) {
-            const detail = await response.text();
-            throw new Error(`Voice preview failed: ${response.status} ${detail}`);
-        }
-        return response.json();
+        return res.data;
     },
 
     /**
@@ -936,37 +868,25 @@ export const api = {
         label: string;
         target_model?: string;
     }): Promise<CustomVoice> => {
-        const response = await fetch(`${API_URL}/voice/clone`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                series_id: params.series_id,
-                audio_url: params.audio_url,
-                label: params.label,
-                target_model: params.target_model ?? "cosyvoice-v3.5-plus",
-            }),
+        const res = await apiClient.post<CustomVoice>(`${API_URL}/voice/clone`, {
+            series_id: params.series_id,
+            audio_url: params.audio_url,
+            label: params.label,
+            target_model: params.target_model ?? "cosyvoice-v3.5-plus",
         });
-        if (!response.ok) {
-            const detail = await response.text();
-            throw new Error(`Voice clone failed: ${response.status} ${detail}`);
-        }
-        return response.json();
+        return res.data;
     },
 
     /** PR-3h · List custom voices (clones + designs) on a series. */
     listCustomVoices: async (seriesId: string): Promise<CustomVoice[]> => {
-        const response = await fetch(`${API_URL}/series/${seriesId}/custom_voices`);
-        if (!response.ok) throw new Error("Failed to list custom voices");
-        return response.json();
+        const res = await apiClient.get<CustomVoice[]>(`${API_URL}/series/${seriesId}/custom_voices`);
+        return res.data;
     },
 
     /** PR-3h · Remove a custom voice. Does NOT delete on dashscope side. */
     deleteCustomVoice: async (seriesId: string, voiceId: string): Promise<{ removed: boolean }> => {
-        const response = await fetch(`${API_URL}/series/${seriesId}/custom_voices/${voiceId}`, {
-            method: "DELETE",
-        });
-        if (!response.ok) throw new Error("Failed to delete custom voice");
-        return response.json();
+        const res = await apiClient.delete<{ removed: boolean }>(`${API_URL}/series/${seriesId}/custom_voices/${voiceId}`);
+        return res.data;
     },
 
     /**
@@ -978,20 +898,15 @@ export const api = {
         preview_text?: string;
         target_model?: string;
     }): Promise<{ voice_id: string; preview_url: string; target_model: string }> => {
-        const response = await fetch(`${API_URL}/voice/design/preview`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+        const res = await apiClient.post<{ voice_id: string; preview_url: string; target_model: string }>(
+            `${API_URL}/voice/design/preview`,
+            {
                 voice_prompt: params.voice_prompt,
                 preview_text: params.preview_text ?? "你好，这是一段音色测试。请仔细听一听是否符合预期。",
                 target_model: params.target_model ?? "cosyvoice-v3.5-plus",
-            }),
-        });
-        if (!response.ok) {
-            const detail = await response.text();
-            throw new Error(`Voice design preview failed: ${response.status} ${detail}`);
-        }
-        return response.json();
+            },
+        );
+        return res.data;
     },
 
     /** PR-3i · Commit a previewed design voice to series.custom_voices[]. */
@@ -1002,54 +917,33 @@ export const api = {
         label: string;
         target_model?: string;
     }): Promise<CustomVoice> => {
-        const response = await fetch(`${API_URL}/voice/design/accept`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                series_id: params.series_id,
-                voice_id: params.voice_id,
-                voice_prompt: params.voice_prompt,
-                label: params.label,
-                target_model: params.target_model ?? "cosyvoice-v3.5-plus",
-            }),
+        const res = await apiClient.post<CustomVoice>(`${API_URL}/voice/design/accept`, {
+            series_id: params.series_id,
+            voice_id: params.voice_id,
+            voice_prompt: params.voice_prompt,
+            label: params.label,
+            target_model: params.target_model ?? "cosyvoice-v3.5-plus",
         });
-        if (!response.ok) {
-            const detail = await response.text();
-            throw new Error(`Voice design accept failed: ${response.status} ${detail}`);
-        }
-        return response.json();
+        return res.data;
     },
 
     /** PR-3i · LLM helper — translate character.description → CosyVoice voice_prompt. */
     translateVoicePrompt: async (description: string): Promise<{ voice_prompt: string }> => {
-        const response = await fetch(`${API_URL}/voice/design/translate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ description }),
-        });
-        if (!response.ok) {
-            const detail = await response.text();
-            throw new Error(`Voice prompt translate failed: ${response.status} ${detail}`);
-        }
-        return response.json();
+        const res = await apiClient.post<{ voice_prompt: string }>(`${API_URL}/voice/design/translate`, { description });
+        return res.data;
     },
 
     bindVoice: async (scriptId: string, charId: string, voiceId: string, voiceName: string) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/characters/${charId}/voice`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ voice_id: voiceId, voice_name: voiceName }),
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/characters/${charId}/voice`, {
+            voice_id: voiceId,
+            voice_name: voiceName,
         });
-        if (!response.ok) throw new Error("Failed to bind voice");
-        return response.json();
+        return res.data;
     },
 
     generateAudio: async (scriptId: string) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/generate_audio`, {
-            method: "POST",
-        });
-        if (!response.ok) throw new Error("Failed to generate audio");
-        return response.json();
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/generate_audio`);
+        return res.data;
     },
 
     generateLineAudio: async (
@@ -1060,27 +954,26 @@ export const api = {
         volume: number = 50,
         instructions?: string,
     ) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/frames/${frameId}/audio`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ speed, pitch, volume, instructions: instructions || null }),
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/audio`, {
+            speed,
+            pitch,
+            volume,
+            instructions: instructions || null,
         });
-        if (!response.ok) throw new Error("Failed to generate line audio");
-        return response.json();
+        return res.data;
     },
 
     /** PR-3j · Generate dialogue audio for every frame with dialogue.
      *  Skips frames whose snapshot hash still matches. */
     generateDialogueAudioBatch: async (scriptId: string): Promise<{ _batch_stats: { generated: number; skipped: number; failed: number; no_voice: number } }> => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/dialogue_audio/batch`, {
-            method: "POST",
-        });
-        if (!response.ok) throw new Error("Failed to generate dialogue audio batch");
-        return response.json();
+        const res = await apiClient.post<{ _batch_stats: { generated: number; skipped: number; failed: number; no_voice: number } }>(
+            `${API_URL}/projects/${scriptId}/dialogue_audio/batch`,
+        );
+        return res.data;
     },
 
     previewDub: async (scriptId: string, frameId: string, videoTaskId: string, offsetMs: number = 0) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/preview`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/preview`, {
             video_task_id: videoTaskId,
             offset_ms: offsetMs,
         }, { timeout: 120000 });
@@ -1088,22 +981,19 @@ export const api = {
     },
 
     applyDub: async (scriptId: string, frameId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/apply`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/apply`);
         return res.data;
     },
 
     revertDub: async (scriptId: string, frameId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub`);
         return res.data;
     },
 
     /** Schema v2 · Refine a single frame (Phase 2 rich fields). */
     refineSingleFrame: async (scriptId: string, frameId: string) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/frames/${frameId}/refine`, {
-            method: "POST",
-        });
-        if (!response.ok) throw new Error("Failed to refine frame");
-        return response.json();
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/refine`);
+        return res.data;
     },
 
     /** Schema v2 · Batch refine all frames via SSE stream. */
@@ -1111,7 +1001,7 @@ export const api = {
         scriptId: string,
         onEvent: (event: RefineSSEEvent) => void,
     ): Promise<void> => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
+        const response = await apiStreamRequest(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
             method: "POST",
         });
         if (!response.ok) throw new Error("Failed to start batch refine");
@@ -1141,9 +1031,8 @@ export const api = {
 
     /** PR-3k · BGM preset catalog for Assembly Mix phase. */
     listBgmPresets: async (): Promise<BgmPreset[]> => {
-        const response = await fetch(`${API_URL}/bgm/presets`);
-        if (!response.ok) throw new Error("Failed to list bgm presets");
-        return response.json();
+        const res = await apiClient.get<BgmPreset[]>(`${API_URL}/bgm/presets`);
+        return res.data;
     },
 
     /** PR-3k · Update audio mix (BGM url + per-track volumes). */
@@ -1153,59 +1042,48 @@ export const api = {
         bgm_volume?: number;
         sfx_volume?: number;
     }) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/audio_mix`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) throw new Error("Failed to update audio mix");
-        return response.json();
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/audio_mix`, payload);
+        return res.data;
     },
 
     updateVoiceParams: async (scriptId: string, charId: string, speed: number, pitch: number, volume: number) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/characters/${charId}/voice_params`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ speed, pitch, volume }),
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/characters/${charId}/voice_params`, {
+            speed,
+            pitch,
+            volume,
         });
-        if (!response.ok) throw new Error("Failed to update voice params");
-        return response.json();
+        return res.data;
     },
 
     exportProject: async (scriptId: string, options: any) => {
-        const response = await fetch(`${API_URL}/projects/${scriptId}/export`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(options),
-        });
-        if (!response.ok) throw new Error("Failed to export project");
-        return response.json();
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/export`, options);
+        return res.data;
     },
 
     generateVideo: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/generate_video`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/generate_video`);
         return res.data;
     },
 
     getEnvConfig: async (): Promise<EnvConfigPayload> => {
-        const res = await axios.get<EnvConfigPayload>(`${API_URL}/config/env`);
+        const res = await apiClient.get<EnvConfigPayload>(`${API_URL}/config/env`);
         return res.data;
     },
 
     saveEnvConfig: async (config: EnvConfigPayload) => {
-        const res = await axios.post(`${API_URL}/config/env`, config, {
+        const res = await apiClient.post(`${API_URL}/config/env`, config, {
             timeout: 60000, // 60 seconds timeout
         });
         return res.data;
     },
 
     triggerMulerunLogin: async () => {
-        const res = await axios.post(`${API_URL}/config/mulerun-login`);
+        const res = await apiClient.post(`${API_URL}/config/mulerun-login`);
         return res.data;
     },
 
     extractLastFrame: async (scriptId: string, frameId: string, videoTaskId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/extract_last_frame`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/extract_last_frame`, {
             video_task_id: videoTaskId,
         });
         return res.data;
@@ -1214,15 +1092,8 @@ export const api = {
     uploadFrameImage: async (scriptId: string, frameId: string, file: File) => {
         const formData = new FormData();
         formData.append("file", file);
-        const response = await fetch(
-            `${API_URL}/projects/${scriptId}/frames/${frameId}/upload_image`,
-            { method: "POST", body: formData }
-        );
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || "Failed to upload frame image");
-        }
-        return response.json();
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/upload_image`, formData);
+        return res.data;
     },
 
     // ============================================
@@ -1234,7 +1105,7 @@ export const api = {
         title: string,
         opts: { description?: string; workflow_mode?: string; content_mode?: "scripted" | "freeform"; default_generation_mode?: "r2v" | "i2v" } = {},
     ) => {
-        const response = await axios.post(`${API_URL}/series`, {
+        const response = await apiClient.post(`${API_URL}/series`, {
             title,
             description: opts.description ?? "",
             workflow_mode: opts.workflow_mode ?? "r2v",
@@ -1245,16 +1116,16 @@ export const api = {
     },
 
     createSeries: async (title: string, description?: string, workflowMode?: string) => {
-        const response = await axios.post(`${API_URL}/series`, { title, description, workflow_mode: workflowMode || "r2v" });
+        const response = await apiClient.post(`${API_URL}/series`, { title, description, workflow_mode: workflowMode || "r2v" });
         return response.data;
     },
     listSeries: async () => {
-        const response = await axios.get(`${API_URL}/series`);
+        const response = await apiClient.get(`${API_URL}/series`);
         return response.data;
     },
     /** Core 全局/共享资产池（跨系列/项目聚合）。后端：GET /library/assets → {characters, scenes, props}。 */
     listLibraryAssets: async () => {
-        const res = await axios.get(`${API_URL}/library/assets`);
+        const res = await apiClient.get(`${API_URL}/library/assets`);
         return res.data;
     },
     /** 新建一条全局/共享资产。后端：POST /library/assets。
@@ -1263,7 +1134,7 @@ export const api = {
         assetType: string,
         data: { name: string; description?: string; persona?: string; image_url?: string; voice_id?: string },
     ) => {
-        const res = await axios.post(`${API_URL}/library/assets`, { asset_type: assetType, ...data });
+        const res = await apiClient.post(`${API_URL}/library/assets`, { asset_type: assetType, ...data });
         return res.data;
     },
     /** 上传一张本地图片到全局资产库，返回可被前端加载的 image_url。
@@ -1272,9 +1143,7 @@ export const api = {
     uploadLibraryImage: async (file: File): Promise<{ image_url: string }> => {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await axios.post<{ image_url: string }>(`${API_URL}/library/assets/upload`, formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-        });
+        const res = await apiClient.post<{ image_url: string }>(`${API_URL}/library/assets/upload`, formData);
         return res.data;
     },
     /** 补丁更新全局资产（仅发送的字段生效，PATCH 语义）。后端：PUT /library/assets/{type}/{id}。assetType 单数。 */
@@ -1292,7 +1161,7 @@ export const api = {
             visual_weight?: number;
         },
     ) => {
-        const res = await axios.put(`${API_URL}/library/assets/${assetType}/${assetId}`, patch);
+        const res = await apiClient.put(`${API_URL}/library/assets/${assetType}/${assetId}`, patch);
         return res.data;
     },
     /** 把项目/系列来源资产 deep-copy 提升进全局共享池。后端：POST /library/assets/promote。
@@ -1303,7 +1172,7 @@ export const api = {
         assetType: string,
         assetId: string,
     ) => {
-        const res = await axios.post(`${API_URL}/library/assets/promote`, {
+        const res = await apiClient.post(`${API_URL}/library/assets/promote`, {
             source_kind: sourceKind,
             source_id: sourceId,
             asset_type: assetType,
@@ -1312,14 +1181,14 @@ export const api = {
         return res.data;
     },
     getSeries: async (seriesId: string) => {
-        const response = await axios.get(`${API_URL}/series/${seriesId}`);
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}`);
         return response.data;
     },
     updateSeries: async (
         seriesId: string,
         data: { title?: string; description?: string; art_direction?: any },
     ) => {
-        const response = await axios.put(`${API_URL}/series/${seriesId}`, data);
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}`, data);
         return response.data;
     },
 
@@ -1339,7 +1208,7 @@ export const api = {
             video_url: string | null;
         }>;
     }> => {
-        const res = await axios.get(`${API_URL}/projects/${scriptId}/previous_episode`);
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/previous_episode`);
         return res.data;
     },
 
@@ -1350,7 +1219,7 @@ export const api = {
         previous_episode_id: string;
         previous_episode_title: string;
     }> => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/previous_episode/summary`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/previous_episode/summary`);
         return res.data;
     },
 
@@ -1361,7 +1230,7 @@ export const api = {
         scenes: ReconcileSuggestion[];
         props: ReconcileSuggestion[];
     }> => {
-        const res = await axios.get(`${API_URL}/projects/${scriptId}/reconcile/suggestions`);
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/reconcile/suggestions`);
         return res.data;
     },
 
@@ -1374,7 +1243,7 @@ export const api = {
             props?: ReconcileAction[];
         },
     ) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/reconcile/apply`, decisions);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/reconcile/apply`, decisions);
         return res.data;
     },
 
@@ -1384,13 +1253,13 @@ export const api = {
         kind: "characters" | "scenes" | "props",
         data: { name: string; description?: string; persona?: string; image_url?: string; voice_id?: string },
     ) => {
-        const res = await axios.post(`${API_URL}/series/${seriesId}/${kind}`, data);
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/${kind}`, data);
         return res.data;
     },
 
     /** R2V v2 Phase 2 — clear project-level art_direction (return to series inherit). */
     clearProjectArtDirection: async (scriptId: string) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/art_direction/clear`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/clear`);
         return res.data;
     },
 
@@ -1400,7 +1269,7 @@ export const api = {
         hook: string | null;
         stale: boolean;
     }> => {
-        const res = await axios.get(`${API_URL}/projects/${scriptId}/next_hook`);
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/next_hook`);
         return res.data;
     },
 
@@ -1409,13 +1278,13 @@ export const api = {
         hook: string;
         stale: boolean;
     }> => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/next_hook`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/next_hook`);
         return res.data;
     },
 
     /** Manually edit / clear hook cache. */
     updateNextEpisodeHook: async (scriptId: string, hook: string | null) => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/next_hook`, { hook });
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/next_hook`, { hook });
         return res.data;
     },
 
@@ -1425,57 +1294,57 @@ export const api = {
         appearances: Array<{ episode_id: string; episode_number: number | null; episode_title: string; frame_count: number }>;
         total_frames: number;
     }> => {
-        const res = await axios.get(`${API_URL}/series/${seriesId}/characters/${characterId}/appearances`);
+        const res = await apiClient.get(`${API_URL}/series/${seriesId}/characters/${characterId}/appearances`);
         return res.data;
     },
 
     /** R2V v2 P1-b — manually edit / clear last_episode_summary cache. */
     updateLastEpisodeSummary: async (scriptId: string, aiSummary: string | null) => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/last_episode_summary`, {
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/last_episode_summary`, {
             ai_summary: aiSummary,
         });
         return res.data;
     },
     deleteSeries: async (seriesId: string) => {
-        const response = await axios.delete(`${API_URL}/series/${seriesId}`);
+        const response = await apiClient.delete(`${API_URL}/series/${seriesId}`);
         return response.data;
     },
 
     // Series Episodes
     getSeriesEpisodes: async (seriesId: string) => {
-        const response = await axios.get(`${API_URL}/series/${seriesId}/episodes`);
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/episodes`);
         return response.data;
     },
     addEpisodeToSeries: async (seriesId: string, scriptId: string, episodeNumber?: number) => {
-        const response = await axios.post(`${API_URL}/series/${seriesId}/episodes`, { script_id: scriptId, episode_number: episodeNumber });
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes`, { script_id: scriptId, episode_number: episodeNumber });
         return response.data;
     },
     removeEpisodeFromSeries: async (seriesId: string, scriptId: string) => {
-        const response = await axios.delete(`${API_URL}/series/${seriesId}/episodes/${scriptId}`);
+        const response = await apiClient.delete(`${API_URL}/series/${seriesId}/episodes/${scriptId}`);
         return response.data;
     },
 
     // Series Assets
     getSeriesAssets: async (seriesId: string) => {
-        const response = await axios.get(`${API_URL}/series/${seriesId}/assets`);
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/assets`);
         return response.data;
     },
     importSeriesAssets: async (seriesId: string, sourceSeriesId: string, assetIds: string[]) => {
-        const response = await axios.post(`${API_URL}/series/${seriesId}/assets/import`, { source_series_id: sourceSeriesId, asset_ids: assetIds });
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/assets/import`, { source_series_id: sourceSeriesId, asset_ids: assetIds });
         return response.data;
     },
 
     // Series Prompt Config
     getSeriesPromptConfig: async (seriesId: string) => {
-        const response = await axios.get(`${API_URL}/series/${seriesId}/prompt_config`);
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/prompt_config`);
         return response.data;
     },
     updateSeriesPromptConfig: async (seriesId: string, config: { storyboard_polish?: string; video_polish?: string; r2v_polish?: string; storyboard_extraction?: string }) => {
-        const response = await axios.put(`${API_URL}/series/${seriesId}/prompt_config`, config);
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}/prompt_config`, config);
         return response.data;
     },
     getSeriesModelSettings: async (seriesId: string) => {
-        const response = await axios.get(`${API_URL}/series/${seriesId}/model_settings`);
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/model_settings`);
         return response.data;
     },
     updateSeriesModelSettings: async (seriesId: string, settings: {
@@ -1488,7 +1357,7 @@ export const api = {
         prop_aspect_ratio?: string;
         storyboard_aspect_ratio?: string;
     }) => {
-        const response = await axios.put(`${API_URL}/series/${seriesId}/model_settings`, settings);
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}/model_settings`, settings);
         return response.data;
     },
 
@@ -1504,13 +1373,11 @@ export const api = {
     importFilePreview: async (file: File, suggestedEpisodes: number = 3) => {
         const formData = new FormData();
         formData.append('file', file);
-        const response = await axios.post(`${API_URL}/series/import/preview?suggested_episodes=${suggestedEpisodes}`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        const response = await apiClient.post(`${API_URL}/series/import/preview?suggested_episodes=${suggestedEpisodes}`, formData);
         return response.data;
     },
     importFileConfirm: async (data: { title: string; description?: string; text: string; episodes: any[] }) => {
-        const response = await axios.post(`${API_URL}/series/import/confirm`, data);
+        const response = await apiClient.post(`${API_URL}/series/import/confirm`, data);
         return response.data;
     },
 };
@@ -1528,12 +1395,12 @@ export const crudApi = {
         gender?: string;
         clothing?: string;
     }) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/characters`, data);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/characters`, data);
         return res.data;
     },
 
     deleteCharacter: async (scriptId: string, characterId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}/characters/${characterId}`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/characters/${characterId}`);
         return res.data;
     },
 
@@ -1544,12 +1411,12 @@ export const crudApi = {
         time_of_day?: string;
         lighting_mood?: string;
     }) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/scenes`, data);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/scenes`, data);
         return res.data;
     },
 
     deleteScene: async (scriptId: string, sceneId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}/scenes/${sceneId}`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/scenes/${sceneId}`);
         return res.data;
     },
 
@@ -1558,12 +1425,12 @@ export const crudApi = {
         name: string;
         description?: string;
     }) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/props`, data);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/props`, data);
         return res.data;
     },
 
     deleteProp: async (scriptId: string, propId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}/props/${propId}`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/props/${propId}`);
         return res.data;
     },
 
@@ -1578,17 +1445,17 @@ export const crudApi = {
         camera_angle?: string;
         insert_at?: number;
     }) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames`, data);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames`, data);
         return res.data;
     },
 
     deleteFrame: async (scriptId: string, frameId: string) => {
-        const res = await axios.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}`);
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}`);
         return res.data;
     },
 
     copyFrame: async (scriptId: string, frameId: string, insertAt?: number) => {
-        const res = await axios.post(`${API_URL}/projects/${scriptId}/frames/copy`, {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/copy`, {
             frame_id: frameId,
             insert_at: insertAt
         });
@@ -1596,7 +1463,7 @@ export const crudApi = {
     },
 
     reorderFrames: async (scriptId: string, frameIds: string[]) => {
-        const res = await axios.put(`${API_URL}/projects/${scriptId}/frames/reorder`, {
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/frames/reorder`, {
             frame_ids: frameIds
         });
         return res.data;
@@ -1651,41 +1518,39 @@ export interface PlaygroundTemplateResponse {
 
 export const playgroundApi = {
   generate: (data: PlaygroundGenerateRequest) =>
-    axios.post<PlaygroundGenerationResponse>(API_URL + "/playground/generate", data).then(r => r.data),
+    apiClient.post<PlaygroundGenerationResponse>(API_URL + "/playground/generate", data).then(r => r.data),
 
   getHistory: (limit = 50, offset = 0) =>
-    axios.get<PlaygroundGenerationResponse[]>(API_URL + "/playground/history", { params: { limit, offset } }).then(r => r.data),
+    apiClient.get<PlaygroundGenerationResponse[]>(API_URL + "/playground/history", { params: { limit, offset } }).then(r => r.data),
 
   getGeneration: (id: string) =>
-    axios.get<PlaygroundGenerationResponse>(API_URL + "/playground/history/" + id).then(r => r.data),
+    apiClient.get<PlaygroundGenerationResponse>(API_URL + "/playground/history/" + id).then(r => r.data),
 
   getGenerationStatus: (id: string) =>
-    axios.get<{ id: string; status: string; outputs: any[]; error?: string }>(API_URL + "/playground/history/" + id + "/status").then(r => r.data),
+    apiClient.get<{ id: string; status: string; outputs: any[]; error?: string }>(API_URL + "/playground/history/" + id + "/status").then(r => r.data),
 
   deleteGeneration: (id: string) =>
-    axios.delete(API_URL + "/playground/history/" + id).then(r => r.data),
+    apiClient.delete(API_URL + "/playground/history/" + id).then(r => r.data),
 
   saveToLibrary: (generationId: string, outputId: string, category?: string) =>
-    axios.post(API_URL + "/playground/history/" + generationId + "/outputs/" + outputId + "/save-to-library", { category: category || "general" }).then(r => r.data),
+    apiClient.post(API_URL + "/playground/history/" + generationId + "/outputs/" + outputId + "/save-to-library", { category: category || "general" }).then(r => r.data),
 
   getTemplates: () =>
-    axios.get<PlaygroundTemplateResponse[]>(API_URL + "/playground/templates").then(r => r.data),
+    apiClient.get<PlaygroundTemplateResponse[]>(API_URL + "/playground/templates").then(r => r.data),
 
   createTemplate: (data: { name: string; category?: string; prompt: string; negative_prompt?: string; default_mode?: string; default_model_id?: string; default_parameters?: Record<string, any> }) =>
-    axios.post<PlaygroundTemplateResponse>(API_URL + "/playground/templates", data).then(r => r.data),
+    apiClient.post<PlaygroundTemplateResponse>(API_URL + "/playground/templates", data).then(r => r.data),
 
   updateTemplate: (id: string, data: Partial<{ name: string; category: string; prompt: string; negative_prompt: string; default_mode: string; default_model_id: string; default_parameters: Record<string, any> }>) =>
-    axios.put<PlaygroundTemplateResponse>(API_URL + "/playground/templates/" + id, data).then(r => r.data),
+    apiClient.put<PlaygroundTemplateResponse>(API_URL + "/playground/templates/" + id, data).then(r => r.data),
 
   deleteTemplate: (id: string) =>
-    axios.delete(API_URL + "/playground/templates/" + id).then(r => r.data),
+    apiClient.delete(API_URL + "/playground/templates/" + id).then(r => r.data),
 
   // Upload media file for playground input (returns file path)
   uploadMedia: (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return axios.post<{ path: string }>(API_URL + "/playground/upload", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    }).then(r => r.data);
+    return apiClient.post<{ path: string }>(API_URL + "/playground/upload", formData).then(r => r.data);
   },
 };

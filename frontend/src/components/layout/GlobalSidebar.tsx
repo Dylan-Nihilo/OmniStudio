@@ -1,10 +1,23 @@
 "use client";
 
-import { LayoutGrid, Layers, Wand2, Settings, FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ChevronUp,
+  FileText,
+  KeyRound,
+  Layers,
+  LayoutGrid,
+  LogOut,
+  Settings,
+  Wand2,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import clsx from "clsx";
 import LumenXBranding from "./LumenXBranding";
 import { isTauri } from "@/lib/transport";
+import { useAuthStore } from "@/store/authStore";
+import { toast } from "@/store/toastStore";
+import ChangePasswordDialog from "@/components/auth/ChangePasswordDialog";
 
 export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
 
@@ -13,8 +26,6 @@ interface GlobalSidebarProps {
   onTabChange: (tab: GlobalTab) => void;
 }
 
-// Shared global nav model (workspace/library/playground + settings). Reused by
-// the desktop GlobalSidebar (below) and the mobile BottomTabBar (md:hidden).
 export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: string }[] = [
   { id: "workspace", icon: LayoutGrid, hash: "#/" },
   { id: "library", icon: Layers, hash: "#/library" },
@@ -42,22 +53,19 @@ function NavButton({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={clsx(
-        "group relative flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors",
+        "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
         active
-          ? "bg-primary/10 text-foreground font-semibold"
-          : "text-text-secondary hover:bg-hover-bg hover:text-foreground font-medium"
+          ? "bg-primary/10 font-semibold text-foreground"
+          : "font-medium text-text-secondary hover:bg-hover-bg hover:text-foreground",
       )}
     >
-      {/* Active accent bar */}
-      {active && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-[18px] w-[3px] rounded-r bg-primary" />
-      )}
+      {active && <span className="absolute left-0 top-1/2 h-[18px] w-[3px] -translate-y-1/2 rounded-r bg-primary" />}
       <Icon
         size={18}
         strokeWidth={1.8}
         className={clsx(
           "flex-shrink-0 transition-colors",
-          active ? "text-primary" : "text-text-muted group-hover:text-foreground"
+          active ? "text-primary" : "text-text-muted group-hover:text-foreground",
         )}
       />
       <span className="text-base">{label}</span>
@@ -65,67 +73,124 @@ function NavButton({
   );
 }
 
-/**
- * 全局导航 —— 带文字标签的品牌侧栏（Line B "Luminous Atelier"）。
- *
- * 顶部常驻 Logo + LUMENX 字标 + Slogan；主导航图标+文字（无 hover、无歧义）；
- * 设置固定底部；底部版本号。早先为给二级筛选栏腾地的 60px 图标轨已废弃——
- * 资产库/设置改走横向筛选后，竖向只剩这一条栏，故恢复完整品牌呈现。
- * 结构对所有主题统一，视觉身份由语义 token 切换（zero-leak）。
- */
 export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarProps) {
   const t = useTranslations("nav");
+  const ta = useTranslations("auth");
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeMenu = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
+  }, [menuOpen]);
 
   const handleNav = (id: GlobalTab, hash: string) => {
     onTabChange(id);
     window.location.hash = hash;
   };
 
+  const handleLogout = async () => {
+    setMenuOpen(false);
+    try {
+      await logout();
+    } catch {
+      toast.warning(ta("logoutUnconfirmed"));
+    }
+  };
+
+  const displayName = user?.display_name || user?.username || "LumenX";
+  const avatarLetter = displayName.trim().charAt(0).toUpperCase() || "L";
+
   return (
-    <aside
-      className="w-52 flex-shrink-0 h-full hidden md:flex flex-col border-r border-glass-border bg-surface/60 backdrop-blur-xl"
-      data-tauri-drag-region
-    >
-      {/* Traffic Light inset for Tauri desktop */}
-      {isTauri() && <div className="tauri-titlebar-inset" />}
-      {/* Brand lockup — Logo + LUMENX + Slogan, click → workspace */}
-      <button
-        type="button"
-        onClick={() => handleNav("workspace", "#/")}
-        aria-label={t("workspaceAria")}
-        className="text-left px-4 pt-5 pb-4 border-b border-glass-border hover:opacity-90 transition-opacity"
+    <>
+      <aside
+        className="hidden h-full w-52 flex-shrink-0 flex-col border-r border-glass-border bg-surface/60 backdrop-blur-xl md:flex"
+        data-tauri-drag-region
       >
-        <LumenXBranding size="md" showSlogan={false} />
-        <p className="font-display atelier-display text-[0.75rem] italic text-text-muted tracking-wide leading-snug mt-2.5">
-          Render Noise into Narrative
-        </p>
-      </button>
+        {isTauri() && <div className="tauri-titlebar-inset" />}
+        <button
+          type="button"
+          onClick={() => handleNav("workspace", "#/")}
+          aria-label={t("workspaceAria")}
+          className="border-b border-glass-border px-4 pb-4 pt-5 text-left transition-opacity hover:opacity-90"
+        >
+          <LumenXBranding size="md" showSlogan={false} />
+          <p className="atelier-display mt-2.5 font-display text-[0.75rem] italic leading-snug tracking-wide text-text-muted">
+            Render Noise into Narrative
+          </p>
+        </button>
 
-      {/* Primary navigation */}
-      <nav className="flex-1 flex flex-col gap-0.5 p-2.5" aria-label={t("mainNavAria")}>
-        {GLOBAL_NAV_ITEMS.slice(0, 4).map((item) => (
+        <nav className="flex flex-1 flex-col gap-0.5 p-2.5" aria-label={t("mainNavAria")}>
+          {GLOBAL_NAV_ITEMS.slice(0, 4).map((item) => (
+            <NavButton
+              key={item.id}
+              active={activeTab === item.id}
+              label={t(item.id)}
+              icon={item.icon}
+              onClick={() => handleNav(item.id, item.hash)}
+            />
+          ))}
+        </nav>
+
+        <div className="border-t border-glass-border p-2.5">
           <NavButton
-            key={item.id}
-            active={activeTab === item.id}
-            label={t(item.id)}
-            icon={item.icon}
-            onClick={() => handleNav(item.id, item.hash)}
+            active={activeTab === "settings"}
+            label={t("settings")}
+            icon={Settings}
+            onClick={() => handleNav("settings", "#/settings")}
           />
-        ))}
-      </nav>
 
-      {/* Settings pinned bottom + version */}
-      <div className="p-2.5 border-t border-glass-border">
-        <NavButton
-          active={activeTab === "settings"}
-          label={t("settings")}
-          icon={Settings}
-          onClick={() => handleNav("settings", "#/settings")}
-        />
-        <div className="px-3 pt-2.5 font-mono text-[0.6875rem] tracking-wide text-text-muted">
-          {APP_VERSION}
+          <div ref={menuRef} className="relative mt-2 border-t border-glass-border pt-2">
+            {menuOpen && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-glass-border bg-surface/95 p-1.5 shadow-2xl shadow-black/40 backdrop-blur-xl">
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); setChangePasswordOpen(true); }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-text-secondary transition hover:bg-hover-bg hover:text-foreground"
+                >
+                  <KeyRound size={15} />
+                  {ta("changePassword")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition hover:bg-red-500/10 hover:text-red-200"
+                >
+                  <LogOut size={15} />
+                  {ta("logout")}
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-expanded={menuOpen}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition hover:bg-hover-bg"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-pink-500 text-sm font-bold text-white shadow-md shadow-primary/20">
+                {avatarLetter}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-foreground">{displayName}</span>
+                <span className="block truncate text-[0.6875rem] text-text-muted">@{user?.username}</span>
+              </span>
+              <ChevronUp size={15} className={clsx("text-text-muted transition-transform", menuOpen && "rotate-180")} />
+            </button>
+          </div>
+
+          <div className="px-3 pt-2 font-mono text-[0.6875rem] tracking-wide text-text-muted">{APP_VERSION}</div>
         </div>
-      </div>
-    </aside>
+      </aside>
+
+      <ChangePasswordDialog isOpen={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
+    </>
   );
 }

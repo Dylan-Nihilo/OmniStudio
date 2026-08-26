@@ -93,16 +93,7 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
         setErrorMsg(null);
         setPhase("uploading");
         try {
-            const formData = new FormData();
-            formData.append("file", file);
-            const uploadResp = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api"}/upload`, {
-                method: "POST",
-                body: formData,
-            });
-            if (!uploadResp.ok) {
-                throw new Error(`Upload failed: ${uploadResp.status}`);
-            }
-            const { url } = await uploadResp.json();
+            const { url } = await api.uploadFile(file);
             if (!url) throw new Error("Upload response missing url");
 
             setPhase("cloning");
