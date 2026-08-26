@@ -3,15 +3,18 @@ from fastapi.staticfiles import StaticFiles
 
 
 def test_files_mounts_never_expose_output_root():
+    from starlette.routing import Mount
+
     from src.apps.comic_gen.api import app
 
-    mounts = [
-        (r.path, r.directory)
-        for r in app.routes
-        if isinstance(r, StaticFiles) and getattr(r, "path", "").startswith("/files")
-    ]
+    mounts = []
+    for r in app.routes:
+        if isinstance(r, Mount) and getattr(r, "path", "").startswith("/files"):
+            inner = getattr(r, "app", None)
+            directory = getattr(inner, "directory", None)
+            mounts.append((r.path, str(directory) if directory else ""))
     paths = [p for p, _ in mounts]
-    dirs = [str(d).replace("\\", "/") for _, d in mounts]
+    dirs = [d.replace("\\", "/") for d, _ in mounts]
 
     # The output root itself must never be mounted under /files.
     assert "/files" not in paths, f"output root exposed: {paths}"
