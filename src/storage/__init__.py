@@ -11,6 +11,7 @@ from .db import (
     get_session_factory,
     init_schema,
 )
+from .auth_repository import AuthRepository, OwnerSetupResult, RotateResult
 from .errors import LegacyDataError, MigrationError, StorageError
 from .repository import Repository, SQLiteRepository
 from .schema import (
@@ -20,6 +21,7 @@ from .schema import (
     Project,
     SchemaMigration,
     Script,
+    Session,
     Series,
     User,
     Workspace,
@@ -36,6 +38,9 @@ __all__ = [
     "create_session_factory",
     "get_session_factory",
     "init_schema",
+    "AuthRepository",
+    "OwnerSetupResult",
+    "RotateResult",
     "StorageError",
     "MigrationError",
     "LegacyDataError",
@@ -49,4 +54,5 @@ __all__ = [
     "Series",
     "Episode",
     "Script",
+    "Session",
 ]

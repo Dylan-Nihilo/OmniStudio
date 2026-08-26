@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import time
+from contextlib import contextmanager
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -15,10 +17,22 @@ from sqlalchemy.pool import StaticPool
 from .schema import Base, SchemaMigration
 
 DEFAULT_DB_PATH = Path("output") / "lumenx.db"
-SCHEMA_VERSION = "w1.1"
-INITIAL_SCHEMA_VERSION = SCHEMA_VERSION
-SCHEMA_DESCRIPTION = "Initial LumenX W1.1 SQLite schema"
+INITIAL_SCHEMA_VERSION = "w1.1"
+SCHEMA_VERSION = "w3.1-auth"
+SCHEMA_DESCRIPTION = "LumenX W3.1 authentication schema"
 SCHEMA_CHECKSUM = hashlib.sha256(SCHEMA_DESCRIPTION.encode("utf-8")).hexdigest()
+
+# Populated lazily to avoid an import cycle between the migration module and the
+# SQLite transaction helpers in this module.
+MIGRATION_REGISTRY: dict[str, Callable[[Engine], None]] = {}
+
+
+def get_migration_registry() -> dict[str, Callable[[Engine], None]]:
+    if not MIGRATION_REGISTRY:
+        from .migrations.w3_auth import migrate_w1_to_w3
+
+        MIGRATION_REGISTRY[SCHEMA_VERSION] = migrate_w1_to_w3
+    return MIGRATION_REGISTRY
 
 
 def _sqlite_database_url(db_path: str | Path) -> str:
@@ -76,9 +90,23 @@ def create_engine(
     return engine
 
 
-def init_schema(engine: Engine) -> None:
-    """Create the W1 schema and record the idempotent initial schema version."""
-    Base.metadata.create_all(engine)
+@contextmanager
+def begin_immediate(connection: Any) -> Iterator[Any]:
+    """Run a short SQLite write transaction using ``BEGIN IMMEDIATE``."""
+    connection.exec_driver_sql("BEGIN IMMEDIATE")
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+# Descriptive alias used by repository/migration callers.
+sqlite_transaction = begin_immediate
+
+
+def _record_schema_version(engine: Engine) -> None:
     with engine.begin() as connection:
         connection.execute(
             insert(SchemaMigration.__table__).prefix_with("OR IGNORE"),
@@ -89,6 +117,39 @@ def init_schema(engine: Engine) -> None:
                 "description": SCHEMA_DESCRIPTION,
             },
         )
+
+
+def _schema_version_rows(engine: Engine) -> set[str]:
+    from sqlalchemy import inspect
+
+    if "schema_migrations" not in inspect(engine).get_table_names():
+        return set()
+    with engine.connect() as connection:
+        return set(connection.execute(SchemaMigration.__table__.select()).scalars().all())
+
+
+def init_schema(engine: Engine) -> None:
+    """Create a fresh W3 schema or apply registered ordered migrations."""
+    from sqlalchemy import inspect
+
+    tables = set(inspect(engine).get_table_names())
+    if not tables:
+        Base.metadata.create_all(engine)
+        _record_schema_version(engine)
+        return
+
+    versions = _schema_version_rows(engine)
+    if SCHEMA_VERSION in versions:
+        from .migrations.w3_auth import validate_w3_schema
+
+        validate_w3_schema(engine)
+        return
+
+    registry = get_migration_registry()
+    migration = registry.get(SCHEMA_VERSION)
+    if migration is None:
+        raise RuntimeError(f"No migration registered for schema version {SCHEMA_VERSION!r}")
+    migration(engine)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -112,6 +173,10 @@ __all__ = [
     "INITIAL_SCHEMA_VERSION",
     "SCHEMA_DESCRIPTION",
     "SCHEMA_CHECKSUM",
+    "MIGRATION_REGISTRY",
+    "get_migration_registry",
+    "begin_immediate",
+    "sqlite_transaction",
     "create_engine",
     "init_schema",
     "create_session_factory",

@@ -74,9 +74,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    email: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    username: Mapped[str] = mapped_column(Text, nullable=False)
+    username_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    email_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
     metadata_json: Mapped[str] = mapped_column(
@@ -86,6 +89,16 @@ class User(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint("username_normalized", name="uq_users_username_normalized"),
+        UniqueConstraint("email_normalized", name="uq_users_email_normalized"),
+        CheckConstraint(
+            "length(username_normalized) BETWEEN 3 AND 64",
+            name="ck_users_username_length",
+        ),
+        CheckConstraint(
+            "length(email_normalized) BETWEEN 3 AND 254",
+            name="ck_users_email_length",
+        ),
         CheckConstraint("json_valid(metadata_json)", name="ck_users_metadata_json"),
     )
 
@@ -111,8 +124,44 @@ class Workspace(Base):
 
     __table_args__ = (
         CheckConstraint("json_valid(metadata_json)", name="ck_workspaces_metadata_json"),
-        UniqueConstraint("owner_user_id", "slug"),
+        UniqueConstraint("owner_user_id", "slug", name="uq_workspaces_owner_slug"),
         Index("ix_workspaces_owner_user_id", "owner_user_id"),
+    )
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    refresh_token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    rotation_counter: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    last_used_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    revoked_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("refresh_token_hash", name="uq_sessions_refresh_token_hash"),
+        CheckConstraint("rotation_counter >= 0", name="ck_sessions_rotation_nonnegative"),
+        CheckConstraint("expires_at > created_at", name="ck_sessions_expiry_order"),
+        CheckConstraint(
+            "last_used_at IS NULL OR last_used_at >= created_at",
+            name="ck_sessions_last_used_order",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR revoked_at >= created_at",
+            name="ck_sessions_revoked_order",
+        ),
+        Index("ix_sessions_user_revoked", "user_id", "revoked_at"),
+        Index("ix_sessions_expires_at", "expires_at"),
     )
 
 
@@ -256,6 +305,7 @@ __all__ = [
     "MigrationRun",
     "User",
     "Workspace",
+    "Session",
     "Project",
     "Series",
     "Episode",
