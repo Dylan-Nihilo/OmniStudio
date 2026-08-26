@@ -115,7 +115,17 @@ app.mount("/files/playground", StaticFiles(directory="output/playground"), name=
 
 
 # Initialize pipeline
-pipeline = ComicGenPipeline()
+pipeline = ComicGenPipeline(
+    config={
+        "storage": {
+            "db_path": "output/lumenx.db",
+            "legacy_projects_path": "output/projects.json",
+            "legacy_series_path": "output/series.json",
+            "auto_migrate": True,
+            "migration_mode": "apply",
+        }
+    }
+)
 
 # Allow-list map for uploaded file extensions: keys come from the (untrusted)
 # client filename, values are trusted literals safe to embed in server paths.

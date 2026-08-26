@@ -142,7 +142,7 @@ def test_local_only_pipeline_flow_without_oss(monkeypatch):
     pipeline.process_video_task(script.id, task_id)
 
     assert task.status == "completed"
-    assert task.video_url.startswith("video/video_")
+    assert task.video_url.replace("\\", "/").startswith("video/video_")
 
     assert captured["img_url"] == "oss://dashscope-temp/local-only/frame.png"
     assert captured["model_name"] == "wan2.6-i2v"
