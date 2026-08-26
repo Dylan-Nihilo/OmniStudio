@@ -88,9 +88,9 @@ export const useAuthStore = create<AuthStore>()(
           try {
             const { data } = await apiClient.get<MeResponse>("/auth/me");
             set({ user: data.user });
-          } catch (error) {
-            const status = (error as { response?: { status?: number } })?.response?.status;
-            if (status !== 401) throw error;
+          } catch {
+            // Any failure to confirm the session (401, expired refresh, network)
+            // means there is no valid logged-in identity right now.
             set({ user: null });
           }
         })().finally(() => {

@@ -20,7 +20,10 @@ class AuthSettings:
     access_ttl_seconds: int = 900
     refresh_ttl_seconds: int = 1209600
     cookie_secure: bool = False
-    allowed_origins: tuple[str, ...] = ()
+    allowed_origins: tuple[str, ...] = (
+        "http://localhost:3008",
+        "http://127.0.0.1:3008",
+    )
     issuer: str = "lumenx"
     audience: str = "lumenx-studio"
     trusted_proxy_cidrs: tuple[str, ...] = ()
@@ -77,7 +80,13 @@ class AuthSettings:
             raise ValueError(
                 "LUMENX_AUTH_REFRESH_TTL_SECONDS must be between 604800 and 2592000"
             )
-        origins = _csv(env.get("LUMENX_AUTH_ALLOWED_ORIGINS", ""))
+        env_origins = env.get("LUMENX_AUTH_ALLOWED_ORIGINS", "").strip()
+        if env_origins:
+            origins = _csv(env_origins)
+        else:
+            # Local development defaults; production deployments must set
+            # LUMENX_AUTH_ALLOWED_ORIGINS explicitly.
+            origins = ("http://localhost:3008", "http://127.0.0.1:3008")
         if "*" in origins:
             raise ValueError("LUMENX_AUTH_ALLOWED_ORIGINS must not contain '*'")
         return cls(
