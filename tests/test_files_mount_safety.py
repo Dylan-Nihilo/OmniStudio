@@ -14,7 +14,7 @@ def test_files_mounts_never_expose_output_root():
             directory = getattr(inner, "directory", None)
             mounts.append((r.path, str(directory) if directory else ""))
     paths = [p for p, _ in mounts]
-    dirs = [d.replace("\\", "/") for d, _ in mounts]
+    dirs = [d.replace("\\", "/") for _, d in mounts]
 
     # The output root itself must never be mounted under /files.
     assert "/files" not in paths, f"output root exposed: {paths}"
