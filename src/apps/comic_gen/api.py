@@ -103,10 +103,17 @@ os.makedirs("output/assets", exist_ok=True)
 # Legacy paths in projects.json often use 'outputs/videos' or 'outputs/assets'
 app.mount("/files/outputs/videos", StaticFiles(directory="output/video"), name="files_outputs_videos")
 app.mount("/files/outputs/assets", StaticFiles(directory="output/assets"), name="files_outputs_assets")
-app.mount("/files/outputs", StaticFiles(directory="output"), name="files_outputs")
 app.mount("/files/videos", StaticFiles(directory="output/video"), name="files_videos")
 app.mount("/files/assets", StaticFiles(directory="output/assets"), name="files_assets")
-app.mount("/files", StaticFiles(directory="output"), name="files")
+# Media directories only. The `output` root (lumenx.db, projects.json,
+# backups/) must NEVER be exposed through /files. Each media folder is
+# mounted explicitly so no sibling sensitive file can leak.
+app.mount("/files/storyboard", StaticFiles(directory="output/storyboard"), name="files_storyboard")
+app.mount("/files/audio", StaticFiles(directory="output/audio"), name="files_audio")
+app.mount("/files/video", StaticFiles(directory="output/video"), name="files_video")
+app.mount("/files/uploads", StaticFiles(directory="output/uploads"), name="files_uploads")
+app.mount("/files/video_inputs", StaticFiles(directory="output/video_inputs"), name="files_video_inputs")
+app.mount("/files/export", StaticFiles(directory="output/export"), name="files_export")
 
 # Ensure playground output directories exist
 os.makedirs("output/playground/images", exist_ok=True)
