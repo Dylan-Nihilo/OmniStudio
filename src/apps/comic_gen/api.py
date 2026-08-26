@@ -33,6 +33,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import uuid
 import logging
@@ -55,6 +56,11 @@ from ...utils.provider_errors import ProviderError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv, set_key
 
+from .auth.routes import auth_exception_handler, router as auth_router
+from .auth.service import AuthError, AuthService
+from .auth.settings import AuthSettings
+from ...storage.auth_repository import AuthRepository
+
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
 
@@ -76,14 +82,6 @@ logger.info(f"STARTUP: OSS_ENDPOINT={os.getenv('OSS_ENDPOINT')}, OSS_BUCKET_NAME
 
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify the frontend origin
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition"],  # Allow browsers to access Content-Disposition for downloads
-)
 
 # Middleware to add cache headers to static files
 @app.middleware("http")
@@ -126,6 +124,41 @@ pipeline = ComicGenPipeline(
         }
     }
 )
+
+# Authentication shares the pipeline-owned SQLAlchemy engine; no second DB lifecycle is created.
+# AuthSettings normally persists the generated local signing secret under
+# ~/.lumen-x/config.json.  Some read-only packaged/test environments cannot
+# write that path; keep the normal persistent path first, and only use a
+# process-local fallback when the database is still empty and persistence is
+# unavailable. Existing users still fail fast in AuthSettings as required.
+try:
+    auth_settings = AuthSettings.from_env(engine=pipeline.storage_engine)
+except PermissionError:
+    fallback_env = dict(os.environ)
+    fallback_env.setdefault("LUMENX_AUTH_SIGNING_SECRET", secrets.token_urlsafe(32))
+    auth_settings = AuthSettings.from_env(
+        engine=pipeline.storage_engine,
+        environ=fallback_env,
+        config_path=os.devnull,
+    )
+    logger.warning("Auth signing secret persistence is unavailable; using a process-local development secret")
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(auth_settings.allowed_origins),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
+app.add_exception_handler(AuthError, auth_exception_handler)
+
+app.state.storage_engine = pipeline.storage_engine
+app.state.auth_settings = auth_settings
+app.state.auth_service = AuthService(AuthRepository(pipeline.storage_engine), auth_settings)
+app.include_router(auth_router)
+
 
 # Allow-list map for uploaded file extensions: keys come from the (untrusted)
 # client filename, values are trusted literals safe to embed in server paths.
