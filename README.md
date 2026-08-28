@@ -130,16 +130,27 @@ cp .env.example .env
 npm run dev
 ```
 
-或分别启动：
+推荐分别启动（更方便查看日志和单独重启）：
 
 ```bash
-# 后端
-pip install -r requirements.txt
-./start_backend.sh  # http://localhost:17177
+# 终端 1：后端
+# 首次使用可先安装依赖：pip install -r requirements.txt
+.venv/Scripts/python.exe -m uvicorn src.apps.comic_gen.api:app --reload --host 0.0.0.0 --port 17177
+# Linux/macOS 可使用：.venv/bin/python -m uvicorn src.apps.comic_gen.api:app --reload --host 0.0.0.0 --port 17177
 
-# 前端
-cd frontend && npm install && npm run dev  # http://localhost:3008
+# 终端 2：前端
+cd frontend
+npm install
+npm run dev  # http://localhost:3008
 ```
+
+如果 3008 已被其他前端进程占用，可临时换端口：
+
+```powershell
+$env:PORT='3009'; npm run dev  # http://localhost:3009
+```
+
+也可以使用一键启动：npm run dev。
 
 ### 访问
 
