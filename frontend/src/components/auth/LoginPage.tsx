@@ -50,6 +50,16 @@ export default function LoginPage() {
               <input className="glass-input w-full" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required minLength={8} maxLength={128} />
             </label>
 
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => { window.location.hash = "#/reset-password"; }}
+                className="text-sm font-medium text-primary transition hover:text-primary/80"
+              >
+                {t("forgotPassword")}
+              </button>
+            </div>
+
             {error && (
               <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
                 <AlertCircle className="mt-0.5 shrink-0" size={15} />

@@ -7,7 +7,10 @@ import { useAuthStore } from "@/store/authStore";
 import { isSafeReturnHash, rememberReturnHash } from "@/lib/apiClient";
 import LumenXBranding from "@/components/layout/LumenXBranding";
 import LoginPage from "./LoginPage";
+import ResetPasswordPage from "./ResetPasswordPage";
 import SetupPage from "./SetupPage";
+
+const RESET_PASSWORD_HASH = "#/reset-password";
 
 function AuthSurface({ children }: { children: ReactNode }) {
   return (
@@ -49,6 +52,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const setupStatus = useAuthStore((state) => state.setupStatus);
   const user = useAuthStore((state) => state.user);
   const [bootstrapError, setBootstrapError] = useState(false);
+  const [currentHash, setCurrentHash] = useState(() =>
+    typeof window === "undefined" ? "#/login" : window.location.hash || "#/workspace",
+  );
 
   const runBootstrap = () => {
     setBootstrapError(false);
@@ -62,24 +68,31 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }, [bootstrap]);
 
   useEffect(() => {
+    const updateHash = () => setCurrentHash(window.location.hash || "#/workspace");
+    updateHash();
+    window.addEventListener("hashchange", updateHash);
+    return () => window.removeEventListener("hashchange", updateHash);
+  }, []);
+
+  useEffect(() => {
     if (bootstrapping || bootstrapError || !setupStatus) return;
 
     if (!setupStatus.initialized) {
-      if (window.location.hash !== "#/setup") window.location.hash = "#/setup";
+      if (currentHash !== "#/setup") window.location.hash = "#/setup";
       return;
     }
 
     if (!user) {
-      const currentHash = window.location.hash;
+      if (currentHash === RESET_PASSWORD_HASH) return;
       if (isSafeReturnHash(currentHash)) rememberReturnHash(currentHash);
       if (currentHash !== "#/login") window.location.hash = "#/login";
       return;
     }
 
-    if (window.location.hash === "#/login" || window.location.hash === "#/setup") {
+    if (currentHash === "#/login" || currentHash === "#/setup" || currentHash === RESET_PASSWORD_HASH) {
       window.location.hash = "#/workspace";
     }
-  }, [bootstrapError, bootstrapping, setupStatus, user]);
+  }, [bootstrapError, bootstrapping, currentHash, setupStatus, user]);
 
   if (bootstrapping) return <AuthLoadingScreen />;
 
@@ -104,6 +117,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (!setupStatus?.initialized) return <SetupPage />;
+  if (!user && currentHash === RESET_PASSWORD_HASH) return <ResetPasswordPage />;
   if (!user) return <LoginPage />;
   return <>{children}</>;
 }

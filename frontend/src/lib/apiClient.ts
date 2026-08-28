@@ -43,7 +43,8 @@ export const isSafeReturnHash = (value: unknown): value is string =>
   typeof value === "string" &&
   value.startsWith("#/") &&
   value !== "#/login" &&
-  value !== "#/setup";
+  value !== "#/setup" &&
+  value !== "#/reset-password";
 
 export const rememberReturnHash = (value?: string): void => {
   if (typeof window === "undefined") return;
@@ -130,17 +131,22 @@ let redirectingAfterAuthFailure = false;
 
 const requestPath = (config?: InternalAxiosRequestConfig): string => {
   const rawUrl = config?.url || "";
+  let path: string;
   try {
-    return new URL(rawUrl, config?.baseURL || API_URL).pathname;
+    const base = config?.baseURL || API_URL;
+    path = new URL(rawUrl, base.startsWith("http") ? base : "http://localhost").pathname;
   } catch {
-    return rawUrl.split("?")[0];
+    path = rawUrl.split("?")[0];
   }
+  return path.startsWith("/api-proxy/") ? path.slice("/api-proxy".length) : path;
 };
 
 const REFRESH_EXCLUDED_PATHS = new Set([
   "/auth/setup-status",
   "/auth/setup",
   "/auth/login",
+  "/auth/password-reset/status",
+  "/auth/password-reset",
   "/auth/refresh",
   "/auth/me",
 ]);

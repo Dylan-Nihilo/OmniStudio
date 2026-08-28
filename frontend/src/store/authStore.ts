@@ -33,6 +33,17 @@ export interface ChangePasswordInput {
   new_password: string;
 }
 
+export interface PasswordResetStatus {
+  available: boolean;
+  token_required: boolean;
+}
+
+export interface PasswordResetInput {
+  identifier: string;
+  new_password: string;
+  recovery_token?: string;
+}
+
 interface AuthResponse {
   user: AuthUser;
 }
@@ -52,6 +63,8 @@ interface AuthStore {
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   changePassword: (input: ChangePasswordInput) => Promise<void>;
+  getPasswordResetStatus: () => Promise<PasswordResetStatus>;
+  resetPassword: (input: PasswordResetInput) => Promise<void>;
   clearSession: () => void;
 }
 
@@ -146,6 +159,22 @@ export const useAuthStore = create<AuthStore>()(
 
       changePassword: async (input) => {
         await apiClient.post(`${API_URL}/auth/change-password`, input);
+        get().clearSession();
+        clearReturnHash();
+      },
+
+      getPasswordResetStatus: async () => {
+        const { data } = await apiClient.get<PasswordResetStatus>(
+          `${API_URL}/auth/password-reset/status`,
+        );
+        return data;
+      },
+
+      resetPassword: async (input) => {
+        await apiClient.post(`${API_URL}/auth/password-reset`, {
+          ...input,
+          recovery_token: input.recovery_token?.trim() || undefined,
+        });
         get().clearSession();
         clearReturnHash();
       },
