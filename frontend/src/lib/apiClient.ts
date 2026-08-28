@@ -113,7 +113,12 @@ const bareClient = axios.create({
 bareClient.interceptors.request.use(attachCsrfHeader);
 
 export const apiClient = axios.create({
-  baseURL: API_URL,
+  // Callers pass the complete API_URL-prefixed path. Keeping a base URL here
+  // would make Axios combine `/api-proxy` with `/api-proxy/...` in development,
+  // producing `/api-proxy/api-proxy/...` and a misleading 404 from Next.js.
+  // `bareClient` below intentionally keeps API_URL as its base for the few
+  // auth requests that use relative paths.
+  baseURL: "",
   withCredentials: true,
   timeout: 30_000,
 });

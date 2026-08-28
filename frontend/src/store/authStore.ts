@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { apiClient, clearReturnHash } from "@/lib/apiClient";
+import { apiClient, API_URL, clearReturnHash } from "@/lib/apiClient";
 
 export interface AuthUser {
   id: string;
@@ -76,7 +76,7 @@ export const useAuthStore = create<AuthStore>()(
 
         set({ bootstrapping: true });
         bootstrapPromise = (async () => {
-          const { data: setupStatus } = await apiClient.get<SetupStatus>("/auth/setup-status");
+          const { data: setupStatus } = await apiClient.get<SetupStatus>(`${API_URL}/auth/setup-status`);
           set({
             initialized: setupStatus.initialized,
             setupStatus,
@@ -86,7 +86,7 @@ export const useAuthStore = create<AuthStore>()(
           if (!setupStatus.initialized) return;
 
           try {
-            const { data } = await apiClient.get<MeResponse>("/auth/me");
+            const { data } = await apiClient.get<MeResponse>(`${API_URL}/auth/me`);
             set({ user: data.user });
           } catch {
             // Any failure to confirm the session (401, expired refresh, network)
@@ -106,7 +106,7 @@ export const useAuthStore = create<AuthStore>()(
           ...input,
           setup_token: input.setup_token?.trim() || undefined,
         };
-        const { data } = await apiClient.post<AuthResponse>("/auth/setup", payload);
+        const { data } = await apiClient.post<AuthResponse>(`${API_URL}/auth/setup`, payload);
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
@@ -115,7 +115,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       login: async (input) => {
-        const { data } = await apiClient.post<AuthResponse>("/auth/login", input);
+        const { data } = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
@@ -126,7 +126,7 @@ export const useAuthStore = create<AuthStore>()(
       logout: async () => {
         let requestError: unknown;
         try {
-          await apiClient.post("/auth/logout");
+          await apiClient.post(`${API_URL}/auth/logout`);
         } catch (error) {
           requestError = error;
         } finally {
@@ -140,12 +140,12 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       refreshUser: async () => {
-        const { data } = await apiClient.get<MeResponse>("/auth/me");
+        const { data } = await apiClient.get<MeResponse>(`${API_URL}/auth/me`);
         set({ user: data.user });
       },
 
       changePassword: async (input) => {
-        await apiClient.post("/auth/change-password", input);
+        await apiClient.post(`${API_URL}/auth/change-password`, input);
         get().clearSession();
         clearReturnHash();
       },
