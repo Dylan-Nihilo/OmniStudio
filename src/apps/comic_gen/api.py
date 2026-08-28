@@ -593,6 +593,38 @@ def list_projects():
     return signed_response(scripts)
 
 
+@app.get("/projects/domain")
+def list_domain_projects():
+    """List lightweight W2 Project views for gradual frontend migration."""
+    projects = pipeline.repository.load_projects()
+    payload = [
+        {
+            "id": project.id,
+            "title": project.title,
+            "mode": project.mode,
+            "episode_ids": project.episode_ids,
+            "episode_count": len(project.episode_ids),
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+        }
+        for project in projects.values()
+    ]
+    return signed_response(payload)
+
+
+@app.get("/projects/{project_id}/episodes")
+def get_project_episodes(project_id: str):
+    """Return a complete W2 Project view with its ordered Episodes."""
+    projects = pipeline.repository.load_projects()
+    project = projects.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    payload = project.model_dump(exclude={"episodes"})
+    payload["episodes"] = [episode.model_dump() for episode in project.episodes]
+    return signed_response(payload)
+
+
 @app.post("/projects/{script_id}/toggle_starred")
 def toggle_project_starred(script_id: str):
     """Toggle the user-starred (featured shortlist) flag on a project."""
