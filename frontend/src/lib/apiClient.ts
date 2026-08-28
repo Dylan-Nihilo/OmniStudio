@@ -20,7 +20,11 @@ const getApiUrl = (): string => {
     }
 
     if (process.env.NODE_ENV === "development") {
-      return `${protocol}//${hostname}:${BACKEND_PORT}`;
+      // Keep browser requests same-origin in development. Next.js proxies
+      // `/api-proxy/*` to the standalone backend, which avoids CORS and local
+      // browser policies blocking cross-port requests (for example 3008 ->
+      // 17177).
+      return "/api-proxy";
     }
 
     return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
