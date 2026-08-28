@@ -1,28 +1,28 @@
 ---
 name: lumenx-git-publish
-description: LumenX GitHub publish workflow for safe commits, sensitive-data scans, and PR-based pushes to the GitHub mirror.
+description: LumenX GitHub publish workflow for safe commits, sensitive-data scans, and PR-based pushes to the shared GitHub repo.
 ---
 
 # LumenX GitHub Publish Workflow
 
-Use this workflow when working in this repository and the user asks to publish work to the LumenX GitHub mirror, prepare a GitHub-ready branch, or follow the LumenX GitHub release process.
+Use this workflow when working in this repository and the user asks to publish work to the LumenX GitHub repository, prepare a GitHub-ready branch, or follow the LumenX GitHub PR flow.
 
 ## Core Rules
 
-- Never push directly to `main`. Use a feature, fix, or docs branch and open a PR.
+- **Never push directly to `main`.** `main` is the shared stable branch for the whole team. All development happens on a feature, fix, or docs branch, and lands in `main` only through a reviewed, CI-green pull request.
 - Push to the `github` remote only. Ignore `origin` for publishing.
 - Run sensitive-data checks before any push.
 - Commit messages must follow Conventional Commits.
-- Use `Mike4Ellis <1007062267@qq.com>` as the git commit author for GitHub mirror submissions in this repo.
-- Open GitHub PRs with the `Star-Lotus` GitHub account. If `Mike4Ellis` lacks `createPullRequest` permission, switch `gh` to `Star-Lotus` before running `gh pr create`.
+- Use the locally configured git author (already set up in this repo; do NOT modify git config).
+- Open GitHub PRs with the `zhxqc` GitHub account (already authenticated via `gh`).
 
 Repository-specific constraints:
 
 - GitHub remote: `github`
-- GitHub repository: `https://github.com/alibaba/lumenx.git`
+- GitHub repository: `https://github.com/Dylan-Nihilo/OmniStudio.git`
 - Allowed branch prefixes: `feature/`, `fix/`, `docs/`
 
-## Step 1: Confirm Branch
+## Step 1: Create a Working Branch
 
 Check the current branch:
 
@@ -30,10 +30,17 @@ Check the current branch:
 git branch --show-current
 ```
 
-If the branch is `main`, create a safe branch first:
+If the branch is `main` (or it is stale), create a fresh branch from the latest `main` first:
 
 ```bash
-git checkout -b feature/<your-feature-name>
+git fetch github
+git checkout -b feature/<your-feature-name> github/main
+```
+
+Never commit directly on `main`. If you already made commits on `main`, move them to a branch before pushing:
+
+```bash
+git switch -c feature/<your-feature-name>
 ```
 
 ## Step 2: Sensitive-Data Checks
@@ -128,9 +135,7 @@ Before committing, confirm the author identity matches the project convention:
 git log -1 --format='%an <%ae>'
 ```
 
-Expected author for GitHub-bound commits in this repo:
-
-- `Mike4Ellis <1007062267@qq.com>`
+Author for GitHub-bound commits in this repo is the locally configured one (do NOT modify git config). Never add `Co-Authored-By` lines.
 
 Common prefixes:
 
@@ -142,7 +147,7 @@ Common prefixes:
 - `test:`
 - `chore:`
 
-## Step 8: Push to GitHub
+## Step 8: Push the Branch
 
 Push the current branch to the `github` remote:
 
@@ -150,29 +155,57 @@ Push the current branch to the `github` remote:
 git push -u github <branch-name>
 ```
 
+Never push to `main` directly.
+
 ## Step 9: Create a Pull Request
 
-Use GitHub CLI to open the PR:
+Use GitHub CLI (authenticated as `zhxqc`) to open the PR against `Dylan-Nihilo/OmniStudio`:
 
 ```bash
-gh auth switch --hostname github.com --user Star-Lotus
-```
-
-```bash
-gh pr create --repo alibaba/lumenx --title "feat: your PR title" --body "$(cat <<'EOF'
+gh pr create --repo Dylan-Nihilo/OmniStudio --title "feat: your PR title" --body "$(cat <<'EOF'
 ## Summary
 - <change description>
 
 ## Test plan
 - [ ] <test checklist>
 
+## Evidence
+- <test output / verification links>
 EOF
 )"
 ```
 
-## Step 10: Post-Push Verification
+If a PR already exists for this branch, update it instead:
 
-- Confirm the branch and PR are visible on GitHub.
+```bash
+gh pr view --repo Dylan-Nihilo/OmniStudio
+```
+
+## Step 10: Wait for CI and Merge
+
+PRs targeting `main` run `backend-tests` (GitHub Actions). Wait for it to pass before merging:
+
+```bash
+gh pr checks --watch
+```
+
+Merge only when CI is green and the change has been reviewed:
+
+```bash
+gh pr merge --squash --delete-branch
+```
+
+Always squash-merge so `main` history stays one-commit-per-feature. After merging, the remote branch is deleted; delete the local branch too:
+
+```bash
+git switch main
+git branch -D <branch-name>
+git fetch github
+```
+
+## Step 11: Post-Push Verification
+
+- Confirm the PR and merged commit are visible on GitHub.
 - Check README rendering if docs changed.
 - Confirm no sensitive information leaked in the diff.
 
