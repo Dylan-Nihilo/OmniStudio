@@ -3,7 +3,8 @@ const isProd = process.env.NODE_ENV === 'production';
 const isDocker = process.env.DOCKER_BUILD === 'true';
 const isTauri = process.env.TAURI_BUILD === 'true';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:17177';
+const BACKEND_PORT = process.env.NEXT_PUBLIC_BACKEND_PORT || '17177';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || `http://localhost:${BACKEND_PORT}`;
 
 // Tauri build: output to frontend/out/ with no basePath (loaded via Tauri protocol)
 // Docker build: output to frontend/out/
