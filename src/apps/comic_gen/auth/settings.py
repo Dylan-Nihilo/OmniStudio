@@ -17,6 +17,7 @@ from sqlalchemy.engine import Engine
 class AuthSettings:
     signing_secret: str
     setup_token: str | None = None
+    password_reset_token: str | None = None
     access_ttl_seconds: int = 900
     refresh_ttl_seconds: int = 1209600
     cookie_secure: bool = False
@@ -72,6 +73,13 @@ class AuthSettings:
         ):
             raise ValueError("LUMENX_SETUP_TOKEN must contain at least 32 bytes")
 
+        password_reset_token = env.get("LUMENX_PASSWORD_RESET_TOKEN") or None
+        if (
+            password_reset_token is not None
+            and len(password_reset_token.encode("utf-8")) < 32
+        ):
+            raise ValueError("LUMENX_PASSWORD_RESET_TOKEN must contain at least 32 bytes")
+
         access_ttl = _int_env(env, "LUMENX_AUTH_ACCESS_TTL_SECONDS", 900)
         refresh_ttl = _int_env(env, "LUMENX_AUTH_REFRESH_TTL_SECONDS", 1209600)
         if not 900 <= access_ttl <= 1800:
@@ -92,6 +100,7 @@ class AuthSettings:
         return cls(
             signing_secret=secret,
             setup_token=setup_token,
+            password_reset_token=password_reset_token,
             access_ttl_seconds=access_ttl,
             refresh_ttl_seconds=refresh_ttl,
             cookie_secure=_bool_env(env, "LUMENX_AUTH_COOKIE_SECURE", False),
