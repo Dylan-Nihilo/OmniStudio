@@ -187,4 +187,3 @@ def test_password_reset_does_not_reveal_unknown_identifier_and_enforces_policy(t
         assert policy.status_code == 422
         assert policy.json()["error"]["code"] == "AUTH_PASSWORD_POLICY"
     engine.dispose()
-
