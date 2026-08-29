@@ -14,6 +14,7 @@ from ..utils.media_refs import MEDIA_REF_UNKNOWN, classify_media_ref
 from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_input
 from ..utils.provider_registry import resolve_provider_backend
+from ..utils.provider_errors import ProviderError, ProviderErrorCategory
 
 logger = get_logger(__name__)
 
@@ -53,9 +54,17 @@ class WanxImageModel(ImageGenModel):
         return api_key
 
     def generate(self, prompt: str, output_path: str, ref_image_path: str = None, ref_image_paths: list = None, model_name: str = None, **kwargs) -> Tuple[str, float]:
+        api_key = self.api_key
+        if not api_key:
+            raise ProviderError(
+                ProviderErrorCategory.AUTH,
+                provider="dashscope",
+                detail="DASHSCOPE_API_KEY is not configured",
+            )
+
         # Determine model based on whether reference image is provided
         # Support both single path (legacy) and list of paths
-        dashscope.api_key = self.api_key
+        dashscope.api_key = api_key
 
         all_ref_paths = []
         if ref_image_path:

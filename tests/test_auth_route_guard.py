@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from types import SimpleNamespace
 
@@ -141,6 +142,90 @@ def test_business_route_requires_auth_and_public_endpoints_remain_open(tmp_path)
             assert login.status_code == 200, login.text
             authenticated = client.get("/projects/")
             assert authenticated.status_code == 200, authenticated.text
+    finally:
+        full_app.state.auth_service = previous_service
+        full_app.state.auth_settings = previous_settings
+        engine.dispose()
+
+
+def test_resource_path_resolves_script_and_series_workspace():
+    from src.apps.comic_gen.api import _workspace_for_resource_path
+
+    class Repository:
+        def workspace_for_script(self, resource_id):
+            return "workspace-script"
+
+        def workspace_for_series(self, resource_id):
+            return "workspace-series"
+
+    repository = Repository()
+    assert _workspace_for_resource_path("/projects/script-1", repository) == "workspace-script"
+    assert _workspace_for_resource_path("/series/series-1/episodes", repository) == "workspace-series"
+    assert _workspace_for_resource_path("/projects/", repository) is None
+    assert _workspace_for_resource_path("/health", repository) is None
+
+
+def test_series_list_is_filtered_to_authenticated_workspace(monkeypatch):
+    from src.apps.comic_gen import api as api_module
+
+    class Repository:
+        def workspace_for_series(self, resource_id):
+            return {"series-a": "workspace-1", "series-b": "workspace-2"}[resource_id]
+
+    class Pipeline:
+        repository = Repository()
+
+        @staticmethod
+        def list_series():
+            class SeriesItem:
+                def __init__(self, series_id):
+                    self.id = series_id
+
+                def model_dump(self):
+                    return {"id": self.id}
+
+            return [SeriesItem("series-a"), SeriesItem("series-b")]
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            auth_context=SimpleNamespace(workspace=SimpleNamespace(id="workspace-1")),
+        ),
+    )
+    monkeypatch.setattr(api_module, "pipeline", Pipeline())
+
+    response = api_module.list_series(request)
+
+    assert response.status_code == 200
+    assert [item["id"] for item in json.loads(response.body)] == ["series-a"]
+
+
+def test_auth_rejection_keeps_cors_headers_for_allowed_browser_origin(tmp_path, monkeypatch):
+    """A browser must be able to read an auth error instead of seeing a CORS network error."""
+    monkeypatch.setenv("LUMENX_AUTH_SIGNING_SECRET", "test-signing-secret-012345678901234567890123456789")
+    from src.apps.comic_gen.api import app as full_app
+
+    engine = create_engine(tmp_path / "cors-route-guard.db")
+    init_schema(engine)
+    settings = AuthSettings(
+        signing_secret="test-signing-secret-012345678901234567890123456789",
+        allowed_origins=("http://localhost:3008",),
+        app_env="test",
+    )
+    service = AuthService(AuthRepository(engine), settings)
+    previous_service = full_app.state.auth_service
+    previous_settings = full_app.state.auth_settings
+    full_app.state.auth_service = service
+    full_app.state.auth_settings = settings
+    try:
+        with TestClient(full_app, client=("127.0.0.1", 41000), raise_server_exceptions=False) as client:
+            response = client.post(
+                "/series",
+                headers={"Origin": "http://localhost:3008"},
+                json={"title": "CORS auth rejection"},
+            )
+            assert response.status_code == 428
+            assert response.headers["access-control-allow-origin"] == "http://localhost:3008"
+            assert response.headers["access-control-allow-credentials"] == "true"
     finally:
         full_app.state.auth_service = previous_service
         full_app.state.auth_settings = previous_settings

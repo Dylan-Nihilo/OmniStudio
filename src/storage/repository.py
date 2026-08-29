@@ -89,6 +89,80 @@ class SQLiteRepository:
         except Exception as exc:
             raise StorageError(f"Failed to load series: {exc}") from exc
 
+    def workspace_for_script(self, script_id: str) -> str | None:
+        """Resolve the owning Workspace for an episode/script resource."""
+        self._validate_id(script_id, "script_id")
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(Project.__table__.c.workspace_id)
+                .select_from(
+                    Episode.__table__.join(
+                        Project.__table__,
+                        Episode.__table__.c.project_id == Project.__table__.c.id,
+                    )
+                )
+                .where(Episode.__table__.c.id == script_id)
+            ).scalar_one_or_none()
+
+    def workspace_for_series(self, series_id: str) -> str | None:
+        """Resolve the owning Workspace for a Series resource."""
+        self._validate_id(series_id, "series_id")
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(Project.__table__.c.workspace_id)
+                .select_from(
+                    Series.__table__.join(
+                        Project.__table__,
+                        Series.__table__.c.project_id == Project.__table__.c.id,
+                    )
+                )
+                .where(Series.__table__.c.id == series_id)
+            ).scalar_one_or_none()
+
+    def assign_workspace_for_script(self, script_id: str, workspace_id: str) -> bool:
+        """Assign an owner only when the script's Project is currently unowned."""
+        self._validate_id(script_id, "script_id")
+        self._validate_id(workspace_id, "workspace_id")
+        with self.engine.begin() as connection:
+            project_id = connection.execute(
+                select(Episode.__table__.c.project_id).where(
+                    Episode.__table__.c.id == script_id
+                )
+            ).scalar_one_or_none()
+            if project_id is None:
+                return False
+            result = connection.execute(
+                update(Project.__table__)
+                .where(
+                    Project.__table__.c.id == project_id,
+                    Project.__table__.c.workspace_id.is_(None),
+                )
+                .values(workspace_id=workspace_id)
+            )
+        return result.rowcount == 1
+
+    def assign_workspace_for_series(self, series_id: str, workspace_id: str) -> bool:
+        """Assign an owner only when a Series Project is currently unowned."""
+        self._validate_id(series_id, "series_id")
+        self._validate_id(workspace_id, "workspace_id")
+        with self.engine.begin() as connection:
+            project_id = connection.execute(
+                select(Series.__table__.c.project_id).where(
+                    Series.__table__.c.id == series_id
+                )
+            ).scalar_one_or_none()
+            if project_id is None:
+                return False
+            result = connection.execute(
+                update(Project.__table__)
+                .where(
+                    Project.__table__.c.id == project_id,
+                    Project.__table__.c.workspace_id.is_(None),
+                )
+                .values(workspace_id=workspace_id)
+            )
+        return result.rowcount == 1
+
     # ------------------------------------------------------------------
     # Public write API
     # ------------------------------------------------------------------
@@ -540,7 +614,5 @@ class SQLiteRepository:
 Repository = SQLiteRepository
 
 __all__ = ["Repository", "SQLiteRepository"]
-
-
 
 

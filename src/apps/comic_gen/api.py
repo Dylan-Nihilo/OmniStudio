@@ -22,7 +22,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, List, Any, Tuple
 import asyncio
@@ -38,6 +38,9 @@ import shutil
 import uuid
 import logging
 import traceback
+import mimetypes
+from pathlib import Path
+from urllib.parse import urlparse
 from .pipeline import ComicGenPipeline, LibraryAssetInUseError, _resolve_export_settings
 from .models import (
     ArtDirection,
@@ -52,6 +55,7 @@ from .models import (
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
+from ...utils.media_refs import resolve_local_media_path
 from ...utils.provider_errors import ProviderError
 from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv, set_key
@@ -85,12 +89,16 @@ logger.info(f"STARTUP: OSS_ENDPOINT={os.getenv('OSS_ENDPOINT')}, OSS_BUCKET_NAME
 
 
 
-# Middleware to add cache headers to static files
+# Media is served through the authenticated route below. Keep the project root
+# overridable in tests and explicit deployments without exposing the output root.
+MEDIA_PROJECT_ROOT = Path(_project_root)
+
+# Middleware to add cache headers to authenticated media responses
 @app.middleware("http")
 async def add_cache_control_header(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/files/"):
-        response.headers["Cache-Control"] = "public, max-age=86400"
+        response.headers["Cache-Control"] = "private, max-age=86400"
     return response
 
 # Create output directory if it doesn't exist
@@ -99,26 +107,9 @@ os.makedirs("output/uploads", exist_ok=True)
 os.makedirs("output/video", exist_ok=True)
 os.makedirs("output/assets", exist_ok=True)
 
-# Mount static files with multiple aliases to handle plural/singular inconsistencies
-# Legacy paths in projects.json often use 'outputs/videos' or 'outputs/assets'
-app.mount("/files/outputs/videos", StaticFiles(directory="output/video"), name="files_outputs_videos")
-app.mount("/files/outputs/assets", StaticFiles(directory="output/assets"), name="files_outputs_assets")
-app.mount("/files/videos", StaticFiles(directory="output/video"), name="files_videos")
-app.mount("/files/assets", StaticFiles(directory="output/assets"), name="files_assets")
-# Media directories only. The `output` root (lumenx.db, projects.json,
-# backups/) must NEVER be exposed through /files. Each media folder is
-# mounted explicitly so no sibling sensitive file can leak.
-app.mount("/files/storyboard", StaticFiles(directory="output/storyboard"), name="files_storyboard")
-app.mount("/files/audio", StaticFiles(directory="output/audio"), name="files_audio")
-app.mount("/files/video", StaticFiles(directory="output/video"), name="files_video")
-app.mount("/files/uploads", StaticFiles(directory="output/uploads"), name="files_uploads")
-app.mount("/files/video_inputs", StaticFiles(directory="output/video_inputs"), name="files_video_inputs")
-app.mount("/files/export", StaticFiles(directory="output/export"), name="files_export")
-
 # Ensure playground output directories exist
 os.makedirs("output/playground/images", exist_ok=True)
 os.makedirs("output/playground/videos", exist_ok=True)
-app.mount("/files/playground", StaticFiles(directory="output/playground"), name="files_playground")
 
 
 # Initialize pipeline
@@ -165,14 +156,6 @@ _CORS_ALLOW_HEADERS = [
     "X-Requested-With",
 ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(auth_settings.allowed_origins),
-    allow_credentials=True,
-    allow_methods=_CORS_ALLOW_METHODS,
-    allow_headers=_CORS_ALLOW_HEADERS,
-    expose_headers=["Content-Disposition"],
-)
 app.add_exception_handler(AuthError, auth_exception_handler)
 
 app.state.storage_engine = pipeline.storage_engine
@@ -181,14 +164,142 @@ app.state.auth_service = AuthService(AuthRepository(pipeline.storage_engine), au
 app.include_router(auth_router)
 
 
+def _iter_media_strings(value):
+    """Yield string leaves from persisted project/series payloads."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from _iter_media_strings(child)
+    elif isinstance(value, (list, tuple, set)):
+        for child in value:
+            yield from _iter_media_strings(child)
+
+
+def _resolve_media_reference(value: str) -> str | None:
+    """Resolve a persisted local media reference under the configured output root."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.startswith(("http://", "https://")):
+        raw = urlparse(raw).path
+    raw = raw.replace("\\", "/")
+    for prefix in ("/api-proxy/files/", "/files/", "api-proxy/files/", "files/"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix) :]
+            break
+    return resolve_local_media_path(raw, project_root=str(MEDIA_PROJECT_ROOT))
+
+
+def _media_is_owned_by_workspace(media_path: str, workspace_id: str, pipeline_obj) -> bool:
+    """Require an exact local media reference in a project owned by the workspace."""
+    target = _resolve_media_reference(media_path)
+    if not target:
+        return False
+    repository = getattr(pipeline_obj, "repository", None)
+    if repository is None:
+        return False
+    for script in getattr(pipeline_obj, "scripts", {}).values():
+        if repository.workspace_for_script(script.id) != workspace_id:
+            continue
+        payload = script.model_dump() if hasattr(script, "model_dump") else script
+        if any(_resolve_media_reference(ref) == target for ref in _iter_media_strings(payload)):
+            return True
+    for series in getattr(pipeline_obj, "series_store", {}).values():
+        if repository.workspace_for_series(series.id) != workspace_id:
+            continue
+        payload = series.model_dump() if hasattr(series, "model_dump") else series
+        if any(_resolve_media_reference(ref) == target for ref in _iter_media_strings(payload)):
+            return True
+    return False
+
+
+def _parse_byte_range(value: str | None, size: int) -> tuple[int, int] | None:
+    if not value or not value.startswith("bytes=") or "," in value or size <= 0:
+        return None
+    spec = value[6:].strip()
+    if "-" not in spec:
+        return None
+    start_text, end_text = spec.split("-", 1)
+    try:
+        if not start_text:
+            length = int(end_text)
+            if length <= 0:
+                return None
+            return max(size - length, 0), size - 1
+        start = int(start_text)
+        end = int(end_text) if end_text else size - 1
+    except ValueError:
+        return None
+    if start < 0 or start >= size or end < start:
+        return None
+    return start, min(end, size - 1)
+
+
+@app.get("/files/{media_path:path}")
+def get_protected_media(media_path: str, request: Request):
+    """Serve project media only after Workspace ownership is established."""
+    context = getattr(request.state, "auth_context", None)
+    if context is None or not _media_is_owned_by_workspace(media_path, context.workspace.id, pipeline):
+        raise HTTPException(status_code=404, detail="Media not found")
+    local_path = _resolve_media_reference(media_path)
+    if not local_path:
+        raise HTTPException(status_code=404, detail="Media not found")
+    path = Path(local_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Media not found")
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    size = path.stat().st_size
+    byte_range = _parse_byte_range(request.headers.get("range"), size)
+    if byte_range is None:
+        return FileResponse(path, media_type=media_type, headers={"Accept-Ranges": "bytes"})
+    start, end = byte_range
+    length = end - start + 1
+
+    def iter_file():
+        with path.open("rb") as stream:
+            stream.seek(start)
+            remaining = length
+            while remaining:
+                chunk = stream.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Range": f"bytes {start}-{end}/{size}",
+            "Content-Length": str(length),
+        },
+    )
+
+
 # W3.3 route guard: auth is enforced at the application boundary so the
 # legacy collection of ``@app`` business endpoints cannot accidentally omit a
 # dependency.  Auth/setup and operational documentation endpoints are public;
 # static media remains the explicit W3 scope gap and is handled by W5.
-_PUBLIC_ROUTE_PREFIXES = ("/auth/", "/files/")
+_PUBLIC_ROUTE_PREFIXES = ("/auth/",)
 _PUBLIC_ROUTE_PATHS = {"/health", "/favicon.ico"}
 _DEVELOPMENT_ROUTE_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _workspace_for_resource_path(path: str, repository) -> str | None:
+    """Resolve the Workspace for a project or series resource path."""
+    parts = [part for part in path.strip("/").split("/") if part]
+    if len(parts) < 2:
+        return None
+    resource_type, resource_id = parts[0], parts[1]
+    if resource_type == "projects":
+        return repository.workspace_for_script(resource_id)
+    if resource_type == "series":
+        return repository.workspace_for_series(resource_id)
+    return None
 
 
 def _is_public_route(path: str, settings: AuthSettings) -> bool:
@@ -235,6 +346,16 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                     raise AuthError("AUTH_SETUP_REQUIRED", "服务尚未初始化", status_code=428)
                 context = get_current_user(request, service)
             request.state.auth_context = context
+            repository = getattr(pipeline, "repository", None)
+            if repository is not None:
+                resource_workspace = _workspace_for_resource_path(
+                    request.url.path,
+                    repository,
+                )
+                if resource_workspace != context.workspace.id:
+                    parts = [part for part in request.url.path.strip("/").split("/") if part]
+                    if len(parts) >= 2 and parts[0] in {"projects", "series"}:
+                        raise AuthError("AUTH_RESOURCE_NOT_FOUND", "资源不存在", status_code=404)
             if request.method.upper() in _MUTATING_METHODS:
                 require_csrf(request, service, session_id=context.session.id)
 
@@ -246,6 +367,19 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
         # cookies for failed refreshes.
         response = auth_exception_handler(request, exc)
     return _apply_security_headers(response)
+
+
+# CORS must be registered after the application middleware so it is the
+# outermost wrapper. This lets browser clients receive auth errors (401/403/428)
+# with the allowlisted CORS headers instead of a misleading network error.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(auth_settings.allowed_origins),
+    allow_credentials=True,
+    allow_methods=_CORS_ALLOW_METHODS,
+    allow_headers=_CORS_ALLOW_HEADERS,
+    expose_headers=["Content-Disposition"],
+)
 
 
 # Allow-list map for uploaded file extensions: keys come from the (untrusted)
@@ -355,7 +489,12 @@ def health_check():
     hit, no provider call, just a 200 + a few facts the frontend can
     show next to the spinner ("backend reachable, log file at X")."""
     from ...utils import get_log_dir
-    log_dir = get_log_dir()
+    try:
+        log_dir = get_log_dir()
+    except OSError:
+        # Liveness must not fail just because the host denies writes to the
+        # user log directory (common in packaged or restricted environments).
+        log_dir = os.path.join("output", "logs")
     log_file = os.path.join(log_dir, "app.log")
     return {
         "ok": True,
@@ -503,7 +642,7 @@ class CreateProjectRequest(BaseModel):
 
 
 @app.post("/projects", response_model=Script)
-async def create_project(request: CreateProjectRequest, skip_analysis: bool = False):
+async def create_project(request: CreateProjectRequest, http_request: Request, skip_analysis: bool = False):
     """Creates a new project from a novel text.
 
     When `series_id` is provided the project is bound as the next episode
@@ -517,6 +656,10 @@ async def create_project(request: CreateProjectRequest, skip_analysis: bool = Fa
             None,  # Use default executor
             partial(pipeline.create_project, request.title, request.text, skip_analysis, request.workflow_mode, request.series_id)
         )
+        context = getattr(http_request.state, "auth_context", None)
+        repository = getattr(pipeline, "repository", None)
+        if context is not None and repository is not None:
+            repository.assign_workspace_for_script(result.id, context.workspace.id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return signed_response(result)
@@ -587,9 +730,17 @@ async def extract_preview(script_id: str, request: ReparseProjectRequest):
 
 
 @app.get("/projects/", response_model=List[dict])
-def list_projects():
+def list_projects(request: Request):
     """Lists all projects from backend storage."""
+    context = getattr(request.state, "auth_context", None)
+    repository = getattr(pipeline, "repository", None)
     scripts = list(pipeline.scripts.values())
+    if context is not None and repository is not None:
+        scripts = [
+            script
+            for script in scripts
+            if repository.workspace_for_script(script.id) == context.workspace.id
+        ]
     return signed_response(scripts)
 
 
@@ -633,7 +784,7 @@ class UpdateSeriesRequest(BaseModel):
 
 
 @app.post("/series")
-def create_series(request: CreateSeriesRequest):
+def create_series(request: CreateSeriesRequest, http_request: Request):
     """Create a new Series."""
     series = pipeline.create_series(
         request.title,
@@ -642,13 +793,25 @@ def create_series(request: CreateSeriesRequest):
         request.content_mode,
         request.default_generation_mode,
     )
+    context = getattr(http_request.state, "auth_context", None)
+    repository = getattr(pipeline, "repository", None)
+    if context is not None and repository is not None:
+        repository.assign_workspace_for_series(series.id, context.workspace.id)
     return signed_response(series)
 
 
 @app.get("/series")
-def list_series():
+def list_series(request: Request):
     """List all Series."""
     series_list = pipeline.list_series()
+    context = getattr(request.state, "auth_context", None)
+    repository = getattr(pipeline, "repository", None)
+    if context is not None and repository is not None:
+        series_list = [
+            series
+            for series in series_list
+            if repository.workspace_for_series(series.id) == context.workspace.id
+        ]
     return signed_response(series_list)
 
 
@@ -1075,7 +1238,7 @@ def create_library_asset(request: CreateLibraryAssetRequest):
 def upload_library_asset_image(file: UploadFile = File(...)):
     """Upload an image to use as a global library asset's master image.
 
-    Saves the file under output/uploads/ (served via the /files static mount)
+    Saves the file under output/uploads/ (served via the protected /files route)
     and returns {"image_url": <path-or-URL the frontend can load>}. When OSS
     is configured the returned URL is the (signed) OSS URL; otherwise a local
     relative path "uploads/<name>" resolvable through the frontend's
@@ -2120,6 +2283,8 @@ def generate_assets(script_id: str, background_tasks: BackgroundTasks):
     try:
         updated_script = pipeline.generate_assets(script_id)
         return signed_response(updated_script)
+    except ProviderError:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
