@@ -35,6 +35,7 @@ const getApiUrl = (): string => {
 
 export const API_URL = getApiUrl();
 export const AUTH_RETURN_TO_KEY = "lumenx.auth.returnTo";
+export const AUTH_EXPIRED_EVENT = "lumenx:auth-expired";
 const CSRF_COOKIE_NAME = "lumenx_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
@@ -91,6 +92,44 @@ const readCookie = (name: string): string | null => {
   } catch {
     return entry.slice(prefix.length);
   }
+};
+
+type ApiErrorEnvelope = {
+  error?: {
+    code?: unknown;
+    message?: unknown;
+    request_id?: unknown;
+  };
+};
+
+export const getApiErrorStatus = (error: unknown): number | undefined => {
+  if (!axios.isAxiosError(error)) return undefined;
+  return error.response?.status;
+};
+
+export const getApiErrorCode = (error: unknown): string | undefined => {
+  if (!axios.isAxiosError(error)) return undefined;
+  const payload = error.response?.data as ApiErrorEnvelope | undefined;
+  const code = payload?.error?.code;
+  return typeof code === "string" ? code : undefined;
+};
+
+const clearClientCsrfCookie = (): void => {
+  if (typeof document === "undefined") return;
+  // Clear both the normal app-path cookie and the historical proxy-path
+  // variant. This prevents an old duplicate cookie from winning document.cookie
+  // parsing after a backend restart or port change.
+  for (const path of ["/", "/api-proxy"]) {
+    document.cookie = encodeURIComponent(CSRF_COOKIE_NAME) + "=; Max-Age=0; Path=" + path + "; SameSite=Lax";
+  }
+};
+
+export const refreshCsrfToken = async (): Promise<void> => {
+  clearClientCsrfCookie();
+  await bareClient.get("/auth/setup-status", {
+    headers: { "Cache-Control": "no-cache" },
+    params: { _csrf_refresh: Date.now() },
+  });
 };
 
 const attachCsrfHeader = (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
@@ -166,6 +205,8 @@ const clearAuthState = async (): Promise<void> => {
 export const redirectToLogin = async (preserveReturnTo = true): Promise<void> => {
   if (typeof window === "undefined" || redirectingAfterAuthFailure) return;
   redirectingAfterAuthFailure = true;
+  // Notify the gate before the async store import completes. This prevents a stale persisted user from keeping the AppShell visible during auth recovery.
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
   if (preserveReturnTo) rememberReturnHash();
   else clearReturnHash();
   await clearAuthState();

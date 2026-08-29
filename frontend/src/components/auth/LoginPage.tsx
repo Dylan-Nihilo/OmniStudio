@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { AlertCircle, Loader2, LogIn } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { consumeReturnHash } from "@/lib/apiClient";
+import { consumeReturnHash, getApiErrorCode, getApiErrorStatus } from "@/lib/apiClient";
 import { useAuthStore } from "@/store/authStore";
 import LumenXBranding from "@/components/layout/LumenXBranding";
 
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const login = useAuthStore((state) => state.login);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,8 +23,18 @@ export default function LoginPage() {
     try {
       await login({ identifier, password });
       window.location.hash = consumeReturnHash("#/workspace");
-    } catch {
-      setError(t("errorInvalidCredentials"));
+    } catch (requestError) {
+      const status = getApiErrorStatus(requestError);
+      const code = getApiErrorCode(requestError);
+      if (status === 401 && code === "AUTH_INVALID_CREDENTIALS") {
+        setError(t("errorInvalidCredentials"));
+      } else if (status === 403 && code === "AUTH_CSRF_FAILED") {
+        setError(t("errorCsrf"));
+      } else if (status === 429 && code === "AUTH_RATE_LIMITED") {
+        setError(t("errorRateLimited"));
+      } else {
+        setError(t("errorLoginFailed"));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -47,7 +58,28 @@ export default function LoginPage() {
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium">{t("password")}</span>
-              <input className="glass-input w-full" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required minLength={8} maxLength={128} />
+              <span className="relative block">
+                <input
+                  className="glass-input w-full pr-11"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                  minLength={8}
+                  maxLength={128}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={t(showPassword ? "hidePassword" : "showPassword")}
+                  aria-pressed={showPassword}
+                  title={t(showPassword ? "hidePassword" : "showPassword")}
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-text-secondary transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </span>
             </label>
 
             <div className="flex justify-end">

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { apiClient, API_URL, clearReturnHash } from "@/lib/apiClient";
+import { apiClient, API_URL, clearReturnHash, refreshCsrfToken } from "@/lib/apiClient";
 
 export interface AuthUser {
   id: string;
@@ -115,6 +115,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       setup: async (input) => {
+        await refreshCsrfToken();
         const payload = {
           ...input,
           setup_token: input.setup_token?.trim() || undefined,
@@ -128,6 +129,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       login: async (input) => {
+        await refreshCsrfToken();
         const { data } = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
         set((state) => ({
           initialized: true,
@@ -171,6 +173,7 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       resetPassword: async (input) => {
+        await refreshCsrfToken();
         await apiClient.post(`${API_URL}/auth/password-reset`, {
           ...input,
           recovery_token: input.recovery_token?.trim() || undefined,
