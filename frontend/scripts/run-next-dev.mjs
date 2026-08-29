@@ -12,6 +12,12 @@ export function buildNextDevEnv(
 ) {
   const env = { ...baseEnv };
 
+  // Production exports use ../static. Give the dev compiler its own directory so
+  // `npm run build` can run without invalidating assets served by a live dev server.
+  if (!env.NEXT_DEV_DIST_DIR) {
+    env.NEXT_DEV_DIST_DIR = ".next-dev";
+  }
+
   // Watchpack's native watcher can hit EMFILE on large macOS workspaces.
   // Polling trades a little CPU for a much more stable dev server.
   if (platform === "darwin") {
