@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, Image, Film, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { API_URL, playgroundApi } from '@/lib/api';
+import { playgroundApi } from '@/lib/api';
+import { getAssetUrl } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,7 +44,7 @@ function getFileName(path: string): string {
 /** Convert a media_path (e.g. "output/storyboard/foo.png") to a /files/ URL */
 function toFileUrl(mediaPath: string): string {
   const relative = mediaPath.replace(/^output\//, '');
-  return API_URL + '/files/' + relative;
+  return getAssetUrl(relative);
 }
 
 // ---------------------------------------------------------------------------

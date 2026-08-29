@@ -22,6 +22,7 @@ import { useTranslations } from "next-intl";
 import TauriMenuListener from "@/components/layout/TauriMenuListener";
 import AuthGate from "@/components/auth/AuthGate";
 import EnvConfigChecker from "@/components/EnvConfigChecker";
+import { isWorkspaceRoute } from "@/lib/workspaceSync";
 
 const ProjectClient = dynamic(() => import("@/components/project/ProjectClient"), { ssr: false });
 const SeriesDetailPage = dynamic(() => import("@/components/series/SeriesDetailPage"), { ssr: false });
@@ -446,7 +447,7 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
   }, [seriesId, episodeId]);
 
   const segments = [
-    { label: "LumenX", hash: "#/" },
+    { label: "MANGIX", hash: "#/" },
     { label: seriesTitle || t("series"), hash: `#/series/${seriesId}` },
     { label: episodeNumber != null ? t("episodeNum", { number: episodeNumber }) : t("episodeLabel") },
   ];
@@ -482,13 +483,6 @@ function AuthenticatedHome() {
   const fetchSeriesList = useProjectStore((state) => state.fetchSeriesList);
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
-
-  // Sync projects and series from backend on mount
-  useEffect(() => {
-    syncProjects();
-    fetchSeriesList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Hydrate the persisted gallery/list view preference (client-only to avoid
   // an SSR/CSR mismatch — default stays "gallery" on first paint).
@@ -536,9 +530,7 @@ function AuthenticatedHome() {
     setIsSyncing(true);
     try {
       const backendProjects = await api.getProjects();
-      if (backendProjects && backendProjects.length > 0) {
-        setProjects(backendProjects);
-      }
+      setProjects(backendProjects ?? []);
     } catch (error) {
       console.error("Failed to sync projects from backend:", error);
       toast.error(t("toastProjectsSyncFailed"), {
@@ -640,11 +632,15 @@ function AuthenticatedHome() {
         setSeriesId(null);
         setEpisodeId(null);
         setIsDialogOpen(true);
+        void syncAll();
         // Clean URL without triggering another hashchange
         history.replaceState(null, '', '#/');
         return;
       }
       // Default: workspace
+      if (isWorkspaceRoute(hash)) {
+        void syncAll();
+      }
       setCurrentView('home');
       setActiveTab('workspace');
       setProjectId(null);
@@ -884,7 +880,7 @@ function AuthenticatedHome() {
               <div className="glass-panel atelier-card p-10 rounded-2xl border border-glass-border text-center max-w-[620px] w-full relative overflow-hidden">
                 <div className="relative z-[1] flex flex-col items-center gap-4">
                   <div className="font-mono text-[0.625rem] uppercase tracking-[0.22em] text-text-muted">
-                    RENDER NOISE INTO NARRATIVE
+                    STORIES, RENDERED ALIVE.
                   </div>
                   <p className="text-[2.125rem] font-display atelier-display font-medium italic leading-[1.25] tracking-tight text-foreground">
                     {t("emptyQuote") || "\u201c每一座城市，都藏着一个还没被讲出来的故事。\u201d"}

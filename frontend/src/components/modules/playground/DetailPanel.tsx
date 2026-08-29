@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { API_URL, playgroundApi } from '@/lib/api';
+import { playgroundApi } from '@/lib/api';
+import { getAssetUrl } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 
@@ -47,7 +48,7 @@ const MODE_LABELS: Record<string, string> = {
 
 function getMediaUrl(path: string): string {
   const relativePath = path.replace(/^output\//, '');
-  return `${API_URL}/files/${relativePath}`;
+  return getAssetUrl(relativePath);
 }
 
 function formatTimestamp(dateStr: string): string {
