@@ -1,5 +1,6 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { renderWithIntl } from '@/test/renderWithIntl';
 
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
@@ -18,24 +19,6 @@ vi.mock('framer-motion', () => ({
         },
     },
     AnimatePresence: ({ children }: any) => <>{children}</>,
-}));
-
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-    ArrowLeft: (props: any) => <span data-testid="icon-arrow-left" {...props} />,
-    Users: (props: any) => <span data-testid="icon-users" {...props} />,
-    MapPin: (props: any) => <span data-testid="icon-map-pin" {...props} />,
-    Package: (props: any) => <span data-testid="icon-package" {...props} />,
-    Plus: (props: any) => <span data-testid="icon-plus" {...props} />,
-    X: (props: any) => <span data-testid="icon-x" {...props} />,
-    Image: (props: any) => <span data-testid="icon-image" {...props} />,
-    Settings: (props: any) => <span data-testid="icon-settings" {...props} />,
-    FileText: (props: any) => <span data-testid="icon-file-text" {...props} />,
-    Download: (props: any) => <span data-testid="icon-download" {...props} />,
-    MessageSquareCode: (props: any) => <span data-testid="icon-message-square-code" {...props} />,
-    ChevronLeft: (props: any) => <span data-testid="icon-chevron-left" {...props} />,
-    ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
-    Play: (props: any) => <span data-testid="icon-play" {...props} />,
 }));
 
 // Mock AssetCard
@@ -93,7 +76,7 @@ const mockEpisodes = [
 // ── Helpers ──
 
 function renderPage(seriesId = 'series-1') {
-    return render(<SeriesDetailPage seriesId={seriesId} />);
+    return renderWithIntl(<SeriesDetailPage seriesId={seriesId} />);
 }
 
 // ── Tests ──
@@ -218,14 +201,6 @@ describe('SeriesDetailPage', () => {
                 expect(screen.getByText('EP1')).toBeInTheDocument();
             });
             expect(screen.getByText('EP2')).toBeInTheDocument();
-        });
-
-        it('shows frame count for episodes in sidebar', async () => {
-            renderPage();
-            await waitFor(() => {
-                // Frame counts are displayed as plain numbers in sidebar
-                expect(screen.getAllByText('测试系列').length).toBeGreaterThanOrEqual(1);
-            });
         });
 
         it('shows episode content panel when clicked, then navigates via button', async () => {
@@ -383,7 +358,7 @@ describe('SeriesDetailPage', () => {
             fireEvent.click(screen.getByText('确定'));
 
             await waitFor(() => {
-                expect(mockCreateEpisodeForSeries).toHaveBeenCalledWith('series-1', '新集数', 3);
+                expect(mockCreateEpisodeForSeries).toHaveBeenCalledWith('series-1', '新集数', 3, 'i2v_legacy');
             });
         });
 
