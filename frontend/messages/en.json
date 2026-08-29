@@ -809,6 +809,13 @@
   "pipeline": {
     "stepLabel": "Step {number}",
     "stepIndex": "STEP 0{number}",
+    "stepScript": "Script",
+    "stepArtDirection": "Art Direction",
+    "stepAssets": "Assets",
+    "stepCast": "Cast",
+    "stepStoryboard": "Storyboard",
+    "stepMotion": "Motion",
+    "stepAssembly": "Assembly",
     "beta": "Beta",
     "railArtReady": "Set",
     "railCast": "{n} characters",
