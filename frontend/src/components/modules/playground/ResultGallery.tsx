@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Sparkles, Grid3x3, GalleryHorizontal } from 'lucide-react';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
+import { normalizeGeneration } from './normalizers';
 import ResultCard from './ResultCard';
 import GalleryView from './GalleryView';
 import DetailPanel from './DetailPanel';
@@ -59,24 +60,11 @@ export default function ResultGallery() {
         model_id: gen.model_id,
         prompt: gen.prompt,
         negative_prompt: gen.negative_prompt || undefined,
-        input_media: gen.input_media.length > 0 ? gen.input_media : undefined,
-        parameters: Object.keys(gen.parameters).length > 0 ? gen.parameters : undefined,
+        input_media: Array.isArray(gen.input_media) && gen.input_media.length > 0 ? gen.input_media : undefined,
+        parameters: gen.parameters && Object.keys(gen.parameters).length > 0 ? gen.parameters : undefined,
         batch_size: gen.batch_size > 1 ? gen.batch_size : undefined,
       });
-      const newGen: PlaygroundGeneration = {
-        id: resp.id,
-        mode: resp.mode as PlaygroundGeneration['mode'],
-        model_id: resp.model_id,
-        prompt: resp.prompt,
-        negative_prompt: resp.negative_prompt,
-        input_media: resp.input_media,
-        parameters: resp.parameters,
-        batch_size: resp.batch_size,
-        outputs: [],
-        status: resp.status as PlaygroundGeneration['status'],
-        error: resp.error,
-        created_at: resp.created_at,
-      };
+      const newGen = normalizeGeneration(resp);
       startGeneration(newGen);
       // Poll for status
       const poll = setInterval(async () => {
@@ -88,7 +76,14 @@ export default function ResultGallery() {
             updateGeneration({
               ...newGen,
               status: full.status as PlaygroundGeneration['status'],
-              outputs: full.outputs.map((o) => ({ id: o.id, media_path: o.media_path, media_type: o.media_type as 'image' | 'video', thumbnail_path: o.thumbnail_path, saved_to_library: o.saved_to_library })),
+              outputs: Array.isArray(full.outputs)
+                ? full.outputs.map((o, index) => normalizeGeneration({ ...full, outputs: [o] }).outputs[0] || {
+                    id: `output-${index}`,
+                    media_path: "",
+                    media_type: "image" as const,
+                    saved_to_library: false,
+                  })
+                : [],
               error: full.error,
             });
           }
@@ -225,7 +220,7 @@ export default function ResultGallery() {
               {t('results.title')}
             </span>
             <span className="font-mono text-[0.625rem] bg-elevated text-text-secondary rounded px-[6px] py-[1px]">
-              {filtered.reduce((n, g) => n + g.outputs.length, 0)}
+              {filtered.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0)}
             </span>
           </div>
         </div>
