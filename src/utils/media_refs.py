@@ -10,6 +10,7 @@ LOCAL_MEDIA_PREFIXES = (
     "audio/",
     "export/",
     "uploads/",
+    "playground/",
     "output/",
     "outputs/",
 )

@@ -9,6 +9,7 @@ import { toast } from "@/store/toastStore";
 import { characterImageUrl, characterVariants } from "@/lib/characterImage";
 import { coverGradient, GRAIN_URL } from "@/lib/atelierCover";
 import { rovingKeyDown } from "@/lib/a11y";
+import { getAssetUrl } from "@/lib/utils";
 import AssetInspector from "./AssetInspector";
 import NewLibraryAssetDialog from "./NewLibraryAssetDialog";
 
@@ -581,7 +582,7 @@ export default function AssetLibraryPage() {
                   {/* 卡片网格（库专用富卡片） */}
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                     {grp.items.map(({ asset, type, src }, i) => {
-                      const url = getImageUrl(asset, type);
+                      const url = getAssetUrl(getImageUrl(asset, type)) || undefined;
                       const vc = variantCount(asset, type);
                       const isSel = selected?.sourceId === src.id && selected?.assetId === asset.id && selected?.type === type;
                       const isStar = !!asset.starred;

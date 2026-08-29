@@ -9,7 +9,7 @@ from sqlalchemy import select
 from src.apps.comic_gen.models import Script, Series
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.storage.errors import StorageError
-from src.storage.schema import Episode, Project, Script as ScriptRow, Series as SeriesRow
+from src.storage.schema import Episode, Project, Script as ScriptRow, Series as SeriesRow, Workspace
 
 
 def _storage_config(db_path: Path, projects_path: Path, series_path: Path) -> dict:
@@ -76,6 +76,42 @@ def test_add_episode_to_series_persists_complete_relationship(pipeline: ComicGen
             )
         ).one()
     assert episode == (series.id, series.id, 3)
+
+
+def test_repository_resolves_and_assigns_workspace_for_script_and_series(
+    pipeline: ComicGenPipeline,
+):
+    workspace_id = "workspace-owner-1"
+    with pipeline.storage_engine.begin() as connection:
+        connection.execute(
+            Workspace.__table__.insert().values(
+                id=workspace_id,
+                owner_user_id=None,
+                name="Owner workspace",
+                slug="default",
+                created_at=time.time(),
+                updated_at=time.time(),
+                metadata_json="{}",
+            )
+        )
+
+    series = _series("series-owned")
+    script = _script("episode-owned")
+    script.series_id = series.id
+    pipeline.series_store[series.id] = series
+    pipeline.scripts[script.id] = script
+    pipeline.repository.save_bundle(pipeline.scripts, pipeline.series_store)
+
+    assert pipeline.repository.project_exists(series.id)
+    assert not pipeline.repository.project_exists("missing-project")
+    assert pipeline.repository.workspace_for_project(series.id) is None
+    assert pipeline.repository.workspace_for_script(script.id) is None
+    assert pipeline.repository.workspace_for_series(series.id) is None
+    assert pipeline.repository.assign_workspace_for_script(script.id, workspace_id)
+    assert pipeline.repository.workspace_for_project(series.id) == workspace_id
+    assert pipeline.repository.workspace_for_script(script.id) == workspace_id
+    assert pipeline.repository.workspace_for_series(series.id) == workspace_id
+    assert not pipeline.repository.assign_workspace_for_script(script.id, "other-workspace")
 
 
 def test_add_episode_to_series_save_bundle_failure_leaves_database_unchanged(

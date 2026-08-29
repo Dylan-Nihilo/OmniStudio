@@ -8,6 +8,11 @@ export function cn(...inputs: ClassValue[]) {
 
 export function getAssetUrl(path: string | null | undefined): string {
     if (!path) return "";
+    const mediaBase = typeof window !== "undefined"
+        && window.location.origin !== API_URL
+        && !window.location.protocol.startsWith("tauri")
+        ? "/api-proxy"
+        : API_URL;
     if (path.startsWith("http") || path.startsWith("blob:")) {
         // Only pass through well-formed http(s)/blob URLs; anything else
         // (e.g. javascript: smuggled behind a weird prefix) is dropped.
@@ -16,7 +21,16 @@ export function getAssetUrl(path: string | null | undefined): string {
             if (protocol === "http:" || protocol === "https:" || protocol === "blob:") {
                 // Strip HTML metacharacters as well; well-formed URLs never
                 // contain them raw, so this is a no-op for legitimate values.
-                return path.replace(/[<>"'`]/g, "");
+                const cleanUrl = path.replace(/[<>"'`]/g, "");
+                try {
+                    const parsed = new URL(cleanUrl);
+                    if (parsed.origin === API_URL && parsed.pathname.startsWith("/files/")) {
+                        return `${mediaBase}${parsed.pathname}${parsed.search}`;
+                    }
+                } catch {
+                    // Keep the validated URL below when parsing is unavailable.
+                }
+                return cleanUrl;
             }
         } catch {
             // malformed URL — fall through to reject
@@ -24,9 +38,11 @@ export function getAssetUrl(path: string | null | undefined): string {
         return "";
     }
 
-    // Remove leading slash if present to avoid double slashes with API_URL/files/
+    if (path.startsWith("/api-proxy/files/")) return path;
+    if (path.startsWith("/files/")) return `${mediaBase}${path.slice("/files".length)}`;
+    // Remove leading slash if present to avoid double slashes with the media route.
     const cleanPath = path.startsWith("/") ? path.slice(1) : path;
-    return `${API_URL}/files/${encodeURI(cleanPath)}`;
+    return `${mediaBase}/files/${encodeURI(cleanPath)}`;
 }
 
 export function getAssetUrlWithTimestamp(path: string | null | undefined, timestamp?: number): string {

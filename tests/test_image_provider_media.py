@@ -24,6 +24,7 @@ class FakeUploaderNoOss:
 
 class TestImageProviderMediaResolverIntegration:
     def test_wan26_reference_object_key_uses_signed_url_when_oss_configured(self, monkeypatch):
+        monkeypatch.setenv("OSS_BASE_PATH", "lumenx")
         monkeypatch.setattr("src.models.image.OSSImageUploader", FakeUploaderConfigured)
 
         model = WanxImageModel({"params": {"i2i_model_name": "wan2.6-image"}})

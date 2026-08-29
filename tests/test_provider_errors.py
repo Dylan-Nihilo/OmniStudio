@@ -2,12 +2,56 @@ from types import SimpleNamespace
 
 import pytest
 import requests
+from fastapi import BackgroundTasks
 
 from src.utils.provider_errors import (
     ProviderError,
     ProviderErrorCategory,
     classify_provider_error,
 )
+
+
+def test_wanx_image_generation_without_dashscope_key_fails_before_http(monkeypatch, tmp_path):
+    """A missing credential must not enter the provider HTTP/retry path."""
+    import src.models.image as image_module
+
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    model = image_module.WanxImageModel({"params": {}})
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("HTTP must not be called without DASHSCOPE_API_KEY")
+
+    monkeypatch.setattr(image_module.requests, "post", fail_if_called)
+
+    with pytest.raises(ProviderError) as exc_info:
+        model.generate("test prompt", str(tmp_path / "image.png"))
+
+    assert exc_info.value.category is ProviderErrorCategory.AUTH
+    assert exc_info.value.provider == "dashscope"
+
+
+def test_generate_assets_preserves_provider_error(monkeypatch):
+    """The API handler must let the registered ProviderError handler render auth failures."""
+    import src.apps.comic_gen.api as api_module
+
+    monkeypatch.setattr(api_module.pipeline, "get_script", lambda _: object())
+    monkeypatch.setattr(
+        api_module.pipeline,
+        "generate_assets",
+        lambda _: (_ for _ in ()).throw(
+            ProviderError(
+                ProviderErrorCategory.AUTH,
+                "dashscope",
+                detail="DASHSCOPE_API_KEY is not configured",
+            )
+        ),
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        api_module.generate_assets("script-1", BackgroundTasks())
+
+    assert exc_info.value.category is ProviderErrorCategory.AUTH
+    assert exc_info.value.provider == "dashscope"
 
 
 @pytest.mark.parametrize(

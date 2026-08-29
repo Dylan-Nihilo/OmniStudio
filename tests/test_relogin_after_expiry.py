@@ -47,3 +47,28 @@ def test_relogin_after_session_revocation_does_not_403(tmp_path):
         )
         assert r2.status_code == 200, r2.text
         assert csrf0 is not None and csrf1 is not None
+
+
+def test_setup_status_refresh_preserves_authenticated_csrf_binding(tmp_path):
+    """Reload bootstrap must not turn an authenticated browser read-only."""
+    app, engine, _ = make_auth_app(tmp_path)
+
+    try:
+        with make_client(app, local=True) as client:
+            setup = client.post(
+                "/auth/setup",
+                json={
+                    "username": "owner",
+                    "email": "owner@example.com",
+                    "password": "supersecret1",
+                },
+            )
+            assert setup.status_code == 201
+
+            refreshed_status = client.get("/auth/setup-status")
+            assert refreshed_status.status_code == 200
+
+            logout = client.post("/auth/logout")
+            assert logout.status_code == 204, logout.text
+    finally:
+        engine.dispose()

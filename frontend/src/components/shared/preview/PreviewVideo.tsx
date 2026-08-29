@@ -160,6 +160,7 @@ export default function PreviewVideo({
                         ref={videoRef}
                         src={displaySrc}
                         poster={resolvedPoster || undefined}
+                        crossOrigin="use-credentials"
                         muted
                         loop
                         playsInline

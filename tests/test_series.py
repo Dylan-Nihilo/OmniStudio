@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 
 from src.apps.comic_gen.models import (
     Series, Script, Character, Scene, Prop, PromptConfig, ModelSettings,
+    GlobalAssetLibrary,
 )
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 
@@ -31,8 +32,10 @@ def pipeline(tmp_path):
         p = ComicGenPipeline()
     p.data_file = str(tmp_path / "projects.json")
     p.series_data_file = str(tmp_path / "series.json")
+    p.library_data_file = str(tmp_path / "library_assets.json")
     p.scripts = {}
     p.series_store = {}
+    p.library_store = GlobalAssetLibrary()
     return p
 
 

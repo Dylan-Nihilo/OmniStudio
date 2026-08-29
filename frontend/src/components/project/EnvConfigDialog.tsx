@@ -321,7 +321,7 @@ export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }:
                         type="text"
                         value={config.OSS_BASE_PATH}
                         onChange={(e) => handleChange("OSS_BASE_PATH", e.target.value)}
-                        placeholder="lumenx"
+                        placeholder="mangix"
                         className={inputClass}
                       />
                     </div>

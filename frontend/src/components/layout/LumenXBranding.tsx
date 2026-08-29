@@ -4,25 +4,29 @@ import { useState, useEffect } from "react";
 import { useSettingsStore, type ThemePreset } from "@/store/settingsStore";
 
 interface LumenXBrandingProps {
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
   showSlogan?: boolean;
+  className?: string;
+  variant?: "default" | "auth";
 }
 
-// Logo 变体按主题映射（Tasty Sam 同形电路枫叶，透明底）。
-// atelier-dark 复用蓝色 logo-dark.png，再用 CSS filter 着色为 teal。
+// MANGIX 标识使用高对比度 SVG 变体，适配深浅主题。
 const LOGO_SRC: Record<ThemePreset, string> = {
-  "atelier-dark": "/logo-dark.png",
-  "bridge-dark": "/logo-dark.png",
-  "brand-dark": "/logo-dark.png",
-  "atelier-light": "/logo-light-teal.png",
-  "brand-light": "/logo-light.png",
+  "atelier-dark": "/mangix-mark-gpt.png",
+  "bridge-dark": "/mangix-mark-gpt.png",
+  "brand-dark": "/mangix-mark-gpt.png",
+  "atelier-light": "/mangix-mark-gpt-light.png",
+  "brand-light": "/mangix-mark-gpt-light.png",
 };
-// 仅 atelier-dark：把品牌蓝 PNG 着色为 teal，与主色一致。
-const ATELIER_DARK_FILTER = "hue-rotate(-64deg) saturate(1.35) brightness(1.08)";
 
-export default function LumenXBranding({ size = "md", showSlogan = true }: LumenXBrandingProps) {
-  const logoSize = size === "sm" ? "w-9 h-9" : "w-14 h-14";
-  const titleSize = size === "sm" ? "text-lg" : "text-xl";
+export default function LumenXBranding({
+  size = "md",
+  showSlogan = true,
+  className = "",
+  variant = "default",
+}: LumenXBrandingProps) {
+  const logoPixels = size === "sm" ? 36 : size === "lg" ? 68 : 56;
+  const titleSize = size === "sm" ? "text-lg" : size === "lg" ? "text-[1.65rem]" : "text-xl";
 
   const theme = useSettingsStore((s) => s.theme);
   // SSR 与客户端首次渲染统一用默认主题，避免 logo src/filter 的 hydration
@@ -30,39 +34,37 @@ export default function LumenXBranding({ size = "md", showSlogan = true }: Lumen
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const activeTheme: ThemePreset = mounted ? theme : "atelier-dark";
-  const logoSrc = LOGO_SRC[activeTheme] ?? "/logo-dark.png";
-  const logoFilter = activeTheme === "atelier-dark" ? ATELIER_DARK_FILTER : undefined;
+  const logoSrc = variant === "auth"
+    ? "/mangix-mark-gpt.png"
+    : LOGO_SRC[activeTheme] ?? "/mangix-mark-gpt.png";
 
   return (
-    <div>
-      <div className="flex gap-3 items-center">
+    <div className={className}>
+      <div className={variant === "auth" ? "flex flex-col items-center gap-2" : "flex items-center gap-3"}>
         <div className="flex-shrink-0">
           <img
             src={logoSrc}
-            alt="LumenX"
-            className={`${logoSize} object-contain`}
-            style={logoFilter ? { filter: logoFilter } : undefined}
+            alt="MANGIX Studio"
+            className="object-contain"
+            style={{ width: logoPixels, height: logoPixels }}
           />
         </div>
-        <div className="flex flex-col justify-center">
+        <div className={variant === "auth" ? "flex flex-col items-center justify-center" : "flex flex-col justify-center"}>
           <div className="flex items-baseline gap-0">
-            <span className={`font-mono ${titleSize} font-bold tracking-tight text-foreground`}>
-              LUMEN
-            </span>
-            <span className={`font-mono ${titleSize} font-black tracking-tight text-primary`}>
-              X
+            <span className={`font-mono ${titleSize} font-bold tracking-[0.08em] text-foreground`}>
+              MANGIX
             </span>
           </div>
           {size !== "sm" && (
-            <span className="font-mono text-[0.6875rem] text-text-muted tracking-[0.2em] uppercase -mt-0.5">
-              Studio
+            <span className="font-mono text-[0.6875rem] text-text-muted tracking-[0.24em] uppercase -mt-0.5">
+              STUDIO
             </span>
           )}
         </div>
       </div>
       {showSlogan && (
         <p className="font-mono atelier-display text-[0.5rem] text-text-muted tracking-[0.15em] text-center mt-2.5 uppercase">
-          Render Noise into Narrative
+          Stories, Rendered Alive.
         </p>
       )}
     </div>
