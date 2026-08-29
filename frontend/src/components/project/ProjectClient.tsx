@@ -179,7 +179,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         );
     }
 
-    const segments = breadcrumbSegments || [{ label: "LumenX", hash: "#/" }, { label: currentProject.title }];
+    const segments = breadcrumbSegments || [{ label: "MANGIX", hash: "#/" }, { label: currentProject.title }];
 
     const settingsActions = (
         <>

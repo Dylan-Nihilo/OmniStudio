@@ -481,6 +481,133 @@ html {
     border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
   }
 
+  /* Authentication uses a dedicated, high-contrast lockup instead of the
+     workspace glass treatment so the brand stays legible before login. */
+  .auth-surface {
+    position: relative;
+    display: flex;
+    min-height: 100dvh;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 2.5rem 1.25rem;
+    color: #f3faf8;
+    background: #07100f;
+  }
+
+  .auth-surface::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(20, 185, 166, 0.16), transparent 44%),
+      radial-gradient(ellipse at 100% 100%, rgba(198, 108, 55, 0.08), transparent 38%),
+      linear-gradient(115deg, rgba(6, 14, 13, 0.98), rgba(5, 10, 10, 0.86));
+  }
+
+  .auth-storyboard {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    opacity: 0.5;
+    background-image:
+      linear-gradient(rgba(160, 217, 205, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(160, 217, 205, 0.055) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: radial-gradient(ellipse at center, black, transparent 72%);
+  }
+
+  .auth-shell {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 27rem;
+  }
+
+  .auth-brand {
+    margin-bottom: 1.75rem;
+    display: grid;
+    justify-items: center;
+    color: #f3faf8;
+  }
+
+  .auth-brand [class~="text-foreground"] { color: #f3faf8; }
+  .auth-brand [class~="text-text-muted"] { color: #a7c6c0; }
+
+  .auth-brand-rule {
+    width: min(100%, 19rem);
+    height: 1px;
+    margin-top: 1.15rem;
+    background: linear-gradient(90deg, transparent, rgba(45, 212, 191, 0.76), transparent);
+    box-shadow: 0 0 18px rgba(45, 212, 191, 0.3);
+  }
+
+  .auth-panel {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(164, 217, 205, 0.2);
+    border-radius: 10px;
+    padding: 1.75rem;
+    background: rgba(10, 25, 23, 0.9);
+    box-shadow: 0 28px 64px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(18px);
+  }
+
+  .auth-panel h1 { color: #f3faf8; }
+  .auth-panel .text-text-secondary { color: #b5cbc6; }
+  .auth-panel label > span { color: #d5e6e2; }
+
+  .auth-input {
+    width: 100%;
+    border: 1px solid rgba(164, 217, 205, 0.22);
+    border-radius: 6px;
+    padding: 0.7rem 0.8rem;
+    color: #eef8f5;
+    background: rgba(3, 13, 12, 0.68);
+    outline: none;
+    transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+    color-scheme: dark;
+  }
+
+  .auth-input:focus {
+    border-color: #2dd4bf;
+    background: rgba(3, 13, 12, 0.92);
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.13);
+  }
+
+  .auth-input:-webkit-autofill,
+  .auth-input:-webkit-autofill:hover,
+  .auth-input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #eef8f5;
+    -webkit-box-shadow: 0 0 0 1000px #071211 inset;
+    transition: background-color 9999s ease-out 0s;
+  }
+
+  .auth-submit {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 6px;
+    padding: 0.78rem 1rem;
+    color: #032a25;
+    background: #43d6c0;
+    font-size: 0.875rem;
+    font-weight: 700;
+    box-shadow: 0 10px 24px rgba(45, 212, 191, 0.2);
+    transition: background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .auth-submit:hover { background: #76ead7; box-shadow: 0 12px 28px rgba(45, 212, 191, 0.3); }
+  .auth-submit:active { transform: translateY(1px); }
+  .auth-submit:disabled { cursor: not-allowed; opacity: 0.58; }
+
+  @media (min-width: 640px) {
+    .auth-panel { padding: 2.25rem; }
+  }
+
   .glass-button {
     @apply bg-hover-bg hover:bg-glass backdrop-blur-sm border border-glass-border rounded-md px-4 py-2 transition-all active:scale-95;
   }
@@ -678,7 +805,7 @@ html.atelier-light .atelier-display {
 }
 
 /* Slogan-style overlay: when font-mono + atelier-display sit together
-   (LumenXBranding's "Render Noise into Narrative"), bump the size and
+   (MANGIX Branding's "Stories, Rendered Alive."), bump the size and
    slightly relax tracking so Fraunces stays legible at small mass.
    This rule is doubly-scoped (both class names + atelier theme) so it
    only fires on the brand slogan and only on atelier. */

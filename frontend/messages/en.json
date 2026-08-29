@@ -417,7 +417,7 @@
     "editor": "Script Editor",
     "playground": "Playground",
     "settings": "Settings",
-    "workspaceAria": "LumenX Studio · Workspace",
+    "workspaceAria": "MANGIX Studio · Workspace",
     "mainNavAria": "Main navigation"
   },
   "workspace": {
@@ -2098,7 +2098,7 @@
   },
   "auth": {
     "setupTitle": "Create the Owner account",
-    "setupSubtitle": "Complete first-time setup. After this, only signed-in users can access the LumenX workspace.",
+    "setupSubtitle": "Complete first-time setup. After this, only signed-in users can access the MANGIX workspace.",
     "username": "Username",
     "email": "Email",
     "password": "Password",
@@ -2108,10 +2108,16 @@
     "optional": "Optional",
     "setupAction": "Create account and enter workspace",
     "settingUp": "Setting up...",
-    "setupNotAllowed": "First-time setup is not allowed from this device. Open LumenX on the server itself, or configure a Setup Token and try again.",
+    "setupNotAllowed": "First-time setup is not allowed from this device. Open MANGIX on the server itself, or configure a Setup Token and try again.",
     "loginTitle": "Welcome back",
-    "loginSubtitle": "Sign in to continue your LumenX creative workflow.",
+    "loginSubtitle": "Sign in to continue your MANGIX creative workflow.",
     "identifier": "Username or email",
+    "rememberMe": "Remember me",
+    "forgotPassword": "Forgot password?",
+    "forgotPasswordHint": "Please contact an administrator to reset your password.",
+    "noAccount": "Don't have an account?",
+    "contactAdmin": "Contact an administrator",
+    "contactAdminHint": "Please contact an administrator to activate your account.",
     "login": "Sign in",
     "loggingIn": "Signing in...",
     "errorInvalidCredentials": "Invalid username or password",
@@ -2127,7 +2133,7 @@
     "confirmNewPassword": "Confirm new password",
     "passwordChanged": "Password updated. Please sign in again.",
     "loading": "Checking your session...",
-    "bootstrapFailed": "Unable to connect to LumenX",
+    "bootstrapFailed": "Unable to connect to MANGIX",
     "bootstrapFailedHint": "Make sure the backend service is running, then try again.",
     "retry": "Try again"
   }
