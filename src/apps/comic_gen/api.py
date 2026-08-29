@@ -296,6 +296,10 @@ def _workspace_for_resource_path(path: str, repository) -> str | None:
         return None
     resource_type, resource_id = parts[0], parts[1]
     if resource_type == "projects":
+        if resource_id == "domain":
+            return None
+        if len(parts) >= 3 and parts[2] == "episodes":
+            return repository.workspace_for_project(resource_id)
         return repository.workspace_for_script(resource_id)
     if resource_type == "series":
         return repository.workspace_for_series(resource_id)
@@ -348,13 +352,24 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             request.state.auth_context = context
             repository = getattr(pipeline, "repository", None)
             if repository is not None:
-                resource_workspace = _workspace_for_resource_path(
-                    request.url.path,
-                    repository,
+                parts = [part for part in request.url.path.strip("/").split("/") if part]
+                is_domain_collection = parts == ["projects", "domain"]
+                is_missing_domain_project = (
+                    len(parts) >= 3
+                    and parts[0] == "projects"
+                    and parts[2] == "episodes"
+                    and not repository.project_exists(parts[1])
                 )
-                if resource_workspace != context.workspace.id:
-                    parts = [part for part in request.url.path.strip("/").split("/") if part]
-                    if len(parts) >= 2 and parts[0] in {"projects", "series"}:
+                if not is_domain_collection and not is_missing_domain_project:
+                    resource_workspace = _workspace_for_resource_path(
+                        request.url.path,
+                        repository,
+                    )
+                    if (
+                        resource_workspace != context.workspace.id
+                        and len(parts) >= 2
+                        and parts[0] in {"projects", "series"}
+                    ):
                         raise AuthError("AUTH_RESOURCE_NOT_FOUND", "资源不存在", status_code=404)
             if request.method.upper() in _MUTATING_METHODS:
                 require_csrf(request, service, session_id=context.session.id)
@@ -742,6 +757,45 @@ def list_projects(request: Request):
             if repository.workspace_for_script(script.id) == context.workspace.id
         ]
     return signed_response(scripts)
+
+
+@app.get("/projects/domain")
+def list_domain_projects(request: Request):
+    """List lightweight W2 Project views for gradual frontend migration."""
+    projects = pipeline.repository.load_projects()
+    context = getattr(request.state, "auth_context", None)
+    if context is not None:
+        projects = {
+            project_id: project
+            for project_id, project in projects.items()
+            if project.workspace_id == context.workspace.id
+        }
+    payload = [
+        {
+            "id": project.id,
+            "title": project.title,
+            "mode": project.mode,
+            "episode_ids": project.episode_ids,
+            "episode_count": len(project.episode_ids),
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+        }
+        for project in projects.values()
+    ]
+    return signed_response(payload)
+
+
+@app.get("/projects/{project_id}/episodes")
+def get_project_episodes(project_id: str):
+    """Return a complete W2 Project view with its ordered Episodes."""
+    projects = pipeline.repository.load_projects()
+    project = projects.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    payload = project.model_dump(exclude={"episodes"})
+    payload["episodes"] = [episode.model_dump() for episode in project.episodes]
+    return signed_response(payload)
 
 
 @app.post("/projects/{script_id}/toggle_starred")

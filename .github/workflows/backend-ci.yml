@@ -41,6 +41,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-docker.txt pytest
 
+      - name: Prepare output directories
+        run: mkdir -p output/{assets,audio,export,storyboard,uploads,video,video_inputs,projects,series,lumenx}
+
       - name: Run Python test suite
         run: python -m pytest
 

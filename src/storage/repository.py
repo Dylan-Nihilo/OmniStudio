@@ -17,6 +17,9 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, select, update
 from sqlalchemy.engine import Connection, Engine
 
+from src.apps.comic_gen.models import Episode as EpisodePayload
+from src.apps.comic_gen.models import Project as ProjectPayload
+from src.apps.comic_gen.models import ProjectMode
 from src.apps.comic_gen.models import Script as ScriptPayload
 from src.apps.comic_gen.models import Series as SeriesPayload
 
@@ -26,6 +29,12 @@ from .schema import Episode, Project, Script, Series
 logger = logging.getLogger(__name__)
 
 PayloadT = TypeVar("PayloadT", ScriptPayload, SeriesPayload)
+
+
+class _LoadedProject(ProjectPayload):
+    """Repository view that includes the Episodes assembled for a Project."""
+
+    episodes: list[EpisodePayload]
 
 
 class SQLiteRepository:
@@ -88,6 +97,29 @@ class SQLiteRepository:
             raise
         except Exception as exc:
             raise StorageError(f"Failed to load series: {exc}") from exc
+
+    def project_exists(self, project_id: str) -> bool:
+        """Return whether a W2 Project envelope exists."""
+        self._validate_id(project_id, "project_id")
+        with self.engine.connect() as connection:
+            return (
+                connection.execute(
+                    select(Project.__table__.c.id).where(
+                        Project.__table__.c.id == project_id
+                    )
+                ).scalar_one_or_none()
+                is not None
+            )
+
+    def workspace_for_project(self, project_id: str) -> str | None:
+        """Resolve the owning Workspace for a W2 Project resource."""
+        self._validate_id(project_id, "project_id")
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(Project.__table__.c.workspace_id).where(
+                    Project.__table__.c.id == project_id
+                )
+            ).scalar_one_or_none()
 
     def workspace_for_script(self, script_id: str) -> str | None:
         """Resolve the owning Workspace for an episode/script resource."""
@@ -162,6 +194,123 @@ class SQLiteRepository:
                 .values(workspace_id=workspace_id)
             )
         return result.rowcount == 1
+
+    def load_projects(self) -> dict[str, ProjectPayload]:
+        """Load complete W2 Project views from the four normalized storage tables.
+
+        Project and Episode rows are authoritative for relationships and ordering;
+        Script/Series payloads supply their nested production and shared content.
+        """
+        try:
+            with self.engine.connect() as connection:
+                project_rows = connection.execute(
+                    select(Project.__table__).order_by(Project.__table__.c.id)
+                ).mappings()
+                projects: dict[str, ProjectPayload] = {}
+
+                for project_row in project_rows:
+                    project_id = project_row["id"]
+                    episode_rows = connection.execute(
+                        select(Episode.__table__, Script.__table__)
+                        .join(
+                            Script.__table__,
+                            Script.__table__.c.episode_id == Episode.__table__.c.id,
+                        )
+                        .where(Episode.__table__.c.project_id == project_id)
+                        .order_by(
+                            Episode.__table__.c.episode_number,
+                            Episode.__table__.c.created_at,
+                            Episode.__table__.c.id,
+                        )
+                    ).mappings()
+
+                    episodes: list[EpisodePayload] = []
+                    for episode_row in episode_rows:
+                        script_row = {
+                            column.name: episode_row[column]
+                            for column in Script.__table__.columns
+                        }
+                        script = self._parse_payload(
+                            script_row,
+                            ScriptPayload,
+                            table_name="scripts",
+                        )
+                        self._validate_loaded_payload(script_row, script)
+                        episodes.append(
+                            EpisodePayload(
+                                id=episode_row[Episode.__table__.c.id],
+                                project_id=episode_row[Episode.__table__.c.project_id],
+                                series_id=episode_row[Episode.__table__.c.series_id],
+                                episode_number=episode_row[
+                                    Episode.__table__.c.episode_number
+                                ],
+                                script=script.model_copy(
+                                    deep=True,
+                                    update={"series_id": None, "episode_number": None},
+                                ),
+                                created_at=episode_row[Episode.__table__.c.created_at],
+                                updated_at=episode_row[Episode.__table__.c.updated_at],
+                            )
+                        )
+
+                    shared_values: dict[str, Any] = {}
+                    if project_row["mode"] == ProjectMode.SERIES.value:
+                        series_row = connection.execute(
+                            select(Series.__table__).where(
+                                Series.__table__.c.project_id == project_id
+                            )
+                        ).mappings().first()
+                        if series_row is None:
+                            logger.warning(
+                                "Series Project %s has no Series row; loading an empty shared-asset shell",
+                                project_id,
+                            )
+                        else:
+                            series = self._parse_payload(
+                                series_row,
+                                SeriesPayload,
+                                table_name="series",
+                            )
+                            self._validate_loaded_payload(series_row, series)
+                            shared_values = {
+                                "characters": [
+                                    item.model_copy(deep=True) for item in series.characters
+                                ],
+                                "scenes": [item.model_copy(deep=True) for item in series.scenes],
+                                "props": [item.model_copy(deep=True) for item in series.props],
+                                "art_direction": (
+                                    series.art_direction.model_copy(deep=True)
+                                    if series.art_direction is not None
+                                    else None
+                                ),
+                                "prompt_config": series.prompt_config.model_copy(deep=True),
+                                "model_settings": series.model_settings.model_copy(deep=True),
+                                "workflow_mode": series.workflow_mode,
+                                "default_generation_mode": series.default_generation_mode,
+                                "custom_voices": [
+                                    item.model_copy(deep=True) for item in series.custom_voices
+                                ],
+                                "content_mode": series.content_mode,
+                            }
+
+                    project = _LoadedProject(
+                        id=project_id,
+                        title=project_row["title"],
+                        mode=ProjectMode(project_row["mode"]),
+                        workspace_id=project_row["workspace_id"],
+                        episode_ids=[episode.id for episode in episodes],
+                        episodes=episodes,
+                        created_at=project_row["created_at"],
+                        updated_at=project_row["updated_at"],
+                        **shared_values,
+                    )
+                    projects[project_id] = project
+
+                return projects
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise StorageError(f"Failed to load projects: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Public write API
@@ -614,5 +763,3 @@ class SQLiteRepository:
 Repository = SQLiteRepository
 
 __all__ = ["Repository", "SQLiteRepository"]
-
-

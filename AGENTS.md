@@ -10,7 +10,9 @@ This file provides guidance to AI coding agents (Codex CLI / Qoder) when working
 
 - Git author is already configured for this repo, do not modify git config
 - **NEVER** add `Co-Authored-By` lines in commit messages
-- Push to GitHub remote (`github`) only, ignore `origin` (deprecated GitLab)
+- Push to GitHub remote (`github`) only, ignore `origin` (deprecated upstream)
+- **NEVER push directly to `main`** — `main` is the shared stable branch for the whole team. All development happens on `feature/*` / `fix/*` / `docs/*` branches; work lands in `main` only via a reviewed, CI-green Pull Request, squash-merged
+- GitHub repository: `Dylan-Nihilo/OmniStudio` (github remote), PRs opened with the `zhxqc` account; see `.codex/workflows/lumenx-git-publish.md` for the full flow
 - **Atomic commits** — 每完成一个独立功能点就立即 commit，不要攒到最后一次性大提交。拆分粒度示例：后端模块 → commit、前端骨架 → commit、UI 组件 → commit、catalog 变更 → commit、bug fix → 单独 commit
 
 ## Project Workflow Triggers

@@ -661,6 +661,54 @@ class Series(BaseModel):
     updated_at: float
 
 
+class ProjectMode(str, Enum):
+    """Project organization mode in the W2 domain model."""
+
+    STANDALONE = "standalone"
+    SERIES = "series"
+
+
+class Project(BaseModel):
+    """Work-level container for shared assets, defaults, and ordered episodes."""
+
+    id: str = Field(..., description="Unique identifier for the project")
+    title: str = Field(..., description="Title of the project")
+    mode: ProjectMode = Field(..., description="Project mode: 'standalone' or 'series'")
+    workspace_id: Optional[str] = Field(None, description="Owning Workspace ID")
+
+    # Shared assets belong to Project. Episode-local production assets remain
+    # embedded in Episode.script and are never promoted from a Script.
+    characters: List[Character] = Field(default_factory=list, description="Shared characters")
+    scenes: List[Scene] = Field(default_factory=list, description="Shared scenes")
+    props: List[Prop] = Field(default_factory=list, description="Shared props")
+    art_direction: Optional[ArtDirection] = Field(None, description="Project art direction")
+    prompt_config: PromptConfig = Field(default_factory=PromptConfig)
+    model_settings: ModelSettings = Field(default_factory=ModelSettings)
+    workflow_mode: str = Field("i2v_legacy", description="Project workflow mode")
+    default_generation_mode: str = Field("r2v", description="Default shot generation mode")
+    custom_voices: List["CustomVoice"] = Field(
+        default_factory=list,
+        description="Project-level custom voice pool",
+    )
+    content_mode: str = Field("scripted", description="Content mode: 'scripted' or 'freeform'")
+    episode_ids: List[str] = Field(default_factory=list, description="Ordered Episode IDs")
+
+    created_at: float
+    updated_at: float
+
+
+class Episode(BaseModel):
+    """Production unit whose Script payload maps one-to-one to its Episode ID."""
+
+    id: str = Field(..., description="Unique identifier for the episode")
+    project_id: str = Field(..., description="Owning Project ID")
+    series_id: Optional[str] = Field(None, description="Legacy Series relation, if any")
+    episode_number: Optional[int] = Field(None, description="Episode number within the project")
+    script: Script = Field(..., description="Episode production content")
+    created_at: float
+    updated_at: float
+
+
 class GlobalAssetLibrary(BaseModel):
     """Project-independent global asset pool (LumenX Core shared library).
 

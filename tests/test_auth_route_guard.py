@@ -155,11 +155,16 @@ def test_resource_path_resolves_script_and_series_workspace():
         def workspace_for_script(self, resource_id):
             return "workspace-script"
 
+        def workspace_for_project(self, resource_id):
+            return "workspace-project"
+
         def workspace_for_series(self, resource_id):
             return "workspace-series"
 
     repository = Repository()
     assert _workspace_for_resource_path("/projects/script-1", repository) == "workspace-script"
+    assert _workspace_for_resource_path("/projects/project-1/episodes", repository) == "workspace-project"
+    assert _workspace_for_resource_path("/projects/domain", repository) is None
     assert _workspace_for_resource_path("/series/series-1/episodes", repository) == "workspace-series"
     assert _workspace_for_resource_path("/projects/", repository) is None
     assert _workspace_for_resource_path("/health", repository) is None
@@ -197,6 +202,45 @@ def test_series_list_is_filtered_to_authenticated_workspace(monkeypatch):
 
     assert response.status_code == 200
     assert [item["id"] for item in json.loads(response.body)] == ["series-a"]
+
+
+def test_domain_project_list_is_filtered_to_authenticated_workspace(monkeypatch):
+    from src.apps.comic_gen import api as api_module
+
+    class Repository:
+        @staticmethod
+        def load_projects():
+            def project(project_id, workspace_id):
+                return SimpleNamespace(
+                    id=project_id,
+                    title=project_id,
+                    mode="standalone",
+                    workspace_id=workspace_id,
+                    episode_ids=[project_id],
+                    created_at=1.0,
+                    updated_at=2.0,
+                )
+
+            return {
+                "project-a": project("project-a", "workspace-1"),
+                "project-b": project("project-b", "workspace-2"),
+                "project-unowned": project("project-unowned", None),
+            }
+
+    class Pipeline:
+        repository = Repository()
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            auth_context=SimpleNamespace(workspace=SimpleNamespace(id="workspace-1")),
+        ),
+    )
+    monkeypatch.setattr(api_module, "pipeline", Pipeline())
+
+    response = api_module.list_domain_projects(request)
+
+    assert response.status_code == 200
+    assert [item["id"] for item in json.loads(response.body)] == ["project-a"]
 
 
 def test_auth_rejection_keeps_cors_headers_for_allowed_browser_origin(tmp_path, monkeypatch):

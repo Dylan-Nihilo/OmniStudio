@@ -143,3 +143,6 @@ src-tauri/gen/
 .cache/
 frontend/.cache/
 .tmp_*
+.tmp-*
+.codex-tmp-*
+.pytest-tmp-*

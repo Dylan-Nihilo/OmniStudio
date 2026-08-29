@@ -102,9 +102,13 @@ def test_repository_resolves_and_assigns_workspace_for_script_and_series(
     pipeline.scripts[script.id] = script
     pipeline.repository.save_bundle(pipeline.scripts, pipeline.series_store)
 
+    assert pipeline.repository.project_exists(series.id)
+    assert not pipeline.repository.project_exists("missing-project")
+    assert pipeline.repository.workspace_for_project(series.id) is None
     assert pipeline.repository.workspace_for_script(script.id) is None
     assert pipeline.repository.workspace_for_series(series.id) is None
     assert pipeline.repository.assign_workspace_for_script(script.id, workspace_id)
+    assert pipeline.repository.workspace_for_project(series.id) == workspace_id
     assert pipeline.repository.workspace_for_script(script.id) == workspace_id
     assert pipeline.repository.workspace_for_series(series.id) == workspace_id
     assert not pipeline.repository.assign_workspace_for_script(script.id, "other-workspace")
