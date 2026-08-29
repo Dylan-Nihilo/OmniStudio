@@ -36,6 +36,12 @@ export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: s
 
 const APP_VERSION = "v0.2.0";
 
+export const getUserMenuLayerClasses = () => "relative z-30";
+export const getUserMenuPopoverClasses = () =>
+  "absolute bottom-full left-0 right-0 z-40 mb-2 overflow-hidden rounded-xl border border-glass-border bg-elevated p-1.5 shadow-2xl shadow-black/40";
+export const getLogoutButtonClasses = () =>
+  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-status-failed-fg transition hover:bg-status-failed-bg hover:text-status-failed-fg";
+
 function NavButton({
   active,
   label,
@@ -105,8 +111,8 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
     }
   };
 
-  const displayName = user?.display_name || user?.username || "LumenX";
-  const avatarLetter = displayName.trim().charAt(0).toUpperCase() || "L";
+  const displayName = user?.display_name || user?.username || "MANGIX";
+  const avatarLetter = displayName.trim().charAt(0).toUpperCase() || "M";
 
   return (
     <>
@@ -123,7 +129,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
         >
           <LumenXBranding size="md" showSlogan={false} />
           <p className="atelier-display mt-2.5 font-display text-[0.75rem] italic leading-snug tracking-wide text-text-muted">
-            Render Noise into Narrative
+            Stories, Rendered Alive.
           </p>
         </button>
 
@@ -147,9 +153,9 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
             onClick={() => handleNav("settings", "#/settings")}
           />
 
-          <div ref={menuRef} className="relative mt-2 border-t border-glass-border pt-2">
+          <div ref={menuRef} className={clsx("mt-2 border-t border-glass-border pt-2", getUserMenuLayerClasses())}>
             {menuOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-glass-border bg-surface/95 p-1.5 shadow-2xl shadow-black/40 backdrop-blur-xl">
+              <div className={getUserMenuPopoverClasses()}>
                 <button
                   type="button"
                   onClick={() => { setMenuOpen(false); setChangePasswordOpen(true); }}
@@ -161,7 +167,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
                 <button
                   type="button"
                   onClick={() => void handleLogout()}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition hover:bg-red-500/10 hover:text-red-200"
+                  className={getLogoutButtonClasses()}
                 >
                   <LogOut size={15} />
                   {ta("logout")}

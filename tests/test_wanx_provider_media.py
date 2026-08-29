@@ -237,6 +237,7 @@ class TestWanxProviderMediaIntegration:
 
     def test_i2v_object_key_with_oss_configured_uses_signed_url(self, monkeypatch):
         monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        monkeypatch.setenv("OSS_BASE_PATH", "lumenx")
         _install_fake_uploader(monkeypatch, configured=True)
 
         captured = {}

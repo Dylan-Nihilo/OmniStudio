@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from src.apps.comic_gen.models import (
     Script, Character, Scene, StoryboardFrame, GenerationStatus,
+    GlobalAssetLibrary,
 )
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 
@@ -37,6 +38,7 @@ def pipeline(tmp_path):
     p.library_data_file = str(tmp_path / "library_assets.json")
     p.scripts = {}
     p.series_store = {}
+    p.library_store = GlobalAssetLibrary()
     return p
 
 

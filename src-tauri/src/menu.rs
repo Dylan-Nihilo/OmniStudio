@@ -1,4 +1,4 @@
-// Native macOS menu configuration for LumenX Studio
+// Native macOS menu configuration for MANGIX Studio
 
 use tauri::menu::{Menu, MenuItem, Submenu, PredefinedMenuItem};
 
@@ -9,10 +9,10 @@ pub fn build_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, tauri::Err
     // ─── App Menu ───
     let app_menu = Submenu::with_items(
         app,
-        "LumenX Studio",
+        "MANGIX Studio",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About LumenX Studio"), Default::default())?,
+            &PredefinedMenuItem::about(app, Some("About MANGIX Studio"), Default::default())?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "preferences", "Preferences...", true, Some("CmdOrCtrl+,"))?,
             &PredefinedMenuItem::separator(app)?,

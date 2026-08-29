@@ -174,6 +174,7 @@ export default function PreviewImage({
                     <img
                         src={displaySrc}
                         alt={alt ?? ""}
+                        crossOrigin="use-credentials"
                         loading="lazy"
                         onError={handleError}
                         className="h-full w-full object-cover"

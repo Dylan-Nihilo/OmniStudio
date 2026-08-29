@@ -9,7 +9,10 @@ import { CheckCircle2, AlertCircle, AlertTriangle, Info, Loader2, X } from "luci
 import { useTranslations } from "next-intl";
 import { useToastStore, type Toast, type ToastKind } from "@/store/toastStore";
 
-const KIND_STYLES: Record<ToastKind, { ring: string; bg: string; icon: JSX.Element; iconClass: string }> = {
+export const getWarningToastClasses = () =>
+    "border-status-processing-border bg-elevated text-foreground";
+
+const KIND_STYLES: Record<ToastKind, { ring: string; bg: string; icon: JSX.Element; iconClass: string; titleClass?: string }> = {
     info: {
         ring: "border-primary/40",
         bg: "bg-primary/10",
@@ -35,10 +38,11 @@ const KIND_STYLES: Record<ToastKind, { ring: string; bg: string; icon: JSX.Eleme
         iconClass: "text-red-400",
     },
     warning: {
-        ring: "border-amber-400/40",
-        bg: "bg-amber-400/10",
+        ring: "border-status-processing-border",
+        bg: "bg-elevated",
         icon: <AlertTriangle size={14} />,
-        iconClass: "text-amber-300",
+        iconClass: "text-foreground",
+        titleClass: "text-foreground",
     },
 };
 
@@ -62,7 +66,7 @@ function ToastCard({ toast }: { toast: Toast }) {
                         {toast.projectTitle}
                     </p>
                 )}
-                <p className="text-[0.8125rem] font-medium text-foreground leading-snug">{toast.title}</p>
+                <p className={`text-[0.8125rem] font-medium leading-snug ${style.titleClass || "text-foreground"}`}>{toast.title}</p>
                 {toast.body && (
                     <div className="mt-0.5">
                         <p className={`text-[0.71875rem] text-text-secondary leading-snug ${toast.body.length > 120 ? "line-clamp-3" : ""}`}>

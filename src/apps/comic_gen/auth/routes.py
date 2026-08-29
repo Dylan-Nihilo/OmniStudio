@@ -156,7 +156,12 @@ def auth_exception_handler(request: Request, exc: AuthError) -> JSONResponse:
 def setup_status(request: Request, response: Response, service: Annotated[AuthService, Depends(get_auth_service)]) -> SetupStatusResponse:
     initialized = service.get_setup_status()
     local = service.is_local_request(request)
-    _set_csrf_cookie(response, service, session_id=None)
+    session_id = _verified_session_id(
+        request.cookies.get(ACCESS_COOKIE_NAME), service, token_type="access"
+    ) or _verified_session_id(
+        request.cookies.get(REFRESH_COOKIE_NAME), service, token_type="refresh"
+    )
+    _set_csrf_cookie(response, service, session_id=session_id)
     response.headers["Cache-Control"] = "no-store"
     return SetupStatusResponse(initialized=initialized, setup_allowed=not initialized and (local or bool(service.settings.setup_token)), setup_token_required=not initialized and not local)
 

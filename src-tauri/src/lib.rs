@@ -1,4 +1,4 @@
-// LumenX Studio - Tauri 2.0 Main Entry
+// MANGIX Studio - Tauri 2.0 Main Entry
 // Implements: transparent titlebar, Traffic Light, vibrancy, sidecar management, API proxy
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -145,5 +145,5 @@ pub fn run() {
             check_backend_health,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running LumenX Studio");
+        .expect("error while running MANGIX Studio");
 }

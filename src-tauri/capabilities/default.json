@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default permissions for LumenX Studio",
+  "description": "Default permissions for MANGIX Studio",
   "windows": ["main"],
   "permissions": [
     "core:default",
