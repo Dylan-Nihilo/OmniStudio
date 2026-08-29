@@ -24,14 +24,15 @@ import TauriMenuListener from "@/components/layout/TauriMenuListener";
 import AuthGate from "@/components/auth/AuthGate";
 import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
+import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 
-const ProjectClient = dynamic(() => import("@/components/project/ProjectClient"), { ssr: false });
-const SeriesDetailPage = dynamic(() => import("@/components/series/SeriesDetailPage"), { ssr: false });
-const ImportFileDialog = dynamic(() => import("@/components/series/ImportFileDialog"), { ssr: false });
-const SettingsPage = dynamic(() => import("@/components/settings/SettingsPage"), { ssr: false });
-const AssetLibraryPage = dynamic(() => import("@/components/library/AssetLibraryPage"), { ssr: false });
-const PlaygroundPage = dynamic(() => import("@/components/modules/playground/PlaygroundPage"), { ssr: false });
-const ScriptEditorShell = dynamic(() => import("@/components/modules/ScriptEditor/ScriptEditorShell"), { ssr: false });
+const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
+const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
+const ImportFileDialog = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/ImportFileDialog")), { ssr: false });
+const SettingsPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/settings/SettingsPage")), { ssr: false });
+const AssetLibraryPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/library/AssetLibraryPage")), { ssr: false });
+const PlaygroundPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/playground/PlaygroundPage")), { ssr: false });
+const ScriptEditorShell = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/ScriptEditorShell")), { ssr: false });
 
 // ── Create Series Dialog ──
 function CreateSeriesDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
