@@ -100,6 +100,32 @@ class ChangePasswordResponse(BaseModel):
     reauthentication_required: bool = True
 
 
+class PasswordResetStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    available: bool
+    token_required: bool
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    identifier: str = Field(min_length=1, max_length=254)
+    new_password: str = Field(min_length=8, max_length=128)
+    recovery_token: str | None = Field(default=None, min_length=1, max_length=512)
+
+    @field_validator("identifier", mode="before")
+    @classmethod
+    def normalize_identifier(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        return unicodedata.normalize("NFKC", value.strip())
+
+
+class PasswordResetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password_reset: bool = True
+    reauthentication_required: bool = True
+
+
 class MeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user: UserResponse
@@ -125,4 +151,4 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
-__all__ = ["ChangePasswordRequest", "ChangePasswordResponse", "ErrorResponse", "LoginRequest", "LoginResponse", "MeResponse", "RefreshResponse", "SetupRequest", "SetupResponse", "SetupStatusResponse", "UserResponse", "WorkspaceResponse"]
+__all__ = ["ChangePasswordRequest", "ChangePasswordResponse", "ErrorResponse", "LoginRequest", "LoginResponse", "MeResponse", "PasswordResetRequest", "PasswordResetResponse", "PasswordResetStatusResponse", "RefreshResponse", "SetupRequest", "SetupResponse", "SetupStatusResponse", "UserResponse", "WorkspaceResponse"]

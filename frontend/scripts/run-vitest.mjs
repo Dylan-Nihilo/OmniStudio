@@ -9,7 +9,7 @@ const hasVitestMode = filteredArgs.some((arg) =>
 );
 
 const vitestEntry = path.resolve("node_modules", "vitest", "vitest.mjs");
-const args = [vitestEntry];
+const args = [vitestEntry, "--configLoader", "runner"];
 if (!hasVitestMode) {
   args.push("run");
 }

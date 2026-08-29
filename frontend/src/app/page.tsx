@@ -15,6 +15,7 @@ import CreateProjectDialog from "@/components/project/CreateProjectDialog";
 import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import CreativeCanvas from "@/components/canvas/CreativeCanvas";
 import AppShell from "@/components/layout/AppShell";
+import ModuleErrorBoundary from "@/components/layout/ModuleErrorBoundary";
 import type { GlobalTab } from "@/components/layout/GlobalSidebar";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
@@ -1073,7 +1074,9 @@ function AuthenticatedHome() {
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 flex-1 overflow-hidden">
         <AppShell activeTab={activeTab} onTabChange={handleTabChange}>
-          {renderContent()}
+          <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
+            {renderContent()}
+          </ModuleErrorBoundary>
         </AppShell>
       </div>
 

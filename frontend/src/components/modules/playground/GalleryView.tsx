@@ -99,7 +99,7 @@ export default function GalleryView({
   const current = generations[selectedIndex];
   if (!current) return null;
 
-  const output = current.outputs[0];
+  const output = Array.isArray(current.outputs) ? current.outputs[0] : undefined;
   const isVideo =
     output?.media_type === 'video' || VIDEO_MODES.has(current.mode);
   const mediaUrl = output?.media_path ? getMediaUrl(output.media_path) : null;
@@ -164,12 +164,12 @@ export default function GalleryView({
           <span className="font-mono text-[0.5625rem] bg-elevated text-text-muted rounded px-[6px] py-[2px]">
             {current.model_id || current.mode}
           </span>
-          {current.parameters.size && (
+          {current.parameters && current.parameters.size && (
             <span className="font-mono text-[0.5625rem] bg-glass text-text-muted rounded px-[6px] py-[2px]">
               {(current.parameters.size as string).replace(/[*x]/g, '×')}
             </span>
           )}
-          {current.parameters.resolution && !current.parameters.size && (
+          {current.parameters && current.parameters.resolution && !current.parameters.size && (
             <span className="font-mono text-[0.5625rem] bg-glass text-text-muted rounded px-[6px] py-[2px]">
               {current.parameters.resolution as string}
             </span>
@@ -187,7 +187,7 @@ export default function GalleryView({
           className="flex gap-2 h-full items-center"
         >
           {generations.map((gen, idx) => {
-            const genOutput = gen.outputs[0];
+            const genOutput = Array.isArray(gen.outputs) ? gen.outputs[0] : undefined;
             const genIsVideo =
               genOutput?.media_type === 'video' || VIDEO_MODES.has(gen.mode);
             const genMediaUrl = genOutput?.media_path

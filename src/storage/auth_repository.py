@@ -244,7 +244,12 @@ class AuthRepository:
         return int(result.rowcount or 0)
 
     def update_password_and_revoke_sessions(
-        self, user_id: str, *, new_password_hash: str, now: float
+        self,
+        user_id: str,
+        *,
+        new_password_hash: str,
+        now: float,
+        revoke_reason: str = "password_change",
     ) -> int:
         with self.engine.connect() as connection:
             with begin_immediate(connection):
@@ -256,7 +261,7 @@ class AuthRepository:
                 result = connection.execute(
                     update(Session.__table__)
                     .where(Session.user_id == user_id, Session.revoked_at.is_(None))
-                    .values(revoked_at=now, revoke_reason="password_change")
+                    .values(revoked_at=now, revoke_reason=revoke_reason)
                 )
         return int(result.rowcount or 0)
 

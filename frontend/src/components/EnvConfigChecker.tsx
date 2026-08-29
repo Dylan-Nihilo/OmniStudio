@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import { api } from "@/lib/api";
 
@@ -29,8 +30,15 @@ export default function EnvConfigChecker() {
         setIsEnvDialogOpen(true);
       }
     } catch (error) {
+      // An expired session is handled by apiClient, which redirects to the
+      // login surface. Do not replace that auth error with a misleading
+      // "DashScope API Key required" dialog.
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        return;
+      }
+
       console.error("Failed to check env config:", error);
-      // 如果API调用失败，也显示配置对话框
+      // 对非认证错误保留原有的安全兜底：要求用户确认运行配置。
       setEnvRequired(true);
       setIsEnvDialogOpen(true);
     }

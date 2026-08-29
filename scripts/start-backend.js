@@ -7,6 +7,8 @@ const pythonPath = isWin
   ? path.join(__dirname, '..', '.venv', 'Scripts', 'python')
   : path.join(__dirname, '..', '.venv', 'bin', 'python');
 
+const backendPort = process.env.LUMENX_BACKEND_PORT || process.env.NEXT_PUBLIC_BACKEND_PORT || '17177';
+
 const env = {
   ...process.env,
   NO_PROXY: '*.aliyuncs.com,localhost,127.0.0.1',
@@ -15,7 +17,7 @@ const env = {
 
 const backend = spawn(pythonPath, [
   '-m', 'uvicorn', 'src.apps.comic_gen.api:app',
-  '--reload', '--port', '17177', '--host', '0.0.0.0'
+  '--reload', '--port', backendPort, '--host', '0.0.0.0'
 ], {
   stdio: 'inherit',
   env

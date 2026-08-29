@@ -19,6 +19,9 @@ from .schemas import (
     LoginRequest,
     LoginResponse,
     MeResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    PasswordResetStatusResponse,
     RefreshResponse,
     SetupRequest,
     SetupResponse,
@@ -242,6 +245,49 @@ def logout(request: Request, response: Response, service: Annotated[AuthService,
     response.headers["Cache-Control"] = "no-store"
     response.status_code = 204
     return response
+
+
+@router.get("/password-reset/status", response_model=PasswordResetStatusResponse)
+def password_reset_status(
+    request: Request,
+    response: Response,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> PasswordResetStatusResponse:
+    local = service.is_local_request(request)
+    available = local and service.get_setup_status()
+    _set_csrf_cookie(response, service, session_id=None)
+    response.headers["Cache-Control"] = "no-store"
+    return PasswordResetStatusResponse(
+        available=available,
+        token_required=available and bool(service.settings.password_reset_token),
+    )
+
+
+@router.post("/password-reset", response_model=PasswordResetResponse)
+def password_reset(
+    request: Request,
+    response: Response,
+    payload: PasswordResetRequest,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> PasswordResetResponse:
+    try:
+        require_csrf(request, service, session_id=None)
+    except AuthError:
+        sid = _unverified_session_id(request.cookies.get(ACCESS_COOKIE_NAME)) or _unverified_session_id(
+            request.cookies.get(REFRESH_COOKIE_NAME)
+        )
+        if not sid:
+            raise
+        require_csrf(request, service, session_id=sid)
+    service.reset_password(
+        payload.identifier,
+        payload.new_password,
+        payload.recovery_token,
+        request=request,
+    )
+    _clear_auth_cookies(response, service)
+    response.headers["Cache-Control"] = "no-store"
+    return PasswordResetResponse()
 
 
 @router.post("/change-password", response_model=ChangePasswordResponse)

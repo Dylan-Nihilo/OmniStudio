@@ -324,6 +324,83 @@ class AuthService:
             now=time.time() if now is None else float(now),
         )
 
+    def reset_password(
+        self,
+        identifier: str,
+        new_password: str,
+        recovery_token: str | None,
+        *,
+        request: Any | None = None,
+        client_ip: str | None = None,
+        now: float | None = None,
+    ) -> int:
+        """Reset the single Owner password from the local machine only.
+
+        Recovery is deliberately unavailable to remote clients. Deployments can
+        additionally require a high-entropy token via
+        ``LUMENX_PASSWORD_RESET_TOKEN``. Every attempt is rate-limited before
+        Argon2 hashing, and successful recovery revokes every existing session.
+        """
+        if not self.is_local_request(request, client_ip):
+            raise AuthError(
+                "AUTH_PASSWORD_RESET_UNAVAILABLE",
+                "当前设备不允许重置密码",
+                status_code=403,
+            )
+
+        ip = _request_client_ip(request, client_ip)
+        normalized = (
+            unicodedata.normalize("NFKC", identifier.strip()).casefold()
+            if isinstance(identifier, str)
+            else ""
+        )
+        identifier_key = "password-reset:id:" + hmac.new(
+            self.settings.signing_secret.encode("utf-8"),
+            normalized.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        rate_keys = ("password-reset:ip:" + ip, identifier_key)
+        decisions = (
+            self.rate_limiter.check(rate_keys[0], limit=5, window_seconds=900),
+            self.rate_limiter.check(rate_keys[1], limit=5, window_seconds=900),
+        )
+        blocked = next((item for item in decisions if not item.allowed), None)
+        if blocked is not None:
+            raise AuthError(
+                "AUTH_RATE_LIMITED",
+                "密码重置尝试过于频繁，请稍后再试",
+                status_code=429,
+                retry_after=blocked.retry_after,
+            )
+
+        # Count every recovery attempt, including successful ones, so repeated
+        # valid requests cannot be used to exhaust CPU through Argon2 hashing.
+        for key in rate_keys:
+            self.rate_limiter.record_failure(key, window_seconds=900)
+
+        expected_token = self.settings.password_reset_token
+        supplied_token = recovery_token or ""
+        token_valid = expected_token is None or hmac.compare_digest(expected_token, supplied_token)
+        user = self.repository.find_user_by_login(normalized) if normalized else None
+        if not token_valid or user is None:
+            raise AuthError(
+                "AUTH_PASSWORD_RESET_FAILED",
+                "无法重置密码，请检查恢复信息",
+                status_code=400,
+            )
+
+        validate_password(
+            new_password,
+            username_normalized=str(user.username_normalized),
+            email_normalized=str(user.email_normalized),
+        )
+        return self.repository.update_password_and_revoke_sessions(
+            user.id,
+            new_password_hash=hash_password(new_password),
+            now=time.time() if now is None else float(now),
+            revoke_reason="password_reset",
+        )
+
     def get_current_user(self, *, user_id: str, session_id: str, now: float | None = None) -> AuthContext:
         now = time.time() if now is None else now
         session = self.repository.get_session(session_id)

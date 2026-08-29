@@ -2,7 +2,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const nextTypesDir = path.resolve(".next", "types");
+const nextTypesDirs = [
+  path.resolve(".next-dev", "types"),
+  path.resolve(".next", "types"),
+  path.resolve("..", "static", "types"),
+];
 const nextBuildEntry = path.resolve("node_modules", "next", "dist", "bin", "next");
 const tscEntry = path.resolve("node_modules", "typescript", "bin", "tsc");
 
@@ -18,17 +22,19 @@ function runNodeCli(entry, args) {
 }
 
 function hasNextTypes() {
-  if (!fs.existsSync(nextTypesDir)) {
-    return false;
-  }
+  return nextTypesDirs.some((nextTypesDir) => {
+    if (!fs.existsSync(nextTypesDir)) {
+      return false;
+    }
 
-  const entries = fs.readdirSync(nextTypesDir, { recursive: true });
-  return entries.some((entry) => String(entry).endsWith(".ts"));
+    const entries = fs.readdirSync(nextTypesDir, { recursive: true });
+    return entries.some((entry) => String(entry).endsWith(".ts"));
+  });
 }
 
 if (!hasNextTypes()) {
   console.log(
-    "Next.js generated types are missing. Running `next build` once to bootstrap .next/types...",
+    "Next.js generated types are missing. Running `next build` once to bootstrap route types...",
   );
   const buildStatus = runNodeCli(nextBuildEntry, ["build"]);
   if (buildStatus !== 0) {

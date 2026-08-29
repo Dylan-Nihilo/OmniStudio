@@ -177,6 +177,39 @@ export interface RefineSSEEvent {
     error?: string;
 }
 
+/**
+ * API responses can be either a bare list or an envelope such as
+ * `{ items: [...] }` depending on the backend route/version. Keep callers
+ * from crashing when an empty/error response is returned during navigation.
+ */
+function asList<T>(value: unknown): T[] {
+    let list: unknown[] | null = null;
+
+    if (Array.isArray(value)) {
+        list = value;
+    } else if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        for (const key of ["items", "data", "projects", "series"]) {
+            if (Array.isArray(record[key])) {
+                list = record[key];
+                break;
+            }
+        }
+    }
+
+    // Navigation should not crash because a malformed/null item slipped into
+    // a list response. Callers receive only object records to normalize.
+    return (list ?? []).filter(
+        (item) => item !== null && typeof item === "object" && !Array.isArray(item),
+    ) as T[];
+}
+
+function asObject(value: unknown): Record<string, any> {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, any>
+        : {};
+}
+
 export const api = {
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
@@ -185,9 +218,12 @@ export const api = {
         return { ...res.data, originalText: res.data.original_text };
     },
 
-    getProjects: async () => {
+    getProjects: async (): Promise<any[]> => {
         const res = await apiClient.get(`${API_URL}/projects/`);
-        return res.data.map((p: any) => ({ ...p, originalText: p.original_text }));
+        return asList<any>(res.data).map((value) => {
+            const project = asObject(value);
+            return { ...(project as any), originalText: project.original_text } as any;
+        });
     },
 
     getProject: async (scriptId: string) => {
@@ -1121,7 +1157,7 @@ export const api = {
     },
     listSeries: async () => {
         const response = await apiClient.get(`${API_URL}/series`);
-        return response.data;
+        return asList<any>(response.data);
     },
     /** Core 全局/共享资产池（跨系列/项目聚合）。后端：GET /library/assets → {characters, scenes, props}。 */
     listLibraryAssets: async () => {

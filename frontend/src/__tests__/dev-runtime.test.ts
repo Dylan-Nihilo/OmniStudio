@@ -11,8 +11,15 @@ describe('frontend dev runtime', () => {
     it('enables Watchpack polling by default on macOS', () => {
         const env = buildNextDevEnv({}, 'darwin');
 
+        expect(env.NEXT_DEV_DIST_DIR).toBe('.next-dev');
         expect(env.WATCHPACK_POLLING).toBe('true');
         expect(env.WATCHPACK_POLLING_INTERVAL).toBe('1000');
+    });
+
+    it('keeps an explicit development build directory override', () => {
+        const env = buildNextDevEnv({ NEXT_DEV_DIST_DIR: '.custom-next-dev' }, 'win32');
+
+        expect(env.NEXT_DEV_DIST_DIR).toBe('.custom-next-dev');
     });
 
     it('respects explicit watcher overrides from the user environment', () => {

@@ -20,7 +20,7 @@ import type { Character, ImageAsset, ImageVariant, AssetUnit } from "@/store/pro
 export function selectedVariantUrl(asset?: ImageAsset | AssetUnit | null): string | undefined {
   if (!asset) return undefined;
   const variants = "image_variants" in asset ? asset.image_variants : asset.variants;
-  if (!variants?.length) return undefined;
+  if (!Array.isArray(variants) || variants.length === 0) return undefined;
   const selectedId = "image_variants" in asset ? asset.selected_image_id : asset.selected_id;
   const selected = variants.find((v) => v.id === selectedId);
   return selected?.url || variants[0]?.url;
@@ -30,7 +30,7 @@ export function selectedVariantUrl(asset?: ImageAsset | AssetUnit | null): strin
  *  ({ variants, selected_id }), preferring reference_sheet over legacy full_body. */
 export function characterImageAsset(c: Character): ImageAsset | undefined {
   const rs = c.reference_sheet;
-  if (rs?.image_variants?.length) {
+  if (Array.isArray(rs?.image_variants) && rs.image_variants.length > 0) {
     return { selected_id: rs.selected_image_id, variants: rs.image_variants };
   }
   return c.full_body_asset;
@@ -38,7 +38,8 @@ export function characterImageAsset(c: Character): ImageAsset | undefined {
 
 /** A character's variant list (reference_sheet → full_body), for counts / variant strips. */
 export function characterVariants(c: Character): ImageVariant[] {
-  return characterImageAsset(c)?.variants ?? [];
+  const variants = characterImageAsset(c)?.variants;
+  return Array.isArray(variants) ? variants : [];
 }
 
 /** A character's best display image: reference_sheet → full_body → legacy top-level urls. */

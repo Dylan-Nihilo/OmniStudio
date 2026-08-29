@@ -31,6 +31,83 @@ interface AssetSource {
 }
 
 /** 渲染条目：携带所属 source，使「按类型」视图也能按源显示/操作。 */
+type UnknownRecord = Record<string, any>;
+
+function asRecord(value: unknown): UnknownRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as UnknownRecord : {};
+}
+
+function asArray<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function normalizeVariants(value: unknown, prefix: string): ImageAsset["variants"] {
+  return asArray(value).map((item, index) => {
+    const raw = asRecord(item);
+    return {
+      id: asString(raw.id, prefix + "-variant-" + index),
+      url: asString(raw.url),
+      created_at: typeof raw.created_at === "number" && Number.isFinite(raw.created_at) ? raw.created_at : 0,
+      ...(typeof raw.prompt_used === "string" ? { prompt_used: raw.prompt_used } : {}),
+    };
+  });
+}
+
+function normalizeImageAsset(value: unknown, prefix: string): ImageAsset | undefined {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = asRecord(value);
+  const variants = normalizeVariants(raw.variants, prefix);
+  const selectedId = typeof raw.selected_id === "string" || raw.selected_id === null ? raw.selected_id : null;
+  return { selected_id: selectedId, variants };
+}
+
+function normalizeAsset(value: unknown, type: AssetTab, index: number): Character | Scene | Prop {
+  const raw = asRecord(value);
+  const id = asString(raw.id, type + "-" + index);
+  const name = asString(raw.name, "Untitled " + type.slice(0, -1));
+  const description = asString(raw.description);
+  const imageAsset = normalizeImageAsset(raw.image_asset, id + "-image");
+  const base: UnknownRecord = { ...raw, id, name, description, ...(imageAsset ? { image_asset: imageAsset } : {}) };
+  if (type === "characters") {
+    const reference = asRecord(raw.reference_sheet);
+    const referenceVariants = normalizeVariants(reference.image_variants, id + "-reference");
+    const fullBody = normalizeImageAsset(raw.full_body_asset, id + "-full-body");
+    return {
+      ...base,
+      ...(referenceVariants.length > 0 || raw.reference_sheet ? {
+        reference_sheet: {
+          selected_image_id: typeof reference.selected_image_id === "string" || reference.selected_image_id === null ? reference.selected_image_id : null,
+          image_variants: referenceVariants,
+        },
+      } : {}),
+      ...(fullBody ? { full_body_asset: fullBody } : {}),
+    } as Character;
+  }
+  return base as Scene | Prop;
+}
+
+function normalizeSource(value: unknown, kind: AssetSource["kind"], index: number, fallbackName: string): AssetSource {
+  const raw = asRecord(value);
+  const rawId = asString(raw.id, kind + "-" + index);
+  return {
+    id: kind + "-" + rawId,
+    rawId,
+    name: asString(raw.title ?? raw.name, fallbackName),
+    kind,
+    characters: asArray(raw.characters).map((item, i) => normalizeAsset(item, "characters", i) as Character),
+    scenes: asArray(raw.scenes).map((item, i) => normalizeAsset(item, "scenes", i) as Scene),
+    props: asArray(raw.props).map((item, i) => normalizeAsset(item, "props", i) as Prop),
+  };
+}
+
+function sourceHasAssets(source: AssetSource): boolean {
+  return source.characters.length + source.scenes.length + source.props.length > 0;
+}
+
 interface RenderItem {
   asset: Character | Scene | Prop;
   type: AssetTab;
@@ -58,7 +135,8 @@ function getImageUrl(asset: Character | Scene | Prop, type: AssetTab): string | 
 
 function variantCount(asset: Character | Scene | Prop, type: AssetTab): number {
   if (type === "characters") return characterVariants(asset as Character).length;
-  return (asset as Scene | Prop).image_asset?.variants?.length ?? 0;
+  const variants = (asset as Scene | Prop).image_asset?.variants;
+  return Array.isArray(variants) ? variants.length : 0;
 }
 
 /** 「最近」排序用：派生资产的最新图片时间戳（秒，time.time）。
@@ -112,53 +190,33 @@ export default function AssetLibraryPage() {
         api.listLibraryAssets(),
       ]);
       const result: AssetSource[] = [];
+      const seriesItems = asArray(seriesList);
+      const projectItems = asArray(projects);
 
-      for (const s of seriesList as Series[]) {
-        if ((s.characters?.length || 0) + (s.scenes?.length || 0) + (s.props?.length || 0) > 0) {
-          result.push({
-            id: `series-${s.id}`,
-            rawId: s.id,
-            name: s.title,
-            kind: "series",
-            characters: s.characters || [],
-            scenes: s.scenes || [],
-            props: s.props || [],
-          });
-        }
+      for (let index = 0; index < seriesItems.length; index += 1) {
+        const source = normalizeSource(seriesItems[index], "series", index, t("series"));
+        if (sourceHasAssets(source)) result.push(source);
       }
 
-      const standaloneProjects = (projects as Project[]).filter((p) => !p.series_id);
-      for (const p of standaloneProjects) {
-        if ((p.characters?.length || 0) + (p.scenes?.length || 0) + (p.props?.length || 0) > 0) {
-          result.push({
-            id: `project-${p.id}`,
-            rawId: p.id,
-            name: p.title,
-            kind: "project",
-            characters: p.characters || [],
-            scenes: p.scenes || [],
-            props: p.props || [],
-          });
-        }
+      for (let index = 0; index < projectItems.length; index += 1) {
+        const rawProject = asRecord(projectItems[index]);
+        if (rawProject.series_id) continue;
+        const source = normalizeSource(rawProject, "project", index, t("project"));
+        if (sourceHasAssets(source)) result.push(source);
       }
 
-      // 全局/共享池作为一个 kind:"global" 源（空池则不加）。名称在加载时取 i18n，
-      // 与 series/project 的 data 名同样存进 source.name。
-      const g = (globalPool || {}) as { characters?: Character[]; scenes?: Scene[]; props?: Prop[] };
-      const gChars = g.characters ?? [];
-      const gScenes = g.scenes ?? [];
-      const gProps = g.props ?? [];
-      if (gChars.length + gScenes.length + gProps.length > 0) {
-        result.push({
-          id: "global",
-          rawId: "global",
-          name: t("globalGroup"),
-          kind: "global",
-          characters: gChars,
-          scenes: gScenes,
-          props: gProps,
-        });
-      }
+      // 全局/共享池返回异常时按空池处理，避免进入页面渲染阶段崩溃。
+      const globalRaw = asRecord(globalPool);
+      const globalSource: AssetSource = {
+        id: "global",
+        rawId: "global",
+        name: t("globalGroup"),
+        kind: "global",
+        characters: asArray(globalRaw.characters).map((item, index) => normalizeAsset(item, "characters", index) as Character),
+        scenes: asArray(globalRaw.scenes).map((item, index) => normalizeAsset(item, "scenes", index) as Scene),
+        props: asArray(globalRaw.props).map((item, index) => normalizeAsset(item, "props", index) as Prop),
+      };
+      if (sourceHasAssets(globalSource)) result.push(globalSource);
 
       setSources(result);
     } catch (error) {
@@ -224,7 +282,7 @@ export default function AssetLibraryPage() {
     const q = searchQuery.trim().toLowerCase();
     const match = (a: Character | Scene | Prop) =>
       (!starredOnly || !!a.starred) &&
-      (!q || a.name.toLowerCase().includes(q) || (a.description?.toLowerCase().includes(q) ?? false));
+      (!q || a.name.toLowerCase().includes(q) || (a.description ?? "").toLowerCase().includes(q));
     const sortItems = (items: RenderItem[]) => {
       if (sortMode === "name") items.sort((x, y) => x.asset.name.localeCompare(y.asset.name, "zh"));
       else if (sortMode === "recent") items.sort((x, y) => recencyOf(y.asset, y.type) - recencyOf(x.asset, x.type));
