@@ -25,6 +25,7 @@ import AuthGate from "@/components/auth/AuthGate";
 import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
+import { isAuthenticationRecoveryError } from "@/lib/apiClient";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -535,6 +536,7 @@ function AuthenticatedHome() {
       setProjects(backendProjects ?? []);
     } catch (error) {
       console.error("Failed to sync projects from backend:", error);
+      if (isAuthenticationRecoveryError(error)) return;
       toast.error(t("toastProjectsSyncFailed"), {
         body: error instanceof Error ? error.message : String(error),
       });
