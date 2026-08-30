@@ -180,6 +180,22 @@ const requestPath = (config?: InternalAxiosRequestConfig): string => {
   return path.startsWith("/api-proxy/") ? path.slice("/api-proxy".length) : path;
 };
 
+/**
+ * Returns true when a normal business request failed only because the local
+ * login session expired and the automatic refresh flow could not recover it.
+ * Callers should let AuthGate's login redirect explain this state instead of
+ * showing a misleading module-level error such as "project sync failed".
+ */
+export const isAuthenticationRecoveryError = (error: unknown): boolean => {
+  if (!axios.isAxiosError(error)) return false;
+
+  const status = error.response?.status;
+  if (status === 401) return true;
+  if (status !== 403) return false;
+
+  return getApiErrorCode(error) === "AUTH_CSRF_FAILED" || requestPath(error.config) === "/auth/refresh";
+};
+
 const REFRESH_EXCLUDED_PATHS = new Set([
   "/auth/setup-status",
   "/auth/setup",

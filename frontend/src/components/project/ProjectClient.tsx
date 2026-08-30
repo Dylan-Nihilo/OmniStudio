@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Palette, Layout, Film, BookOpen, Users, Video, Settings, Key, MessageSquareCode, Clapperboard } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
+import { buildLocalizedPipelineSteps, type PipelineStepId } from "@/lib/pipelineSteps";
 import PipelineSidebar from "@/components/layout/PipelineSidebar";
 import EpisodeMiniList from "@/components/layout/EpisodeMiniList";
 import type { BreadcrumbSegment } from "@/components/layout/BreadcrumbBar";
@@ -26,34 +27,16 @@ import dynamic from "next/dynamic";
 
 const CreativeCanvas = dynamic(() => import("@/components/canvas/CreativeCanvas"), { ssr: false });
 
-// PR-3m · Steps 7-9 (Voice / Final Mix / Export) deprecated. Their
-// functionality moved into:
-//   - Voice  → Cast voice binding + Storyboard DialogueAudioRow (PR-3g-3j)
-//   - Mix    → Assembly Mix phase tab (PR-3k)
-//   - Export → Assembly Export phase tab (PR-3k)
-// Both legacy and unified projects now share the 6-step shape.
-const LEGACY_STEPS = [
-    { id: "script", label: "1. Script", icon: BookOpen },
-    { id: "art_direction", label: "2. Art Direction", icon: Palette },
-    { id: "assets", label: "3. Assets", icon: Users },
-    { id: "storyboard", label: "4. Storyboard", icon: Layout },
-    { id: "motion", label: "5. Motion", icon: Video },
-    { id: "assembly", label: "6. Assembly", icon: Film },
-];
-
-// PR-3f (r2v-workflow-v3) — Unified workflow: 5 steps including Cast.
-// Per-shot tabMode toggle (t2i_i2v vs direct_r2v) inside Storyboard
-// replaces the project-level i2v_legacy / r2v split. Backend enum
-// value remains "r2v" for backward compat — UI normalizes to "Unified".
-// Legacy `assets` step is dropped — Cast supersedes ConsistencyVault
-// for unified projects (ConsistencyVault stays only for legacy workflow).
-const UNIFIED_STEPS = [
-    { id: "script", label: "1. Script", icon: BookOpen },
-    { id: "art_direction", label: "2. Art Direction", icon: Palette },
-    { id: "cast", label: "3. Cast", icon: Users },
-    { id: "storyboard_r2v", label: "4. Storyboard", icon: Clapperboard },
-    { id: "assembly", label: "5. Assembly", icon: Film },
-];
+const STEP_ICONS: Record<PipelineStepId, typeof BookOpen> = {
+    script: BookOpen,
+    art_direction: Palette,
+    assets: Users,
+    cast: Users,
+    storyboard: Layout,
+    storyboard_r2v: Clapperboard,
+    motion: Video,
+    assembly: Film,
+};
 
 export default function ProjectClient({ id, breadcrumbSegments }: { id: string; breadcrumbSegments?: BreadcrumbSegment[] }) {
     const [activeStep, setActiveStep] = useState("script");
@@ -87,21 +70,11 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         // Anything else (i2v_legacy, missing) → legacy 9-step path. Old
         // projects without workflow_mode default to legacy for backward
         // compat (spec §3.2).
-        let base;
-        if (currentProject?.workflow_mode !== "r2v") {
-            base = LEGACY_STEPS;
-        } else if (seriesContentMode === "freeform") {
-            // Phase 6 — freeform mode: skip Script step, episodes start at
-            // Style. Re-number labels accordingly.
-            base = UNIFIED_STEPS
-                .filter(s => s.id !== "script")
-                .map((s, i) => ({ ...s, label: s.label.replace(/^\d+\./, `${i + 1}.`) }));
-        } else {
-            // Scripted unified flow: Cast is always present (per-episode view
-            // of frame-referenced assets). Series-level shared assets are
-            // managed in SeriesDetailPage.
-            base = UNIFIED_STEPS;
-        }
+        const base = buildLocalizedPipelineSteps(
+            currentProject?.workflow_mode,
+            seriesContentMode,
+            (key) => tp(key),
+        ).map((step) => ({ ...step, icon: STEP_ICONS[step.id] }));
 
         // Per-step stage status (conservative signals from project state —
         // NOT wizard done-checks; see storyboard-r2v-unified mock). Script

@@ -1596,6 +1596,40 @@ import sys
 load_user_config()
 
 
+_LLM_RUNTIME_CONFIG_KEYS = {
+    "LLM_PROVIDER",
+    "DASHSCOPE_API_KEY",
+    "DASHSCOPE_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+}
+
+
+def _refresh_llm_runtime(updated_keys: set[str]) -> bool:
+    """Recreate the pipeline LLM adapter when connection settings change.
+
+    ``ScriptProcessor`` is created once with the global pipeline and its OpenAI
+    client is lazy-cached. Updating ``os.environ`` alone therefore leaves the
+    running backend connected with the previous key/base URL until restart.
+    Swapping the adapter is atomic for new requests and lets in-flight requests
+    finish on their existing instance.
+    """
+    changed_keys = updated_keys & _LLM_RUNTIME_CONFIG_KEYS
+    if not changed_keys:
+        return False
+
+    script_processor = getattr(pipeline, "script_processor", None)
+    if script_processor is None:
+        logger.warning("LLM runtime refresh skipped: pipeline has no script processor")
+        return False
+
+    from .llm_adapter import LLMAdapter
+
+    script_processor.llm = LLMAdapter()
+    logger.info("LLM runtime refreshed after config update: %s", sorted(changed_keys))
+    return True
+
 
 @app.get("/config/info")
 def get_config_info():
@@ -1662,6 +1696,11 @@ def update_env_config(config: EnvConfig):
         # Save to file
         save_user_config(config_dict)
         remove_user_config_keys(keys_to_remove)
+
+        # Refresh cached LLM connection state. Without this, ScriptProcessor
+        # keeps using the client created from the previous key/base URL until
+        # the backend process is restarted.
+        _refresh_llm_runtime(set(config_dict) | set(keys_to_remove))
 
         # Reset OSS singleton to pick up new config (non-blocking)
         try:
