@@ -10,10 +10,14 @@ This file provides guidance to AI coding agents (Codex CLI / Qoder) when working
 
 - Git author is already configured for this repo, do not modify git config
 - **NEVER** add `Co-Authored-By` lines in commit messages
+- **Conventional Commits** — every commit message must follow `<type>(<optional-scope>): <summary>` (for example, `fix(auth): reject expired sessions`); use the smallest accurate type and scope
 - Push to GitHub remote (`github`) only, ignore `origin` (deprecated upstream)
 - **NEVER push directly to `main`** — `main` is the shared stable branch for the whole team. All development happens on `feature/*` / `fix/*` / `docs/*` branches; work lands in `main` only via a reviewed, CI-green Pull Request, squash-merged
 - GitHub repository: `Dylan-Nihilo/OmniStudio` (github remote), PRs opened with the `zhxqc` account; see `.codex/workflows/lumenx-git-publish.md` for the full flow
 - **Atomic commits** — 每完成一个独立功能点就立即 commit，不要攒到最后一次性大提交。拆分粒度示例：后端模块 → commit、前端骨架 → commit、UI 组件 → commit、catalog 变更 → commit、bug fix → 单独 commit
+- **Issue-driven fixes** — 从 GitHub Issue 获取的修复需求必须保留 Issue 编号或链接；修复并验证后，及时在对应 Issue 下评论关联 commit / PR、验证结果和仍存在的缺口
+- 当修复完整满足 Issue 验收条件时，优先在 PR 描述中使用 `Fixes #<issue-number>` 自动关闭 Issue；不要仅凭本地提交关闭 Issue
+- 如果因验收未完成、CI / 部署待确认、权限不足或跨仓库限制而无法关闭 Issue，保持 Issue 打开，并在 Issue 评论和最终汇报中明确说明原因及下一步
 
 ## Project Workflow Triggers
 
