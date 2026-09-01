@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { InputRule } from '@tiptap/core'
+import { createUuid } from '@/lib/id'
 
 export interface SceneHeadingOptions {
   HTMLAttributes: Record<string, unknown>
@@ -103,7 +104,7 @@ export const SceneHeading = Node.create<SceneHeadingOptions>({
           tr.delete(start, end)
           const nodeType = state.schema.nodes[this.name]
           tr.setBlockType(start, start, nodeType, {
-            id: crypto.randomUUID(),
+            id: createUuid(),
             intExt,
           })
           tr.insertText(`${intExt}. `, start)
