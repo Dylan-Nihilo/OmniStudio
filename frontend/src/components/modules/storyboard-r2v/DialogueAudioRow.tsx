@@ -39,6 +39,18 @@ const EMOTION_CHIPS = [
     "serious",
 ] as const;
 
+export const getDialogueAudioRowClasses = () =>
+    "w-full rounded-[14px] border border-glass-border bg-surface-inset px-3.5 py-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] transition-colors hover:border-foreground/30 hover:bg-hover-bg group";
+
+export const getDialogueWorkbenchSurfaceClasses = () =>
+    "relative w-full max-w-xl mx-4 rounded-xl border border-glass-border bg-surface shadow-2xl overflow-hidden max-h-[90vh] flex flex-col";
+
+export const getDialogueInputClasses = () =>
+    "w-full rounded-md border border-glass-border bg-input-bg text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40";
+
+export const getDialogueInsetControlClasses = () =>
+    "border-glass-border bg-surface-inset text-text-secondary hover:border-foreground/30 hover:bg-hover-bg hover:text-foreground";
+
 export default function DialogueAudioRow({
     scriptId,
     frameId,
@@ -71,7 +83,7 @@ export default function DialogueAudioRow({
             <button
                 type="button"
                 onClick={() => setModalOpen(true)}
-                className="w-full rounded-[14px] border border-glass-border bg-black/20 px-3.5 py-2.5 text-left hover:border-foreground/30 hover:bg-hover-bg/30 transition-colors group"
+                className={getDialogueAudioRowClasses()}
             >
                 <div className="flex items-center gap-2">
                     <Mic size={12} className="text-text-muted shrink-0" />
@@ -100,13 +112,13 @@ export default function DialogueAudioRow({
                         </span>
                     )}
 
-                    <span className="ml-auto text-[0.6875rem] text-text-muted group-hover:text-text-secondary transition-colors">
+                    <span className={`ml-auto text-[0.6875rem] font-medium transition-colors ${hasAudio ? "text-primary" : "text-text-secondary group-hover:text-foreground"}`}>
                         {hasVideo && hasAudio ? t("openWorkbench") : t("openVoiceGen")}
                     </span>
                 </div>
 
                 {dialogue?.trim() && (
-                    <p className="mt-1 text-[0.6875rem] text-text-muted truncate">
+                    <p className="mt-1 text-[0.6875rem] text-text-secondary truncate">
                         「{dialogue.trim().slice(0, 60)}{dialogue.trim().length > 60 ? "..." : ""}」
                     </p>
                 )}
@@ -312,7 +324,7 @@ function DialogueWorkbenchModal({
                     <motion.div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
                     <motion.div
-                        className="relative w-full max-w-xl mx-4 rounded-xl border border-glass-border bg-surface/95 backdrop-blur-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                        className={getDialogueWorkbenchSurfaceClasses()}
                         initial={{ scale: 0.95, opacity: 0, y: 10 }}
                         animate={{ scale: 1, opacity: 1, y: 0 }}
                         exit={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -354,7 +366,7 @@ function DialogueWorkbenchModal({
                                     onBlur={handleSaveDialogue}
                                     placeholder={t("dialoguePlaceholder")}
                                     rows={2}
-                                    className="w-full rounded-md border border-glass-border bg-black/30 px-3 py-2 text-[0.75rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 resize-none"
+                                    className={`${getDialogueInputClasses()} px-3 py-2 text-[0.75rem] resize-none`}
                                 />
                             </section>
 
@@ -371,7 +383,7 @@ function DialogueWorkbenchModal({
                                             className={`px-2 py-0.5 rounded-full border font-mono text-[0.59375rem] uppercase tracking-[0.12em] transition-colors ${
                                                 emotion === chip
                                                     ? "border-primary bg-primary/15 text-primary"
-                                                    : "border-glass-border bg-black/30 text-text-muted hover:border-foreground/30 hover:text-text-secondary"
+                                                    : getDialogueInsetControlClasses()
                                             }`}
                                         >
                                             {t(`emotion.${chip}`)}
@@ -383,7 +395,7 @@ function DialogueWorkbenchModal({
                                     value={freeText}
                                     onChange={(e) => setFreeText(e.target.value.slice(0, 80))}
                                     placeholder={t("freeTextPlaceholder")}
-                                    className="w-full rounded-md border border-glass-border bg-black/30 px-3 py-1.5 text-[0.6875rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40"
+                                    className={`${getDialogueInputClasses()} px-3 py-1.5 text-[0.6875rem]`}
                                 />
                                 <div className="flex items-center gap-2">
                                     <button
@@ -397,7 +409,7 @@ function DialogueWorkbenchModal({
                                     {audioUrl && (
                                         <button
                                             onClick={handlePlayAudio}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-glass-border bg-black/30 text-[0.75rem] text-text-secondary hover:border-foreground/30 hover:text-foreground transition-colors"
+                                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[0.75rem] transition-colors ${getDialogueInsetControlClasses()}`}
                                         >
                                             {playing ? <Pause size={12} /> : <Play size={12} />}
                                             {playing ? t("pause") : t("previewTts")}
@@ -471,7 +483,7 @@ function DialogueWorkbenchModal({
                                             <button
                                                 type="button"
                                                 onClick={() => setOffsetMs(Math.max(0, offsetMs - 50))}
-                                                className="w-6 h-6 flex items-center justify-center rounded border border-glass-border bg-black/30 text-text-muted hover:text-foreground hover:border-foreground/30 transition-colors"
+                                                className={`w-6 h-6 flex items-center justify-center rounded border text-text-muted transition-colors ${getDialogueInsetControlClasses()}`}
                                             >
                                                 <ChevronLeft size={12} />
                                             </button>
@@ -479,12 +491,12 @@ function DialogueWorkbenchModal({
                                                 type="number"
                                                 value={offsetMs}
                                                 onChange={(e) => setOffsetMs(Math.max(0, Math.min(videoDurationMs, Number(e.target.value) || 0)))}
-                                                className="w-[64px] rounded border border-glass-border bg-black/40 px-1.5 py-0.5 text-center font-mono text-[0.6875rem] text-primary focus:outline-none focus:border-primary/40"
+                                                className="w-[64px] rounded border border-glass-border bg-input-bg px-1.5 py-0.5 text-center font-mono text-[0.6875rem] text-primary focus:outline-none focus:border-primary/40"
                                             />
                                             <button
                                                 type="button"
                                                 onClick={() => setOffsetMs(Math.min(videoDurationMs, offsetMs + 50))}
-                                                className="w-6 h-6 flex items-center justify-center rounded border border-glass-border bg-black/30 text-text-muted hover:text-foreground hover:border-foreground/30 transition-colors"
+                                                className={`w-6 h-6 flex items-center justify-center rounded border text-text-muted transition-colors ${getDialogueInsetControlClasses()}`}
                                             >
                                                 <ChevronRight size={12} />
                                             </button>
@@ -562,7 +574,7 @@ function DialogueWorkbenchModal({
                         </div>
 
                         {/* Footer */}
-                        <div className="px-5 py-3 border-t border-glass-border/50 bg-black/20 shrink-0">
+                        <div className="px-5 py-3 border-t border-glass-border/50 bg-surface-inset shrink-0">
                             <button
                                 type="button"
                                 onClick={onClose}
