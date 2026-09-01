@@ -261,7 +261,7 @@ export const api = {
     },
 
     getProjects: async (): Promise<any[]> => {
-        const res = await apiClient.get(`${API_URL}/projects/`);
+        const res = await apiClient.get(`${API_URL}/projects`);
         return asList<any>(res.data).map((value) => {
             const project = asObject(value);
             return { ...(project as any), originalText: project.original_text } as any;
