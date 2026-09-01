@@ -33,6 +33,7 @@ export type CastKind = "character" | "scene" | "prop";
 
 // Module-level poll registry — survives modal close/reopen.
 export const activePolls = new Map<string, ReturnType<typeof setInterval>>();
+const ASSET_POLL_TIMEOUT_MS = 45_000;
 
 export const getCastPromptTextareaClasses = () =>
     "w-full min-h-[260px] max-h-[400px] rounded-md border border-glass-border bg-input-bg px-3.5 py-2.5 text-[0.875rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 disabled:cursor-wait disabled:bg-surface-inset disabled:text-text-secondary disabled:opacity-100 resize-y leading-relaxed";
@@ -51,39 +52,53 @@ function startAssetPoll(
     progressToastId?: string,
 ) {
     if (activePolls.has(entityId)) return;
+    let timeout: ReturnType<typeof setTimeout>;
+    const stopPolling = (interval: ReturnType<typeof setInterval>) => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        activePolls.delete(entityId);
+        if (progressToastId) toast.dismiss(progressToastId);
+        getStore().removeGeneratingTask(entityId, generationType);
+    };
     const interval = setInterval(async () => {
+        let status;
         try {
-            const status = await api.getTaskStatus(taskId);
-            if (status?.status === "completed") {
-                clearInterval(interval);
-                activePolls.delete(entityId);
-                if (progressToastId) toast.dismiss(progressToastId);
+            status = await api.getTaskStatus(taskId);
+        } catch {
+            if (activePolls.get(entityId) !== interval) return;
+            stopPolling(interval);
+            toast.error(t("toastPollErr"), { body: t("toastPollErrBody") });
+            return;
+        }
+
+        // A timed-out poll may still resolve later. Ignore it if a newer poll
+        // now owns this entity or the watchdog already released the UI state.
+        if (activePolls.get(entityId) !== interval) return;
+
+        if (status?.status === "completed") {
+            stopPolling(interval);
+            try {
                 const fresh = await api.getProject(projectId);
-                const { updateProject, removeGeneratingTask } = getStore();
+                const { updateProject } = getStore();
                 updateProject(projectId, fresh);
-                removeGeneratingTask(entityId, generationType);
                 const entityPool = (kind === "character" ? fresh.characters : kind === "scene" ? fresh.scenes : fresh.props) || [];
                 const updatedEntity = entityPool.find((e: any) => e.id === entityId);
                 const count = updatedEntity ? readVariants(updatedEntity, kind).length : 0;
                 toast.success(t("toastVariantDone"), { body: t("toastVariantDoneBody", { count }) });
-            } else if (status?.status === "failed") {
-                clearInterval(interval);
-                activePolls.delete(entityId);
-                if (progressToastId) toast.dismiss(progressToastId);
-                const { removeGeneratingTask } = getStore();
-                removeGeneratingTask(entityId, generationType);
-                toast.error(t("toastGenErr"), { body: status?.error || t("toastGenErrUnknown") });
+            } catch {
+                toast.error(t("toastPollErr"), { body: t("toastPollErrBody") });
             }
-        } catch (err) {
-            clearInterval(interval);
-            activePolls.delete(entityId);
-            if (progressToastId) toast.dismiss(progressToastId);
-            const { removeGeneratingTask } = getStore();
-            removeGeneratingTask(entityId, generationType);
-            toast.error(t("toastPollErr"), { body: t("toastPollErrBody") });
+        } else if (status?.status === "failed") {
+            stopPolling(interval);
+            toast.error(t("toastGenErr"), { body: status?.error || t("toastGenErrUnknown") });
         }
     }, 2500);
     activePolls.set(entityId, interval);
+    timeout = setTimeout(() => {
+        if (activePolls.get(entityId) !== interval) return;
+        stopPolling(interval);
+        toast.error(t("toastGenErr"), { body: t("toastGenTimeout") });
+    }, ASSET_POLL_TIMEOUT_MS);
 }
 
 interface CastWorkbenchModalProps {

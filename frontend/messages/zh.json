@@ -216,6 +216,7 @@
     "toastGenDoneBody": "候选图已加入素材库，当前共 {count} 张。",
     "toastGenErr": "生成失败",
     "toastGenErrUnknown": "未知错误",
+    "toastGenTimeout": "生成超过 45 秒仍未完成，请稍后重试。",
     "toastSelected": "✓ 参考图已切换",
     "toastSelectErr": "切换失败",
     "templateSelectLabel": "构图模板",
