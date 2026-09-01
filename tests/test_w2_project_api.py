@@ -563,6 +563,52 @@ def test_episode_edit_lease_blocks_second_editor_and_text_save_uses_cas(api_clie
     assert api_client.get(f"/projects/{project_id}").json()["original_text"] == "A 保存的新内容"
 
 
+def test_member_can_release_own_episode_edit_lease(api_client):
+    team_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    project = _create_project(api_client, "成员释放编辑锁")
+    invitation = api_client.post(
+        f"/auth/workspaces/{team_id}/invitations",
+        json={"email": "lease-writer@example.com"},
+    )
+    assert invitation.status_code == 201, invitation.text
+
+    with make_client(api_module.app) as writer:
+        registered = writer.post(
+            "/auth/invitations/register",
+            json={
+                "token": invitation.json()["token"],
+                "username": "lease-writer",
+                "email": "lease-writer@example.com",
+                "password": "writer password 123",
+            },
+        )
+        assert registered.status_code == 201, registered.text
+        workspace_headers = {"X-Workspace-ID": team_id}
+        acquired = writer.post(
+            f"/projects/{project['id']}/edit-lease",
+            headers=workspace_headers,
+            json={"client_instance_id": "writer-browser"},
+        )
+        assert acquired.status_code == 200, acquired.text
+
+        released = writer.request(
+            "DELETE",
+            f"/projects/{project['id']}/edit-lease",
+            headers={
+                **workspace_headers,
+                "X-Edit-Lease": acquired.json()["token"],
+            },
+            json={"client_instance_id": "writer-browser"},
+        )
+
+    assert released.status_code == 204, released.text
+    reacquired = api_client.post(
+        f"/projects/{project['id']}/edit-lease",
+        json={"client_instance_id": "owner-browser"},
+    )
+    assert reacquired.status_code == 200, reacquired.text
+
+
 def test_shared_library_is_isolated_by_workspace(api_client):
     primary = api_client.get("/auth/me").json()["workspace"]
     created = api_client.post(

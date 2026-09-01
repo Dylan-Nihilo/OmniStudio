@@ -459,7 +459,11 @@ def _owner_required_for_request(method: str, path: str) -> bool:
     if parts and parts[0] == "library":
         return True
     if method == "DELETE" and parts and parts[0] in {"projects", "series"}:
-        return True
+        return not (
+            len(parts) == 3
+            and parts[0] == "projects"
+            and parts[2] == "edit-lease"
+        )
     return False
 
 
