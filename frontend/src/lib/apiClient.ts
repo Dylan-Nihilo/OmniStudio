@@ -34,6 +34,9 @@ const getApiUrl = (): string => {
 };
 
 export const API_URL = getApiUrl();
+export const resolveAuthApiUrl = (apiUrl: string): string =>
+  apiUrl === "/api-proxy" ? "" : apiUrl;
+export const AUTH_API_URL = resolveAuthApiUrl(API_URL);
 export const AUTH_RETURN_TO_KEY = "omni_studio.auth.returnTo";
 export const AUTH_EXPIRED_EVENT = "omni_studio:auth-expired";
 const CSRF_COOKIE_NAME = "omni_studio_csrf";
@@ -146,7 +149,10 @@ const attachCsrfHeader = (config: InternalAxiosRequestConfig): InternalAxiosRequ
 };
 
 const bareClient = axios.create({
-  baseURL: API_URL,
+  // In development, auth requests use the dedicated same-origin `/auth/*`
+  // rewrite so the browser sends the refresh cookie scoped to Path=/auth.
+  // Normal business requests continue through `/api-proxy/*`.
+  baseURL: AUTH_API_URL,
   withCredentials: true,
   timeout: 30_000,
 });
@@ -156,8 +162,8 @@ export const apiClient = axios.create({
   // Callers pass the complete API_URL-prefixed path. Keeping a base URL here
   // would make Axios combine `/api-proxy` with `/api-proxy/...` in development,
   // producing `/api-proxy/api-proxy/...` and a misleading 404 from Next.js.
-  // `bareClient` below intentionally keeps API_URL as its base for the few
-  // auth requests that use relative paths.
+  // `bareClient` above intentionally uses AUTH_API_URL for the few auth
+  // requests that use relative paths.
   baseURL: "",
   withCredentials: true,
   timeout: 30_000,

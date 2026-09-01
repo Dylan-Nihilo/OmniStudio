@@ -34,6 +34,9 @@ interface PromptExpandModalProps {
     onClose: () => void;
 }
 
+export const getPromptExpandTextareaClasses = () =>
+    "flex-1 w-full resize-none rounded-md border border-glass-border bg-input-bg px-4 py-3 font-sans text-body text-foreground leading-relaxed placeholder:text-text-muted outline-none transition-colors duration-fast ease-out-quart focus:border-primary/55 focus-visible:ring-2 focus-visible:ring-primary/45";
+
 export default function PromptExpandModal({
     initialValue,
     shotLabel,
@@ -163,7 +166,7 @@ export default function PromptExpandModal({
                         onChange={(e) => setDraft(e.target.value)}
                         placeholder={placeholder}
                         spellCheck={false}
-                        className="flex-1 w-full resize-none rounded-md border border-glass-border bg-black/30 px-4 py-3 font-sans text-body text-foreground leading-relaxed placeholder:text-text-muted outline-none transition-colors duration-fast ease-out-quart focus:border-primary/55 focus-visible:ring-2 focus-visible:ring-primary/45"
+                        className={getPromptExpandTextareaClasses()}
                     />
                 </div>
                 <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-glass-border px-4 py-2.5 font-mono text-chrome-sm tracking-tight text-text-muted">

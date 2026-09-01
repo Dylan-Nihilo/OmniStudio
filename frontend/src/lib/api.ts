@@ -1,4 +1,4 @@
-import { apiClient, apiStreamRequest, API_URL } from "@/lib/apiClient";
+import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
 export { API_URL } from "@/lib/apiClient";
@@ -93,15 +93,15 @@ export interface LegacyClaimStatus {
 
 export const legacyClaimApi = {
     getStatus: () =>
-        apiClient.get<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/status`).then((response) => response.data),
+        apiClient.get<LegacyClaimStatus>(`${AUTH_API_URL}/auth/legacy-claim/status`).then((response) => response.data),
     preview: () =>
-        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/preview`).then((response) => response.data),
+        apiClient.post<LegacyClaimStatus>(`${AUTH_API_URL}/auth/legacy-claim/preview`).then((response) => response.data),
     apply: (expectedSourceSha256: string) =>
-        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/apply`, {
+        apiClient.post<LegacyClaimStatus>(`${AUTH_API_URL}/auth/legacy-claim/apply`, {
             expected_source_sha256: expectedSourceSha256,
         }).then((response) => response.data),
     rollback: () =>
-        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/rollback`).then((response) => response.data),
+        apiClient.post<LegacyClaimStatus>(`${AUTH_API_URL}/auth/legacy-claim/rollback`).then((response) => response.data),
 };
 
 // R2V v2 Phase 4 — Cross-episode reconcile types
@@ -898,7 +898,11 @@ export const api = {
     },
 
     generateStoryboard: async (scriptId: string) => {
-        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/generate_storyboard`);
+        const res = await apiClient.post(
+            `${API_URL}/projects/${scriptId}/generate_storyboard`,
+            undefined,
+            { timeout: 120_000 },
+        );
         return res.data;
     },
 

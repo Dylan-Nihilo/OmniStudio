@@ -10,6 +10,7 @@ const { get, post, refreshCsrfToken } = vi.hoisted(() => ({
 
 vi.mock("@/lib/apiClient", () => ({
   API_URL: "/api-proxy",
+  AUTH_API_URL: "",
   apiClient: { get, post },
   clearReturnHash: vi.fn(),
   refreshCsrfToken,
@@ -61,7 +62,11 @@ describe("authStore legacy claim discovery", () => {
       password: "demo password",
     });
 
-    expect(get).toHaveBeenCalledWith("/api-proxy/auth/legacy-claim/status");
+    expect(post).toHaveBeenCalledWith("/auth/login", {
+      identifier: "owner",
+      password: "demo password",
+    });
+    expect(get).toHaveBeenCalledWith("/auth/legacy-claim/status");
     expect(useAuthStore.getState().legacyClaimPending).toBe(true);
   });
 
@@ -73,7 +78,7 @@ describe("authStore legacy claim discovery", () => {
       password: "demo password",
     });
 
-    expect(get).toHaveBeenCalledWith("/api-proxy/auth/legacy-claim/status");
+    expect(get).toHaveBeenCalledWith("/auth/legacy-claim/status");
     expect(useAuthStore.getState().legacyClaimPending).toBe(false);
   });
 
@@ -90,6 +95,14 @@ describe("authStore legacy claim discovery", () => {
 
     expect(refreshCsrfToken).toHaveBeenCalledTimes(2);
     expect(post).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenNthCalledWith(1, "/auth/login", {
+      identifier: "owner",
+      password: "demo password",
+    });
+    expect(post).toHaveBeenNthCalledWith(2, "/auth/login", {
+      identifier: "owner",
+      password: "demo password",
+    });
     expect(useAuthStore.getState().user).toEqual(user);
   });
 });

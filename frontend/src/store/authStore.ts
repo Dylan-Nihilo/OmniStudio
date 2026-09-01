@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { apiClient, API_URL, clearReturnHash, refreshCsrfToken } from "@/lib/apiClient";
+import { apiClient, AUTH_API_URL, clearReturnHash, refreshCsrfToken } from "@/lib/apiClient";
 
 export interface AuthUser {
   id: string;
@@ -95,7 +95,7 @@ const hasLegacyClaimWork = (status: ClaimDiscoveryResponse): boolean =>
 
 const discoverLegacyClaim = async (): Promise<boolean> => {
   try {
-    const { data } = await apiClient.get<ClaimDiscoveryResponse>(`${API_URL}/auth/legacy-claim/status`);
+    const { data } = await apiClient.get<ClaimDiscoveryResponse>(`${AUTH_API_URL}/auth/legacy-claim/status`);
     return hasLegacyClaimWork(data);
   } catch {
     return false;
@@ -131,7 +131,7 @@ export const useAuthStore = create<AuthStore>()(
 
         set({ bootstrapping: true });
         bootstrapPromise = (async () => {
-          const { data: setupStatus } = await apiClient.get<SetupStatus>(`${API_URL}/auth/setup-status`);
+          const { data: setupStatus } = await apiClient.get<SetupStatus>(`${AUTH_API_URL}/auth/setup-status`);
           set({
             initialized: setupStatus.initialized,
             setupStatus,
@@ -141,7 +141,7 @@ export const useAuthStore = create<AuthStore>()(
           if (!setupStatus.initialized) return;
 
           try {
-            const { data } = await apiClient.get<MeResponse>(`${API_URL}/auth/me`);
+            const { data } = await apiClient.get<MeResponse>(`${AUTH_API_URL}/auth/me`);
             const claimPending = await discoverLegacyClaim();
             set({
               user: data.user,
@@ -166,7 +166,7 @@ export const useAuthStore = create<AuthStore>()(
           ...input,
           setup_token: input.setup_token?.trim() || undefined,
         };
-        const { data } = await apiClient.post<AuthResponse>(`${API_URL}/auth/setup`, payload);
+        const { data } = await apiClient.post<AuthResponse>(`${AUTH_API_URL}/auth/setup`, payload);
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
@@ -180,13 +180,13 @@ export const useAuthStore = create<AuthStore>()(
         await refreshCsrfToken();
         let response;
         try {
-          response = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
+          response = await apiClient.post<AuthResponse>(`${AUTH_API_URL}/auth/login`, input);
         } catch (error) {
           if (!isCsrfFailure(error)) throw error;
           // A backend restart or expired session can leave a stale CSRF cookie.
           // Refresh the anonymous token once, then retry the same login request.
           await refreshCsrfToken();
-          response = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
+          response = await apiClient.post<AuthResponse>(`${AUTH_API_URL}/auth/login`, input);
         }
         const { data } = response;
         const claimPending = await discoverLegacyClaim();
@@ -201,7 +201,7 @@ export const useAuthStore = create<AuthStore>()(
       logout: async () => {
         let requestError: unknown;
         try {
-          await apiClient.post(`${API_URL}/auth/logout`);
+          await apiClient.post(`${AUTH_API_URL}/auth/logout`);
         } catch (error) {
           requestError = error;
         } finally {
@@ -215,26 +215,26 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       refreshUser: async () => {
-        const { data } = await apiClient.get<MeResponse>(`${API_URL}/auth/me`);
+        const { data } = await apiClient.get<MeResponse>(`${AUTH_API_URL}/auth/me`);
         set({ user: data.user });
       },
 
       changePassword: async (input) => {
-        await apiClient.post(`${API_URL}/auth/change-password`, input);
+        await apiClient.post(`${AUTH_API_URL}/auth/change-password`, input);
         get().clearSession();
         clearReturnHash();
       },
 
       getPasswordResetStatus: async () => {
         const { data } = await apiClient.get<PasswordResetStatus>(
-          `${API_URL}/auth/password-reset/status`,
+          `${AUTH_API_URL}/auth/password-reset/status`,
         );
         return data;
       },
 
       resetPassword: async (input) => {
         await refreshCsrfToken();
-        await apiClient.post(`${API_URL}/auth/password-reset`, {
+        await apiClient.post(`${AUTH_API_URL}/auth/password-reset`, {
           ...input,
           recovery_token: input.recovery_token?.trim() || undefined,
         });

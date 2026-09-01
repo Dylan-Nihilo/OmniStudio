@@ -43,6 +43,12 @@ interface PipelineSidebarProps {
     projectSubLabel?: string;
 }
 
+export const getActiveStepIndicatorClasses = () =>
+    "absolute left-0 inset-y-[20%] w-1 rounded-r-sm bg-primary shadow-[var(--glow-primary)]";
+
+export const getStepMetaClasses = () =>
+    "flex w-full min-w-0 items-start gap-1.5 font-mono text-[9px] leading-tight tracking-[0.08em] text-text-muted";
+
 export default function PipelineSidebar({ activeStep, onStepChange, steps, breadcrumbSegments, headerActions, topSlot, projectLabel, projectSubLabel }: PipelineSidebarProps) {
     const tc = useTranslations("common");
     const tp = useTranslations("pipeline");
@@ -143,7 +149,7 @@ export default function PipelineSidebar({ activeStep, onStepChange, steps, bread
                             {isActive && (
                                 <motion.div
                                     layoutId="active-pill"
-                                    className="absolute left-0 top-1/2 -translate-y-1/2 h-3/5 w-1 rounded-r-sm bg-primary shadow-[var(--glow-primary)]"
+                                    className={getActiveStepIndicatorClasses()}
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
                                 />
@@ -164,13 +170,13 @@ export default function PipelineSidebar({ activeStep, onStepChange, steps, bread
                                         </span>
                                     )}
                                 </div>
-                                {/* rsub — single line: STEP 0N · status (mock pattern) */}
-                                <span className="flex items-center gap-1.5 font-mono text-[9px] tracking-[0.12em] text-text-muted">
-                                    <span className="opacity-70">{tp("stepIndex", { number: index + 1 })}</span>
+                                {/* rsub — wraps only when the rail is too narrow for the full status. */}
+                                <span className={getStepMetaClasses()}>
+                                    <span className="shrink-0 whitespace-nowrap opacity-70">{tp("stepIndex", { number: index + 1 })}</span>
                                     {step.statusLabel ? (
                                         <>
-                                            <span className="opacity-50">·</span>
-                                            <span className="truncate">{step.statusLabel}</span>
+                                            <span className="shrink-0 opacity-50">·</span>
+                                            <span className="min-w-0 break-words text-left">{step.statusLabel}</span>
                                         </>
                                     ) : null}
                                 </span>

@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import packageJson from '../../package.json';
+import nextConfig from '../../next.config.mjs';
 import { buildNextDevEnv } from '../../scripts/run-next-dev.mjs';
 
 describe('frontend dev runtime', () => {
+    it('proxies auth requests without changing the browser-visible cookie path', async () => {
+        const rewrites = await nextConfig.rewrites();
+        const authRewrite = rewrites.find((rewrite) => rewrite.source === '/auth/:path*');
+
+        expect(authRewrite?.destination).toMatch(/\/auth\/:path\*$/);
+    });
+
     it('routes npm run dev through the repo-controlled wrapper script', () => {
         expect(packageJson.scripts.dev).toBe('node ./scripts/run-next-dev.mjs');
     });
