@@ -124,7 +124,7 @@ export default function PlaygroundPage() {
   // ─── Generate handler — enqueue a request; the dispatcher runs it ──────────
 
   const handleGenerate = useCallback(() => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || (MODES_WITH_MEDIA.includes(mode) && inputMedia.length === 0)) return;
     // Auto-detect i2i: t2i + reference images -> i2i
     const effectiveMode = (mode === 't2i' && inputMedia.length > 0) ? 'i2i' : mode;
     enqueueRequest({
@@ -187,7 +187,8 @@ export default function PlaygroundPage() {
 
   const resultCount = history.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0);
   const showMediaInput = MODES_WITH_MEDIA.includes(mode) || MODES_WITH_OPTIONAL_MEDIA.includes(mode);
-  const canGenerate = prompt.trim().length > 0;
+  const canGenerate = prompt.trim().length > 0
+    && (!MODES_WITH_MEDIA.includes(mode) || inputMedia.length > 0);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
