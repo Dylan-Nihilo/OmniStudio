@@ -898,7 +898,11 @@ export const api = {
     },
 
     generateStoryboard: async (scriptId: string) => {
-        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/generate_storyboard`);
+        const res = await apiClient.post(
+            `${API_URL}/projects/${scriptId}/generate_storyboard`,
+            undefined,
+            { timeout: 120_000 },
+        );
         return res.data;
     },
 
