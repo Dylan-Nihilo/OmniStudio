@@ -402,8 +402,11 @@ export default function StoryboardR2V() {
             if (frames) updateProject(currentProject.id, { frames });
         } catch (err) {
             debugLog.warn("Studio", "addShot backend persist failed", err);
+            toast.error(t("saveFailed"), {
+                body: err instanceof Error ? err.message : t("unknownError"),
+            });
         }
-    }, [currentProject, updateProject]);
+    }, [currentProject, t, updateProject]);
 
     // PR-3 followup · LLM storyboard generation. State + handler live at
     // the StoryboardR2V level (not in a sub-component) because the toast
@@ -719,10 +722,15 @@ export default function StoryboardR2V() {
                     );
                     updateProject(projectId, { frames: nextFrames });
                 })
-                .catch((err) => debugLog.warn("Studio", "persistField failed", err));
+                .catch((err) => {
+                    debugLog.warn("Studio", "persistField failed", err);
+                    toast.error(t("saveFailed"), {
+                        body: err instanceof Error ? err.message : t("unknownError"),
+                    });
+                });
         }, 3000);
         map.set(shotId, { timer, fields: merged });
-    }, [shots, currentProject?.id, updateProject]);
+    }, [shots, currentProject?.id, t, updateProject]);
 
     // Duration editor config — derived from active R2V model's catalog entry
     const durationEditorCfg = useMemo(() => {
