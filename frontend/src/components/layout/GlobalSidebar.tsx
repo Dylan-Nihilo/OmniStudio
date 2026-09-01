@@ -128,7 +128,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
           className="border-b border-glass-border px-4 pb-3.5 pt-4 text-left transition-opacity hover:opacity-90"
         >
           <OmniStudioBranding size="sm" showSlogan={false} />
-          <p className="atelier-display mt-1.5 font-display text-[0.6875rem] italic leading-snug tracking-wide text-text-muted">
+          <p className="atelier-display mt-1.5 w-[120px] text-center font-display text-[0.6875rem] italic leading-snug tracking-wide text-text-muted">
             Stories, Rendered Alive.
           </p>
         </button>
