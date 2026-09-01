@@ -61,7 +61,10 @@ def get_current_user(request: Request, service: Annotated[AuthService, Depends(g
         payload = decode_access_token(token, service.settings.signing_secret, issuer=service.settings.issuer, audience=service.settings.audience)
     except Exception as exc:
         raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401) from exc
-    return service.get_current_user(user_id=payload["sub"], session_id=payload["sid"])
+    context = service.get_current_user(user_id=payload["sub"], session_id=payload["sid"])
+    if request.url.path.startswith("/auth/"):
+        return context
+    return service.resolve_workspace(context, request.headers.get("x-workspace-id"))
 
 
 def get_optional_current_user(request: Request, service: Annotated[AuthService, Depends(get_auth_service)]) -> AuthContext | None:

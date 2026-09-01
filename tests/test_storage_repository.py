@@ -10,7 +10,8 @@ from sqlalchemy.pool import StaticPool
 from src.apps.comic_gen.models import Script as ScriptPayload
 from src.apps.comic_gen.models import Series as SeriesPayload
 from src.storage.db import create_engine, init_schema
-from src.storage.errors import StorageError
+from src.storage.auth_repository import AuthRepository
+from src.storage.errors import StorageConflictError, StorageError
 from src.storage.repository import SQLiteRepository
 from src.storage.schema import Episode, Project, Script, Series
 
@@ -63,12 +64,196 @@ def make_series(series_id: str = "series-1") -> SeriesPayload:
     )
 
 
+def seed_collaboration_identities(engine) -> None:
+    auth = AuthRepository(engine)
+    for user_id, username in (("user-a", "usera"), ("user-b", "userb")):
+        auth.create_user(
+            {
+                "id": user_id,
+                "username": username,
+                "username_normalized": username,
+                "email": f"{username}@example.com",
+                "email_normalized": f"{username}@example.com",
+                "password_hash": "test",
+            }
+        )
+    auth.create_workspace(
+        {
+            "id": "workspace-1",
+            "owner_user_id": "user-a",
+            "name": "Team",
+            "slug": "default",
+        }
+    )
+
+
 def test_script_round_trip(repository):
     script = make_script()
 
     repository.save_scripts({script.id: script})
 
     assert repository.load_scripts() == {script.id: script}
+
+
+def test_script_edit_lease_is_single_writer_per_episode(repository, memory_engine):
+    seed_collaboration_identities(memory_engine)
+    script = make_script()
+    repository.save_scripts({script.id: script})
+    repository.assign_workspace_for_script(script.id, "workspace-1")
+
+    first = repository.acquire_script_edit_lease(
+        script.id,
+        workspace_id="workspace-1",
+        user_id="user-a",
+        display_name="A",
+        client_instance_id="browser-a",
+        now=100.0,
+        ttl_seconds=90,
+    )
+    blocked = repository.acquire_script_edit_lease(
+        script.id,
+        workspace_id="workspace-1",
+        user_id="user-b",
+        display_name="B",
+        client_instance_id="browser-b",
+        now=101.0,
+        ttl_seconds=90,
+    )
+    parallel = make_script("script-2", title="Episode 2")
+    repository.save_scripts({parallel.id: parallel})
+    repository.assign_workspace_for_script(parallel.id, "workspace-1")
+    second_episode = repository.acquire_script_edit_lease(
+        parallel.id,
+        workspace_id="workspace-1",
+        user_id="user-b",
+        display_name="B",
+        client_instance_id="browser-b",
+        now=101.0,
+        ttl_seconds=90,
+    )
+    active = repository.get_active_script_edit_lease(script.id, now=101.0)
+    expired = repository.get_active_script_edit_lease(script.id, now=191.0)
+
+    assert first.acquired is True
+    assert first.token
+    assert blocked.acquired is False
+    assert blocked.holder_display_name == "usera"
+    assert active is not None
+    assert active.client_instance_id == "browser-a"
+    assert expired is None
+    assert second_episode.acquired is True
+
+
+def test_script_text_save_requires_live_lease_and_matching_revision(repository, memory_engine):
+    seed_collaboration_identities(memory_engine)
+    script = make_script()
+    repository.save_scripts({script.id: script})
+    repository.assign_workspace_for_script(script.id, "workspace-1")
+    base_revision = repository.script_revision(script.id)
+    lease = repository.acquire_script_edit_lease(
+        script.id,
+        workspace_id="workspace-1",
+        user_id="user-a",
+        display_name="A",
+        client_instance_id="browser-a",
+        now=100.0,
+        ttl_seconds=90,
+    )
+
+    saved = repository.update_script_text_cas(
+        script.id,
+        text="A wrote this",
+        expected_revision=base_revision,
+        lease_token=lease.token,
+        user_id="user-a",
+        client_instance_id="browser-a",
+        now=110.0,
+    )
+    stale = repository.update_script_text_cas(
+        script.id,
+        text="stale overwrite",
+        expected_revision=base_revision,
+        lease_token=lease.token,
+        user_id="user-a",
+        client_instance_id="browser-a",
+        now=111.0,
+    )
+    expired = repository.update_script_text_cas(
+        script.id,
+        text="after expiry",
+        expected_revision=saved.revision,
+        lease_token=lease.token,
+        user_id="user-a",
+        client_instance_id="browser-a",
+        now=191.0,
+    )
+
+    assert saved.status == "saved"
+    assert saved.revision != base_revision
+    assert stale.status == "conflict"
+    assert expired.status == "lease_invalid"
+    assert repository.load_scripts()[script.id].original_text == "A wrote this"
+
+
+def test_script_edit_lease_heartbeat_and_release(repository, memory_engine):
+    seed_collaboration_identities(memory_engine)
+    script = make_script()
+    repository.save_scripts({script.id: script})
+    repository.assign_workspace_for_script(script.id, "workspace-1")
+    lease = repository.acquire_script_edit_lease(
+        script.id,
+        workspace_id="workspace-1",
+        user_id="user-a",
+        display_name="A",
+        client_instance_id="browser-a",
+        now=100.0,
+        ttl_seconds=90,
+    )
+
+    renewed_until = repository.heartbeat_script_edit_lease(
+        script.id,
+        user_id="user-a",
+        client_instance_id="browser-a",
+        lease_token=lease.token,
+        now=150.0,
+        ttl_seconds=90,
+    )
+    released = repository.release_script_edit_lease(
+        script.id,
+        user_id="user-a",
+        client_instance_id="browser-a",
+        lease_token=lease.token,
+    )
+    next_editor = repository.acquire_script_edit_lease(
+        script.id,
+        workspace_id="workspace-1",
+        user_id="user-b",
+        display_name="B",
+        client_instance_id="browser-b",
+        now=151.0,
+        ttl_seconds=90,
+    )
+
+    assert renewed_until == 240.0
+    assert released is True
+    assert next_editor.acquired is True
+
+
+def test_stale_pipeline_save_cannot_overwrite_newer_script_payload(memory_engine):
+    first = SQLiteRepository(memory_engine)
+    second = SQLiteRepository(memory_engine)
+    script = make_script()
+    first.save_scripts({script.id: script})
+    stale_copy = second.load_scripts()[script.id]
+    current_copy = first.load_scripts()[script.id]
+
+    current_copy.original_text = "newer generation result"
+    first.save_scripts({script.id: current_copy})
+    stale_copy.original_text = "stale generation result"
+
+    with pytest.raises(StorageConflictError):
+        second.save_scripts({script.id: stale_copy})
+    assert first.load_scripts()[script.id].original_text == "newer generation result"
 
 
 def test_save_script_fills_standalone_envelopes(repository, memory_engine):
@@ -220,6 +405,3 @@ def test_delete_series_preserves_project_and_scripts_and_detaches_episodes(repos
         assert connection.execute(
             select(Episode.series_id).where(Episode.id == episode.id)
         ).scalar_one() is None
-
-
-

@@ -167,6 +167,88 @@ class Workspace(Base):
     )
 
 
+class WorkspaceMembership(Base):
+    __tablename__ = "workspace_memberships"
+
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    invited_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    joined_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'member')", name="ck_workspace_memberships_role"),
+        Index("ix_workspace_memberships_user", "user_id", "workspace_id"),
+        Index("uq_workspace_memberships_owner", "workspace_id", unique=True, sqlite_where=(role == "owner")),
+    )
+
+
+class WorkspaceInvitation(Base):
+    __tablename__ = "workspace_invitations"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    email_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    invited_by_user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    accepted_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    accepted_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    revoked_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("expires_at > created_at", name="ck_workspace_invitations_expiry"),
+        Index("ix_workspace_invitations_workspace", "workspace_id", "created_at"),
+        Index("ix_workspace_invitations_email", "email_normalized", "expires_at"),
+    )
+
+
+class WorkspaceProviderConfig(Base):
+    __tablename__ = "workspace_provider_configs"
+
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    config_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    updated_by_user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(config_json)", name="ck_workspace_provider_configs_json"),
+    )
+
+
 class Session(Base):
     __tablename__ = "sessions"
 
@@ -322,6 +404,37 @@ class Script(Base):
     )
 
 
+class ScriptEditLease(Base):
+    __tablename__ = "script_edit_leases"
+
+    script_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("scripts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    holder_user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    client_instance_id: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    acquired_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    heartbeat_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("expires_at > heartbeat_at", name="ck_script_edit_leases_expiry"),
+        Index("ix_script_edit_leases_expiry", "expires_at"),
+        Index("ix_script_edit_leases_holder", "holder_user_id", "expires_at"),
+    )
+
+
 # Explicit DESC expressions preserve the ordering specified by the SQLite DDL.
 Index(
     "ix_migration_runs_source",
@@ -344,9 +457,13 @@ __all__ = [
     "LegacyClaimBatch",
     "User",
     "Workspace",
+    "WorkspaceMembership",
+    "WorkspaceInvitation",
+    "WorkspaceProviderConfig",
     "Session",
     "Project",
     "Series",
     "Episode",
     "Script",
+    "ScriptEditLease",
 ]

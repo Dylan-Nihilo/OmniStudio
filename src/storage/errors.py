@@ -9,6 +9,10 @@ class StorageError(Exception):
         super().__init__(self.message)
 
 
+class StorageConflictError(StorageError):
+    """Raised when a stale aggregate attempts to overwrite newer persisted data."""
+
+
 class MigrationError(StorageError):
     """Raised when a schema or data migration cannot be completed safely."""
 

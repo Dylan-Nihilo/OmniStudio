@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.engine import Engine
 
 from .db import begin_immediate
-from .schema import Session, User, Workspace
+from .schema import (
+    Session,
+    User,
+    Workspace,
+    WorkspaceInvitation,
+    WorkspaceMembership,
+    WorkspaceProviderConfig,
+)
 
 
 def _values(value: Mapping[str, Any] | Any) -> dict[str, Any]:
@@ -30,6 +38,19 @@ def _model_from_mapping(model_type: type[Any], row: Mapping[str, Any] | None) ->
 
 @dataclass(frozen=True)
 class OwnerSetupResult:
+    user: User
+    workspace: Workspace
+    session: Session
+
+
+@dataclass(frozen=True)
+class WorkspaceAccess:
+    workspace: Workspace
+    role: str
+
+
+@dataclass(frozen=True)
+class InvitationRegistrationResult:
     user: User
     workspace: Workspace
     session: Session
@@ -95,14 +116,47 @@ class AuthRepository:
         return _model_from_mapping(User, row)
 
     def get_default_workspace(self, user_id: str) -> Workspace | None:
-        statement = (
-            select(Workspace.__table__)
-            .where(and_(Workspace.owner_user_id == user_id, Workspace.slug == "default"))
-            .limit(1)
-        )
+        statement = select(Workspace.__table__).join(
+            WorkspaceMembership.__table__,
+            WorkspaceMembership.workspace_id == Workspace.id,
+        ).where(
+            WorkspaceMembership.user_id == user_id,
+            WorkspaceMembership.role == "owner",
+            Workspace.slug == "default",
+        ).limit(1)
         with self.engine.connect() as connection:
             row = connection.execute(statement).mappings().first()
         return _model_from_mapping(Workspace, row)
+
+    def list_user_workspaces(self, user_id: str) -> list[WorkspaceAccess]:
+        statement = (
+            select(Workspace.__table__, WorkspaceMembership.role.label("membership_role"))
+            .join(
+                WorkspaceMembership.__table__,
+                WorkspaceMembership.workspace_id == Workspace.id,
+            )
+            .where(WorkspaceMembership.user_id == user_id)
+            .order_by(WorkspaceMembership.joined_at, Workspace.name)
+        )
+        with self.engine.connect() as connection:
+            rows = connection.execute(statement).mappings().all()
+        return [
+            WorkspaceAccess(
+                workspace=Workspace(**{column.name: row[column.name] for column in Workspace.__table__.columns}),
+                role=str(row["membership_role"]),
+            )
+            for row in rows
+        ]
+
+    def get_membership(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None:
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(WorkspaceMembership.__table__).where(
+                    WorkspaceMembership.workspace_id == workspace_id,
+                    WorkspaceMembership.user_id == user_id,
+                )
+            ).mappings().first()
+        return _model_from_mapping(WorkspaceMembership, row)
 
     def get_workspace(self, workspace_id: str) -> Workspace | None:
         with self.engine.connect() as connection:
@@ -124,6 +178,281 @@ class AuthRepository:
                 select(Workspace.__table__).where(Workspace.id == data["id"])
             ).mappings().one()
         return _model_from_mapping(Workspace, row)
+
+    def create_owned_workspace(
+        self,
+        *,
+        user_id: str,
+        name: str,
+        slug: str,
+        now: float,
+    ) -> WorkspaceAccess:
+        workspace_id = str(uuid.uuid4())
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                connection.execute(
+                    Workspace.__table__.insert().values(
+                        id=workspace_id,
+                        owner_user_id=user_id,
+                        name=name,
+                        slug=slug,
+                        created_at=now,
+                        updated_at=now,
+                        metadata_json="{}",
+                    )
+                )
+                connection.execute(
+                    WorkspaceMembership.__table__.insert().values(
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        role="owner",
+                        invited_by_user_id=None,
+                        joined_at=now,
+                    )
+                )
+                row = connection.execute(
+                    select(Workspace.__table__).where(Workspace.id == workspace_id)
+                ).mappings().one()
+        return WorkspaceAccess(_model_from_mapping(Workspace, row), "owner")
+
+    def create_invitation(
+        self,
+        *,
+        workspace_id: str,
+        email_normalized: str,
+        token_hash: str,
+        invited_by_user_id: str,
+        now: float,
+        expires_at: float,
+    ) -> WorkspaceInvitation:
+        invitation_id = str(uuid.uuid4())
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                connection.execute(
+                    WorkspaceInvitation.__table__.insert().values(
+                        id=invitation_id,
+                        workspace_id=workspace_id,
+                        email_normalized=email_normalized,
+                        token_hash=token_hash,
+                        invited_by_user_id=invited_by_user_id,
+                        created_at=now,
+                        expires_at=expires_at,
+                    )
+                )
+                row = connection.execute(
+                    select(WorkspaceInvitation.__table__).where(
+                        WorkspaceInvitation.id == invitation_id
+                    )
+                ).mappings().one()
+        return _model_from_mapping(WorkspaceInvitation, row)
+
+    def list_workspace_members(self, workspace_id: str) -> list[dict[str, Any]]:
+        statement = (
+            select(
+                User.id,
+                User.username,
+                User.email,
+                User.display_name,
+                WorkspaceMembership.role,
+                WorkspaceMembership.joined_at,
+            )
+            .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+            .where(WorkspaceMembership.workspace_id == workspace_id)
+            .order_by(WorkspaceMembership.role.desc(), WorkspaceMembership.joined_at)
+        )
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(statement).mappings().all()]
+
+    def remove_member(self, workspace_id: str, user_id: str) -> bool:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                membership = connection.execute(
+                    select(WorkspaceMembership.role).where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                ).scalar_one_or_none()
+                if membership == "owner":
+                    raise ValueError("WORKSPACE_OWNER_CANNOT_BE_REMOVED")
+                result = connection.execute(
+                    delete(WorkspaceMembership).where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                )
+        return result.rowcount == 1
+
+    def get_workspace_provider_config(self, workspace_id: str) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            raw = connection.execute(
+                select(WorkspaceProviderConfig.config_json).where(
+                    WorkspaceProviderConfig.workspace_id == workspace_id
+                )
+            ).scalar_one_or_none()
+        return json.loads(raw) if raw else {}
+
+    def update_workspace_provider_config(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        values: Mapping[str, str],
+        removed_keys: list[str],
+        now: float,
+    ) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                raw = connection.execute(
+                    select(WorkspaceProviderConfig.config_json).where(
+                        WorkspaceProviderConfig.workspace_id == workspace_id
+                    )
+                ).scalar_one_or_none()
+                config = json.loads(raw) if raw else {}
+                config.update(values)
+                for key in removed_keys:
+                    config[key] = ""
+                payload = json.dumps(config, ensure_ascii=False, sort_keys=True)
+                if raw is None:
+                    connection.execute(
+                        WorkspaceProviderConfig.__table__.insert().values(
+                            workspace_id=workspace_id,
+                            config_json=payload,
+                            updated_by_user_id=user_id,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    connection.execute(
+                        update(WorkspaceProviderConfig)
+                        .where(WorkspaceProviderConfig.workspace_id == workspace_id)
+                        .values(
+                            config_json=payload,
+                            updated_by_user_id=user_id,
+                            updated_at=now,
+                        )
+                    )
+        return config
+
+    def register_from_invitation_atomically(
+        self,
+        *,
+        token_hash: str,
+        now: float,
+        user_values: Mapping[str, Any],
+        workspace_values: Mapping[str, Any],
+        session_values: Mapping[str, Any],
+    ) -> InvitationRegistrationResult:
+        user_data = dict(user_values)
+        workspace_data = dict(workspace_values)
+        session_data = dict(session_values)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                invitation = connection.execute(
+                    select(WorkspaceInvitation.__table__).where(
+                        WorkspaceInvitation.token_hash == token_hash,
+                        WorkspaceInvitation.accepted_at.is_(None),
+                        WorkspaceInvitation.revoked_at.is_(None),
+                        WorkspaceInvitation.expires_at > now,
+                    )
+                ).mappings().first()
+                if invitation is None:
+                    raise ValueError("AUTH_INVITATION_INVALID")
+                if invitation["email_normalized"] != user_data["email_normalized"]:
+                    raise ValueError("AUTH_INVITATION_EMAIL_MISMATCH")
+
+                connection.execute(User.__table__.insert().values(**user_data))
+                connection.execute(Workspace.__table__.insert().values(**workspace_data))
+                connection.execute(
+                    WorkspaceMembership.__table__.insert().values(
+                        workspace_id=workspace_data["id"],
+                        user_id=user_data["id"],
+                        role="owner",
+                        invited_by_user_id=None,
+                        joined_at=now,
+                    )
+                )
+                connection.execute(
+                    WorkspaceMembership.__table__.insert().values(
+                        workspace_id=invitation["workspace_id"],
+                        user_id=user_data["id"],
+                        role="member",
+                        invited_by_user_id=invitation["invited_by_user_id"],
+                        joined_at=now,
+                    )
+                )
+                connection.execute(Session.__table__.insert().values(**session_data))
+                accepted = connection.execute(
+                    update(WorkspaceInvitation)
+                    .where(
+                        WorkspaceInvitation.id == invitation["id"],
+                        WorkspaceInvitation.accepted_at.is_(None),
+                    )
+                    .values(accepted_at=now, accepted_by_user_id=user_data["id"])
+                )
+                if accepted.rowcount != 1:
+                    raise ValueError("AUTH_INVITATION_INVALID")
+                user_row = connection.execute(
+                    select(User.__table__).where(User.id == user_data["id"])
+                ).mappings().one()
+                workspace_row = connection.execute(
+                    select(Workspace.__table__).where(Workspace.id == workspace_data["id"])
+                ).mappings().one()
+                session_row = connection.execute(
+                    select(Session.__table__).where(Session.id == session_data["id"])
+                ).mappings().one()
+        return InvitationRegistrationResult(
+            user=_model_from_mapping(User, user_row),
+            workspace=_model_from_mapping(Workspace, workspace_row),
+            session=_model_from_mapping(Session, session_row),
+        )
+
+    def accept_invitation(
+        self,
+        *,
+        token_hash: str,
+        user_id: str,
+        email_normalized: str,
+        now: float,
+    ) -> WorkspaceAccess:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                invitation = connection.execute(
+                    select(WorkspaceInvitation.__table__).where(
+                        WorkspaceInvitation.token_hash == token_hash,
+                        WorkspaceInvitation.accepted_at.is_(None),
+                        WorkspaceInvitation.revoked_at.is_(None),
+                        WorkspaceInvitation.expires_at > now,
+                    )
+                ).mappings().first()
+                if invitation is None:
+                    raise ValueError("AUTH_INVITATION_INVALID")
+                if invitation["email_normalized"] != email_normalized:
+                    raise ValueError("AUTH_INVITATION_EMAIL_MISMATCH")
+                connection.execute(
+                    WorkspaceMembership.__table__.insert().prefix_with("OR IGNORE").values(
+                        workspace_id=invitation["workspace_id"],
+                        user_id=user_id,
+                        role="member",
+                        invited_by_user_id=invitation["invited_by_user_id"],
+                        joined_at=now,
+                    )
+                )
+                accepted = connection.execute(
+                    update(WorkspaceInvitation)
+                    .where(
+                        WorkspaceInvitation.id == invitation["id"],
+                        WorkspaceInvitation.accepted_at.is_(None),
+                    )
+                    .values(accepted_at=now, accepted_by_user_id=user_id)
+                )
+                if accepted.rowcount != 1:
+                    raise ValueError("AUTH_INVITATION_INVALID")
+                workspace_row = connection.execute(
+                    select(Workspace.__table__).where(
+                        Workspace.id == invitation["workspace_id"]
+                    )
+                ).mappings().one()
+        return WorkspaceAccess(_model_from_mapping(Workspace, workspace_row), "member")
 
     def create_session(self, values: Mapping[str, Any] | Any) -> Session:
         data = _values(values)
@@ -166,6 +495,15 @@ class AuthRepository:
                     raise ValueError("AUTH_ALREADY_INITIALIZED")
                 connection.execute(User.__table__.insert().values(**user_data))
                 connection.execute(Workspace.__table__.insert().values(**workspace_data))
+                connection.execute(
+                    WorkspaceMembership.__table__.insert().values(
+                        workspace_id=workspace_data["id"],
+                        user_id=user_data["id"],
+                        role="owner",
+                        invited_by_user_id=None,
+                        joined_at=now,
+                    )
+                )
                 connection.execute(Session.__table__.insert().values(**session_data))
                 user_row = connection.execute(
                     select(User.__table__).where(User.id == user_data["id"])
@@ -266,4 +604,10 @@ class AuthRepository:
         return int(result.rowcount or 0)
 
 
-__all__ = ["AuthRepository", "OwnerSetupResult", "RotateResult"]
+__all__ = [
+    "AuthRepository",
+    "InvitationRegistrationResult",
+    "OwnerSetupResult",
+    "RotateResult",
+    "WorkspaceAccess",
+]
