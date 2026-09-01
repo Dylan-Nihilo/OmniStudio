@@ -5,6 +5,9 @@ const os = require('os');
 
 const root = path.join(__dirname, '..');
 const venv = path.join(root, '.venv');
+const venvPython = os.platform() === 'win32'
+  ? path.join(venv, 'Scripts', 'python.exe')
+  : path.join(venv, 'bin', 'python');
 
 console.log('[setup] Checking environment...');
 
@@ -15,13 +18,14 @@ if (!fs.existsSync(venv)) {
     execSync('python3 -m venv .venv || python -m venv .venv', { stdio: 'inherit', cwd: root });
 
     const pip = os.platform() === 'win32'
-      ? path.join(venv, 'Scripts', 'pip')
+      ? path.join(venv, 'Scripts', 'pip.exe')
       : path.join(venv, 'bin', 'pip');
 
     console.log('[setup] Installing Python dependencies...');
-    execFileSync(pip, ['install', '-e', '.'], { stdio: 'inherit', cwd: root });
+    execFileSync(pip, ['install', '-r', 'requirements.txt'], { stdio: 'inherit', cwd: root });
   } catch (e) {
     console.error('[setup] Failed to setup venv:', e.message);
+    throw e;
   }
 }
 
@@ -35,13 +39,17 @@ if (!fs.existsSync(frontendModules)) {
 // 3. Pre-download Demucs model (required for dub workflow)
 console.log('[setup] Checking Demucs model...');
 try {
-  execSync(
-    'python -c "from demucs.pretrained import get_model; get_model(\'htdemucs\'); print(\'[setup] Demucs htdemucs model ready.\')"',
+  const python = fs.existsSync(venvPython)
+    ? venvPython
+    : (os.platform() === 'win32' ? 'python' : 'python3');
+  execFileSync(
+    python,
+    ['-c', "from demucs.pretrained import get_model; get_model('htdemucs'); print('[setup] Demucs htdemucs model ready.')"],
     { stdio: 'inherit', cwd: root, timeout: 180000 }
   );
 } catch (e) {
   console.warn('[setup] ⚠️  Demucs model download failed. Dubbing feature will attempt download on first use.');
-  console.warn('[setup]    If you are behind a firewall, manually run: python -c "from demucs.pretrained import get_model; get_model(\'htdemucs\')"');
+  console.warn('[setup]    If you are behind a firewall, the Demucs model will be downloaded on first use.');
 }
 
 console.log('[setup] Done.');

@@ -1,8 +1,8 @@
-# LumenX Core — 共享资产池(Global Shared Asset Pool)设计 RFC
+# Omni Studio Core — 共享资产池(Global Shared Asset Pool)设计 RFC
 
 - 日期:2026-06-18
 - 状态:Draft —— 核心决策 + Q1/Q4 已锁;Q2/Q3/Q5 取文档推荐默认(待用户否决)。见 §11。
-- 范围:LumenX Core / Studio。Atelier 仅作为未来共享 artifact 的消费方,本轮不涉及。
+- 范围:Omni Studio Core / Studio。Atelier 仅作为未来共享 artifact 的消费方,本轮不涉及。
 - 缘起:资产库 Line B UI 收尾时,用户提出"资产不必绑定单个项目——可以有项目无关、任意项目可引用的好资产",并强调要**防止资产膨胀**(策展型而非生成器)。据此单开此设计轮。
 
 ---

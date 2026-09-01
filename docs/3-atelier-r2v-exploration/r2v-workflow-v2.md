@@ -3,7 +3,7 @@
 > **Status**: ✅ Design approved · Pending implementation
 > **Date**: 2026-05-23
 > **Author**: 多轮 grill-me session（用户 + Claude）
-> **Scope**: LumenX Studio R2V workflow 从"项目内部 4 step"重构为"系列优先 5 step + 系列层风格 + 无剧本模式预留"
+> **Scope**: Omni Studio R2V workflow 从"项目内部 4 step"重构为"系列优先 5 step + 系列层风格 + 无剧本模式预留"
 
 ---
 

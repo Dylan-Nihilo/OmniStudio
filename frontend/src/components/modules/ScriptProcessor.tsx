@@ -93,8 +93,8 @@ export default function ScriptProcessor() {
 
     useEffect(() => {
         const handler = () => setReconcileOpen(true);
-        document.addEventListener("lumenx:openReconcile", handler);
-        return () => document.removeEventListener("lumenx:openReconcile", handler);
+        document.addEventListener("omni_studio:openReconcile", handler);
+        return () => document.removeEventListener("omni_studio:openReconcile", handler);
     }, []);
 
     const handleAnalyze = async () => {

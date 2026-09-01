@@ -4,7 +4,7 @@
 
 Use this folder for:
 
-- temporary raw-document captures when only the LumenX repo is available
+- temporary raw-document captures when only the Omni Studio repo is available
 - implementation evidence attached to a model onboarding PR
 - local review of vendor request/response examples while updating `model_catalog`
 
@@ -24,5 +24,5 @@ Do not assume files here replace the recommended external raw-doc archive repo.
 
 ## Related docs
 
-- [Model onboarding implementation](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/model-onboarding-implementation.md)
-- [Model docs and catalog architecture plan](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-03-model-docs-and-catalog-architecture.md)
+- [Model onboarding implementation](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/model-onboarding-implementation.md)
+- [Model docs and catalog architecture plan](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/plans/2026-04-03-model-docs-and-catalog-architecture.md)

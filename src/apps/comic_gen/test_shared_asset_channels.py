@@ -1,4 +1,4 @@
-"""Tests for LumenX Core shared-asset-pool *Wave A* (feeding channels):
+"""Tests for Omni Studio Core shared-asset-pool *Wave A* (feeding channels):
 
   - library CRUD: create_library_asset (character/scene/prop) + list +
     update + delete (persisted to library_assets.json).
@@ -11,7 +11,7 @@ Hermetic, mirroring test_shared_asset_pool.py: a bare ComicGenPipeline via
 object.__new__ with only the attributes the exercised methods touch — no
 real output/*.json is read or written (temp paths + a fake processor).
 
-Design RFC: docs/plans/2026-06-18-lumenx-core-shared-asset-pool.md
+Design RFC: docs/plans/2026-06-18-omni_studio-core-shared-asset-pool.md
 """
 
 import os

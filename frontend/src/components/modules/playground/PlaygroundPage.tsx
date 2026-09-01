@@ -10,7 +10,8 @@ import PromptInput from './PromptInput';
 import ParameterBar from './ParameterBar';
 import ResultGallery from './ResultGallery';
 import { usePlaygroundStore, type PlaygroundMode, type PlaygroundGeneration, type QueuedRequest } from './usePlaygroundStore';
-import { playgroundApi, type PlaygroundGenerationResponse } from '@/lib/api';
+import { playgroundApi } from '@/lib/api';
+import { normalizeGeneration, normalizeTemplate } from './normalizers';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -36,30 +37,6 @@ const POLL_INTERVAL = 2000;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Convert API response to store-compatible PlaygroundGeneration */
-function toGeneration(resp: PlaygroundGenerationResponse): PlaygroundGeneration {
-  return {
-    id: resp.id,
-    mode: resp.mode as PlaygroundMode,
-    model_id: resp.model_id,
-    prompt: resp.prompt,
-    negative_prompt: resp.negative_prompt,
-    input_media: resp.input_media,
-    parameters: resp.parameters,
-    batch_size: resp.batch_size,
-    outputs: resp.outputs.map((o) => ({
-      id: o.id,
-      media_path: o.media_path,
-      media_type: o.media_type as 'image' | 'video',
-      thumbnail_path: o.thumbnail_path,
-      saved_to_library: o.saved_to_library,
-    })),
-    status: resp.status as PlaygroundGeneration['status'],
-    error: resp.error,
-    created_at: resp.created_at,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -93,26 +70,13 @@ export default function PlaygroundPage() {
 
   useEffect(() => {
     playgroundApi.getHistory().then((items) => {
-      setHistory(items.map(toGeneration));
+      setHistory(Array.isArray(items) ? items.map(normalizeGeneration) : []);
     }).catch((err) => {
       console.error('[Playground] Failed to fetch history:', err);
     });
 
     playgroundApi.getTemplates().then((items) => {
-      setTemplates(
-        items.map((t) => ({
-          id: t.id,
-          name: t.name,
-          category: t.category,
-          prompt: t.prompt,
-          negative_prompt: t.negative_prompt,
-          default_mode: t.default_mode as PlaygroundMode | undefined,
-          default_model_id: t.default_model_id,
-          default_parameters: t.default_parameters,
-          created_at: t.created_at,
-          updated_at: t.updated_at,
-        }))
-      );
+      setTemplates(Array.isArray(items) ? items.map(normalizeTemplate) : []);
     }).catch((err) => {
       console.error('[Playground] Failed to fetch templates:', err);
     });
@@ -141,7 +105,7 @@ export default function PlaygroundPage() {
 
         // Fetch full generation data for complete update
         const fullResp = await playgroundApi.getGeneration(generationId);
-        updateGeneration(toGeneration(fullResp));
+        updateGeneration(normalizeGeneration(fullResp));
 
         if (isTerminal) {
           clearInterval(timer);
@@ -187,7 +151,7 @@ export default function PlaygroundPage() {
         parameters: Object.keys(req.parameters).length > 0 ? req.parameters : undefined,
         batch_size: req.batchSize > 1 ? req.batchSize : undefined,
       });
-      const gen = toGeneration(resp);
+      const gen = normalizeGeneration(resp);
       startGeneration(gen);
       removeFromQueue(req.id);
       if (gen.status !== 'completed' && gen.status !== 'failed') {
@@ -221,7 +185,7 @@ export default function PlaygroundPage() {
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
-  const resultCount = history.reduce((n, g) => n + g.outputs.length, 0);
+  const resultCount = history.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0);
   const showMediaInput = MODES_WITH_MEDIA.includes(mode) || MODES_WITH_OPTIONAL_MEDIA.includes(mode);
   const canGenerate = prompt.trim().length > 0;
 

@@ -1,3 +1,3 @@
 fn main() {
-    lumenx_studio_lib::run()
+    omni_studio_lib::run()
 }

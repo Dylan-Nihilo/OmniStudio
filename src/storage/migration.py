@@ -1,4 +1,4 @@
-"""Fail-closed legacy JSON to SQLite migration for LumenX W1.
+"""Fail-closed legacy JSON to SQLite migration for Omni Studio W1.
 
 The public API intentionally returns plain dictionaries so callers and the CLI can
 serialize migration reports without depending on an additional model layer.
@@ -654,7 +654,7 @@ def _create_backups(
         backups.append(
             _backup_file(
                 db_file,
-                directory / "lumenx.db.before-import.bak",
+                directory / "omni_studio.db.before-import.bak",
                 kind="database",
             )
         )
@@ -855,7 +855,7 @@ def apply(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Migrate legacy LumenX JSON into SQLite")
+    parser = argparse.ArgumentParser(description="Migrate legacy Omni Studio JSON into SQLite")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="validate and preview only")
     mode.add_argument("--apply", action="store_true", help="back up and import into SQLite")

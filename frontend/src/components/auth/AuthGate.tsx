@@ -4,10 +4,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuthStore } from "@/store/authStore";
-import { isSafeReturnHash, rememberReturnHash } from "@/lib/apiClient";
-import LumenXBranding from "@/components/layout/LumenXBranding";
+import { AUTH_EXPIRED_EVENT, isSafeReturnHash, rememberReturnHash } from "@/lib/apiClient";
+import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import LoginPage from "./LoginPage";
+import ResetPasswordPage from "./ResetPasswordPage";
 import SetupPage from "./SetupPage";
+
+const RESET_PASSWORD_HASH = "#/reset-password";
 
 function AuthSurface({ children }: { children: ReactNode }) {
   return (
@@ -22,7 +25,7 @@ function AuthSurface({ children }: { children: ReactNode }) {
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.018)_1px,transparent_1px)] bg-[size:42px_42px] [mask-image:radial-gradient(circle_at_center,black,transparent_78%)]" />
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-7 flex justify-center">
-          <LumenXBranding size="md" />
+          <OmniStudioBranding size="md" />
         </div>
         {children}
       </div>
@@ -48,7 +51,12 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const bootstrapping = useAuthStore((state) => state.bootstrapping);
   const setupStatus = useAuthStore((state) => state.setupStatus);
   const user = useAuthStore((state) => state.user);
+  const legacyClaimPending = useAuthStore((state) => state.legacyClaimPending);
   const [bootstrapError, setBootstrapError] = useState(false);
+  const [authExpired, setAuthExpired] = useState(false);
+  const [currentHash, setCurrentHash] = useState(() =>
+    typeof window === "undefined" ? "#/login" : window.location.hash || "#/workspace",
+  );
 
   const runBootstrap = () => {
     setBootstrapError(false);
@@ -62,26 +70,58 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }, [bootstrap]);
 
   useEffect(() => {
-    if (bootstrapping || bootstrapError || !setupStatus) return;
+    const updateHash = () => setCurrentHash(window.location.hash || "#/workspace");
+    updateHash();
+    window.addEventListener("hashchange", updateHash);
+    return () => window.removeEventListener("hashchange", updateHash);
+  }, []);
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setAuthExpired(true);
+      const hash = window.location.hash || "#/workspace";
+      if (isSafeReturnHash(hash)) rememberReturnHash(hash);
+      if (hash !== "#/login") window.location.hash = "#/login";
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  }, []);
+
+  useEffect(() => {
+    if (user && authExpired) setAuthExpired(false);
+  }, [authExpired, user]);
+
+  useEffect(() => {
+    if (bootstrapping || bootstrapError || !setupStatus || authExpired) return;
 
     if (!setupStatus.initialized) {
-      if (window.location.hash !== "#/setup") window.location.hash = "#/setup";
+      if (currentHash !== "#/setup") window.location.hash = "#/setup";
       return;
     }
 
     if (!user) {
-      const currentHash = window.location.hash;
+      if (currentHash === RESET_PASSWORD_HASH) return;
       if (isSafeReturnHash(currentHash)) rememberReturnHash(currentHash);
       if (currentHash !== "#/login") window.location.hash = "#/login";
       return;
     }
 
-    if (window.location.hash === "#/login" || window.location.hash === "#/setup") {
+    if (legacyClaimPending) {
+      if (currentHash !== "#/setup") window.location.hash = "#/setup";
+      return;
+    }
+
+    if (currentHash === "#/login" || currentHash === "#/setup" || currentHash === RESET_PASSWORD_HASH) {
       window.location.hash = "#/workspace";
     }
-  }, [bootstrapError, bootstrapping, setupStatus, user]);
+
+  }, [authExpired, bootstrapError, bootstrapping, currentHash, legacyClaimPending, setupStatus, user]);
 
   if (bootstrapping) return <AuthLoadingScreen />;
+
+  // Auth expiry is a hard boundary: do not render protected content while the
+  // persisted identity is being invalidated and the hash moves to login.
+  if (authExpired) return <LoginPage />;
 
   if (bootstrapError) {
     return (
@@ -104,6 +144,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (!setupStatus?.initialized) return <SetupPage />;
+  if (!user && currentHash === RESET_PASSWORD_HASH) return <ResetPasswordPage />;
   if (!user) return <LoginPage />;
+  if (legacyClaimPending) return <SetupPage />;
   return <>{children}</>;
 }

@@ -44,7 +44,7 @@ def pipeline(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(ComicGenPipeline, "_warmup_demucs_model", lambda self: None)
     instance = ComicGenPipeline(
         config=_storage_config(
-            tmp_path / "lumenx.db",
+            tmp_path / "omni_studio.db",
             tmp_path / "projects.json",
             tmp_path / "series.json",
         )

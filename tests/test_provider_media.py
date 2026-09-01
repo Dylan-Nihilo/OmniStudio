@@ -26,7 +26,7 @@ class FakeUploader:
             return None
         self.uploaded_paths.append((local_path, sub_path))
         filename = custom_filename or Path(local_path).name
-        return f"lumenx/{sub_path.strip('/')}/{filename}".replace("//", "/")
+        return f"omni_studio/{sub_path.strip('/')}/{filename}".replace("//", "/")
 
     def sign_url_for_api(self, object_key: str):
         return f"https://oss.example/{object_key}"
@@ -113,7 +113,7 @@ def test_dashscope_local_uses_oss_signed_url_when_configured(tmp_path):
         project_root=str(tmp_path),
     )
 
-    assert resolved.value.startswith("https://oss.example/lumenx/temp/provider_media/")
+    assert resolved.value.startswith("https://oss.example/omni_studio/temp/provider_media/")
     assert resolved.headers == {}
     assert uploader.uploaded_paths
 
@@ -164,7 +164,7 @@ def test_vendor_vidu_image_local_with_oss_uses_signed_url(tmp_path):
         project_root=str(tmp_path),
     )
 
-    assert resolved.value.startswith("https://oss.example/lumenx/temp/provider_media/")
+    assert resolved.value.startswith("https://oss.example/omni_studio/temp/provider_media/")
 
 
 def test_resolver_does_not_mutate_input_refs(tmp_path):

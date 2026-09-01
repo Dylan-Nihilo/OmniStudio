@@ -24,7 +24,7 @@ def test_relogin_after_session_revocation_does_not_403(tmp_path):
         # First login: preauth CSRF from setup-status is accepted.
         r0 = client.get("/auth/setup-status")
         assert r0.status_code == 200
-        csrf0 = client.cookies.get("lumenx_csrf")
+        csrf0 = client.cookies.get("omni_studio_csrf")
         r1 = client.post(
             "/auth/login",
             json={"identifier": "owner", "password": "supersecret1"},
@@ -40,7 +40,7 @@ def test_relogin_after_session_revocation_does_not_403(tmp_path):
         assert r401.status_code == 401
 
         # Second login with the stale session-bound CSRF cookie must work.
-        csrf1 = client.cookies.get("lumenx_csrf")
+        csrf1 = client.cookies.get("omni_studio_csrf")
         r2 = client.post(
             "/auth/login",
             json={"identifier": "owner", "password": "supersecret1"},

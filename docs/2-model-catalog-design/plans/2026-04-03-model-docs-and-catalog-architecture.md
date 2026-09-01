@@ -1,10 +1,10 @@
-# LumenX Model Docs And Catalog Architecture Plan
+# Omni Studio Model Docs And Catalog Architecture Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a durable model-adaptation architecture for LumenX so official model docs can be archived, AI-friendly integration knowledge can be updated continuously, and model support in code can scale without scattered hardcoded defaults.
+**Goal:** Build a durable model-adaptation architecture for Omni Studio so official model docs can be archived, AI-friendly integration knowledge can be updated continuously, and model support in code can scale without scattered hardcoded defaults.
 
-**Architecture:** Split the problem into three layers with strict ownership. Keep raw vendor docs in a separate archive repo as the auditable source of truth. Use Context Hub as the AI-facing knowledge layer that distills integration-critical details from those raw docs plus project-specific experience. Add a machine-readable `model_catalog` inside the LumenX repo as the executable source of truth for model families, versions, capabilities, provider routing, UI exposure, and test coverage.
+**Architecture:** Split the problem into three layers with strict ownership. Keep raw vendor docs in a separate archive repo as the auditable source of truth. Use Context Hub as the AI-facing knowledge layer that distills integration-critical details from those raw docs plus project-specific experience. Add a machine-readable `model_catalog` inside the Omni Studio repo as the executable source of truth for model families, versions, capabilities, provider routing, UI exposure, and test coverage.
 
 **Tech Stack:** Independent markdown archive repo, `url-to-markdown` ingestion flow, Context Hub source packages, YAML/JSON model catalog, FastAPI, Pydantic, existing provider routing layer under `src/utils/`, Next.js/React frontend, pytest, Vitest.
 
@@ -12,7 +12,7 @@
 
 ## Why This Exists
 
-LumenX is now in a zone where model churn is a product constraint, not a one-off maintenance task.
+Omni Studio is now in a zone where model churn is a product constraint, not a one-off maintenance task.
 
 Current pressure points:
 
@@ -23,15 +23,15 @@ Current pressure points:
 
 Today, the codebase already contains strong building blocks:
 
-- Provider routing is centralized in [`src/utils/provider_registry.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py)
-- Provider-specific media transport is centralized in [`src/utils/provider_media.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_media.py)
-- Runtime model settings exist in [`src/apps/comic_gen/models.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py)
+- Provider routing is centralized in [`src/utils/provider_registry.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_registry.py)
+- Provider-specific media transport is centralized in [`src/utils/provider_media.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_media.py)
+- Runtime model settings exist in [`src/apps/comic_gen/models.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/apps/comic_gen/models.py)
 
 But model definitions are still fragmented:
 
-- Frontend model lists are hardcoded in [`frontend/src/store/projectStore.ts`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts)
-- Default model values are duplicated in [`frontend/src/components/common/ModelSettingsModal.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx), [`frontend/src/components/series/SeriesModelSettingsModal.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx), and [`frontend/src/components/modules/VideoGenerator.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx)
-- Factory and adapter selection still encode model assumptions in multiple places, including [`src/models/factory.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/factory.py), [`src/models/image.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/image.py), and [`src/models/wanx.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/wanx.py)
+- Frontend model lists are hardcoded in [`frontend/src/store/projectStore.ts`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/store/projectStore.ts)
+- Default model values are duplicated in [`frontend/src/components/common/ModelSettingsModal.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/common/ModelSettingsModal.tsx), [`frontend/src/components/series/SeriesModelSettingsModal.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/series/SeriesModelSettingsModal.tsx), and [`frontend/src/components/modules/VideoGenerator.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoGenerator.tsx)
+- Factory and adapter selection still encode model assumptions in multiple places, including [`src/models/factory.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/models/factory.py), [`src/models/image.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/models/image.py), and [`src/models/wanx.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/models/wanx.py)
 
 This plan fixes that by turning model support into a first-class platform concern.
 
@@ -63,9 +63,9 @@ The MVP should make model support structured and maintainable, not fully autonom
 
 **Purpose:** Preserve official source material exactly enough for audit, diffing, and later re-interpretation.
 
-**Repository recommendation:** separate private repo, for example `lumenx-vendor-docs`.
+**Repository recommendation:** separate private repo, for example `omni_studio-vendor-docs`.
 
-**Why separate from the main LumenX repo:**
+**Why separate from the main Omni Studio repo:**
 
 - Vendor docs can be bulky, noisy, and frequently updated.
 - Some docs may require auth, cookies, or regional access.
@@ -88,7 +88,7 @@ The MVP should make model support structured and maintainable, not fully autonom
 **Recommended archive structure:**
 
 ```text
-lumenx-vendor-docs/
+omni_studio-vendor-docs/
   sources/
     aliyun/
       wan/
@@ -138,7 +138,7 @@ lumenx-vendor-docs/
 
 **Purpose:** Give the coding agent the shortest path from vendor docs to implementation decisions.
 
-**System recommendation:** Context Hub source package maintained by the LumenX team.
+**System recommendation:** Context Hub source package maintained by the Omni Studio team.
 
 **Why this is a separate layer:**
 
@@ -156,7 +156,7 @@ lumenx-vendor-docs/
 - Region constraints
 - Duration and resolution limits
 - Known error patterns
-- LumenX-specific compatibility notes
+- Omni Studio-specific compatibility notes
 
 **What does not belong here:**
 
@@ -167,7 +167,7 @@ lumenx-vendor-docs/
 **Recommended Context Hub source structure:**
 
 ```text
-lumenx-ai-context/
+omni_studio-ai-context/
   aliyun/
     docs/
       wan-t2i/
@@ -192,7 +192,7 @@ lumenx-ai-context/
     docs/
       vendor-api/
         DOC.md
-  lumenx/
+  omni_studio/
     docs/
       provider-routing-rules/
         DOC.md
@@ -234,7 +234,7 @@ lumenx-ai-context/
 - Async polling:
 - Expiration behavior:
 
-## LumenX integration notes
+## Omni Studio integration notes
 - Provider backend mode:
 - Transport mapping:
 - Known pitfalls:
@@ -248,13 +248,13 @@ lumenx-ai-context/
 
 ### Layer 3: Executable Model Catalog
 
-**Purpose:** Make model support in LumenX data-driven and enforce a single source of truth for runtime behavior.
+**Purpose:** Make model support in Omni Studio data-driven and enforce a single source of truth for runtime behavior.
 
 This is the most important new layer.
 
 `model_catalog` should answer these questions:
 
-- Which models does LumenX know about?
+- Which models does Omni Studio know about?
 - Which models are active, recommended, deprecated, or experimental?
 - Which capabilities does each model support?
 - Which provider backends are allowed for this model family?
@@ -263,7 +263,7 @@ This is the most important new layer.
 - Which defaults and parameter controls should be rendered?
 - Which docs and tests are associated with the model?
 
-If raw docs answer "what the vendor says", `model_catalog` answers "what LumenX supports".
+If raw docs answer "what the vendor says", `model_catalog` answers "what Omni Studio supports".
 
 ## Why `model_catalog` Matters
 
@@ -287,7 +287,7 @@ This is not just a config file. It is a platform contract.
 
 ## Proposed `model_catalog` Structure
 
-**Repository location:** inside the main LumenX repo.
+**Repository location:** inside the main Omni Studio repo.
 
 **Recommended layout:**
 
@@ -463,7 +463,7 @@ docs:
 
 ### `model_catalog` owns
 
-- what LumenX exposes
+- what Omni Studio exposes
 - runtime defaults
 - provider routing availability
 - UI visibility
@@ -492,27 +492,27 @@ flowchart TD
     E --> L["Test matrix generation"]
 ```
 
-## How This Fits The Current LumenX Codebase
+## How This Fits The Current Omni Studio Codebase
 
 ### Existing code that should eventually consume the catalog
 
 **Backend**
 
-- [`src/utils/provider_registry.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py)
-- [`src/utils/provider_media.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_media.py)
-- [`src/models/factory.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/factory.py)
-- [`src/models/image.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/image.py)
-- [`src/models/wanx.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/wanx.py)
-- [`src/apps/comic_gen/models.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py)
+- [`src/utils/provider_registry.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_registry.py)
+- [`src/utils/provider_media.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_media.py)
+- [`src/models/factory.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/models/factory.py)
+- [`src/models/image.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/models/image.py)
+- [`src/models/wanx.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/models/wanx.py)
+- [`src/apps/comic_gen/models.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/apps/comic_gen/models.py)
 
 **Frontend**
 
-- [`frontend/src/store/projectStore.ts`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts)
-- [`frontend/src/components/common/ModelSettingsModal.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx)
-- [`frontend/src/components/series/SeriesModelSettingsModal.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx)
-- [`frontend/src/components/modules/VideoGenerator.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx)
-- [`frontend/src/components/project/EnvConfigDialog.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/EnvConfigDialog.tsx)
-- [`frontend/src/components/settings/SettingsPage.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx)
+- [`frontend/src/store/projectStore.ts`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/store/projectStore.ts)
+- [`frontend/src/components/common/ModelSettingsModal.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/common/ModelSettingsModal.tsx)
+- [`frontend/src/components/series/SeriesModelSettingsModal.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/series/SeriesModelSettingsModal.tsx)
+- [`frontend/src/components/modules/VideoGenerator.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoGenerator.tsx)
+- [`frontend/src/components/project/EnvConfigDialog.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/project/EnvConfigDialog.tsx)
+- [`frontend/src/components/settings/SettingsPage.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx)
 
 ## MVP Definition
 
@@ -520,7 +520,7 @@ The MVP should not try to solve everything. It should prove the architecture wit
 
 ### MVP goals
 
-- Introduce a valid `model_catalog` format inside LumenX.
+- Introduce a valid `model_catalog` format inside Omni Studio.
 - Move the current active model definitions for Wan, Kling, Vidu, and Pixverse into the catalog.
 - Generate one runtime JSON artifact from the YAML catalog.
 - Generate a frontend-local JSON mirror from the same catalog build step.
@@ -542,31 +542,31 @@ The MVP should not try to solve everything. It should prove the architecture wit
 
 ## MVP File Plan
 
-### New files in the LumenX repo
+### New files in the Omni Studio repo
 
-- Create: [`config/model_catalog/catalog.meta.yaml`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/catalog.meta.yaml)
-- Create: [`config/model_catalog/families/wan.yaml`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/wan.yaml)
-- Create: [`config/model_catalog/families/kling.yaml`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/kling.yaml)
-- Create: [`config/model_catalog/families/vidu.yaml`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/vidu.yaml)
-- Create: [`config/model_catalog/families/pixverse.yaml`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/pixverse.yaml)
-- Create: [`config/model_catalog/schema/model-catalog.schema.json`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/schema/model-catalog.schema.json)
-- Create: [`scripts/build_model_catalog.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py)
-- Create: [`src/utils/model_catalog.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py)
-- Create: [`frontend/src/lib/modelCatalog.ts`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts)
-- Create: [`tests/test_model_catalog.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py)
-- Create: [`frontend/src/__tests__/model-catalog.test.ts`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts)
+- Create: [`config/model_catalog/catalog.meta.yaml`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/catalog.meta.yaml)
+- Create: [`config/model_catalog/families/wan.yaml`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/wan.yaml)
+- Create: [`config/model_catalog/families/kling.yaml`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/kling.yaml)
+- Create: [`config/model_catalog/families/vidu.yaml`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/vidu.yaml)
+- Create: [`config/model_catalog/families/pixverse.yaml`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/pixverse.yaml)
+- Create: [`config/model_catalog/schema/model-catalog.schema.json`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/schema/model-catalog.schema.json)
+- Create: [`scripts/build_model_catalog.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/scripts/build_model_catalog.py)
+- Create: [`src/utils/model_catalog.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/model_catalog.py)
+- Create: [`frontend/src/lib/modelCatalog.ts`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/modelCatalog.ts)
+- Create: [`tests/test_model_catalog.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/tests/test_model_catalog.py)
+- Create: [`frontend/src/__tests__/model-catalog.test.ts`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/__tests__/model-catalog.test.ts)
 
 ### Existing files to modify in the MVP
 
-- Modify: [`src/utils/provider_registry.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py)
-- Modify: [`src/apps/comic_gen/models.py`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py)
-- Modify: [`frontend/src/store/projectStore.ts`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts)
-- Modify: [`frontend/src/components/common/ModelSettingsModal.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx)
-- Modify: [`frontend/src/components/series/SeriesModelSettingsModal.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx)
-- Modify: [`frontend/src/components/modules/VideoGenerator.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx)
-- Modify: [`frontend/src/components/settings/SettingsPage.tsx`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx)
-- Modify: [`README.md`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md)
-- Modify: [`README_EN.md`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md)
+- Modify: [`src/utils/provider_registry.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_registry.py)
+- Modify: [`src/apps/comic_gen/models.py`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/apps/comic_gen/models.py)
+- Modify: [`frontend/src/store/projectStore.ts`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/store/projectStore.ts)
+- Modify: [`frontend/src/components/common/ModelSettingsModal.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/common/ModelSettingsModal.tsx)
+- Modify: [`frontend/src/components/series/SeriesModelSettingsModal.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/series/SeriesModelSettingsModal.tsx)
+- Modify: [`frontend/src/components/modules/VideoGenerator.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoGenerator.tsx)
+- Modify: [`frontend/src/components/settings/SettingsPage.tsx`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx)
+- Modify: [`README.md`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/README.md)
+- Modify: [`README_EN.md`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/README_EN.md)
 
 ## Migration Strategy
 
@@ -688,13 +688,13 @@ If these three constraints are respected, the MVP is ready to implement.
 ### Task 1: Define the first catalog schema and source files
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/catalog.meta.yaml`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/wan.yaml`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/kling.yaml`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/vidu.yaml`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/pixverse.yaml`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/schema/model-catalog.schema.json`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Create: `config/model_catalog/catalog.meta.yaml`
+- Create: `config/model_catalog/families/wan.yaml`
+- Create: `config/model_catalog/families/kling.yaml`
+- Create: `config/model_catalog/families/vidu.yaml`
+- Create: `config/model_catalog/families/pixverse.yaml`
+- Create: `config/model_catalog/schema/model-catalog.schema.json`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Write the failing tests**
 
@@ -727,18 +727,18 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py
+git add config/model_catalog tests/test_model_catalog.py
 git commit -m "feat(catalog): add initial model catalog schema and family sources"
 ```
 
 ### Task 2: Add a catalog build step and backend loader
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Create: `scripts/build_model_catalog.py`
+- Create: `src/utils/model_catalog.py`
+- Modify: `src/utils/provider_registry.py`
+- Modify: `src/apps/comic_gen/models.py`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Write the failing tests**
 
@@ -768,20 +768,20 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py
+git add scripts/build_model_catalog.py src/utils/model_catalog.py src/utils/provider_registry.py src/apps/comic_gen/models.py tests/test_model_catalog.py
 git commit -m "feat(catalog): add build pipeline and backend loader"
 ```
 
 ### Task 3: Make frontend model lists and defaults catalog-driven
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts`
+- Create: `frontend/src/lib/modelCatalog.ts`
+- Modify: `frontend/src/store/projectStore.ts`
+- Modify: `frontend/src/components/common/ModelSettingsModal.tsx`
+- Modify: `frontend/src/components/series/SeriesModelSettingsModal.tsx`
+- Modify: `frontend/src/components/modules/VideoGenerator.tsx`
+- Modify: `frontend/src/components/settings/SettingsPage.tsx`
+- Test: `frontend/src/__tests__/model-catalog.test.ts`
 
 **Step 1: Write the failing tests**
 
@@ -815,16 +815,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts
+git add frontend/src/lib/modelCatalog.ts frontend/src/store/projectStore.ts frontend/src/components/common/ModelSettingsModal.tsx frontend/src/components/series/SeriesModelSettingsModal.tsx frontend/src/components/modules/VideoGenerator.tsx frontend/src/components/settings/SettingsPage.tsx frontend/src/__tests__/model-catalog.test.ts
 git commit -m "feat(frontend): derive model options and defaults from catalog"
 ```
 
 ### Task 4: Document the doc pipeline and raw archive contract
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md`
+- Modify: `README.md`
+- Modify: `README_EN.md`
+- Modify: `CONTRIBUTING.md`
 - Test: none
 
 **Step 1: Add the workflow description**
@@ -843,7 +843,7 @@ Document that raw doc capture should use the `url-to-markdown` workflow and that
 **Step 3: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md
+git add README.md README_EN.md CONTRIBUTING.md
 git commit -m "docs: define model doc pipeline and catalog workflow"
 ```
 

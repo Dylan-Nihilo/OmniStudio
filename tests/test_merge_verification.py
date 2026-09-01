@@ -51,6 +51,8 @@ def _install_ffprobe_mock(monkeypatch, payload):
         ]
         assert kwargs["capture_output"] is True
         assert kwargs["text"] is True
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
         return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
 
     monkeypatch.setattr(pipeline_module.subprocess, "run", fake_run)

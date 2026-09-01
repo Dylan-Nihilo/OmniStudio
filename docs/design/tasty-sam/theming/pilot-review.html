@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>LumenX · Atelier Pilot Review — Settings + LumenXBranding (Before / After)</title>
+<title>Omni Studio · Atelier Pilot Review — Settings + Omni StudioBranding (Before / After)</title>
 <style>
   :root {
     --bg: #0b0a0e;
@@ -126,12 +126,12 @@
 <div class="container">
 
 <header class="page">
-  <h1 class="page-title">Atelier Pilot <span class="accent">Review</span> — Settings · LumenXBranding</h1>
+  <h1 class="page-title">Atelier Pilot <span class="accent">Review</span> — Settings · Omni StudioBranding</h1>
   <p class="subtitle">五主题 × 双页面 × Before/After 对照评审。Before = <code>main</code> 分支（<code>feat/multi-theme-system</code>，未实施 atelier 试点），After = worktree <code>feat/atelier-pilot-20260611-161001</code>（已合入 atelier-card / atelier-page-bloom / atelier-page-grain / atelier-display 四条 opt-in 协议）。试点目标：在不破坏其它 3 套主题的前提下，仅对 <code>atelier-dark</code> 与 <code>atelier-light</code> 引入 Line B「Luminous Atelier」签名层。</p>
   <div class="meta">
     <span class="tag before">BEFORE · localhost:3008 · main · feat/multi-theme-system</span>
     <span class="tag after">AFTER · localhost:3009 · worktree · feat/atelier-pilot-20260611-161001 · e7aaf1d</span>
-    <span><b>Pilot 范围:</b> SettingsPage.tsx · LumenXBranding.tsx · page.tsx · globals.css</span>
+    <span><b>Pilot 范围:</b> SettingsPage.tsx · Omni StudioBranding.tsx · page.tsx · globals.css</span>
     <span><b>变更行数:</b> +108 / −8 (4 files)</span>
   </div>
 
@@ -155,7 +155,7 @@
     <a href="#m1">§1 API 配置</a>
     <a href="#m2">§2 默认模型</a>
     <a href="#m3">§3 默认 Prompt</a>
-    <a href="#m-branding">LumenXBranding</a>
+    <a href="#m-branding">Omni StudioBranding</a>
     <a href="#m-empty">Workspace 空状态</a>
     <a href="#diff-matrix">功能点差异矩阵</a>
     <a href="#risk">风险与遗留</a>
@@ -320,9 +320,9 @@
   </table>
 </section>
 
-<!-- ========== LumenXBranding ========== -->
+<!-- ========== Omni StudioBranding ========== -->
 <section class="module" id="m-branding">
-  <h2 class="module-title"><span class="num">CMP</span>LumenXBranding — 左侧栏 Logo + Slogan</h2>
+  <h2 class="module-title"><span class="num">CMP</span>Omni StudioBranding — 左侧栏 Logo + Slogan</h2>
   <div class="module-sub">Workspace 首页（<code>/</code>）左下角组件，包含 5 主题 logo 映射 + slogan「Render Noise into Narrative」。下方截图取自空状态首页，重点观察左下 logo 区。</div>
 
   <div class="compare-strip">
@@ -391,7 +391,7 @@
       <tr class="same"><td>SettingsPage / §2 Models</td><td>0</td><td>0</td><td>0</td><td>section 容器 → .atelier-card</td></tr>
       <tr class="same"><td>SettingsPage / §3 Prompt</td><td>0</td><td>0</td><td>0</td><td>section 容器 → .atelier-card</td></tr>
       <tr class="same"><td>SettingsPage / 页面背景</td><td>0</td><td>0</td><td>0</td><td>新增 .atelier-page-bloom + .atelier-page-grain 两层 fixed 装饰</td></tr>
-      <tr class="same"><td>LumenXBranding / slogan</td><td>0</td><td>0</td><td>0</td><td>仅 atelier-* 下：11px / italic / Fraunces</td></tr>
+      <tr class="same"><td>Omni StudioBranding / slogan</td><td>0</td><td>0</td><td>0</td><td>仅 atelier-* 下：11px / italic / Fraunces</td></tr>
       <tr class="same"><td>Workspace / 空状态 H3</td><td>0</td><td>0</td><td>0</td><td>atelier-* 下：text-2xl / Fraunces / semibold</td></tr>
       <tr class="same"><td>其它 ~120 组件 / 路由 / store / API</td><td>0</td><td>0</td><td>0</td><td>无</td></tr>
     </tbody>
@@ -427,16 +427,16 @@
     </ul>
 
     <div class="kv">
-      <b>Commit</b><span><code>e7aaf1d</code> · feat(theme): atelier pilot — SettingsPage + LumenXBranding</span>
+      <b>Commit</b><span><code>e7aaf1d</code> · feat(theme): atelier pilot — SettingsPage + Omni StudioBranding</span>
       <b>分支</b><span><code>feat/atelier-pilot-20260611-161001</code> (worktree, based on <code>feat/multi-theme-system</code>)</span>
-      <b>影响文件</b><span>frontend/src/app/globals.css · frontend/src/app/page.tsx · frontend/src/components/settings/SettingsPage.tsx · frontend/src/components/layout/LumenXBranding.tsx</span>
+      <b>影响文件</b><span>frontend/src/app/globals.css · frontend/src/app/page.tsx · frontend/src/components/settings/SettingsPage.tsx · frontend/src/components/layout/Omni StudioBranding.tsx</span>
       <b>评审 URL</b><span>Before <code>http://localhost:3008/#/settings</code> · After <code>http://localhost:3009/#/settings</code></span>
     </div>
   </div>
 </section>
 
 <div class="ftr">
-  <span>LumenX · Atelier Pilot Review · generated 2026-06-11 · Tasty Sam</span>
+  <span>Omni Studio · Atelier Pilot Review · generated 2026-06-11 · Tasty Sam</span>
   <span>render: open this file directly in browser · screenshots are local PNG under ./review-assets/</span>
 </div>
 

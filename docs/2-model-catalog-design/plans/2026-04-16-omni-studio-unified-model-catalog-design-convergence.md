@@ -1,9 +1,9 @@
-# LumenX Unified Model Catalog Design Convergence
+# Omni Studio Unified Model Catalog Design Convergence
 
 > Date: 2026-04-16  
 > Status: Pre-implementation design convergence  
-> Scope: LumenX-first decision document  
-> Purpose: Resolve the remaining design questions before implementation, while explicitly minimizing migration risk for the current LumenX codebase.
+> Scope: Omni Studio-first decision document
+> Purpose: Resolve the remaining design questions before implementation, while explicitly minimizing migration risk for the current Omni Studio codebase.
 
 ---
 
@@ -11,18 +11,18 @@
 
 We already have two earlier documents:
 
-- [Unified Model Catalog Core And Overlay Design Draft](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-16-unified-model-catalog-core-and-overlays.md)
-- [Unified Model Catalog Spec v0.1](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-16-unified-model-catalog-spec-v0.1.md)
-- [Unified Model Catalog Platform/Gateway Extension Note](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-16-unified-model-catalog-platform-gateway-extension.md)
+- [Unified Model Catalog Core And Overlay Design Draft](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/plans/2026-04-16-unified-model-catalog-core-and-overlays.md)
+- [Unified Model Catalog Spec v0.1](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/plans/2026-04-16-unified-model-catalog-spec-v0.1.md)
+- [Unified Model Catalog Platform/Gateway Extension Note](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/plans/2026-04-16-unified-model-catalog-platform-gateway-extension.md)
 
 Those two documents define:
 
 - **why** the two catalog systems should converge
 - **what** a shared schema could look like
 
-But before implementation, LumenX still needs one more thing:
+But before implementation, Omni Studio still needs one more thing:
 
-> a practical convergence decision memo that answers “what do we actually do first in LumenX, and how do we avoid a high-cost migration?”
+> a practical convergence decision memo that answers “what do we actually do first in Omni Studio, and how do we avoid a high-cost migration?”
 
 This document is that memo.
 
@@ -32,7 +32,7 @@ This document is that memo.
 
 This point must be explicit, because the word “migration” can sound much riskier than what we actually want.
 
-For LumenX, **migration means internal schema evolution with compatibility preservation**, not:
+For Omni Studio, **migration means internal schema evolution with compatibility preservation**, not:
 
 - rewriting every adapter first
 - rewriting the frontend to a new contract in one pass
@@ -56,13 +56,13 @@ In plain words:
 
 ---
 
-## 3. Final Position For LumenX
+## 3. Final Position For Omni Studio
 
-LumenX **can** adapt to the unified model-catalog direction, and it can do so with acceptable risk **if and only if** we keep these rules:
+Omni Studio **can** adapt to the unified model-catalog direction, and it can do so with acceptable risk **if and only if** we keep these rules:
 
 ### Rule 1
 
-**Do not change LumenX frontend consumer shape in phase 1.**
+**Do not change Omni Studio frontend consumer shape in phase 1.**
 
 That means the frontend should still be able to ask for things like:
 
@@ -85,7 +85,7 @@ Instead:
 
 **Do not force runtime adapter refactors before the source schema is stable.**
 
-In phase 1, runtime overlay fields may exist in the source schema, but LumenX does not need to consume them everywhere yet.
+In phase 1, runtime overlay fields may exist in the source schema, but Omni Studio does not need to consume them everywhere yet.
 
 ### Rule 4
 
@@ -101,33 +101,33 @@ The migration must preserve:
 
 ## 4. Resolved Design Decisions
 
-This section answers the major open questions from Spec v0.1 specifically for LumenX-first implementation.
+This section answers the major open questions from Spec v0.1 specifically for Omni Studio-first implementation.
 
 ---
 
 ### Decision A: Canonical backend naming in shared core
 
-**Decision:** Use `dashscope` as the canonical backend name in LumenX’s source schema.
+**Decision:** Use `dashscope` as the canonical backend name in Omni Studio’s source schema.
 
 ### Why
 
-- LumenX already uses `dashscope` in:
+- Omni Studio already uses `dashscope` in:
   - provider routing
   - backend env keys
   - current catalog source
 - The app domain is “Alibaba DashScope / 百炼 as product-facing backend”
-- Renaming LumenX internals to `bailian` would create churn without real value
+- Renaming Omni Studio internals to `bailian` would create churn without real value
 
 ### Compatibility position
 
 If the shared cross-project spec later wants to normalize `bailian` from video-generator:
 
 - do that at import/export or normalization boundaries
-- do **not** force LumenX to rename its current backend key now
+- do **not** force Omni Studio to rename its current backend key now
 
 ### Implication
 
-For LumenX implementation:
+For Omni Studio implementation:
 
 - keep `dashscope`
 - treat `bailian` as an external synonym if needed later
@@ -136,11 +136,11 @@ For LumenX implementation:
 
 ### Decision B: Where `product` overlay should live
 
-**Decision:** In LumenX, `product` overlay should live primarily at the **mode level**.
+**Decision:** In Omni Studio, `product` overlay should live primarily at the **mode level**.
 
 ### Why
 
-Because LumenX product behavior is mode-sensitive:
+Because Omni Studio product behavior is mode-sensitive:
 
 - `t2i` visibility is different from `i2v`
 - `i2i` reference image rules are different
@@ -181,11 +181,11 @@ This aligns with the strongest lesson from video-generator:
 
 ### Decision D: Should `routing_prefixes` remain
 
-**Decision:** Keep `routing_prefixes` in LumenX phase 1 as a compatibility field.
+**Decision:** Keep `routing_prefixes` in Omni Studio phase 1 as a compatibility field.
 
 ### Why
 
-Today LumenX provider resolution still benefits from family-prefix matching.
+Today Omni Studio provider resolution still benefits from family-prefix matching.
 
 Even if long-term we may derive more routing information from mode-aware model line IDs, removing `routing_prefixes` now would create unnecessary change.
 
@@ -203,7 +203,7 @@ Even if long-term we may derive more routing information from mode-aware model l
 
 ### Why
 
-In LumenX today, transport semantics are mostly provider-family concerns:
+In Omni Studio today, transport semantics are mostly provider-family concerns:
 
 - dashscope image input mode
 - vendor image input mode
@@ -242,7 +242,7 @@ If we do not account for that now, future integration will still be possible, bu
 
 ### What this means in practice
 
-For LumenX phase 1:
+For Omni Studio phase 1:
 
 - backend remains the active routing key
 - `runtime.<backend>.gateway` is allowed by design
@@ -257,9 +257,9 @@ It reserves flexibility without forcing big migration cost.
 
 ---
 
-### Decision F: What should `defaults.model_settings` point to in LumenX
+### Decision F: What should `defaults.model_settings` point to in Omni Studio
 
-**Decision:** In phase 1, LumenX-generated artifacts should continue to expose **legacy-compatible flat IDs** in `defaults.model_settings`.
+**Decision:** In phase 1, Omni Studio-generated artifacts should continue to expose **legacy-compatible flat IDs** in `defaults.model_settings`.
 
 ### This is the most important low-risk decision
 
@@ -311,7 +311,7 @@ Example:
 
 ### Result
 
-This lets LumenX:
+This lets Omni Studio:
 
 - keep current behavior
 - gain canonical IDs
@@ -347,13 +347,13 @@ This helps preserve existing logic during the transition.
 
 ---
 
-## 5. LumenX Phase-1 Success Criteria
+## 5. Omni Studio Phase-1 Success Criteria
 
 This section defines what “safe enough to implement” means.
 
 ### Phase 1 should achieve all of these
 
-1. LumenX source catalog can express `modes`
+1. Omni Studio source catalog can express `modes`
 2. Existing generated frontend artifact remains consumable
 3. Existing generated backend artifact remains consumable
 4. `defaults.model_settings` still expose current flat IDs
@@ -375,7 +375,7 @@ This section defines what “safe enough to implement” means.
 
 ---
 
-## 6. What LumenX Should Implement First
+## 6. What Omni Studio Should Implement First
 
 This is the recommended first implementation slice.
 
@@ -422,7 +422,7 @@ Validation should confirm:
 
 ---
 
-## 7. What LumenX Should Explicitly Avoid In Phase 1
+## 7. What Omni Studio Should Explicitly Avoid In Phase 1
 
 These are anti-goals for implementation.
 
@@ -430,9 +430,9 @@ These are anti-goals for implementation.
 
 Do not make components like:
 
-- [frontend/src/components/common/ModelSettingsModal.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx)
-- [frontend/src/components/settings/SettingsPage.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx)
-- [frontend/src/components/modules/VideoSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoSidebar.tsx)
+- [frontend/src/components/common/ModelSettingsModal.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/common/ModelSettingsModal.tsx)
+- [frontend/src/components/settings/SettingsPage.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx)
+- [frontend/src/components/modules/VideoSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoSidebar.tsx)
 
 consume canonical mode IDs directly yet.
 
@@ -444,7 +444,7 @@ Keep current family transport metadata where it is until mode-aware runtime cons
 
 Keep the current “catalog first, safe fallback second” posture in:
 
-- [src/utils/provider_registry.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py)
+- [src/utils/provider_registry.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_registry.py)
 
 ### Avoid 4: changing project persistence shape
 
@@ -474,7 +474,7 @@ Because the first implementation is not a rewrite of consumers. It is mainly:
 That means the bulk of the work is concentrated in:
 
 - catalog YAML authoring shape
-- [src/utils/model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py)
+- [src/utils/model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/model_catalog.py)
 - catalog tests
 - generated compatibility mapping
 
@@ -499,7 +499,7 @@ Before implementation starts, this document resolves the design stance as follow
 
 - mode-first source schema
 - overlay separation
-- `dashscope` remains canonical backend key in LumenX
+- `dashscope` remains canonical backend key in Omni Studio
 - family-level transport stays for now
 - Platform/Gateway is explicitly recognized as future runtime metadata
 - legacy flat IDs stay exposed in generated defaults
@@ -518,4 +518,4 @@ Before implementation starts, this document resolves the design stance as follow
 
 ## 10. One-Sentence Implementation Guideline
 
-> In LumenX, implement unified catalog convergence as a compatibility-preserving source-schema upgrade first, and postpone consumer rewrites until the generated contract has proven stable.
+> In Omni Studio, implement unified catalog convergence as a compatibility-preserving source-schema upgrade first, and postpone consumer rewrites until the generated contract has proven stable.

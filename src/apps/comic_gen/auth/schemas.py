@@ -100,6 +100,32 @@ class ChangePasswordResponse(BaseModel):
     reauthentication_required: bool = True
 
 
+class PasswordResetStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    available: bool
+    token_required: bool
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    identifier: str = Field(min_length=1, max_length=254)
+    new_password: str = Field(min_length=8, max_length=128)
+    recovery_token: str | None = Field(default=None, min_length=1, max_length=512)
+
+    @field_validator("identifier", mode="before")
+    @classmethod
+    def normalize_identifier(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        return unicodedata.normalize("NFKC", value.strip())
+
+
+class PasswordResetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password_reset: bool = True
+    reauthentication_required: bool = True
+
+
 class MeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user: UserResponse
@@ -111,6 +137,43 @@ class SetupStatusResponse(BaseModel):
     initialized: bool
     setup_allowed: bool
     setup_token_required: bool
+
+
+class LegacyClaimApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_source_sha256: str = Field(min_length=64, max_length=64)
+
+
+class LegacyClaimSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projects: int
+    series: int
+    media: int
+    conflicts: int
+
+
+class LegacyClaimBatchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    source_sha256: str
+    status: str
+    project_ids: list[str]
+    series_ids: list[str]
+    created_at: float
+    completed_at: float
+    rolled_back_at: float | None = None
+
+
+class LegacyClaimResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: str
+    source_sha256: str | None = None
+    source_files: list[dict[str, Any]]
+    summary: LegacyClaimSummaryResponse
+    diagnostics: list[dict[str, Any]]
+    rollback_available: bool
+    batch: LegacyClaimBatchResponse | None = None
+    idempotent: bool | None = None
 
 
 class ErrorBody(BaseModel):
@@ -125,4 +188,22 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
-__all__ = ["ChangePasswordRequest", "ChangePasswordResponse", "ErrorResponse", "LoginRequest", "LoginResponse", "MeResponse", "RefreshResponse", "SetupRequest", "SetupResponse", "SetupStatusResponse", "UserResponse", "WorkspaceResponse"]
+__all__ = [
+    "ChangePasswordRequest",
+    "ChangePasswordResponse",
+    "ErrorResponse",
+    "LegacyClaimApplyRequest",
+    "LegacyClaimResponse",
+    "LoginRequest",
+    "LoginResponse",
+    "MeResponse",
+    "PasswordResetRequest",
+    "PasswordResetResponse",
+    "PasswordResetStatusResponse",
+    "RefreshResponse",
+    "SetupRequest",
+    "SetupResponse",
+    "SetupStatusResponse",
+    "UserResponse",
+    "WorkspaceResponse",
+]

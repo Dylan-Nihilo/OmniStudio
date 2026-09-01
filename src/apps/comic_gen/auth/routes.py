@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 import jwt
 from fastapi import APIRouter, Depends, Request, Response
@@ -18,7 +18,12 @@ from .schemas import (
     ChangePasswordResponse,
     LoginRequest,
     LoginResponse,
+    LegacyClaimApplyRequest,
+    LegacyClaimResponse,
     MeResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    PasswordResetStatusResponse,
     RefreshResponse,
     SetupRequest,
     SetupResponse,
@@ -29,9 +34,10 @@ from .schemas import (
 )
 from .service import AuthContext, AuthError, AuthResult, AuthService
 from .tokens import decode_access_token, decode_refresh_token
+from ....storage.legacy_claim import LegacyClaimError, LegacyClaimService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-CSRF_COOKIE_NAME = "lumenx_csrf"
+CSRF_COOKIE_NAME = "omni_studio_csrf"
 
 
 def _utc(value: float) -> str:
@@ -152,6 +158,33 @@ def auth_exception_handler(request: Request, exc: AuthError) -> JSONResponse:
     return result
 
 
+def _legacy_claim_service(request: Request) -> LegacyClaimService:
+    service = getattr(request.app.state, "legacy_claim_service", None)
+    if service is None:
+        raise RuntimeError("Legacy claim service is not configured")
+    return service
+
+
+def _require_owner(context: AuthContext) -> None:
+    if str(context.workspace.owner_user_id or "") != str(context.user.id):
+        raise AuthError(
+            "AUTH_OWNER_REQUIRED",
+            "只有当前 Workspace 的 Owner 可以管理旧数据认领",
+            status_code=403,
+        )
+
+
+def _claim_result(operation) -> dict[str, Any]:
+    try:
+        return operation()
+    except LegacyClaimError as exc:
+        raise AuthError(exc.code, exc.message, status_code=exc.status_code) from exc
+
+
+def _no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
 @router.get("/setup-status", response_model=SetupStatusResponse)
 def setup_status(request: Request, response: Response, service: Annotated[AuthService, Depends(get_auth_service)]) -> SetupStatusResponse:
     initialized = service.get_setup_status()
@@ -182,6 +215,74 @@ def setup(request: Request, payload: SetupRequest, response: Response, service: 
     _set_auth_cookies(response, result, service)
     response.headers["Cache-Control"] = "no-store"
     return _auth_response(SetupResponse, result)
+
+
+@router.get("/legacy-claim/status", response_model=LegacyClaimResponse)
+def legacy_claim_status(
+    request: Request,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+) -> dict[str, Any]:
+    _require_owner(context)
+    _no_store(response)
+    return _legacy_claim_service(request).status(
+        user_id=context.user.id,
+        workspace_id=context.workspace.id,
+    )
+
+
+@router.post("/legacy-claim/preview", response_model=LegacyClaimResponse)
+def legacy_claim_preview(
+    request: Request,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> dict[str, Any]:
+    _require_owner(context)
+    require_csrf(request, service, session_id=context.session.id)
+    _no_store(response)
+    return _legacy_claim_service(request).preview(
+        user_id=context.user.id,
+        workspace_id=context.workspace.id,
+    )
+
+
+@router.post("/legacy-claim/apply", response_model=LegacyClaimResponse)
+def legacy_claim_apply(
+    request: Request,
+    payload: LegacyClaimApplyRequest,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> dict[str, Any]:
+    _require_owner(context)
+    require_csrf(request, service, session_id=context.session.id)
+    _no_store(response)
+    return _claim_result(
+        lambda: _legacy_claim_service(request).apply(
+            user_id=context.user.id,
+            workspace_id=context.workspace.id,
+            expected_source_sha256=payload.expected_source_sha256,
+        )
+    )
+
+
+@router.post("/legacy-claim/rollback", response_model=LegacyClaimResponse)
+def legacy_claim_rollback(
+    request: Request,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> dict[str, Any]:
+    _require_owner(context)
+    require_csrf(request, service, session_id=context.session.id)
+    _no_store(response)
+    return _claim_result(
+        lambda: _legacy_claim_service(request).rollback(
+            user_id=context.user.id,
+            workspace_id=context.workspace.id,
+        )
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -242,6 +343,49 @@ def logout(request: Request, response: Response, service: Annotated[AuthService,
     response.headers["Cache-Control"] = "no-store"
     response.status_code = 204
     return response
+
+
+@router.get("/password-reset/status", response_model=PasswordResetStatusResponse)
+def password_reset_status(
+    request: Request,
+    response: Response,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> PasswordResetStatusResponse:
+    local = service.is_local_request(request)
+    available = local and service.get_setup_status()
+    _set_csrf_cookie(response, service, session_id=None)
+    response.headers["Cache-Control"] = "no-store"
+    return PasswordResetStatusResponse(
+        available=available,
+        token_required=available and bool(service.settings.password_reset_token),
+    )
+
+
+@router.post("/password-reset", response_model=PasswordResetResponse)
+def password_reset(
+    request: Request,
+    response: Response,
+    payload: PasswordResetRequest,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> PasswordResetResponse:
+    try:
+        require_csrf(request, service, session_id=None)
+    except AuthError:
+        sid = _unverified_session_id(request.cookies.get(ACCESS_COOKIE_NAME)) or _unverified_session_id(
+            request.cookies.get(REFRESH_COOKIE_NAME)
+        )
+        if not sid:
+            raise
+        require_csrf(request, service, session_id=sid)
+    service.reset_password(
+        payload.identifier,
+        payload.new_password,
+        payload.recovery_token,
+        request=request,
+    )
+    _clear_auth_cookies(response, service)
+    response.headers["Cache-Control"] = "no-store"
+    return PasswordResetResponse()
 
 
 @router.post("/change-password", response_model=ChangePasswordResponse)

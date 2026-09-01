@@ -1,11 +1,11 @@
 ---
-name: lumenx-git-publish
-description: LumenX GitHub publish workflow for safe commits, sensitive-data scans, and PR-based pushes to the shared GitHub repo.
+name: omni-studio-git-publish
+description: Omni Studio GitHub publish workflow for safe commits, sensitive-data scans, and PR-based pushes to the shared GitHub repo.
 ---
 
-# LumenX GitHub Publish Workflow
+# Omni Studio GitHub Publish Workflow
 
-Use this workflow when working in this repository and the user asks to publish work to the LumenX GitHub repository, prepare a GitHub-ready branch, or follow the LumenX GitHub PR flow.
+Use this workflow when working in this repository and the user asks to publish work to the Omni Studio GitHub repository, prepare a GitHub-ready branch, or follow the Omni Studio GitHub PR flow.
 
 ## Core Rules
 

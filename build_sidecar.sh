@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build_sidecar.sh — Package the Python backend into a standalone binary via PyInstaller
-# Output: src-tauri/binaries/lumenx-backend-{arch}-apple-darwin
+# Output: src-tauri/binaries/omni-studio-backend-{arch}-apple-darwin
 
 set -euo pipefail
 
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "╔═══════════════════════════════════════════════════╗"
-echo "║  LumenX Studio — Python Sidecar Builder          ║"
+echo "║  Omni Studio — Python Sidecar Builder          ║"
 echo "╚═══════════════════════════════════════════════════╝"
 echo ""
 
@@ -20,7 +20,7 @@ case "$ARCH" in
     *)             echo "❌ Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-BINARY_NAME="lumenx-backend-${TAURI_ARCH}-apple-darwin"
+BINARY_NAME="omni-studio-backend-${TAURI_ARCH}-apple-darwin"
 OUTPUT_DIR="src-tauri/binaries"
 
 echo "→ Building for architecture: ${TAURI_ARCH}"

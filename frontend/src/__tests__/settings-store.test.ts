@@ -3,7 +3,13 @@ import { useSettingsStore, THEME_PRESETS, DEFAULT_THEME } from '@/store/settings
 
 describe('settingsStore', () => {
     beforeEach(() => {
-        useSettingsStore.setState({ locale: 'zh', theme: DEFAULT_THEME });
+        useSettingsStore.setState({
+            locale: 'zh',
+            theme: DEFAULT_THEME,
+            themeMode: 'dark',
+            darkTheme: 'atelier-dark',
+            lightTheme: 'atelier-light',
+        });
     });
 
     it('has correct default values', () => {
@@ -20,6 +26,33 @@ describe('settingsStore', () => {
     it('setTheme updates theme', () => {
         useSettingsStore.getState().setTheme('brand-light');
         expect(useSettingsStore.getState().theme).toBe('brand-light');
+    });
+
+    it('setTheme keeps the matching color mode and preset in sync', () => {
+        useSettingsStore.getState().setTheme('bridge-dark');
+        expect(useSettingsStore.getState().themeMode).toBe('dark');
+        expect(useSettingsStore.getState().darkTheme).toBe('bridge-dark');
+
+        useSettingsStore.getState().setTheme('brand-light');
+        expect(useSettingsStore.getState().themeMode).toBe('light');
+        expect(useSettingsStore.getState().lightTheme).toBe('brand-light');
+    });
+
+    it('switches between dark, light, and system modes using the saved presets', () => {
+        useSettingsStore.getState().setTheme('bridge-dark');
+        useSettingsStore.getState().setTheme('brand-light');
+
+        useSettingsStore.getState().setThemeMode('dark');
+        expect(useSettingsStore.getState()).toMatchObject({ themeMode: 'dark', theme: 'bridge-dark' });
+
+        useSettingsStore.getState().setThemeMode('light');
+        expect(useSettingsStore.getState()).toMatchObject({ themeMode: 'light', theme: 'brand-light' });
+
+        useSettingsStore.getState().setThemeMode('system', true);
+        expect(useSettingsStore.getState()).toMatchObject({ themeMode: 'system', theme: 'bridge-dark' });
+
+        useSettingsStore.getState().setThemeMode('system', false);
+        expect(useSettingsStore.getState()).toMatchObject({ themeMode: 'system', theme: 'brand-light' });
     });
 
     it('setLocale rejects invalid values at type level', () => {

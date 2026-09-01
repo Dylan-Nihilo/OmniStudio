@@ -11,8 +11,8 @@ from .service import AuthContext, AuthError, AuthService
 from .settings import AuthSettings
 from .tokens import decode_access_token
 
-ACCESS_COOKIE_NAME = "lumenx_access"
-REFRESH_COOKIE_NAME = "lumenx_refresh"
+ACCESS_COOKIE_NAME = "omni_studio_access"
+REFRESH_COOKIE_NAME = "omni_studio_refresh"
 
 
 def get_auth_service(request: Request) -> AuthService:

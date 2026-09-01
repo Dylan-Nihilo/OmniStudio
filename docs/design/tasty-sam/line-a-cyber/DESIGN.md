@@ -1,6 +1,6 @@
 # Line A — Cyber Refined
 
-> Tasty Sam 重构方案 · 延续线 | LumenX Studio
+> Tasty Sam 重构方案 · 延续线 | Omni Studio
 > "Render Noise into Narrative" — 在 Cyber Brutalism × Cinematic Restraint 框架内做精做深
 
 ---

@@ -1,9 +1,9 @@
-  # HANDOFF — LumenX Studio · Playground × Line B 视觉保真
+  # HANDOFF — Omni Studio · Playground × Line B 视觉保真
 
   ## 0. 环境 / 路径
-  - worktree(干活处):/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic-pilot-atelier-20260611-161001,分支
+  - worktree(干活处):/path/to/omni-studio-worktree,分支
   feat/atelier-pilot-20260611-161001
-  - main 仓库:/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+  - main 仓库:/path/to/OmniStudio
   - backend python:<main>/.venv/bin/python (py3.9)
   - 前端 dev server:跑在 :3010(从 worktree/frontend 起 `next dev -p 3010`)。改动不显示→先重启 + 删 frontend/.next(本会话 dev server 曾陈旧近 30h
   喂旧编译,是"刷新没变化"的元凶)。

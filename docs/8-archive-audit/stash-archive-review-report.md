@@ -139,7 +139,7 @@ stash-0-brand-design 中的改动:
 - 品牌图标: 从图片改为渐变 gradient (purple→indigo→pink)
   ```css
   /* 旧 */
-  background-image: url("LumenX-cybr.png");
+  background-image: url("omni-studio-cybr.png");
   
   /* 新 */
   background: linear-gradient(135deg, #7c3aed, #4f46e5, #ec4899);
@@ -251,7 +251,7 @@ git show stash-0-brand-design:docs/design/review-hub/ > /tmp/design-history.tar
 ### 立即可执行
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+cd /path/to/OmniStudio
 
 # 1. 确认当前分支是 main 且没有本地改动
 git status  # 应显示 "On branch main", "nothing to commit"

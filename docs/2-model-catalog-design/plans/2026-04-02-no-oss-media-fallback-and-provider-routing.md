@@ -13,8 +13,8 @@
 ### Task 1: Document the target routing and storage rules
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/AGENTS.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md`
+- Modify: `AGENTS.md`
+- Modify: `CONTRIBUTING.md`
 - Test: none
 
 **Step 1: Add the high-level invariants**
@@ -38,7 +38,7 @@ Document these concepts so later code and UI use the same language:
 **Step 3: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/AGENTS.md /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md
+git add AGENTS.md CONTRIBUTING.md
 git commit -m "docs: define local-first media and provider routing rules"
 ```
 
@@ -46,10 +46,10 @@ git commit -m "docs: define local-first media and provider routing rules"
 ### Task 2: Introduce provider routing config models
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/api.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_registry.py`
+- Modify: `src/apps/comic_gen/api.py`
+- Modify: `src/apps/comic_gen/models.py`
+- Create: `src/utils/provider_registry.py`
+- Test: `tests/test_provider_registry.py`
 
 **Step 1: Write the failing registry tests**
 
@@ -108,7 +108,7 @@ Expected: PASS.
 **Step 6: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/api.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_registry.py
+git add src/utils/provider_registry.py src/apps/comic_gen/api.py src/apps/comic_gen/models.py tests/test_provider_registry.py
 git commit -m "feat(config): add provider routing registry and modes"
 ```
 
@@ -116,9 +116,9 @@ git commit -m "feat(config): add provider routing registry and modes"
 ### Task 3: Add stable media reference utilities
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/media_refs.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/oss_utils.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_media_refs.py`
+- Create: `src/utils/media_refs.py`
+- Modify: `src/utils/oss_utils.py`
+- Test: `tests/test_media_refs.py`
 
 **Step 1: Write the failing tests**
 
@@ -169,7 +169,7 @@ Expected: PASS.
 **Step 6: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/media_refs.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/oss_utils.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_media_refs.py
+git add src/utils/media_refs.py src/utils/oss_utils.py tests/test_media_refs.py
 git commit -m "feat(media): add stable media reference helpers"
 ```
 
@@ -177,8 +177,8 @@ git commit -m "feat(media): add stable media reference helpers"
 ### Task 4: Add a unified provider media resolver
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_media.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_media.py`
+- Create: `src/utils/provider_media.py`
+- Test: `tests/test_provider_media.py`
 
 **Step 1: Write the failing tests**
 
@@ -231,7 +231,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_media.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_media.py
+git add src/utils/provider_media.py tests/test_provider_media.py
 git commit -m "feat(media): add provider-aware media resolver"
 ```
 
@@ -239,9 +239,9 @@ git commit -m "feat(media): add provider-aware media resolver"
 ### Task 5: Refactor image generation to use the unified resolver
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/image.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_wan26_image_refs.py`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_image_provider_media.py`
+- Modify: `src/models/image.py`
+- Test: `tests/test_wan26_image_refs.py`
+- Create: `tests/test_image_provider_media.py`
 
 **Step 1: Write the failing regression tests**
 
@@ -286,7 +286,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/image.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_wan26_image_refs.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_image_provider_media.py
+git add src/models/image.py tests/test_wan26_image_refs.py tests/test_image_provider_media.py
 git commit -m "refactor(image): route provider media inputs through shared resolver"
 ```
 
@@ -294,9 +294,9 @@ git commit -m "refactor(image): route provider media inputs through shared resol
 ### Task 6: Refactor DashScope video generation to work without OSS
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/wanx.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/pipeline.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_wanx_media_fallback.py`
+- Modify: `src/models/wanx.py`
+- Modify: `src/apps/comic_gen/pipeline.py`
+- Test: `tests/test_wanx_media_fallback.py`
 
 **Step 1: Write the failing tests**
 
@@ -342,7 +342,7 @@ Expected: PASS.
 **Step 6: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/wanx.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/pipeline.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_wanx_media_fallback.py
+git add src/models/wanx.py src/apps/comic_gen/pipeline.py tests/test_wanx_media_fallback.py
 git commit -m "fix(video): support DashScope media fallback without OSS"
 ```
 
@@ -350,11 +350,11 @@ git commit -m "fix(video): support DashScope media fallback without OSS"
 ### Task 7: Keep vendor-direct Kling and Vidu working behind the same routing layer
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/kling.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/vidu.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/pipeline.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_kling_provider_routing.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_vidu_provider_routing.py`
+- Modify: `src/models/kling.py`
+- Modify: `src/models/vidu.py`
+- Modify: `src/apps/comic_gen/pipeline.py`
+- Test: `tests/test_kling_provider_routing.py`
+- Test: `tests/test_vidu_provider_routing.py`
 
 **Step 1: Write the failing routing tests**
 
@@ -397,7 +397,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/kling.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/models/vidu.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/pipeline.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_kling_provider_routing.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_vidu_provider_routing.py
+git add src/models/kling.py src/models/vidu.py src/apps/comic_gen/pipeline.py tests/test_kling_provider_routing.py tests/test_vidu_provider_routing.py
 git commit -m "feat(video): add provider routing for vendor-direct adapters"
 ```
 
@@ -405,11 +405,11 @@ git commit -m "feat(video): add provider routing for vendor-direct adapters"
 ### Task 8: Make OSS optional in the frontend configuration UX
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/EnvConfigDialog.tsx`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/EnvConfigChecker.tsx`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/endpoint-config.test.ts`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/endpoint-config.test.ts`
+- Modify: `frontend/src/components/project/EnvConfigDialog.tsx`
+- Modify: `frontend/src/components/EnvConfigChecker.tsx`
+- Modify: `frontend/src/components/settings/SettingsPage.tsx`
+- Modify: `frontend/src/__tests__/endpoint-config.test.ts`
+- Test: `frontend/src/__tests__/endpoint-config.test.ts`
 
 **Step 1: Write the failing frontend tests**
 
@@ -425,7 +425,7 @@ Update tests to reflect the new rule:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend && npm test -- --runInBand src/__tests__/endpoint-config.test.ts
+cd frontend && npm test -- --runInBand src/__tests__/endpoint-config.test.ts
 ```
 
 Expected: FAIL because the current validation still requires OSS fields.
@@ -444,7 +444,7 @@ Update the dialog and checker so required fields depend on route mode:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend && npm test -- --runInBand src/__tests__/endpoint-config.test.ts
+cd frontend && npm test -- --runInBand src/__tests__/endpoint-config.test.ts
 ```
 
 Expected: PASS.
@@ -452,7 +452,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/EnvConfigDialog.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/EnvConfigChecker.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/endpoint-config.test.ts
+git add frontend/src/components/project/EnvConfigDialog.tsx frontend/src/components/EnvConfigChecker.tsx frontend/src/components/settings/SettingsPage.tsx frontend/src/__tests__/endpoint-config.test.ts
 git commit -m "fix(frontend): make OSS optional in environment setup"
 ```
 
@@ -460,8 +460,8 @@ git commit -m "fix(frontend): make OSS optional in environment setup"
 ### Task 9: Add end-to-end backend verification for local-only mode
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_local_only_flow.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/conftest.py` if needed
+- Create: `tests/test_local_only_flow.py`
+- Modify: `tests/conftest.py` if needed
 
 **Step 1: Write a failing local-only flow test**
 
@@ -507,7 +507,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_local_only_flow.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/conftest.py
+git add tests/test_local_only_flow.py tests/conftest.py
 git commit -m "test(flow): verify local-only media pipeline without OSS"
 ```
 
@@ -515,9 +515,9 @@ git commit -m "test(flow): verify local-only media pipeline without OSS"
 ### Task 10: Run full verification and update operational docs
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/USER_MANUAL.md`
+- Modify: `README.md`
+- Modify: `README_EN.md`
+- Modify: `USER_MANUAL.md`
 - Test: full repo tests
 
 **Step 1: Update docs**
@@ -536,7 +536,7 @@ Include exact required env vars for each mode.
 Run:
 
 ```bash
-HOME=/tmp/lumenx-test-home pytest tests -q
+HOME=/tmp/omni_studio-test-home pytest tests -q
 ```
 
 Expected: PASS.
@@ -546,7 +546,7 @@ Expected: PASS.
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend && npm test -- --runInBand src/__tests__/endpoint-config.test.ts
+cd frontend && npm test -- --runInBand src/__tests__/endpoint-config.test.ts
 ```
 
 Expected: PASS.
@@ -558,7 +558,7 @@ Run only tools available in the current environment. Do not block the ship on mi
 **Step 5: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/USER_MANUAL.md
+git add README.md README_EN.md USER_MANUAL.md
 git commit -m "docs: explain DashScope-first and no-OSS operating modes"
 ```
 
@@ -566,9 +566,9 @@ git commit -m "docs: explain DashScope-first and no-OSS operating modes"
 ### Task 11: Optional follow-up for Pixverse once the DashScope contract lands
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_registry.py`
+- Modify: `src/utils/provider_registry.py`
+- Modify: `frontend/src/store/projectStore.ts`
+- Test: `tests/test_provider_registry.py`
 
 **Step 1: Add the model family to the registry**
 
@@ -591,6 +591,6 @@ Expected: PASS.
 **Step 4: Commit**
 
 ```bash
-git add /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_registry.py
+git add src/utils/provider_registry.py frontend/src/store/projectStore.ts tests/test_provider_registry.py
 git commit -m "feat(video): register pixverse provider routing"
 ```

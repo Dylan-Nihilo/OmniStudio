@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: lumenx-backend
+    container_name: omni-studio-backend
     env_file:
       - .env
     environment:
@@ -20,7 +20,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: lumenx-frontend
+    container_name: omni-studio-frontend
     ports:
       - "3000:80"
     depends_on:

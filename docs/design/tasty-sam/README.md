@@ -1,4 +1,4 @@
-# Tasty Sam · LumenX Studio 前端重构方案
+# Tasty Sam · Omni Studio 前端重构方案
 
 > 与 QoderWork ReDesign **同维度对比**的第二套方案 —— 同时给出 **延续线** 与 **突破线**。
 > 全部产出为静态高保真原型，**零侵入**：不改动任何现有代码或原 `docs/design/` 文件。

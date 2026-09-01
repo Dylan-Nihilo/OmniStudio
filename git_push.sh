@@ -32,7 +32,7 @@ show_help() {
     echo "用法:"
     echo "  ./git_push.sh                    # 交互式提交到当前分支"
     echo "  ./git_push.sh \"commit message\"   # 快速提交到当前分支"
-    echo "  ./git_push.sh -n feature-name    # 创建新功能分支 (基于 feature/lumenx-v1.0)"
+    echo "  ./git_push.sh -n feature-name    # 创建新功能分支 (基于 feature/omni_studio-v1.0)"
     echo "  ./git_push.sh -s branch-name     # 切换到已有分支 (使用 stash 保留更改)"
     echo "  ./git_push.sh -l                 # 列出所有分支"
     echo "  ./git_push.sh -h                 # 显示帮助"
@@ -53,7 +53,7 @@ list_branches() {
 # 创建新功能分支
 create_feature_branch() {
     local FEATURE_NAME=$1
-    local BASE_BRANCH="feature/lumenx-v1.0"
+    local BASE_BRANCH="feature/omni_studio-v1.0"
     local NEW_BRANCH="feature/${FEATURE_NAME}"
     
     echo -e "${BLUE}========================================${NC}"

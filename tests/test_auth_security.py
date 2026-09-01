@@ -88,7 +88,7 @@ def test_csrf_missing_and_wrong_token_are_rejected(tmp_path):
     app, engine, _ = make_auth_app(tmp_path)
     with make_client(app, local=True) as client:
         _owner(client)
-        csrf = client.cookies.get("lumenx_csrf")
+        csrf = client.cookies.get("omni_studio_csrf")
         missing = client.post("/auth/logout", headers={"X-CSRF-Token": ""})
         assert missing.status_code == 403
         assert missing.json()["error"]["code"] == "AUTH_CSRF_FAILED"
@@ -102,7 +102,7 @@ def test_csrf_origin_must_be_exactly_allowlisted(tmp_path):
     app, engine, _ = make_auth_app(tmp_path)
     with make_client(app, local=True) as client:
         _owner(client)
-        csrf = client.cookies.get("lumenx_csrf")
+        csrf = client.cookies.get("omni_studio_csrf")
         response = client.post("/auth/logout", headers={"Origin": "https://evil.example", "X-CSRF-Token": csrf})
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "AUTH_CSRF_FAILED"
@@ -118,7 +118,7 @@ def test_logout_revokes_session_clears_cookies_and_old_access_fails(tmp_path):
         response = client.post("/auth/logout")
         assert response.status_code == 204
         set_cookie = "\n".join(response.headers.get_list("set-cookie")).lower()
-        for cookie_name in ("lumenx_access", "lumenx_refresh", "lumenx_csrf"):
+        for cookie_name in ("omni_studio_access", "omni_studio_refresh", "omni_studio_csrf"):
             assert f"{cookie_name}=" in set_cookie
             assert "max-age=0" in set_cookie
 
@@ -134,7 +134,7 @@ def test_change_password_revokes_old_session_and_requires_reauthentication(tmp_p
     with make_client(app, local=True) as client:
         setup = _owner(client)
         old_access = setup.json()["access_token"]
-        csrf = client.cookies.get("lumenx_csrf")
+        csrf = client.cookies.get("omni_studio_csrf")
         response = client.post("/auth/change-password", json={"current_password": "correct horse battery staple", "new_password": "a newer and longer passphrase"}, headers={"X-CSRF-Token": csrf})
         assert response.status_code == 200, response.text
         assert response.json()["reauthentication_required"] is True

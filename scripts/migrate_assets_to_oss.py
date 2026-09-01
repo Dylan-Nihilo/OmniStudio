@@ -40,7 +40,7 @@ def is_migratable_path(value: str, uploader) -> bool:
         return True
         
     # Case 2: Already has OSS prefix but might be missing from OSS
-    base_path = os.getenv('OSS_BASE_PATH', 'lumenx').strip("'\"/")
+    base_path = os.getenv('OSS_BASE_PATH', 'omni_studio').strip("'\"/")
     if value.startswith(f"{base_path}/"):
         if not uploader.object_exists(value):
             print(f"  ! Missing from OSS: {value}")
@@ -54,11 +54,11 @@ def migrate_value(value, uploader, output_dir, stats):
     if isinstance(value, str):
         if is_migratable_path(value, uploader):
             # Determine local path
-            base_path = os.getenv('OSS_BASE_PATH', 'lumenx').strip("'\"/")
+            base_path = os.getenv('OSS_BASE_PATH', 'omni_studio').strip("'\"/")
             
             if value.startswith(f"{base_path}/"):
                 # Convert OSS key back to local path for upload
-                # e.g., lumenx/assets/characters/foo.png -> output/assets/characters/foo.png
+                # e.g., omni_studio/assets/characters/foo.png -> output/assets/characters/foo.png
                 local_rel_path = value[len(base_path)+1:]
                 local_path = os.path.join(output_dir, local_rel_path)
             else:
@@ -126,7 +126,7 @@ def main():
         sys.exit(1)
     
     print(f"OSS Bucket: {uploader.bucket.bucket_name if uploader.bucket else 'N/A'}")
-    base_path = os.getenv('OSS_BASE_PATH', 'lumenx').strip("'\"/")
+    base_path = os.getenv('OSS_BASE_PATH', 'omni_studio').strip("'\"/")
     print(f"Base Path: {base_path}")
 
     

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import clsx from "clsx";
-import LumenXBranding from "./LumenXBranding";
+import OmniStudioBranding from "./OmniStudioBranding";
 import { isTauri } from "@/lib/transport";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
@@ -38,7 +38,7 @@ const APP_VERSION = "v0.2.0";
 
 export const getUserMenuLayerClasses = () => "relative z-30";
 export const getUserMenuPopoverClasses = () =>
-  "absolute bottom-full left-0 right-0 z-40 mb-2 overflow-hidden rounded-xl border border-glass-border bg-elevated p-1.5 shadow-2xl shadow-black/40";
+  "absolute bottom-full left-0 right-0 z-[70] isolate mb-2 overflow-hidden rounded-xl border border-glass-border bg-elevated p-1.5 shadow-[0_18px_50px_-12px_rgba(0,0,0,0.92)] ring-1 ring-black/40";
 export const getLogoutButtonClasses = () =>
   "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-status-failed-fg transition hover:bg-status-failed-bg hover:text-status-failed-fg";
 
@@ -111,13 +111,13 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
     }
   };
 
-  const displayName = user?.display_name || user?.username || "MANGIX";
+  const displayName = user?.display_name || user?.username || "Omni Studio";
   const avatarLetter = displayName.trim().charAt(0).toUpperCase() || "M";
 
   return (
     <>
       <aside
-        className="hidden h-full w-52 flex-shrink-0 flex-col border-r border-glass-border bg-surface/60 backdrop-blur-xl md:flex"
+        className="relative z-40 hidden h-full w-52 flex-shrink-0 flex-col border-r border-glass-border bg-surface/60 backdrop-blur-xl md:flex"
         data-tauri-drag-region
       >
         {isTauri() && <div className="tauri-titlebar-inset" />}
@@ -127,7 +127,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
           aria-label={t("workspaceAria")}
           className="border-b border-glass-border px-4 pb-4 pt-5 text-left transition-opacity hover:opacity-90"
         >
-          <LumenXBranding size="md" showSlogan={false} />
+          <OmniStudioBranding size="md" showSlogan={false} />
           <p className="atelier-display mt-2.5 font-display text-[0.75rem] italic leading-snug tracking-wide text-text-muted">
             Stories, Rendered Alive.
           </p>
@@ -159,7 +159,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
                 <button
                   type="button"
                   onClick={() => { setMenuOpen(false); setChangePasswordOpen(true); }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-text-secondary transition hover:bg-hover-bg hover:text-foreground"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-foreground transition hover:bg-hover-bg"
                 >
                   <KeyRound size={15} />
                   {ta("changePassword")}

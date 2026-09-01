@@ -1,11 +1,11 @@
   ---
-  交接文档 — LumenX Studio 资产库 Line B 保真度(续)
+  交接文档 — Omni Studio 资产库 Line B 保真度(续)
 
   ⚡ 新会话第一件事(最重要)
 
   工作树有 6 个文件被改、尚未提交(一个 workflow 刚编辑完,我这边工具通道挂了没来得及复核提交)。第一步:
 
-  P=/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic-pilot-atelier-20260611-161001
+  P=/path/to/omni-studio-worktree
   cd "$P"
   git status --short        # 应看到下列 6 个文件 M/??
   npm --prefix frontend run typecheck      # 权威全量
@@ -57,11 +57,11 @@
 
   🗂️  整体项目状态
 
-  - worktree:/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic-pilot-atelier-20260611-161001,分支
+  - worktree:/path/to/omni-studio-worktree,分支
   feat/atelier-pilot-20260611-161001。output/ 软链主仓;主仓 .venv 是 py3.9。
   - dev:前端 cd frontend && PORT=3010 npm run dev;后端 <主仓>/.venv/bin/python -m uvicorn src.apps.comic_gen.api:app --host 127.0.0.1 --port
   17177。沙箱挡 localhost 回环 → curl/browse/git-push 需 dangerouslyDisableSandbox:true。
-  - 本地未推提交累积(满意后一次性推 github alibaba/lumenx,推前敏感扫描):
+  - 本地未推提交累积(满意后一次性推 github Dylan-Nihilo/OmniStudio,推前敏感扫描):
     - 设置页 phase-2:8 条(含 eccd965 提示词统一中文、715f8b6 居中画廊 等)
     - 工作区/资产库第一轮:5 条(deab95d 72b1ec7 0221221 5f09f78 e410b1c)
     - 资产库保真度第二轮:待提交(本文档上面那 5~6 条)

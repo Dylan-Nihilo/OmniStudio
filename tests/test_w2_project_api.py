@@ -27,7 +27,7 @@ def api_client(tmp_path, monkeypatch):
         isolated_pipeline = ComicGenPipeline(
             config={
                 "storage": {
-                    "db_path": str(tmp_path / "lumenx.db"),
+                    "db_path": str(tmp_path / "omni_studio.db"),
                     "legacy_projects_path": str(tmp_path / "projects.json"),
                     "legacy_series_path": str(tmp_path / "series.json"),
                     "auto_migrate": False,
@@ -96,6 +96,15 @@ def _add_episode(client, series_id: str, script_id: str, episode_number: int) ->
         json={"script_id": script_id, "episode_number": episode_number},
     )
     assert response.status_code == 200, response.text
+
+
+def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
+    project = _create_project(api_client, "列表接口回归")
+
+    response = api_client.get("/projects", follow_redirects=False)
+
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()] == [project["id"]]
 
 
 def test_get_project_episodes_returns_standalone_domain_view(api_client):

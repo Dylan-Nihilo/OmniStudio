@@ -1,5 +1,5 @@
 /* ============================================================================
-   LumenX Studio · Theme Tokens (可落地)
+   Omni Studio · Theme Tokens (可落地)
    Tasty Sam · 五预设主题系统
    ----------------------------------------------------------------------------
    架构：seed (品牌 DNA) → semantic (语义角色) → component (组件级)
@@ -352,7 +352,7 @@
 
 /* ============================================================================
    主题 5 · brand-light · 品牌亮色
-   复用现有 html.light 基线 + brand 蓝主色。LumenX_亮色.png。
+   复用现有 html.light 基线 + brand 蓝主色。omni-studio_亮色.png。
    ============================================================================ */
 :root[data-theme="brand-light"] {
   color-scheme: light;
@@ -427,7 +427,7 @@
   --input-bg:     var(--color-bg-input);
   --input-border: var(--color-border-default);
   --sidebar-bg:   var(--color-bg-inset);
-  --logo-filter:  none;   /* LumenX_亮色.png 原图 */
+  --logo-filter:  none;   /* omni-studio_亮色.png 原图 */
 }
 
 /* ============================================================================

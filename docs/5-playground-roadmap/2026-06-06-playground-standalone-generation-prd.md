@@ -1,4 +1,4 @@
-# LumenX Playground — 独立生成模块 PRD
+# Omni Studio Playground — 独立生成模块 PRD
 
 > **版本**: v1.0  
 > **日期**: 2026-06-06  
@@ -9,7 +9,7 @@
 
 ## 1. 背景与动机
 
-LumenX Studio 当前只支持"剧本 → 分镜 → 资产 → 视频 → 合成"的完整 pipeline 工作流。用户必须先创建项目、输入剧本，才能触达图像/视频生成能力。
+Omni Studio 当前只支持"剧本 → 分镜 → 资产 → 视频 → 合成"的完整 pipeline 工作流。用户必须先创建项目、输入剧本，才能触达图像/视频生成能力。
 
 但大量真实场景不需要完整 pipeline：
 
@@ -25,14 +25,14 @@ LumenX Studio 当前只支持"剧本 → 分镜 → 资产 → 视频 → 合成
 ## 2. 产品定位
 
 ```
-LumenX 产品家族
-├── LumenX Studio       ← pipeline-first 漫剧/视频生产
-├── LumenX Atelier      ← graph-first 个人创作画布
-├── LumenX Playground   ← ★ 独立生成工具台（本 PRD）
-└── LumenX Core         ← 共享后端/模型路由/资产存储
+Omni Studio 产品家族
+├── Omni Studio       ← pipeline-first 漫剧/视频生产
+├── Omni Studio Atelier      ← graph-first 个人创作画布
+├── Omni Studio Playground   ← ★ 独立生成工具台（本 PRD）
+└── Omni Studio Core         ← 共享后端/模型路由/资产存储
 ```
 
-**Playground 不是一个"产品"，是一个"工具模块"**。它是 LumenX 生态中最低门槛的入口：零配置、无项目、即开即用。生成的资产可以流向 Studio 或 Atelier。
+**Playground 不是一个"产品"，是一个"工具模块"**。它是 Omni Studio 生态中最低门槛的入口：零配置、无项目、即开即用。生成的资产可以流向 Studio 或 Atelier。
 
 ---
 
@@ -40,7 +40,7 @@ LumenX 产品家族
 
 | 用户类型 | 场景 | 价值 |
 |---------|------|------|
-| 新用户 | 首次进入 LumenX，想快速体验 AI 生成能力 | 降低上手门槛，30 秒内看到第一张 AI 生成图 |
+| 新用户 | 首次进入 Omni Studio，想快速体验 AI 生成能力 | 降低上手门槛，30 秒内看到第一张 AI 生成图 |
 | 独立创作者 | 生成单独的角色设计图、场景概念图 | 不必创建项目即可产出素材 |
 | 视频创作者 | 快速测试不同视频模型的运动效果 | 对比 Seedance / Kling / Vidu 的差异 |
 | Studio 用户 | 项目中临时需要补充素材 | 在 Playground 生成后收藏到资产库，再在项目中引用 |
@@ -118,11 +118,11 @@ LumenX 产品家族
 
 ### 5.2 布局（左右分栏）
 
-参考可灵（图2）的暗色分栏布局，融合 LumenX 的 glassmorphism 设计语言：
+参考可灵（图2）的暗色分栏布局，融合 Omni Studio 的 glassmorphism 设计语言：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  LumenX > Playground                                    │
+│  Omni Studio > Playground                                    │
 ├──────────────────────────┬──────────────────────────────┤
 │                          │                              │
 │  ┌─ 模式 Tab ──────────┐ │   生成结果画廊               │
@@ -156,11 +156,11 @@ LumenX 产品家族
 
 ### 5.3 设计规范
 
-- 遵循 LumenX 暗色主题（`#050508` 背景）
+- 遵循 Omni Studio 暗色主题（`#050508` 背景）
 - 面板使用 glassmorphism（5% white + backdrop-blur）
 - 主色 Electric Blue `#646cff`，强调色 Hot Pink `#ff0080`
 - 结果画廊使用 Framer Motion 的 staggered 入场动画
-- 模式 Tab 使用 LumenX 品牌渐变高亮
+- 模式 Tab 使用 Omni Studio 品牌渐变高亮
 - 生成中状态：卡片骨架屏 + 进度指示
 
 ---

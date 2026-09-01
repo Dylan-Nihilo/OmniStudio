@@ -21,7 +21,7 @@ def test_api_pipeline_uses_default_sqlite_storage_config():
 
     assert ast.literal_eval(config_node) == {
         "storage": {
-            "db_path": "output/lumenx.db",
+            "db_path": "output/omni_studio.db",
             "legacy_projects_path": "output/projects.json",
             "legacy_series_path": "output/series.json",
             "auto_migrate": True,

@@ -10,12 +10,12 @@ export default function RootLayout({
   return (
     <html lang="zh" className="atelier-dark" suppressHydrationWarning>
       <head>
-        <title>MANGIX Studio | 漫象工坊</title>
+        <title>Omni Studio | 漫象工坊</title>
         <meta name="description" content="AI-native motion comic creation platform by Wanxiang Silicon Core Technology" />
-        <link rel="icon" type="image/png" href="/mangix-mark-gpt.png" />
+        <link rel="icon" type="image/png" href="/omni-studio-logo.png" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var P=["atelier-dark","bridge-dark","brand-dark","atelier-light","brand-light"];var d=JSON.parse(localStorage.getItem("lumenx-settings")||"{}");var t=d.state&&d.state.theme;document.documentElement.className=P.indexOf(t)>=0?t:"atelier-dark";}catch(e){document.documentElement.className="atelier-dark";}})();`,
+            __html: `(function(){try{var P=["atelier-dark","bridge-dark","brand-dark","atelier-light","brand-light"];var d=JSON.parse(localStorage.getItem("omni_studio-settings")||"{}");var s=d.state||{};var t=s.theme;var m=s.themeMode;if(m==="system"){var dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;t=dark?s.darkTheme:s.lightTheme;}document.documentElement.className=P.indexOf(t)>=0?t:"atelier-dark";}catch(e){document.documentElement.className="atelier-dark";}})();`,
           }}
         />
         {/* Desktop app: compact font-size for embedded windows (Tauri / pywebview).

@@ -103,7 +103,7 @@ def _family_source_paths(catalog_root: Path) -> List[Path]:
 def _build_schema_stub() -> Dict[str, Any]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "LumenX Model Catalog",
+        "title": "Omni Studio Model Catalog",
         "type": "object",
         "required": ["version", "defaults", "families", "models"],
         "properties": {

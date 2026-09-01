@@ -1,4 +1,4 @@
-"""JWT access/refresh token primitives for LumenX W3."""
+"""JWT access/refresh token primitives for Omni Studio W3."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any, Mapping
 
 import jwt
 
-ISSUER = "lumenx"
-AUDIENCE = "lumenx-studio"
+ISSUER = "omni_studio"
+AUDIENCE = "omni-studio"
 ALGORITHM = "HS256"
 JWT_LEEWAY_SECONDS = 30
 _REQUIRED_CLAIMS = ["exp", "iat", "nbf", "sub", "sid", "jti", "type", "iss", "aud"]

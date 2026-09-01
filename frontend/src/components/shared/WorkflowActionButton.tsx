@@ -5,9 +5,9 @@
  * 视觉灵感：ZeroNode 项目的 frosted glass pill —— pill 形状 + 顶部高光
  * + 半透明品牌色 + backdrop-blur，让按钮看起来"漂浮"在 dark glass 之上。
  *
- * 适配 LumenX：
+ * 适配 Omni Studio：
  *   · 用紫色 #646cff 替代蓝色（与 BorderGlow / StepHeader / 整体品牌一致）
- *   · backdrop-blur 落到 LumenX 已有的 glass 语言里
+ *   · backdrop-blur 落到 Omni Studio 已有的 glass 语言里
  *   · 顶部 inset highlight 约 1px 白色 4-5% —— 极克制，不喧宾
  *   · 三档 variant：
  *       - primary  : 紫色填充 + 顶部高光，主行动（"应用并继续" / "Generate ×N"）
@@ -105,7 +105,7 @@ export default function WorkflowActionButton({
             className={clsx(
                 // pill — rounded-full 是核心标识，所有 variant 共享
                 "inline-flex items-center justify-center rounded-full font-semibold",
-                // 字体走 sans (Inter→PingFang fallback)，符合 LumenX content tier
+                // 字体走 sans (Inter→PingFang fallback)，符合 Omni Studio content tier
                 "font-sans tracking-[-0.005em]",
                 "select-none whitespace-nowrap",
                 "transition-[background,border-color,box-shadow,transform] duration-fast ease-out-quart",

@@ -1,8 +1,8 @@
 ---
-description: LumenX GitHub 发布流程 - 安全提交、敏感数据扫描、多人协作 PR 流程（禁止直接推 main）
+description: Omni Studio GitHub 发布流程 - 安全提交、敏感数据扫描、多人协作 PR 流程（禁止直接推 main）
 ---
 
-# LumenX GitHub 发布流程
+# Omni Studio GitHub 发布流程
 
 此 workflow 整合了从本地开发到共享 GitHub 仓库的完整发布流程，包含安全检查、分支规范和 PR 合并要求。
 

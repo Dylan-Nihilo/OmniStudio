@@ -5,7 +5,7 @@ import { create } from 'zustand';
 // Map of generationId -> the one outputId marked "featured" within that batch.
 // ---------------------------------------------------------------------------
 
-const FEATURED_LS_KEY = 'lumenx:playground:featured';
+const FEATURED_LS_KEY = 'omni_studio:playground:featured';
 
 function loadFeatured(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -30,7 +30,7 @@ function saveFeatured(map: Record<string, string>): void {
 // persisted to localStorage; queued ids use a simple module counter.
 // ---------------------------------------------------------------------------
 
-const CONCURRENCY_LS_KEY = 'lumenx:playground:concurrency';
+const CONCURRENCY_LS_KEY = 'omni_studio:playground:concurrency';
 const DEFAULT_CONCURRENCY = 3;
 
 function loadConcurrency(): number {

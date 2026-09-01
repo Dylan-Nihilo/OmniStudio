@@ -1,11 +1,11 @@
 <!-- Banner -->
 <div align="center">
-  <img src="docs/images/LumenX-Studio-Banner-cybr.png" alt="LumenX" width="100%" />
+  <img src="docs/images/Omni-Studio-Banner-cybr.png" alt="Omni Studio" width="100%" />
 </div>
 
 <div align="center">
 
-# LumenX
+# Omni Studio
 
 ### AI-Native Motion Comic & Video Creation Platform
 **Render Noise into Narrative**
@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![Node](https://img.shields.io/badge/node-18%2B-green)](https://nodejs.org/)
-[![GitHub Stars](https://img.shields.io/github/stars/alibaba/lumenx?style=social)](https://github.com/alibaba/lumenx)
+[![GitHub Stars](https://img.shields.io/github/stars/Dylan-Nihilo/OmniStudio?style=social)](https://github.com/Dylan-Nihilo/OmniStudio)
 
 [English](README_EN.md) · [中文](README.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
@@ -21,14 +21,14 @@
 
 ---
 
-LumenX 是一个 **AI 原生的短漫剧 & 视频创作平台**。它将创意文本转化为可发布的动态视频，提供从剧本分析到成片导出的完整创作链路，同时支持独立的图像/视频生成能力。
+Omni Studio 是一个 **AI 原生的短漫剧 & 视频创作平台**。它将创意文本转化为可发布的动态视频，提供从剧本分析到成片导出的完整创作链路，同时支持独立的图像/视频生成能力。
 
-LumenX 目前包含两个核心模块：
+Omni Studio 目前包含两个核心模块：
 
 | 模块 | 定位 |
 |------|------|
-| **LumenX Studio** | Pipeline-first 漫剧/视频生产（剧本→分镜→资产→视频→合成→导出） |
-| **LumenX Playground** | 独立图像/视频生成工具台（无需剧本上下文，即开即用） |
+| **Omni Studio** | Pipeline-first 漫剧/视频生产（剧本→分镜→资产→视频→合成→导出） |
+| **Omni Studio Playground** | 独立图像/视频生成工具台（无需剧本上下文，即开即用） |
 
 ---
 
@@ -71,7 +71,7 @@ LumenX 目前包含两个核心模块：
 
 | Before | After |
 |:---:|:---:|
-| <img src="docs/images/LumenX Studio Banner.jpeg" alt="旧版 Banner" width="100%" /> | <img src="docs/images/LumenX-Studio-Banner-cybr.png" alt="新版 Banner" width="100%" /> |
+| <img src="docs/images/Omni Studio Banner.jpeg" alt="旧版 Banner" width="100%" /> | <img src="docs/images/Omni-Studio-Banner-cybr.png" alt="新版 Banner" width="100%" /> |
 | 霓虹渐变莲花 · 柔和曲线 | Cyber Brutalism · 棱角几何 · 电路纹理 |
 
 </div>
@@ -119,8 +119,8 @@ LumenX 目前包含两个核心模块：
 
 ```bash
 # 克隆
-git clone https://github.com/alibaba/lumenx.git
-cd lumenx
+git clone https://github.com/Dylan-Nihilo/OmniStudio.git
+cd omni_studio
 
 # 配置 API Key
 cp .env.example .env
@@ -130,16 +130,27 @@ cp .env.example .env
 npm run dev
 ```
 
-或分别启动：
+推荐分别启动（更方便查看日志和单独重启）：
 
 ```bash
-# 后端
-pip install -r requirements.txt
-./start_backend.sh  # http://localhost:17177
+# 终端 1：后端
+# 首次使用可先安装依赖：pip install -r requirements.txt
+.venv/Scripts/python.exe -m uvicorn src.apps.comic_gen.api:app --reload --host 0.0.0.0 --port 17177
+# Linux/macOS 可使用：.venv/bin/python -m uvicorn src.apps.comic_gen.api:app --reload --host 0.0.0.0 --port 17177
 
-# 前端
-cd frontend && npm install && npm run dev  # http://localhost:3008
+# 终端 2：前端
+cd frontend
+npm install
+npm run dev  # http://localhost:3008
 ```
+
+如果 3008 已被其他前端进程占用，可临时换端口：
+
+```powershell
+$env:PORT='3009'; npm run dev  # http://localhost:3009
+```
+
+也可以使用一键启动：npm run dev。
 
 ### 访问
 
@@ -151,7 +162,7 @@ cd frontend && npm install && npm run dev  # http://localhost:3008
 
 ## ⚙️ 配置模式
 
-LumenX 采用 **本地优先** 的架构，最简配置只需一个 API Key。
+Omni Studio 采用 **本地优先** 的架构，最简配置只需一个 API Key。
 
 | 模式 | 必填 | 可用能力 |
 |------|------|----------|
@@ -166,7 +177,7 @@ LumenX 采用 **本地优先** 的架构，最简配置只需一个 API Key。
 
 所有配置可通过以下方式设置：
 - **开发模式**: 项目根目录 `.env` 文件
-- **应用内设置**: Settings 页面（保存到 `~/.lumen-x/config.json`）
+- **应用内设置**: Settings 页面（保存到 `~/.omni-studio/config.json`）
 
 MuleRun 支持两种认证方式：
 1. **CLI 模式**（推荐）: `npm i -g @mulerunai/cli && mulerun login`
@@ -179,13 +190,13 @@ MuleRun 支持两种认证方式：
 ## 🏗️ 技术架构
 
 <div align="center">
-  <img src="docs/images/architecture-cybr.png" alt="LumenX System Architecture" width="90%" />
+  <img src="docs/images/architecture-cybr.png" alt="Omni Studio System Architecture" width="90%" />
 </div>
 
 ### 目录结构
 
 ```
-lumenx/
+omni_studio/
 ├── frontend/                  # Next.js 前端
 │   └── src/components/
 │       ├── modules/playground/   # Playground 创作台
@@ -218,8 +229,8 @@ lumenx/
 
 欢迎社区贡献！请先阅读 [贡献指南](CONTRIBUTING.md)。
 
-- **Bug 反馈**: [GitHub Issues](https://github.com/alibaba/lumenx/issues)
-- **功能建议**: [GitHub Discussions](https://github.com/alibaba/lumenx/discussions)
+- **Bug 反馈**: [GitHub Issues](https://github.com/Dylan-Nihilo/OmniStudio/issues)
+- **功能建议**: [GitHub Discussions](https://github.com/Dylan-Nihilo/OmniStudio/discussions)
 - **邮件联系**: [zhangjunhe.zjh@alibaba-inc.com](mailto:zhangjunhe.zjh@alibaba-inc.com)
 
 ---

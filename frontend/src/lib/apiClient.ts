@@ -20,7 +20,11 @@ const getApiUrl = (): string => {
     }
 
     if (process.env.NODE_ENV === "development") {
-      return `${protocol}//${hostname}:${BACKEND_PORT}`;
+      // Keep browser requests same-origin in development. Next.js proxies
+      // `/api-proxy/*` to the standalone backend, which avoids CORS and local
+      // browser policies blocking cross-port requests (for example 3008 ->
+      // 17177).
+      return "/api-proxy";
     }
 
     return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
@@ -30,8 +34,9 @@ const getApiUrl = (): string => {
 };
 
 export const API_URL = getApiUrl();
-export const AUTH_RETURN_TO_KEY = "lumenx.auth.returnTo";
-const CSRF_COOKIE_NAME = "lumenx_csrf";
+export const AUTH_RETURN_TO_KEY = "omni_studio.auth.returnTo";
+export const AUTH_EXPIRED_EVENT = "omni_studio:auth-expired";
+const CSRF_COOKIE_NAME = "omni_studio_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
 
@@ -39,7 +44,8 @@ export const isSafeReturnHash = (value: unknown): value is string =>
   typeof value === "string" &&
   value.startsWith("#/") &&
   value !== "#/login" &&
-  value !== "#/setup";
+  value !== "#/setup" &&
+  value !== "#/reset-password";
 
 export const rememberReturnHash = (value?: string): void => {
   if (typeof window === "undefined") return;
@@ -88,6 +94,44 @@ const readCookie = (name: string): string | null => {
   }
 };
 
+type ApiErrorEnvelope = {
+  error?: {
+    code?: unknown;
+    message?: unknown;
+    request_id?: unknown;
+  };
+};
+
+export const getApiErrorStatus = (error: unknown): number | undefined => {
+  if (!axios.isAxiosError(error)) return undefined;
+  return error.response?.status;
+};
+
+export const getApiErrorCode = (error: unknown): string | undefined => {
+  if (!axios.isAxiosError(error)) return undefined;
+  const payload = error.response?.data as ApiErrorEnvelope | undefined;
+  const code = payload?.error?.code;
+  return typeof code === "string" ? code : undefined;
+};
+
+const clearClientCsrfCookie = (): void => {
+  if (typeof document === "undefined") return;
+  // Clear both the normal app-path cookie and the historical proxy-path
+  // variant. This prevents an old duplicate cookie from winning document.cookie
+  // parsing after a backend restart or port change.
+  for (const path of ["/", "/api-proxy"]) {
+    document.cookie = encodeURIComponent(CSRF_COOKIE_NAME) + "=; Max-Age=0; Path=" + path + "; SameSite=Lax";
+  }
+};
+
+export const refreshCsrfToken = async (): Promise<void> => {
+  clearClientCsrfCookie();
+  await bareClient.get("/auth/setup-status", {
+    headers: { "Cache-Control": "no-cache" },
+    params: { _csrf_refresh: Date.now() },
+  });
+};
+
 const attachCsrfHeader = (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
   const method = config.method?.toLowerCase();
   if (!method || !MUTATING_METHODS.has(method)) return config;
@@ -109,7 +153,12 @@ const bareClient = axios.create({
 bareClient.interceptors.request.use(attachCsrfHeader);
 
 export const apiClient = axios.create({
-  baseURL: API_URL,
+  // Callers pass the complete API_URL-prefixed path. Keeping a base URL here
+  // would make Axios combine `/api-proxy` with `/api-proxy/...` in development,
+  // producing `/api-proxy/api-proxy/...` and a misleading 404 from Next.js.
+  // `bareClient` below intentionally keeps API_URL as its base for the few
+  // auth requests that use relative paths.
+  baseURL: "",
   withCredentials: true,
   timeout: 30_000,
 });
@@ -121,17 +170,38 @@ let redirectingAfterAuthFailure = false;
 
 const requestPath = (config?: InternalAxiosRequestConfig): string => {
   const rawUrl = config?.url || "";
+  let path: string;
   try {
-    return new URL(rawUrl, config?.baseURL || API_URL).pathname;
+    const base = config?.baseURL || API_URL;
+    path = new URL(rawUrl, base.startsWith("http") ? base : "http://localhost").pathname;
   } catch {
-    return rawUrl.split("?")[0];
+    path = rawUrl.split("?")[0];
   }
+  return path.startsWith("/api-proxy/") ? path.slice("/api-proxy".length) : path;
+};
+
+/**
+ * Returns true when a normal business request failed only because the local
+ * login session expired and the automatic refresh flow could not recover it.
+ * Callers should let AuthGate's login redirect explain this state instead of
+ * showing a misleading module-level error such as "project sync failed".
+ */
+export const isAuthenticationRecoveryError = (error: unknown): boolean => {
+  if (!axios.isAxiosError(error)) return false;
+
+  const status = error.response?.status;
+  if (status === 401) return true;
+  if (status !== 403) return false;
+
+  return getApiErrorCode(error) === "AUTH_CSRF_FAILED" || requestPath(error.config) === "/auth/refresh";
 };
 
 const REFRESH_EXCLUDED_PATHS = new Set([
   "/auth/setup-status",
   "/auth/setup",
   "/auth/login",
+  "/auth/password-reset/status",
+  "/auth/password-reset",
   "/auth/refresh",
   "/auth/me",
 ]);
@@ -151,6 +221,8 @@ const clearAuthState = async (): Promise<void> => {
 export const redirectToLogin = async (preserveReturnTo = true): Promise<void> => {
   if (typeof window === "undefined" || redirectingAfterAuthFailure) return;
   redirectingAfterAuthFailure = true;
+  // Notify the gate before the async store import completes. This prevents a stale persisted user from keeping the AppShell visible during auth recovery.
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
   if (preserveReturnTo) rememberReturnHash();
   else clearReturnHash();
   await clearAuthState();

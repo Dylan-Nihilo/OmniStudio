@@ -1,6 +1,6 @@
 # Line B — Luminous Atelier
 
-> Tasty Sam 重构方案 · 突破线 | LumenX Studio
+> Tasty Sam 重构方案 · 突破线 | Omni Studio
 > "Render Noise into Narrative" — 让电影工具说电影自己的视觉母语
 
 ---

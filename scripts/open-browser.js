@@ -1,14 +1,16 @@
 const { exec } = require('child_process');
 
-const URL = 'http://localhost:3008';
+const frontendPort = process.env.PORT || process.env.OMNI_STUDIO_FRONTEND_PORT || '3008';
+const backendPort = process.env.OMNI_STUDIO_BACKEND_PORT || process.env.NEXT_PUBLIC_BACKEND_PORT || '17177';
+const URL = `http://localhost:${frontendPort}`;
 
 setTimeout(() => {
   console.log('\n  ╔══════════════════════════════════════════╗');
   console.log('  ║                                          ║');
-  console.log('  ║   LumenX AI Comic Platform Ready!        ║');
+  console.log('  ║   Omni Studio AI Comic Platform Ready!        ║');
   console.log('  ║                                          ║');
-  console.log('  ║   Frontend:  http://localhost:3008       ║');
-  console.log('  ║   Backend:   http://localhost:17177      ║');
+  console.log(`  ║   Frontend:  ${URL}`);
+  console.log(`  ║   Backend:   http://localhost:${backendPort}`);
   console.log('  ║                                          ║');
   console.log('  ║   Press Ctrl+C to stop all services.     ║');
   console.log('  ║                                          ║');

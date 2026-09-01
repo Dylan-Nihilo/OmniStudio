@@ -12,12 +12,18 @@ from src.storage.auth_repository import AuthRepository
 from src.storage.db import create_engine, init_schema
 
 
-def make_auth_app(tmp_path: Path, *, setup_token: str | None = None):
+def make_auth_app(
+    tmp_path: Path,
+    *,
+    setup_token: str | None = None,
+    password_reset_token: str | None = None,
+):
     engine = create_engine(tmp_path / "auth.db")
     init_schema(engine)
     settings = AuthSettings(
         signing_secret="test-signing-secret-012345678901234567890123456789",
         setup_token=setup_token,
+        password_reset_token=password_reset_token,
         access_ttl_seconds=900,
         refresh_ttl_seconds=7 * 86400,
         cookie_secure=False,
@@ -38,12 +44,12 @@ class AuthTestClient(TestClient):
         headers = dict(kwargs.pop("headers", {}) or {})
         headers.setdefault("Origin", "http://testserver")
         if method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and "X-CSRF-Token" not in headers:
-            csrf = self.cookies.get("lumenx_csrf")
+            csrf = self.cookies.get("omni_studio_csrf")
             if not csrf and str(url).startswith("/auth/"):
                 # Clearing cookies between login attempts is common in the
                 # auth tests; bootstrap the pre-auth CSRF cookie again.
                 self.get("/auth/setup-status")
-                csrf = self.cookies.get("lumenx_csrf")
+                csrf = self.cookies.get("omni_studio_csrf")
             if csrf:
                 headers["X-CSRF-Token"] = csrf
         kwargs["headers"] = headers

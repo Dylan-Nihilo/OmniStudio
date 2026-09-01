@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, Loader2, LogIn } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { consumeReturnHash } from "@/lib/apiClient";
+import { consumeReturnHash, getApiErrorCode, getApiErrorStatus } from "@/lib/apiClient";
 import { useAuthStore } from "@/store/authStore";
-import LumenXBranding from "@/components/layout/LumenXBranding";
+import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
+import AuthThemeMenu from "./AuthThemeMenu";
 
 export default function LoginPage() {
   const t = useTranslations("auth");
   const login = useAuthStore((state) => state.login);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
-      const rememberedIdentifier = window.localStorage.getItem("lumenx-remembered-identifier");
+      const rememberedIdentifier = window.localStorage.getItem("omni_studio-remembered-identifier");
       if (rememberedIdentifier) {
         setIdentifier(rememberedIdentifier);
         setRememberMe(true);
@@ -34,15 +36,25 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       try {
-        if (rememberMe) window.localStorage.setItem("lumenx-remembered-identifier", identifier);
-        else window.localStorage.removeItem("lumenx-remembered-identifier");
+        if (rememberMe) window.localStorage.setItem("omni_studio-remembered-identifier", identifier);
+        else window.localStorage.removeItem("omni_studio-remembered-identifier");
       } catch {
         // Remember-me is best effort and must not block authentication.
       }
       await login({ identifier, password });
       window.location.hash = consumeReturnHash("#/workspace");
-    } catch {
-      setError(t("errorInvalidCredentials"));
+    } catch (requestError) {
+      const status = getApiErrorStatus(requestError);
+      const code = getApiErrorCode(requestError);
+      if (status === 401 && code === "AUTH_INVALID_CREDENTIALS") {
+        setError(t("errorInvalidCredentials"));
+      } else if (status === 403 && code === "AUTH_CSRF_FAILED") {
+        setError(t("errorCsrf"));
+      } else if (status === 429 && code === "AUTH_RATE_LIMITED") {
+        setError(t("errorRateLimited"));
+      } else {
+        setError(t("errorLoginFailed"));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -51,10 +63,11 @@ export default function LoginPage() {
   return (
     <main data-testid="auth-surface" className="auth-surface">
       <div className="auth-storyboard" />
+      <AuthThemeMenu />
       <div className="auth-shell">
         <section data-testid="auth-panel" className="auth-panel">
           <div data-testid="auth-brand" className="auth-brand">
-            <LumenXBranding size="lg" variant="auth" />
+            <OmniStudioBranding size="lg" variant="auth" />
             <div aria-hidden="true" className="auth-brand-rule" />
           </div>
           <div className="mb-7">
@@ -68,10 +81,34 @@ export default function LoginPage() {
               <input className="auth-input" value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required autoFocus />
             </label>
 
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium">{t("password")}</span>
-              <input className="auth-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required minLength={8} maxLength={128} />
-            </label>
+            <div className="block">
+              <label htmlFor="login-password" className="mb-1.5 block text-sm font-medium">
+                {t("password")}
+              </label>
+              <span className="relative block">
+                <input
+                  id="login-password"
+                  className="auth-input pr-11"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                  minLength={8}
+                  maxLength={128}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={t(showPassword ? "hidePassword" : "showPassword")}
+                  aria-pressed={showPassword}
+                  title={t(showPassword ? "hidePassword" : "showPassword")}
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-text-secondary transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </span>
+            </div>
 
             <div className="flex items-center justify-between gap-4 pt-0.5 text-sm">
               <label className="inline-flex cursor-pointer items-center gap-2 text-text-secondary">
@@ -85,7 +122,7 @@ export default function LoginPage() {
               </label>
               <button
                 type="button"
-                onClick={() => setError(t("forgotPasswordHint"))}
+                onClick={() => { window.location.hash = "#/reset-password"; }}
                 className="text-primary transition-colors hover:text-primary-hover"
               >
                 {t("forgotPassword")}

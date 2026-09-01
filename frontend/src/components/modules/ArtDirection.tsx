@@ -358,14 +358,15 @@ export default function ArtDirection() {
 
         setIsSaving(true);
         try {
-            const updated = await api.saveArtDirection(
+            await api.saveArtDirection(
                 currentProject.id,
                 finalConfig.id,
                 finalConfig,
                 customStyles,
                 aiRecommendations
             );
-            updateProject(currentProject.id, updated);
+            const refreshed = await api.getProject(currentProject.id);
+            updateProject(currentProject.id, refreshed);
             setOverrideAccepted(false);
             toast.success(ta("styleApplied"), {
                 projectId: currentProject.id,

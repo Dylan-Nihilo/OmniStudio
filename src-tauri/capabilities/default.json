@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default permissions for MANGIX Studio",
+  "description": "Default permissions for Omni Studio",
   "windows": ["main"],
   "permissions": [
     "core:default",

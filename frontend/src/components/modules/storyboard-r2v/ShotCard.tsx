@@ -689,7 +689,7 @@ export default function ShotCard({
                                             type="button"
                                             onClick={() => {
                                                 document.dispatchEvent(
-                                                    new CustomEvent("lumenx:navigateStep", { detail: "cast" }),
+                                                    new CustomEvent("omni_studio:navigateStep", { detail: "cast" }),
                                                 );
                                             }}
                                             title={c.name}

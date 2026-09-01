@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to LumenX will be documented in this file.
+All notable changes to Omni Studio will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
@@ -13,7 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - **主视觉焕新** — Logo 与 Banner 从霓虹莲花渐变风格升级为 Cyber Brutalism 棱角几何风格（白色棱角莲花 + 蓝色水晶核心 + 电路纹理），品牌字标改为 monospace 等宽字体
-- **侧边栏品牌区** — 去掉渐变文字，改为 monospace "LUMENX" + 蓝色 X，Logo 使用无文字版几何 mark
+- **侧边栏品牌区** — 去掉渐变文字，改为 monospace "OMNI_STUDIO" + 蓝色 X，Logo 使用无文字版几何 mark
 - **默认 LLM 模型** — LLMAdapter/QwenVL 默认模型从 qwen3.6-plus 升级为 qwen3.7-plus
 
 ### Fixed

@@ -46,7 +46,7 @@ def test_refresh_rotates_and_replayed_old_token_revokes_family(tmp_path):
         # The replacement token must also be dead after family revocation.
         client.cookies.set(REFRESH_COOKIE_NAME, new_refresh, path="/auth")
         csrf = issue_csrf_token(session_id, service.settings.signing_secret)
-        client.cookies.set("lumenx_csrf", csrf, path="/")
+        client.cookies.set("omni_studio_csrf", csrf, path="/")
         dead = client.post("/auth/refresh", headers={"X-CSRF-Token": csrf})
         assert dead.status_code == 401
         assert service.repository.get_session(session_id).revoked_at is not None
@@ -63,7 +63,7 @@ def test_expired_refresh_is_rejected_and_cookies_are_cleared(tmp_path):
         response = client.post("/auth/refresh")
         assert response.status_code == 401
         set_cookie = "\n".join(response.headers.get_list("set-cookie")).lower()
-        for cookie_name in ("lumenx_access", "lumenx_refresh", "lumenx_csrf"):
+        for cookie_name in ("omni_studio_access", "omni_studio_refresh", "omni_studio_csrf"):
             assert f"{cookie_name}=" in set_cookie
             assert "max-age=0" in set_cookie
     engine.dispose()

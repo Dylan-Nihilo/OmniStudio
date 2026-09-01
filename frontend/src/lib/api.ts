@@ -62,6 +62,48 @@ export interface EnvConfigPayload {
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
 }
 
+export interface LegacyClaimSummary {
+    projects: number;
+    series: number;
+    media: number;
+    conflicts: number;
+}
+
+export interface LegacyClaimBatch {
+    id: string;
+    source_sha256: string;
+    status: "claimed" | "rolled_back";
+    project_ids: string[];
+    series_ids: string[];
+    created_at: number;
+    completed_at: number;
+    rolled_back_at: number | null;
+}
+
+export interface LegacyClaimStatus {
+    state: "ready" | "blocked" | "claimed" | "rolled_back";
+    source_sha256: string | null;
+    source_files: Array<Record<string, unknown>>;
+    summary: LegacyClaimSummary;
+    diagnostics: Array<{ type: string; message?: string; [key: string]: unknown }>;
+    rollback_available: boolean;
+    batch: LegacyClaimBatch | null;
+    idempotent?: boolean | null;
+}
+
+export const legacyClaimApi = {
+    getStatus: () =>
+        apiClient.get<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/status`).then((response) => response.data),
+    preview: () =>
+        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/preview`).then((response) => response.data),
+    apply: (expectedSourceSha256: string) =>
+        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/apply`, {
+            expected_source_sha256: expectedSourceSha256,
+        }).then((response) => response.data),
+    rollback: () =>
+        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/rollback`).then((response) => response.data),
+};
+
 // R2V v2 Phase 4 — Cross-episode reconcile types
 export interface ReconcileSuggestion {
     local_id: string;
@@ -177,6 +219,39 @@ export interface RefineSSEEvent {
     error?: string;
 }
 
+/**
+ * API responses can be either a bare list or an envelope such as
+ * `{ items: [...] }` depending on the backend route/version. Keep callers
+ * from crashing when an empty/error response is returned during navigation.
+ */
+function asList<T>(value: unknown): T[] {
+    let list: unknown[] | null = null;
+
+    if (Array.isArray(value)) {
+        list = value;
+    } else if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        for (const key of ["items", "data", "projects", "series"]) {
+            if (Array.isArray(record[key])) {
+                list = record[key];
+                break;
+            }
+        }
+    }
+
+    // Navigation should not crash because a malformed/null item slipped into
+    // a list response. Callers receive only object records to normalize.
+    return (list ?? []).filter(
+        (item) => item !== null && typeof item === "object" && !Array.isArray(item),
+    ) as T[];
+}
+
+function asObject(value: unknown): Record<string, any> {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, any>
+        : {};
+}
+
 export const api = {
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
@@ -185,9 +260,12 @@ export const api = {
         return { ...res.data, originalText: res.data.original_text };
     },
 
-    getProjects: async () => {
+    getProjects: async (): Promise<any[]> => {
         const res = await apiClient.get(`${API_URL}/projects/`);
-        return res.data.map((p: any) => ({ ...p, originalText: p.original_text }));
+        return asList<any>(res.data).map((value) => {
+            const project = asObject(value);
+            return { ...(project as any), originalText: project.original_text } as any;
+        });
     },
 
     getProject: async (scriptId: string) => {
@@ -788,7 +866,7 @@ export const api = {
             composition_data: compositionData,
             prompt: prompt,
             batch_size: batchSize
-        });
+        }, { timeout: 120_000 });
         return res.data;
     },
 
@@ -1121,7 +1199,7 @@ export const api = {
     },
     listSeries: async () => {
         const response = await apiClient.get(`${API_URL}/series`);
-        return response.data;
+        return asList<any>(response.data);
     },
     /** Core 全局/共享资产池（跨系列/项目聚合）。后端：GET /library/assets → {characters, scenes, props}。 */
     listLibraryAssets: async () => {

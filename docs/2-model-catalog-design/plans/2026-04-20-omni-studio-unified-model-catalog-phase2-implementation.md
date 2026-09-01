@@ -1,8 +1,8 @@
-# LumenX Unified Model Catalog Phase 2 Implementation Plan
+# Omni Studio Unified Model Catalog Phase 2 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Move LumenX from a Phase 1 additive model-catalog foundation to a Phase 2 consumer-aware model system, where backend/frontend consumers begin to meaningfully use canonical mode-aware metadata while preserving flat compatibility IDs, existing UI behavior, and current saved project compatibility.
+**Goal:** Move Omni Studio from a Phase 1 additive model-catalog foundation to a Phase 2 consumer-aware model system, where backend/frontend consumers begin to meaningfully use canonical mode-aware metadata while preserving flat compatibility IDs, existing UI behavior, and current saved project compatibility.
 
 **Architecture:** Phase 2 is still a compatibility-first evolution, not a big-bang migration. The key shift is that the app should stop treating `model_lines`, `modes`, and `compat` as passive additive metadata and start treating them as a real internal source of truth for normalization, runtime metadata access, route-vs-selection behavior, and future platform/gateway growth. Flat IDs remain the persisted and consumer-facing compatibility layer unless and until a later dedicated migration phase is approved.
 
@@ -36,8 +36,8 @@ This phase **must not**:
 ### Task 1: Strengthen the generated contract and freeze it with higher-order tests
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts`
+- Modify: `tests/test_model_catalog.py`
+- Modify: `frontend/src/__tests__/model-catalog.test.ts`
 
 **Step 1: Add backend tests that treat additive metadata as part of the official generated contract**
 
@@ -70,7 +70,7 @@ Run:
 
 ```bash
 pytest tests/test_model_catalog.py -q
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend
+cd frontend
 npm run test -- src/__tests__/model-catalog.test.ts
 ```
 
@@ -83,8 +83,8 @@ Expected:
 ### Task 2: Promote canonical mode metadata to first-class internal helpers in Python
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Modify: `src/utils/model_catalog.py`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Add explicit helper APIs for canonical mode lookups**
 
@@ -132,8 +132,8 @@ Expected:
 ### Task 3: Make frontend `modelCatalog.ts` consume canonical metadata internally
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts`
+- Modify: `frontend/src/lib/modelCatalog.ts`
+- Test: `frontend/src/__tests__/model-catalog.test.ts`
 
 **Step 1: Extend the frontend catalog type definitions**
 
@@ -180,7 +180,7 @@ Examples to verify:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend
+cd frontend
 npm run typecheck
 npm run test -- src/__tests__/model-catalog.test.ts
 ```
@@ -194,10 +194,10 @@ Expected:
 ### Task 4: Improve product/runtime overlay separation in source YAML without widening scope too far
 
 **Files:**
-- Modify selectively: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/wan.yaml`
-- Modify selectively: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/kling.yaml`
-- Modify selectively: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/vidu.yaml`
-- Optionally modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/pixverse.yaml`
+- Modify selectively: `config/model_catalog/families/wan.yaml`
+- Modify selectively: `config/model_catalog/families/kling.yaml`
+- Modify selectively: `config/model_catalog/families/vidu.yaml`
+- Optionally modify: `config/model_catalog/families/pixverse.yaml`
 
 **Step 1: Normalize the Wan pilot source shape**
 
@@ -246,9 +246,9 @@ Expected:
 ### Task 5: Introduce consumer-visible inspection/debug affordances for canonical metadata
 
 **Files:**
-- Modify minimally if helpful: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx`
-- Modify minimally if helpful: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/model-onboarding-implementation.md`
-- Optionally modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md`
+- Modify minimally if helpful: `frontend/src/components/settings/SettingsPage.tsx`
+- Modify minimally if helpful: `docs/model-onboarding-implementation.md`
+- Optionally modify: `README.md`
 
 **Step 1: Add low-noise developer-facing visibility into canonical metadata**
 
@@ -280,8 +280,8 @@ Do not flood normal settings pages with canonical IDs unless there is a concrete
 ### Task 6: Keep provider routing stable, but prepare for future platform/gateway growth
 
 **Files:**
-- Modify minimally if needed: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py`
-- Optionally add tests: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_provider_registry.py`
+- Modify minimally if needed: `src/utils/provider_registry.py`
+- Optionally add tests: `tests/test_provider_registry.py`
 
 **Step 1: Preserve current runtime routing behavior**
 
@@ -312,17 +312,17 @@ Gateway remains:
 
 **Files:**
 - Modify docs if needed:
-  - `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/model-onboarding-implementation.md`
-  - `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md`
-  - `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md`
-  - `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md`
+  - `docs/model-onboarding-implementation.md`
+  - `README.md`
+  - `README_EN.md`
+  - `CONTRIBUTING.md`
 
 **Step 1: Run backend verification**
 
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+cd /path/to/OmniStudio
 pytest -q
 ```
 
@@ -335,7 +335,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend
+cd frontend
 npm run typecheck
 npm run test:all
 npm run build
@@ -350,7 +350,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+cd /path/to/OmniStudio
 python scripts/build_model_catalog.py
 python scripts/validate_model_catalog.py
 ```

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# build_tauri_mac.sh — One-click build for LumenX Studio macOS app (.app + .dmg)
-# Produces: src-tauri/target/release/bundle/dmg/LumenX Studio_*.dmg
+# build_tauri_mac.sh — One-click build for Omni Studio macOS app (.app + .dmg)
+# Produces: src-tauri/target/release/bundle/dmg/Omni Studio_*.dmg
 
 set -euo pipefail
 
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "╔═══════════════════════════════════════════════════╗"
-echo "║  LumenX Studio — Tauri macOS Build               ║"
+echo "║  Omni Studio — Tauri macOS Build               ║"
 echo "╚═══════════════════════════════════════════════════╝"
 echo ""
 

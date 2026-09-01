@@ -1,4 +1,4 @@
-# LumenX Studio 前端重构 — Handoff
+# Omni Studio 前端重构 — Handoff
 
 > 写给接手的 Claude Code 同学。本文涵盖工作区现状、设计参考（Line A/B mockup）、
 > 已完成工作、遗留决策与下一步建议。
@@ -8,7 +8,7 @@
 ## 1. 仓库与分支
 
 ```
-主仓: /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+主仓: /path/to/OmniStudio
 远端: 只推 github（origin 是废弃 GitLab，别用它）
 主分支: feat/multi-theme-system（HEAD 7241393）
 ```
@@ -18,7 +18,7 @@
 当前开发在独立 worktree 进行，不影响主 checkout：
 
 ```
-worktree 路径: /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic-pilot-atelier-20260611-161001
+worktree 路径: /path/to/omni-studio-worktree
 分支: feat/atelier-pilot-20260611-161001 (HEAD 739dcb8)
 基线: feat/multi-theme-system
 ```
@@ -47,7 +47,7 @@ output/series.json   -> ../../tron-comic/output/series.json
 
 ### 设计哲学分歧
 
-LumenX Studio 的视觉重构分为两条完全对立的方向，都基于同一个前提——**dark-first · 内容为王 · creator cockpit**。
+Omni Studio 的视觉重构分为两条完全对立的方向，都基于同一个前提——**dark-first · 内容为王 · creator cockpit**。
 
 ### Line A — Cyber Refined（延续线）
 
@@ -99,7 +99,7 @@ LumenX Studio 的视觉重构分为两条完全对立的方向，都基于同一
 - 图标：LayoutGrid（工作区）/ Layers（主体库）/ Wand2（创作台）/ Settings（设置）
 - **VSCode 活动栏式悬停浮出标签**：hover/focus 时从右侧滑出全称标签面板（absolute z-50，零布局抖动）
 - 设置齿轮固定左下角（对齐 Line B mockup）
-- Branding：顶部仅保留 logo 图标，hover 浮出 "LumenX Studio" 全称
+- Branding：顶部仅保留 logo 图标，hover 浮出 "Omni Studio" 全称
 - zero-leak 验证通过：atelier-dark teal vs brand-dark blue+grid，无串色
 
 ### ② 工作区画廊重建（3a4b253）
@@ -140,7 +140,7 @@ LumenX Studio 的视觉重构分为两条完全对立的方向，都基于同一
 
 | 资产 | 建议去向 | 状态 |
 |------|---------|------|
-| **LUMENX 字标** | 导轨顶部仅 logo 图标 + hover 浮出全称（已实现） | ✅ |
+| **OMNI_STUDIO 字标** | 导轨顶部仅 logo 图标 + hover 浮出全称（已实现） | ✅ |
 | **Slogan 全文** | 设置→关于的品牌签名卡（logo + 斜体琥珀标语 + 版本） |  待做 |
 | **Slogan Kicker** | 工作区/资产库空态的品牌时刻卡 | ❌ 待做 |
 

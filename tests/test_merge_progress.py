@@ -59,7 +59,7 @@ def _install_merge_mocks(monkeypatch, tmp_path, *, fail_concat=False):
     normalization_dir = tmp_path / "normalization"
 
     def fake_mkdtemp(*, prefix):
-        assert prefix == "lumenx_merge_script-1_"
+        assert prefix == "omni_studio_merge_script-1_"
         normalization_dir.mkdir()
         return str(normalization_dir)
 
@@ -153,6 +153,8 @@ def test_merge_videos_sets_done_progress(monkeypatch, tmp_path, pipeline):
     assert script.merge_progress["stage"] == "done"
     assert script.merge_progress["message"] == "导出完成"
     assert script.merge_progress["progress"] == 1.0
+    assert script.merged_video_url.startswith("video/merged_script-1_")
+    assert script.merged_video_url.endswith(".mp4")
 
 
 def test_merge_videos_sets_failed_progress_on_ffmpeg_error(

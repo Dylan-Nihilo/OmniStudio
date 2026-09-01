@@ -1,7 +1,7 @@
 # REFACTOR-STRATEGY — Tasty Sam
 
 > 重构策略文档：补齐 QoderWork 方案的四个短板，并回应其 IA 审计与重构路线图。
-> 范围：LumenX Studio 全 Pipeline。零侵入静态原型。
+> 范围：Omni Studio 全 Pipeline。零侵入静态原型。
 
 ---
 

@@ -92,6 +92,8 @@ def _install_common_mocks(
         ]
         assert kwargs["capture_output"] is True
         assert kwargs["text"] is True
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
         assert kwargs["timeout"] == 30
         return SimpleNamespace(
             returncode=0,

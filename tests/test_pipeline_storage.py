@@ -45,7 +45,7 @@ def _storage_config(db_path: Path, projects_path: Path, series_path: Path) -> di
 def test_pipeline_storage_migrates_and_round_trips_without_writing_json(
     tmp_path: Path, quiet_pipeline
 ):
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     projects_path = tmp_path / "projects.json"
     series_path = tmp_path / "series.json"
     original = _script()
@@ -69,7 +69,7 @@ def test_pipeline_storage_migrates_and_round_trips_without_writing_json(
 
 
 def test_pipeline_storage_write_through_for_create_project(tmp_path: Path, quiet_pipeline, monkeypatch):
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     projects_path = tmp_path / "projects.json"
     series_path = tmp_path / "series.json"
     config = _storage_config(db_path, projects_path, series_path)
@@ -105,7 +105,7 @@ def test_pipeline_without_storage_keeps_json_write_behavior(tmp_path: Path, quie
 
 
 def test_pipeline_storage_series_round_trip(tmp_path: Path, quiet_pipeline):
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     projects_path = tmp_path / "projects.json"
     series_path = tmp_path / "series.json"
     config = _storage_config(db_path, projects_path, series_path)

@@ -1,4 +1,4 @@
-"""LumenX storage infrastructure package."""
+"""Omni Studio storage infrastructure package."""
 
 from .db import (
     DEFAULT_DB_PATH,

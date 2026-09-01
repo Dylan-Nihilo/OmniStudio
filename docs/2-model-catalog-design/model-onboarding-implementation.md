@@ -1,10 +1,10 @@
-# LumenX 模型接入系统实现说明
+# Omni Studio 模型接入系统实现说明
 
 这份文档解释当前仓库里已经落地的模型接入系统是怎么工作的，它解决了什么问题，哪些地方已经自动化，哪些地方仍然需要人来判断。
 
 如果你只想知道“以后我要接新模型时应该从哪里开始”，先看这三项：
 
-1. 入口 workflow：[`/lumenx-model-onboarding`](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/.codex/workflows/lumenx-model-onboarding.md)
+1. 入口 workflow：[`/omni_studio-model-onboarding`](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/.codex/workflows/omni_studio-model-onboarding.md)
 2. 构建命令：`python scripts/build_model_catalog.py`
 3. 校验命令：`python scripts/validate_model_catalog.py`
 
@@ -12,7 +12,7 @@
 
 ## 1. 这个系统到底解决什么问题
 
-在这套系统落地之前，LumenX 对模型的支持信息分散在很多地方：
+在这套系统落地之前，Omni Studio 对模型的支持信息分散在很多地方：
 
 - 有些模型字符串写在后端默认值里
 - 有些模型列表写在前端下拉框里
@@ -28,7 +28,7 @@
 1. **文档证据层**
    - 记录厂商原始文档或本地 staging 证据
 2. **可执行清单层**
-   - 用 `model_catalog` 描述“LumenX 实际支持什么”
+   - 用 `model_catalog` 描述“Omni Studio 实际支持什么”
 3. **消费层**
    - 后端和前端都从生成后的 catalog artifact 读取模型信息
 
@@ -44,7 +44,7 @@
 
 一次完整的模型接入或模型更新，现在应该沿着这条路径走：
 
-1. 用户触发 `/lumenx-model-onboarding`
+1. 用户触发 `/omni_studio-model-onboarding`
 2. 抓取或整理模型文档证据
 3. 更新 `config/model_catalog/` 下的 YAML
 4. 运行构建脚本，生成后端和前端要消费的 JSON
@@ -89,7 +89,7 @@
 
 - 原始厂商文档归档仓库
 - Context Hub 源仓库
-- 当前 LumenX 代码仓库
+- 当前 Omni Studio 代码仓库
 
 这种模式下，三层都能真正同步。
 
@@ -97,7 +97,7 @@
 
 这是当前最常见的工程模式。
 
-你只有当前 LumenX 仓库，于是：
+你只有当前 Omni Studio 仓库，于是：
 
 - 原始文档先抓到 `docs/1-api-reference/`
 - `model_catalog` 在本仓库更新
@@ -115,75 +115,75 @@
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [AGENTS.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/AGENTS.md) | 告诉 Codex 这个仓库有哪些 workflow 入口，以及用户说什么话时该触发哪个 workflow | 新增了 `/lumenx-model-onboarding` 的触发规则和文件映射 |
-| [.codex/workflows/lumenx-model-onboarding.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/.codex/workflows/lumenx-model-onboarding.md) | Codex 侧的正式模型接入 workflow | 新增，定义了模型接入的步骤、范围判断、验证要求、停顿条件 |
-| [.claude/commands/lumenx-model-onboarding.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/.claude/commands/lumenx-model-onboarding.md) | Claude 侧的同名流程镜像 | 新增，保持和 Codex workflow 行为一致 |
+| [AGENTS.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/AGENTS.md) | 告诉 Codex 这个仓库有哪些 workflow 入口，以及用户说什么话时该触发哪个 workflow | 新增了 `/omni_studio-model-onboarding` 的触发规则和文件映射 |
+| [.codex/workflows/omni_studio-model-onboarding.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/.codex/workflows/omni_studio-model-onboarding.md) | Codex 侧的正式模型接入 workflow | 新增，定义了模型接入的步骤、范围判断、验证要求、停顿条件 |
+| [.claude/commands/omni_studio-model-onboarding.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/.claude/commands/omni_studio-model-onboarding.md) | Claude 侧的同名流程镜像 | 新增，保持和 Codex workflow 行为一致 |
 
 ### 4.2 文档证据与设计层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [docs/2-model-catalog-design/plans/2026-04-03-model-docs-and-catalog-architecture.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/2-model-catalog-design/plans/2026-04-03-model-docs-and-catalog-architecture.md) | 最初的架构设计文档，回答“为什么要做这套系统” | 已同步到真实实现，补了前端本地 mirror 和校验入口 |
-| [docs/2-model-catalog-design/plans/2026-04-04-lumenx-model-onboarding-system.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/2-model-catalog-design/plans/2026-04-04-lumenx-model-onboarding-system.md) | 本轮实现计划文档，回答“这次具体要做哪些落地工作” | 新增 |
-| [docs/2-model-catalog-design/model-onboarding-implementation.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/2-model-catalog-design/model-onboarding-implementation.md) | 当前这份实现说明，解释系统已经怎么工作、每个文件负责什么 | 新增 |
-| [docs/1-api-reference/README.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/1-api-reference/README.md) | 解释 `docs/1-api-reference/` 的角色，避免误把它当成 canonical archive | 新增 |
-| [docs/1-api-reference/*.md](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/1-api-reference) | 仓库内的文档证据区 / 本地 staging 区 | 继续保留，用于 repo-only 模式下的文档证据 |
+| [docs/2-model-catalog-design/plans/2026-04-03-model-docs-and-catalog-architecture.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/2-model-catalog-design/plans/2026-04-03-model-docs-and-catalog-architecture.md) | 最初的架构设计文档，回答“为什么要做这套系统” | 已同步到真实实现，补了前端本地 mirror 和校验入口 |
+| [docs/2-model-catalog-design/plans/2026-04-04-omni_studio-model-onboarding-system.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/2-model-catalog-design/plans/2026-04-04-omni_studio-model-onboarding-system.md) | 本轮实现计划文档，回答“这次具体要做哪些落地工作” | 新增 |
+| [docs/2-model-catalog-design/model-onboarding-implementation.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/2-model-catalog-design/model-onboarding-implementation.md) | 当前这份实现说明，解释系统已经怎么工作、每个文件负责什么 | 新增 |
+| [docs/1-api-reference/README.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/1-api-reference/README.md) | 解释 `docs/1-api-reference/` 的角色，避免误把它当成 canonical archive | 新增 |
+| [docs/1-api-reference/*.md](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/docs/1-api-reference) | 仓库内的文档证据区 / 本地 staging 区 | 继续保留，用于 repo-only 模式下的文档证据 |
 
 ### 4.3 Catalog 源文件层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [config/model_catalog/catalog.meta.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/catalog.meta.yaml) | 定义 catalog 的版本和默认模型 | 已作为 canonical source 启用 |
-| [config/model_catalog/families/wan.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/wan.yaml) | Wan family 的模型、参数、文档链路、UI 暴露 | 已启用 |
-| [config/model_catalog/families/kling.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/kling.yaml) | Kling family 的 catalog 定义 | 已启用 |
-| [config/model_catalog/families/vidu.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/vidu.yaml) | Vidu family 的 catalog 定义 | 已启用 |
-| [config/model_catalog/families/pixverse.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/pixverse.yaml) | PixVerse family 的 catalog 占位与规划定义 | 已启用，当前仍是 planned / hidden 路径 |
+| [config/model_catalog/catalog.meta.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/catalog.meta.yaml) | 定义 catalog 的版本和默认模型 | 已作为 canonical source 启用 |
+| [config/model_catalog/families/wan.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/wan.yaml) | Wan family 的模型、参数、文档链路、UI 暴露 | 已启用 |
+| [config/model_catalog/families/kling.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/kling.yaml) | Kling family 的 catalog 定义 | 已启用 |
+| [config/model_catalog/families/vidu.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/vidu.yaml) | Vidu family 的 catalog 定义 | 已启用 |
+| [config/model_catalog/families/pixverse.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families/pixverse.yaml) | PixVerse family 的 catalog 占位与规划定义 | 已启用，当前仍是 planned / hidden 路径 |
 
 ### 4.4 生成物层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [config/model_catalog/generated/model_catalog.json](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/generated/model_catalog.json) | 后端 canonical artifact，给 Python 运行时使用 | 已生成并纳入工作流 |
-| [frontend/src/generated/modelCatalog.json](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/generated/modelCatalog.json) | 前端本地 mirror artifact，给 Next.js/TypeScript 使用 | 已生成并纳入工作流 |
-| [config/model_catalog/schema/model-catalog.schema.json](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/schema/model-catalog.schema.json) | catalog schema stub，用于结构说明 | 已生成 |
+| [config/model_catalog/generated/model_catalog.json](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/generated/model_catalog.json) | 后端 canonical artifact，给 Python 运行时使用 | 已生成并纳入工作流 |
+| [frontend/src/generated/modelCatalog.json](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/generated/modelCatalog.json) | 前端本地 mirror artifact，给 Next.js/TypeScript 使用 | 已生成并纳入工作流 |
+| [config/model_catalog/schema/model-catalog.schema.json](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/schema/model-catalog.schema.json) | catalog schema stub，用于结构说明 | 已生成 |
 
 ### 4.5 构建与校验工具层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [scripts/build_model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py) | 从 YAML 生成后端 JSON、前端 mirror、schema | 已打通双 artifact 生成，并给出下一步校验提示 |
-| [scripts/validate_model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/validate_model_catalog.py) | 输出可读的 catalog 校验报告 | 新增，用来校验 artifact 一致性、默认值可见性、文档链路 |
-| [frontend/scripts/typecheck.mjs](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/scripts/typecheck.mjs) | 前端稳定类型检查入口 | 新增，解决干净 checkout 下 `.next/types` 尚未生成时 `tsc` 直接失败的问题 |
+| [scripts/build_model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/scripts/build_model_catalog.py) | 从 YAML 生成后端 JSON、前端 mirror、schema | 已打通双 artifact 生成，并给出下一步校验提示 |
+| [scripts/validate_model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/scripts/validate_model_catalog.py) | 输出可读的 catalog 校验报告 | 新增，用来校验 artifact 一致性、默认值可见性、文档链路 |
+| [frontend/scripts/typecheck.mjs](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/scripts/typecheck.mjs) | 前端稳定类型检查入口 | 新增，解决干净 checkout 下 `.next/types` 尚未生成时 `tsc` 直接失败的问题 |
 
 ### 4.6 后端消费层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [src/utils/model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py) | catalog 的核心 Python 工具层，负责读取、构建、生成、校验 | 这是整套系统的核心工具文件，本轮补上了前端 mirror 支持和 validation report 逻辑 |
-| [src/utils/provider_registry.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py) | provider family routing 定义 | 已改为优先从 catalog 派生 family config，保留安全 fallback |
-| [src/apps/comic_gen/models.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/apps/comic_gen/models.py) | 项目默认模型设置 | 已改为从 catalog 默认值读取 |
+| [src/utils/model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/model_catalog.py) | catalog 的核心 Python 工具层，负责读取、构建、生成、校验 | 这是整套系统的核心工具文件，本轮补上了前端 mirror 支持和 validation report 逻辑 |
+| [src/utils/provider_registry.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_registry.py) | provider family routing 定义 | 已改为优先从 catalog 派生 family config，保留安全 fallback |
+| [src/apps/comic_gen/models.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/apps/comic_gen/models.py) | 项目默认模型设置 | 已改为从 catalog 默认值读取 |
 
 ### 4.7 前端消费层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [frontend/src/lib/modelCatalog.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts) | 前端 catalog 适配层 | 这是前端模型系统的核心入口，负责把生成 JSON 转成前端可直接用的列表、默认值、fallback、R2V 选择逻辑 |
-| [frontend/src/store/projectStore.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts) | 前端历史模型常量与类型出口 | 现在主要改成 re-export catalog 驱动的数据，而不是继续内嵌模型硬编码 |
-| [frontend/src/components/common/ModelSettingsModal.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx) | 项目级模型设置弹窗 | 默认值与回填逻辑改为来自 catalog |
-| [frontend/src/components/series/SeriesModelSettingsModal.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx) | 系列级模型设置弹窗 | 默认值与列表改为来自 catalog |
-| [frontend/src/components/settings/SettingsPage.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx) | 全局设置页 | 默认模型保存与读取改为使用 catalog 统一来源 |
-| [frontend/src/components/modules/VideoGenerator.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx) | 视频生成页的默认 I2V 入口 | 默认模型改为通过 catalog 解析 |
-| [frontend/src/components/modules/VideoSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoSidebar.tsx) | 视频参数侧边栏 | 模型切换、可选模型、R2V 选择逻辑改为 catalog 驱动 |
-| [frontend/src/components/modules/VideoCreator.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoCreator.tsx) | 具体发起 I2V / R2V 任务的页面 | R2V 的“显示模型”和“真实路由模型”已分离，并由 catalog 决定 |
-| [frontend/src/components/modules/PropertiesPanel.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/PropertiesPanel.tsx) | 分镜参考图选择与限制逻辑 | 参考图上限不再写死 `wan2.6-image=4`，而是从 catalog 读取 |
-| [frontend/src/lib/api.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/api.ts) | 前端调用后端的 API 封装 | 默认 I2V 模型改为来自 catalog |
+| [frontend/src/lib/modelCatalog.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/modelCatalog.ts) | 前端 catalog 适配层 | 这是前端模型系统的核心入口，负责把生成 JSON 转成前端可直接用的列表、默认值、fallback、R2V 选择逻辑 |
+| [frontend/src/store/projectStore.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/store/projectStore.ts) | 前端历史模型常量与类型出口 | 现在主要改成 re-export catalog 驱动的数据，而不是继续内嵌模型硬编码 |
+| [frontend/src/components/common/ModelSettingsModal.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/common/ModelSettingsModal.tsx) | 项目级模型设置弹窗 | 默认值与回填逻辑改为来自 catalog |
+| [frontend/src/components/series/SeriesModelSettingsModal.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/series/SeriesModelSettingsModal.tsx) | 系列级模型设置弹窗 | 默认值与列表改为来自 catalog |
+| [frontend/src/components/settings/SettingsPage.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx) | 全局设置页 | 默认模型保存与读取改为使用 catalog 统一来源 |
+| [frontend/src/components/modules/VideoGenerator.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoGenerator.tsx) | 视频生成页的默认 I2V 入口 | 默认模型改为通过 catalog 解析 |
+| [frontend/src/components/modules/VideoSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoSidebar.tsx) | 视频参数侧边栏 | 模型切换、可选模型、R2V 选择逻辑改为 catalog 驱动 |
+| [frontend/src/components/modules/VideoCreator.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoCreator.tsx) | 具体发起 I2V / R2V 任务的页面 | R2V 的“显示模型”和“真实路由模型”已分离，并由 catalog 决定 |
+| [frontend/src/components/modules/PropertiesPanel.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/PropertiesPanel.tsx) | 分镜参考图选择与限制逻辑 | 参考图上限不再写死 `wan2.6-image=4`，而是从 catalog 读取 |
+| [frontend/src/lib/api.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/api.ts) | 前端调用后端的 API 封装 | 默认 I2V 模型改为来自 catalog |
 
 ### 4.8 测试层
 
 | 文件 | 作用 | 这次做了什么 |
 |------|------|-------------|
-| [tests/test_model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py) | 后端 catalog 测试 | 已补到覆盖构建、前端 mirror、一致性、default visibility regression、validation report |
-| [frontend/src/__tests__/model-catalog.test.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts) | 前端 catalog 测试 | 已补到覆盖默认值、可见模型、hidden/planned 过滤、fallback、R2V 逻辑 |
+| [tests/test_model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/tests/test_model_catalog.py) | 后端 catalog 测试 | 已补到覆盖构建、前端 mirror、一致性、default visibility regression、validation report |
+| [frontend/src/__tests__/model-catalog.test.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/__tests__/model-catalog.test.ts) | 前端 catalog 测试 | 已补到覆盖默认值、可见模型、hidden/planned 过滤、fallback、R2V 逻辑 |
 
 ---
 
@@ -229,7 +229,7 @@
 
 如果是一次常规模型更新，直接照下面做：
 
-1. 触发 `/lumenx-model-onboarding`
+1. 触发 `/omni_studio-model-onboarding`
 2. 抓文档证据到外部 raw archive，或者当前仓库 `docs/1-api-reference/`
 3. 更新 `config/model_catalog/families/*.yaml`
 4. 运行 `python scripts/build_model_catalog.py`
