@@ -1,0 +1,74 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: ["Backend CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Checkout deployed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Back up current compose configuration
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            'install -d -m 700 /opt/omnistudio/backups && cp /opt/omnistudio/app/docker-compose.yml /opt/omnistudio/backups/docker-compose.previous.yml'
+
+      - name: Sync application source
+        run: |
+          rsync -rlptDz --delete \
+            --exclude='.git/' \
+            --exclude='.env' \
+            --exclude='.deployed-commit' \
+            --exclude='output/' \
+            --exclude='.claude/' \
+            --exclude='.codex/' \
+            --exclude='.feishu-assistant/' \
+            -e "ssh -i $HOME/.ssh/deploy_key -p $DEPLOY_PORT" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:/opt/omnistudio/app/"
+
+      - name: Build and activate release
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /opt/omnistudio/app && bash scripts/deploy_production.sh '$DEPLOY_SHA'"
+
+      - name: Verify public routes
+        run: |
+          curl --fail --silent --show-error --max-time 15 "http://$DEPLOY_HOST:3000/" > /dev/null
+          curl --fail --silent --show-error --max-time 15 "http://$DEPLOY_HOST:3000/health" > /dev/null
