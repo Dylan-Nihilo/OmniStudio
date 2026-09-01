@@ -71,6 +71,7 @@ from .collaboration_context import (
 )
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
+from ...storage.db import DEFAULT_DB_PATH
 from ...storage.legacy_claim import LegacyClaimService
 
 app = FastAPI(title="AI Comic Gen API")
@@ -178,7 +179,7 @@ os.makedirs("output/playground/videos", exist_ok=True)
 pipeline = ComicGenPipeline(
     config={
         "storage": {
-            "db_path": "output/omni_studio.db",
+            "db_path": str(DEFAULT_DB_PATH),
             "legacy_projects_path": "output/projects.json",
             "legacy_series_path": "output/series.json",
             "auto_migrate": True,
@@ -240,7 +241,7 @@ app.state.auth_settings = auth_settings
 app.state.auth_service = AuthService(AuthRepository(pipeline.storage_engine), auth_settings)
 app.state.legacy_claim_service = LegacyClaimService(
     pipeline.storage_engine,
-    db_path="output/omni_studio.db",
+    db_path=str(DEFAULT_DB_PATH),
     projects_path=pipeline.data_file,
     series_path=pipeline.series_data_file,
 )
