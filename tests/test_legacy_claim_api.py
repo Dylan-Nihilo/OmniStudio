@@ -71,7 +71,7 @@ def test_legacy_claim_routes_require_workspace_owner(claim_api):
         user_id=auth["user"]["id"],
         session_id=session_id,
     )
-    context.workspace.owner_user_id = "another-user"
+    context.membership.role = "member"
     client.app.dependency_overrides[get_current_user] = lambda: context
 
     response = client.get("/auth/legacy-claim/status")

@@ -1,7 +1,28 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { api } from '@/lib/api';
 import type { FrontendModelSettings } from '@/lib/modelCatalog';
+
+const projectStorageScope = (): string => {
+    if (typeof window === 'undefined') return 'server:default';
+    const workspaceId = window.localStorage.getItem('omni_studio.activeWorkspaceId') || 'default';
+    try {
+        const auth = JSON.parse(window.localStorage.getItem('omni_studio-auth') || '{}');
+        const userId = auth?.state?.user?.id || 'anonymous';
+        return `${userId}:${workspaceId}`;
+    } catch {
+        return `anonymous:${workspaceId}`;
+    }
+};
+
+export const scopedProjectStorageKey = (name: string): string =>
+    `${name}:${projectStorageScope()}`;
+
+const scopedProjectStorage = {
+    getItem: (name: string) => typeof window === 'undefined' ? null : window.localStorage.getItem(scopedProjectStorageKey(name)),
+    setItem: (name: string, value: string) => { if (typeof window !== 'undefined') window.localStorage.setItem(scopedProjectStorageKey(name), value); },
+    removeItem: (name: string) => { if (typeof window !== 'undefined') window.localStorage.removeItem(scopedProjectStorageKey(name)); },
+};
 export {
     I2I_MODELS,
     I2V_MODELS,
@@ -719,6 +740,7 @@ export const useProjectStore = create<ProjectStore>()(
         }),
         {
             name: 'project-storage',
+            storage: createJSONStorage(() => scopedProjectStorage),
             partialize: (state) => ({
                 projects: state.projects,
 

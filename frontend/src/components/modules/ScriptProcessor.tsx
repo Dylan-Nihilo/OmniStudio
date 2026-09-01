@@ -10,6 +10,8 @@ import { toast } from "@/store/toastStore";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import PreviousEpisodeSummary from "@/components/modules/PreviousEpisodeSummary";
 import ReconcileModal from "@/components/modules/ReconcileModal";
+import { getApiErrorCode } from "@/lib/apiClient";
+import { useEditLeaseStore } from "@/store/editLeaseStore";
 
 interface ScriptNode {
     type: "character" | "scene" | "prop";
@@ -36,6 +38,12 @@ export default function ScriptProcessor() {
     // store update that spread the backend payload without re-mapping).
     const projectText = (currentProject?.originalText ?? (currentProject as any)?.original_text) || "";
     const [script, setScript] = useState(projectText);
+    const lastSavedTextRef = useRef(projectText);
+    const leaseStatus = useEditLeaseStore((state) => state.status);
+    const leaseToken = useEditLeaseStore((state) => state.token);
+    const revision = useEditLeaseStore((state) => state.revision);
+    const clientInstanceId = useEditLeaseStore((state) => state.clientInstanceId);
+    const setRevision = useEditLeaseStore((state) => state.setRevision);
     const [nodes, setNodes] = useState<ScriptNode[]>([]);
 
     // UI State
@@ -51,6 +59,7 @@ export default function ScriptProcessor() {
         if (currentProject) {
             const txt = (currentProject as any)?.original_text ?? currentProject.originalText ?? "";
             setScript(txt || "");
+            lastSavedTextRef.current = txt || "";
         }
     }, [currentProject?.id]);
 
@@ -259,14 +268,27 @@ export default function ScriptProcessor() {
                             // typing — that's reserved for the explicit
                             // "提取实体" CTA.
                             if (!currentProject) return;
-                            const stored = ((currentProject as any).original_text ?? currentProject.originalText) || "";
-                            if (stored === script) return;
+                            if (lastSavedTextRef.current === script || !leaseToken || !revision) return;
                             try {
-                                await api.updateScriptText(currentProject.id, script);
+                                const saved = await api.updateScriptText(
+                                    currentProject.id,
+                                    script,
+                                    revision,
+                                    leaseToken,
+                                    clientInstanceId,
+                                );
+                                lastSavedTextRef.current = script;
+                                if (saved._revision) setRevision(saved._revision);
                             } catch (err) {
                                 console.warn("Failed to persist script text:", err);
+                                if (getApiErrorCode(err) === "EDIT_REVISION_CONFLICT") {
+                                    toast.error("保存冲突：服务器已有更新，你的本地内容已保留");
+                                } else {
+                                    toast.error("编辑权限已失效，你的本地内容已保留");
+                                }
                             }
                         }}
+                        readOnly={leaseStatus !== "editing"}
                         placeholder={ts("scriptPlaceholder")}
                         className="w-full h-full bg-transparent text-text-secondary font-mono text-base leading-relaxed resize-none focus:outline-none"
                         spellCheck={false}

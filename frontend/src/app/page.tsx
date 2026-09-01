@@ -26,6 +26,7 @@ import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
+import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -456,7 +457,9 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
   ];
 
   return (
-    <ProjectClient id={episodeId} breadcrumbSegments={segments} />
+    <EpisodeEditLeaseGuard scriptId={episodeId}>
+      <ProjectClient id={episodeId} breadcrumbSegments={segments} />
+    </EpisodeEditLeaseGuard>
   );
 }
 
@@ -659,7 +662,11 @@ function AuthenticatedHome() {
 
   // 项目详情页 — 全屏，无 GlobalSidebar
   if (currentView === 'project' && projectId) {
-    return <ProjectClient id={projectId} />;
+    return (
+      <EpisodeEditLeaseGuard scriptId={projectId}>
+        <ProjectClient id={projectId} />
+      </EpisodeEditLeaseGuard>
+    );
   }
 
   // 系列集数编辑 — 全屏，BreadcrumbBar 内嵌在 ProjectClient

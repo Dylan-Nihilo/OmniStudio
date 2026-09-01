@@ -67,7 +67,16 @@ def test_empty_database_builds_complete_w3_schema(tmp_path: Path):
     try:
         init_schema(engine)
         inspector = inspect(engine)
-        assert {"users", "workspaces", "sessions", "schema_migrations"} <= set(
+        assert {
+            "users",
+            "workspaces",
+            "workspace_memberships",
+            "workspace_invitations",
+            "workspace_provider_configs",
+            "script_edit_leases",
+            "sessions",
+            "schema_migrations",
+        } <= set(
             inspector.get_table_names()
         )
         assert {

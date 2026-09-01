@@ -6,7 +6,6 @@ import os
 import time
 import requests
 from http import HTTPStatus
-import dashscope
 from dashscope import ImageSynthesis
 from ..utils import get_logger
 from ..utils.endpoints import get_provider_base_url
@@ -15,6 +14,7 @@ from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_input
 from ..utils.provider_registry import resolve_provider_backend
 from ..utils.provider_errors import ProviderError, ProviderErrorCategory
+from ..utils.workspace_env import workspace_getenv
 
 logger = get_logger(__name__)
 
@@ -48,7 +48,7 @@ class WanxImageModel(ImageGenModel):
 
     @property
     def api_key(self):
-        api_key = os.getenv("DASHSCOPE_API_KEY")
+        api_key = workspace_getenv("DASHSCOPE_API_KEY")
         if not api_key:
             logger.warning("Dashscope API Key not found in config or environment variables.")
         return api_key
@@ -64,8 +64,6 @@ class WanxImageModel(ImageGenModel):
 
         # Determine model based on whether reference image is provided
         # Support both single path (legacy) and list of paths
-        dashscope.api_key = api_key
-
         all_ref_paths = []
         if ref_image_path:
             all_ref_paths.append(ref_image_path)
@@ -551,6 +549,7 @@ class WanxImageModel(ImageGenModel):
     def _generate_sdk(self, prompt: str, model_name: str, size: str, n: int, negative_prompt: str, all_ref_paths: list, kwargs: dict) -> str:
         """Generate image using Dashscope SDK (for older models)."""
         call_args = {
+            "api_key": self.api_key,
             "model": model_name,
             "prompt": prompt,
             "n": n,

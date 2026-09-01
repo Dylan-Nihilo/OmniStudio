@@ -5,7 +5,6 @@ import time
 import requests
 from http import HTTPStatus
 from dashscope import VideoSynthesis
-import dashscope
 from .base import VideoGenModel
 from ..utils import get_logger
 from ..utils.endpoints import get_provider_base_url
@@ -16,6 +15,7 @@ from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_input, resolve_media_inputs
 from ..utils.provider_registry import resolve_provider_backend
 from ..utils.provider_errors import raise_classified
+from ..utils.workspace_env import workspace_getenv
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,7 @@ class WanxModel(VideoGenModel):
 
     @property
     def api_key(self):
-        api_key = os.getenv("DASHSCOPE_API_KEY")
+        api_key = workspace_getenv("DASHSCOPE_API_KEY")
         if not api_key:
             logger.warning("Dashscope API Key not found in config or environment variables.")
         return api_key

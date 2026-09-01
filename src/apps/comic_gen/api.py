@@ -20,14 +20,14 @@
 # import_file_preview, import_file_confirm, upload_t2i_frame,
 # analyze_script_for_styles. All others are `def` for a reason.
 # ─────────────────────────────────────────────────────────────────────────────
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, List, Any, Tuple
 import asyncio
 import time
-from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from functools import partial
 import concurrent.futures
 import hashlib
@@ -58,18 +58,69 @@ from ...utils import setup_logging
 from ...utils.media_refs import resolve_local_media_path
 from ...utils.provider_errors import ProviderError
 from fastapi.responses import JSONResponse, PlainTextResponse
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 
 from .auth.routes import auth_exception_handler, router as auth_router
 from .auth.service import AuthError, AuthService
 from .auth.dependencies import get_current_user
 from .auth.routes import require_csrf
 from .auth.settings import AuthSettings
+from .collaboration_context import (
+    WorkspacePermissionError,
+    current_workspace_role,
+)
+from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
 from ...storage.legacy_claim import LegacyClaimService
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
+
+_WORKSPACE_PROVIDER_CONFIG_KEYS = {
+    "LLM_PROVIDER",
+    "DASHSCOPE_API_KEY",
+    "DASHSCOPE_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+    "ARK_API_KEY",
+    "ALIBABA_CLOUD_ACCESS_KEY_ID",
+    "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+    "OSS_BUCKET_NAME",
+    "OSS_ENDPOINT",
+    "OSS_BASE_PATH",
+    "OSS_ENABLE",
+    "KLING_ACCESS_KEY",
+    "KLING_SECRET_KEY",
+    "KLING_BASE_URL",
+    "KLING_PROVIDER_MODE",
+    "VIDU_API_KEY",
+    "VIDU_BASE_URL",
+    "VIDU_PROVIDER_MODE",
+    "PIXVERSE_PROVIDER_MODE",
+    "MULEROUTER_API_KEY",
+    "MULEROUTER_BASE_URL",
+    "MULEROUTER_SITE",
+}
+
+
+def _context_call(func, *args, **kwargs):
+    context = copy_context()
+    return partial(context.run, func, *args, **kwargs)
+
+
+def _context_iterator(iterable):
+    context = copy_context()
+
+    def iterate():
+        iterator = iter(iterable)
+        while True:
+            try:
+                yield context.run(next, iterator)
+            except StopIteration:
+                return
+
+    return iterate()
 
 # Setup logging to user directory
 setup_logging()
@@ -164,10 +215,25 @@ _CORS_ALLOW_HEADERS = [
     "Content-Type",
     "Range",
     "X-CSRF-Token",
+    "X-Client-Instance-ID",
+    "X-Edit-Lease",
+    "X-Workspace-ID",
     "X-Requested-With",
 ]
 
 app.add_exception_handler(AuthError, auth_exception_handler)
+
+
+@app.exception_handler(WorkspacePermissionError)
+def workspace_permission_error_handler(request: Request, exc: WorkspacePermissionError):
+    return auth_exception_handler(
+        request,
+        AuthError(
+            "AUTH_OWNER_REQUIRED",
+            "只有 Workspace Owner 可以修改共享资产",
+            status_code=403,
+        ),
+    )
 
 app.state.storage_engine = pipeline.storage_engine
 app.state.auth_settings = auth_settings
@@ -181,16 +247,23 @@ app.state.legacy_claim_service = LegacyClaimService(
 app.include_router(auth_router)
 
 
-def _iter_media_strings(value):
-    """Yield string leaves from persisted project/series payloads."""
+def _iter_media_strings(value, field: str = ""):
+    """Yield persisted media fields without treating arbitrary text as authorization."""
     if isinstance(value, str):
-        yield value
+        if field == "url" or field.endswith(("_url", "_path")) or field in {
+            "input_media",
+            "reference_image_urls",
+            "reference_video_urls",
+            "t2i_image_urls",
+            "bg_audio_source_video",
+        }:
+            yield value
     elif isinstance(value, dict):
-        for child in value.values():
-            yield from _iter_media_strings(child)
+        for key, child in value.items():
+            yield from _iter_media_strings(child, str(key))
     elif isinstance(value, (list, tuple, set)):
         for child in value:
-            yield from _iter_media_strings(child)
+            yield from _iter_media_strings(child, field)
 
 
 def _resolve_media_reference(value: str) -> str | None:
@@ -214,10 +287,20 @@ def _media_is_owned_by_workspace(media_path: str, workspace_id: str, pipeline_ob
     if not target:
         return False
     normalized = media_path.strip().lstrip("/\\").replace("\\", "/")
-    if normalized.startswith(_GENERATED_CACHE_PREFIXES):
-        # Preview audio is generated by an authenticated workspace request and
-        # is intentionally kept outside project payloads for cache reuse.
-        return Path(target).is_file()
+    upload_parts = normalized.split("/", 2)
+    if len(upload_parts) == 3 and upload_parts[0] == "uploads":
+        try:
+            uuid.UUID(upload_parts[1])
+        except ValueError:
+            pass  # Legacy upload path; require an exact persisted reference below.
+        else:
+            return upload_parts[1] == workspace_id and Path(target).is_file()
+    playground_upload = f"playground/uploads/{workspace_id}/"
+    if normalized.startswith("playground/uploads/"):
+        return normalized.startswith(playground_upload) and Path(target).is_file()
+    for prefix in _GENERATED_CACHE_PREFIXES:
+        if normalized.startswith(prefix):
+            return normalized.startswith(f"{prefix}{workspace_id}/") and Path(target).is_file()
     repository = getattr(pipeline_obj, "repository", None)
     if repository is None:
         return False
@@ -234,14 +317,24 @@ def _media_is_owned_by_workspace(media_path: str, workspace_id: str, pipeline_ob
         if any(_resolve_media_reference(ref) == target for ref in _iter_media_strings(payload)):
             return True
 
-    # Global library assets are intentionally shared across workspaces, but
-    # media is still served only when the path is explicitly referenced by a
-    # registered library record. This prevents arbitrary output-path probing
-    # while allowing the library cards shown in a project to load their image.
-    library = getattr(pipeline_obj, "library_store", None)
+    # Shared-library media is visible only inside the selected Workspace.
+    list_library_assets = getattr(pipeline_obj, "list_library_assets", None)
+    library = (
+        list_library_assets(workspace_id)
+        if callable(list_library_assets)
+        else getattr(pipeline_obj, "library_store", None)
+    )
     if library is not None:
         payload = library.model_dump() if hasattr(library, "model_dump") else library
         if any(_resolve_media_reference(ref) == target for ref in _iter_media_strings(payload)):
+            return True
+    from ..playground.api import _storage as playground_storage
+
+    for generation in playground_storage.list_history(limit=None, workspace_id=workspace_id):
+        if any(
+            _resolve_media_reference(ref) == target
+            for ref in _iter_media_strings(generation.model_dump())
+        ):
             return True
     return False
 
@@ -346,6 +439,34 @@ def _is_public_route(path: str, settings: AuthSettings) -> bool:
     )
 
 
+def _is_workspace_owner(context) -> bool:
+    # Test bypass contexts predate Membership and intentionally act as Owner.
+    return getattr(getattr(context, "membership", None), "role", "owner") == "owner"
+
+
+def _owner_required_for_request(method: str, path: str) -> bool:
+    parts = [part for part in path.strip("/").split("/") if part]
+    if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
+        return True
+    if method not in _MUTATING_METHODS:
+        return False
+    if parts == ["series"]:
+        return True
+    if method == "PUT" and len(parts) == 2 and parts[0] == "series":
+        return True
+    if method == "POST" and parts == ["series", "import", "confirm"]:
+        return True
+    if parts and parts[0] == "library":
+        return True
+    if method == "DELETE" and parts and parts[0] in {"projects", "series"}:
+        return not (
+            len(parts) == 3
+            and parts[0] == "projects"
+            and parts[2] == "edit-lease"
+        )
+    return False
+
+
 def _apply_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -356,6 +477,8 @@ def _apply_security_headers(response):
 
 @app.middleware("http")
 async def enforce_auth_and_security_headers(request: Request, call_next):
+    role_token = None
+    config_token = None
     try:
         service = getattr(request.app.state, "auth_service", None)
         if service is None:
@@ -381,18 +504,62 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 if not service.get_setup_status():
                     raise AuthError("AUTH_SETUP_REQUIRED", "服务尚未初始化", status_code=428)
                 context = get_current_user(request, service)
+            if not request.url.path.startswith("/auth/"):
+                context = service.resolve_workspace(
+                    context,
+                    request.headers.get("x-workspace-id"),
+                )
             request.state.auth_context = context
+            role_token = current_workspace_role.set(
+                getattr(getattr(context, "membership", None), "role", "owner")
+            )
+            if (
+                _is_workspace_owner(context)
+                and getattr(context.workspace, "slug", None) == "default"
+            ):
+                claim_assets = getattr(pipeline, "claim_unscoped_library_assets", None)
+                if callable(claim_assets):
+                    claim_assets(context.workspace.id)
+            workspace_config = service.repository.get_workspace_provider_config(
+                context.workspace.id
+            )
+            if (
+                not workspace_config
+                and _is_workspace_owner(context)
+                and getattr(context.workspace, "slug", None) == "default"
+            ):
+                inherited = {
+                    key: value
+                    for key in _WORKSPACE_PROVIDER_CONFIG_KEYS
+                    if (value := os.getenv(key)) is not None
+                }
+                if inherited:
+                    workspace_config = service.repository.update_workspace_provider_config(
+                        workspace_id=context.workspace.id,
+                        user_id=context.user.id,
+                        values=inherited,
+                        removed_keys=[],
+                        now=time.time(),
+                    )
+            config_token = current_workspace_config.set(workspace_config)
+            if _owner_required_for_request(request.method.upper(), request.url.path) and not _is_workspace_owner(context):
+                raise AuthError(
+                    "AUTH_OWNER_REQUIRED",
+                    "只有 Workspace Owner 可以执行此操作",
+                    status_code=403,
+                )
             repository = getattr(pipeline, "repository", None)
             if repository is not None:
                 parts = [part for part in request.url.path.strip("/").split("/") if part]
                 is_domain_collection = parts == ["projects", "domain"]
+                is_series_import = parts[:2] == ["series", "import"]
                 is_missing_domain_project = (
                     len(parts) >= 3
                     and parts[0] == "projects"
                     and parts[2] == "episodes"
                     and not repository.project_exists(parts[1])
                 )
-                if not is_domain_collection and not is_missing_domain_project:
+                if not is_domain_collection and not is_series_import and not is_missing_domain_project:
                     resource_workspace = _workspace_for_resource_path(
                         request.url.path,
                         repository,
@@ -405,6 +572,39 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                         raise AuthError("AUTH_RESOURCE_NOT_FOUND", "资源不存在", status_code=404)
             if request.method.upper() in _MUTATING_METHODS:
                 require_csrf(request, service, session_id=context.session.id)
+                parts = [part for part in request.url.path.strip("/").split("/") if part]
+                is_lease_endpoint = len(parts) >= 3 and parts[2] == "edit-lease"
+                is_text_save = len(parts) >= 3 and parts[2] == "text"
+                if (
+                    len(parts) >= 2
+                    and parts[0] == "projects"
+                    and parts[1] != "domain"
+                    and not is_lease_endpoint
+                    and not is_text_save
+                ):
+                    repository = getattr(pipeline, "repository", None)
+                    get_active_lease = getattr(repository, "get_active_script_edit_lease", None)
+                    active_lease = (
+                        get_active_lease(parts[1])
+                        if callable(get_active_lease)
+                        else None
+                    )
+                    if active_lease is not None and (
+                        active_lease.holder_user_id != context.user.id
+                        or active_lease.client_instance_id
+                        != request.headers.get("x-client-instance-id")
+                    ):
+                        response = JSONResponse(
+                            status_code=423,
+                            content={
+                                "error": {
+                                    "code": "EDIT_LEASE_HELD",
+                                    "message": f"{active_lease.holder_display_name} 正在编辑这一集",
+                                },
+                                "lease": _lease_payload(active_lease),
+                            },
+                        )
+                        return _apply_security_headers(response)
 
         response = await call_next(request)
     except AuthError as exc:
@@ -413,6 +613,11 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
         # returns the same stable envelope as the auth router and still clears
         # cookies for failed refreshes.
         response = auth_exception_handler(request, exc)
+    finally:
+        if role_token is not None:
+            current_workspace_role.reset(role_token)
+        if config_token is not None:
+            current_workspace_config.reset(config_token)
     return _apply_security_headers(response)
 
 
@@ -451,6 +656,13 @@ def _safe_upload_ext(filename: Optional[str]) -> str:
     return _UPLOAD_EXT_MAP.get(ext, "")
 
 
+def _workspace_upload_paths(workspace_id: str, filename: str) -> tuple[str, str]:
+    relative = f"uploads/{workspace_id}/{filename}"
+    absolute = os.path.join("output", "uploads", workspace_id, filename)
+    os.makedirs(os.path.dirname(absolute), exist_ok=True)
+    return relative, absolute
+
+
 @app.get("/debug/config")
 def debug_config():
     """Diagnostic endpoint to check OSS and path configuration."""
@@ -458,14 +670,14 @@ def debug_config():
     return {
         "oss_configured": uploader.is_configured,
         "oss_bucket_initialized": uploader.bucket is not None,
-        "oss_base_path": os.getenv("OSS_BASE_PATH", "omni_studio"),
+        "oss_base_path": workspace_getenv("OSS_BASE_PATH", "omni_studio"),
         "output_dir_exists": os.path.exists("output"),
         "output_contents": os.listdir("output") if os.path.exists("output") else [],
         "cwd": os.getcwd(),
         "env_vars_present": {
-            "OSS_ENDPOINT": bool(os.getenv("OSS_ENDPOINT")),
-            "OSS_BUCKET_NAME": bool(os.getenv("OSS_BUCKET_NAME")),
-            "ALIBABA_CLOUD_ACCESS_KEY_ID": bool(os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
+            "OSS_ENDPOINT": bool(workspace_getenv("OSS_ENDPOINT")),
+            "OSS_BUCKET_NAME": bool(workspace_getenv("OSS_BUCKET_NAME")),
+            "ALIBABA_CLOUD_ACCESS_KEY_ID": bool(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
         }
     }
 
@@ -598,12 +810,15 @@ def check_system():
 
 
 @app.post("/upload")
-def upload_file(file: UploadFile = File(...)):
+def upload_file(request: Request, file: UploadFile = File(...)):
     """Uploads a file and returns its URL (OSS if configured, else local)."""
     try:
         file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join("output/uploads", filename)
+        relative_path, file_path = _workspace_upload_paths(
+            request.state.auth_context.workspace.id,
+            filename,
+        )
 
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -614,7 +829,7 @@ def upload_file(file: UploadFile = File(...)):
             return signed_response({"url": oss_url})
 
         # Fallback to local URL (relative path for frontend getAssetUrl)
-        return {"url": f"uploads/{filename}"}
+        return {"url": relative_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -629,6 +844,7 @@ def upload_asset(
     script_id: str,
     asset_type: str,
     asset_id: str,
+    http_request: Request,
     upload_type: str,
     description: Optional[str] = None,
     file: UploadFile = File(...)
@@ -645,7 +861,10 @@ def upload_asset(
         # 1. Save file locally first
         file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join("output/uploads", filename)
+        relative_path, file_path = _workspace_upload_paths(
+            http_request.state.auth_context.workspace.id,
+            filename,
+        )
         
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -654,7 +873,7 @@ def upload_asset(
         uploader = OSSImageUploader()
         oss_url = uploader.upload_image(file_path)
         if not oss_url:
-            oss_url = f"uploads/{filename}"  # Fallback to local path
+            oss_url = relative_path  # Fallback to local path
         
         # 3. Update asset with new variant
         updated_script = pipeline.add_uploaded_asset_variant(
@@ -696,14 +915,26 @@ async def create_project(request: CreateProjectRequest, http_request: Request, s
     of that series; omitting it keeps the standalone-project behavior
     unchanged.
     """
+    context = getattr(http_request.state, "auth_context", None)
+    if request.series_id is None and context is not None and not _is_workspace_owner(context):
+        raise AuthError(
+            "AUTH_OWNER_REQUIRED",
+            "只有 Workspace Owner 可以创建顶层 Project",
+            status_code=403,
+        )
+    if (
+        request.series_id is not None
+        and context is not None
+        and pipeline.repository.workspace_for_series(request.series_id) != context.workspace.id
+    ):
+        raise AuthError("AUTH_RESOURCE_NOT_FOUND", "资源不存在", status_code=404)
     # Run in thread pool to avoid blocking event loop during LLM analysis (Python 3.8 compatible)
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
             None,  # Use default executor
-            partial(pipeline.create_project, request.title, request.text, skip_analysis, request.workflow_mode, request.series_id)
+            _context_call(pipeline.create_project, request.title, request.text, skip_analysis, request.workflow_mode, request.series_id)
         )
-        context = getattr(http_request.state, "auth_context", None)
         repository = getattr(pipeline, "repository", None)
         if context is not None and repository is not None:
             repository.assign_workspace_for_script(result.id, context.workspace.id)
@@ -719,23 +950,122 @@ class ReparseProjectRequest(BaseModel):
 
 class UpdateScriptTextRequest(BaseModel):
     text: str
+    expected_revision: str
+    client_instance_id: str
+
+
+class EditLeaseRequest(BaseModel):
+    client_instance_id: str = Field(min_length=1, max_length=128)
+
+
+def _lease_payload(lease) -> dict[str, Any]:
+    return {
+        "script_id": lease.script_id,
+        "holder_user_id": lease.holder_user_id,
+        "holder_display_name": lease.holder_display_name,
+        "client_instance_id": lease.client_instance_id,
+        "expires_at": lease.expires_at,
+        "revision": lease.revision,
+        "token": lease.token,
+    }
+
+
+@app.post("/projects/{script_id}/edit-lease")
+def acquire_edit_lease(script_id: str, payload: EditLeaseRequest, request: Request):
+    context = request.state.auth_context
+    repository = pipeline.repository
+    try:
+        lease = repository.acquire_script_edit_lease(
+            script_id,
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            display_name=context.user.display_name or context.user.username,
+            client_instance_id=payload.client_instance_id,
+        )
+    except Exception as exc:
+        if repository.workspace_for_script(script_id) is None:
+            raise HTTPException(status_code=404, detail="Script not found") from exc
+        raise
+    if not lease.acquired:
+        return JSONResponse(
+            status_code=423,
+            content={
+                "error": {
+                    "code": "EDIT_LEASE_HELD",
+                    "message": f"{lease.holder_display_name} 正在编辑这一集",
+                },
+                "lease": _lease_payload(lease),
+            },
+        )
+    return _lease_payload(lease)
+
+
+@app.patch("/projects/{script_id}/edit-lease")
+def heartbeat_edit_lease(script_id: str, payload: EditLeaseRequest, request: Request):
+    expires_at = pipeline.repository.heartbeat_script_edit_lease(
+        script_id,
+        user_id=request.state.auth_context.user.id,
+        client_instance_id=payload.client_instance_id,
+        lease_token=request.headers.get("x-edit-lease", ""),
+    )
+    if expires_at is None:
+        return JSONResponse(
+            status_code=423,
+            content={"error": {"code": "EDIT_LEASE_INVALID", "message": "编辑权限已失效"}},
+        )
+    return {"expires_at": expires_at}
+
+
+@app.delete("/projects/{script_id}/edit-lease", status_code=204)
+def release_edit_lease(script_id: str, payload: EditLeaseRequest, request: Request):
+    pipeline.repository.release_script_edit_lease(
+        script_id,
+        user_id=request.state.auth_context.user.id,
+        client_instance_id=payload.client_instance_id,
+        lease_token=request.headers.get("x-edit-lease", ""),
+    )
+    return Response(status_code=204)
 
 
 @app.put("/projects/{script_id}/text", response_model=Script)
-def update_script_text(script_id: str, request: UpdateScriptTextRequest):
+def update_script_text(script_id: str, request: UpdateScriptTextRequest, http_request: Request):
     """Persist `original_text` without re-parsing entities.
 
     Used by ScriptProcessor's onBlur so typing survives reload/navigation
     without triggering an LLM round-trip. Heavy reparse stays bound to the
     explicit "提取实体" CTA.
     """
-    script = pipeline.get_script(script_id)
-    if not script:
+    result = pipeline.repository.update_script_text_cas(
+        script_id,
+        text=request.text,
+        expected_revision=request.expected_revision,
+        lease_token=http_request.headers.get("x-edit-lease"),
+        user_id=http_request.state.auth_context.user.id,
+        client_instance_id=request.client_instance_id,
+    )
+    if result.status == "not_found":
         raise HTTPException(status_code=404, detail="Script not found")
-    script.original_text = request.text or ""
-    script.updated_at = time.time()
-    pipeline._save_data()
-    return signed_response(script)
+    if result.status == "lease_invalid":
+        return JSONResponse(
+            status_code=423,
+            content={
+                "error": {"code": "EDIT_LEASE_INVALID", "message": "编辑权限已失效"},
+                "current_revision": result.revision,
+            },
+        )
+    if result.status == "conflict":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {"code": "EDIT_REVISION_CONFLICT", "message": "内容已被其他编辑更新"},
+                "current_revision": result.revision,
+            },
+        )
+    script = result.script
+    pipeline.scripts[script_id] = script
+    response = script.model_dump()
+    response["_revision"] = result.revision
+    return signed_response(response)
 
 
 @app.put("/projects/{script_id}/reparse", response_model=Script)
@@ -746,7 +1076,7 @@ async def reparse_project(script_id: str, request: ReparseProjectRequest):
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,  # Use default executor
-            partial(pipeline.reparse_project, script_id, request.text)
+            _context_call(pipeline.reparse_project, script_id, request.text)
         )
         return signed_response(result)
     except ValueError as e:
@@ -763,7 +1093,7 @@ async def extract_preview(script_id: str, request: ReparseProjectRequest):
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            partial(pipeline.extract_preview, script_id, request.text)
+            _context_call(pipeline.extract_preview, script_id, request.text)
         )
         return {
             "characters": [c.dict() for c in result.characters],
@@ -1087,7 +1417,7 @@ def generate_series_asset(series_id: str, request: GenerateAssetRequest, backgro
             request.batch_size,
             request.model_name
         )
-        background_tasks.add_task(pipeline.process_asset_generation_task, task_id)
+        background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
         response_data = series.dict()
         response_data["_task_id"] = task_id
         return signed_response(response_data)
@@ -1297,9 +1627,9 @@ class ForkFromLibraryRequest(BaseModel):
 
 
 @app.get("/library/assets")
-def get_library_assets():
+def get_library_assets(request: Request):
     """List all assets in the global shared pool."""
-    lib = pipeline.list_library_assets()
+    lib = pipeline.list_library_assets(request.state.auth_context.workspace.id)
     return signed_response({
         "characters": [c.model_dump() for c in lib.characters],
         "scenes": [s.model_dump() for s in lib.scenes],
@@ -1308,11 +1638,15 @@ def get_library_assets():
 
 
 @app.post("/library/assets")
-def create_library_asset(request: CreateLibraryAssetRequest):
+def create_library_asset(request: CreateLibraryAssetRequest, http_request: Request):
     """Create a new asset in the global shared pool."""
     try:
         payload = request.model_dump(exclude={"asset_type"})
-        asset = pipeline.create_library_asset(request.asset_type, payload)
+        asset = pipeline.create_library_asset(
+            request.asset_type,
+            payload,
+            http_request.state.auth_context.workspace.id,
+        )
         return signed_response(asset.model_dump())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1321,13 +1655,13 @@ def create_library_asset(request: CreateLibraryAssetRequest):
 
 
 @app.post("/library/assets/upload")
-def upload_library_asset_image(file: UploadFile = File(...)):
+def upload_library_asset_image(request: Request, file: UploadFile = File(...)):
     """Upload an image to use as a global library asset's master image.
 
-    Saves the file under output/uploads/ (served via the protected /files route)
+    Saves the file under output/uploads/<workspace_id>/ (served via the protected /files route)
     and returns {"image_url": <path-or-URL the frontend can load>}. When OSS
     is configured the returned URL is the (signed) OSS URL; otherwise a local
-    relative path "uploads/<name>" resolvable through the frontend's
+    relative path "uploads/<workspace_id>/<name>" resolvable through the frontend's
     getAssetUrl helper. The caller then passes this image_url to
     POST /library/assets (image_url=...) or PATCH /library/assets/{type}/{id}
     to attach it to a library asset. Mirrors the generic /upload endpoint but
@@ -1336,25 +1670,33 @@ def upload_library_asset_image(file: UploadFile = File(...)):
     try:
         file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join("output/uploads", filename)
+        relative_path, file_path = _workspace_upload_paths(
+            request.state.auth_context.workspace.id,
+            filename,
+        )
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         # Prefer OSS when configured (signed), else fall back to local path.
         oss_url = OSSImageUploader().upload_image(file_path)
         if oss_url:
             return signed_response({"image_url": oss_url})
-        return {"image_url": f"uploads/{filename}"}
+        return {"image_url": relative_path}
     except Exception as e:
         logger.exception("upload_library_asset_image failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.api_route("/library/assets/{asset_type}/{asset_id}", methods=["PUT", "PATCH"])
-def update_library_asset(asset_type: str, asset_id: str, request: UpdateLibraryAssetRequest):
+def update_library_asset(asset_type: str, asset_id: str, request: UpdateLibraryAssetRequest, http_request: Request):
     """Patch a global library asset (only the provided fields are applied)."""
     try:
         patch = request.model_dump(exclude_unset=True)
-        asset = pipeline.update_library_asset(asset_type, asset_id, patch)
+        asset = pipeline.update_library_asset(
+            asset_type,
+            asset_id,
+            patch,
+            http_request.state.auth_context.workspace.id,
+        )
         return signed_response(asset.model_dump())
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1363,7 +1705,7 @@ def update_library_asset(asset_type: str, asset_id: str, request: UpdateLibraryA
 
 
 @app.delete("/library/assets/{asset_type}/{asset_id}")
-def delete_library_asset(asset_type: str, asset_id: str, force: bool = False):
+def delete_library_asset(asset_type: str, asset_id: str, request: Request, force: bool = False):
     """Delete an asset from the global shared pool.
 
     Reference-integrity (design Q2): if any storyboard frame in any project or
@@ -1373,7 +1715,12 @@ def delete_library_asset(asset_type: str, asset_id: str, force: bool = False):
     those references dangling (the asset resolver simply drops the unknown id).
     """
     try:
-        pipeline.delete_library_asset(asset_type, asset_id, force=force)
+        pipeline.delete_library_asset(
+            asset_type,
+            asset_id,
+            force=force,
+            workspace_id=request.state.auth_context.workspace.id,
+        )
         return {"status": "deleted", "asset_type": asset_type, "id": asset_id}
     except LibraryAssetInUseError as e:
         raise HTTPException(
@@ -1394,11 +1741,23 @@ def delete_library_asset(asset_type: str, asset_id: str, force: bool = False):
 
 
 @app.post("/library/assets/promote")
-def promote_asset_to_library(request: PromoteAssetRequest):
+def promote_asset_to_library(request: PromoteAssetRequest, http_request: Request):
     """Deep-copy an asset from a project or series into the global pool."""
     try:
+        context = http_request.state.auth_context
+        source_workspace = (
+            pipeline.repository.workspace_for_script(request.source_id)
+            if request.source_kind == "project"
+            else pipeline.repository.workspace_for_series(request.source_id)
+        )
+        if source_workspace != context.workspace.id:
+            raise HTTPException(status_code=404, detail="Source not found")
         asset = pipeline.promote_asset_to_library(
-            request.source_kind, request.source_id, request.asset_type, request.asset_id
+            request.source_kind,
+            request.source_id,
+            request.asset_type,
+            request.asset_id,
+            context.workspace.id,
         )
         return signed_response(asset.model_dump())
     except ValueError as e:
@@ -1408,7 +1767,7 @@ def promote_asset_to_library(request: PromoteAssetRequest):
 
 
 @app.post("/projects/{script_id}/assets/fork_from_library")
-def fork_asset_from_library(script_id: str, request: ForkFromLibraryRequest):
+def fork_asset_from_library(script_id: str, request: ForkFromLibraryRequest, http_request: Request):
     """Fork (deep-copy) a global library asset into this project as an
     independent, editable local copy with a fresh id (design Q3, 按需 fork).
 
@@ -1419,7 +1778,10 @@ def fork_asset_from_library(script_id: str, request: ForkFromLibraryRequest):
     """
     try:
         asset = pipeline.fork_library_asset_to_project(
-            script_id, request.asset_type, request.library_asset_id
+            script_id,
+            request.asset_type,
+            request.library_asset_id,
+            http_request.state.auth_context.workspace.id,
         )
         return signed_response(asset.model_dump())
     except ValueError as e:
@@ -1434,6 +1796,7 @@ def fork_asset_from_library(script_id: str, request: ForkFromLibraryRequest):
 
 @app.post("/series/import/preview")
 async def import_file_preview(
+    http_request: Request,
     file: UploadFile = File(...),
     suggested_episodes: int = 3,
 ):
@@ -1449,11 +1812,14 @@ async def import_file_preview(
         loop = asyncio.get_event_loop()
         episodes = await loop.run_in_executor(
             None,
-            partial(pipeline.import_file_and_split, text, suggested_episodes)
+            _context_call(pipeline.import_file_and_split, text, suggested_episodes)
         )
         # Store text in pipeline cache, return import_id instead of full text
         import_id = str(uuid.uuid4())
-        pipeline._import_cache[import_id] = text
+        pipeline._import_cache[import_id] = (
+            http_request.state.auth_context.workspace.id,
+            text,
+        )
         return {
             "filename": file.filename,
             "text_length": len(text),
@@ -1477,13 +1843,15 @@ class ConfirmImportRequest(BaseModel):
 
 
 @app.post("/series/import/confirm")
-async def import_file_confirm(request: ConfirmImportRequest):
+async def import_file_confirm(request: ConfirmImportRequest, http_request: Request):
     """Confirm the episode split and create Series + Episodes."""
     try:
         # Prefer import_id from cache, fallback to request.text
         text = None
         if request.import_id:
-            text = pipeline._import_cache.pop(request.import_id, None)
+            cached = pipeline._import_cache.get(request.import_id)
+            if cached and cached[0] == http_request.state.auth_context.workspace.id:
+                _, text = pipeline._import_cache.pop(request.import_id)
         if not text:
             text = request.text
         if not text:
@@ -1491,7 +1859,7 @@ async def import_file_confirm(request: ConfirmImportRequest):
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
-            partial(
+            _context_call(
                 pipeline.create_series_from_import,
                 request.title,
                 text,
@@ -1499,6 +1867,12 @@ async def import_file_confirm(request: ConfirmImportRequest):
                 request.description,
             )
         )
+        repository = getattr(pipeline, "repository", None)
+        if repository is not None:
+            workspace_id = http_request.state.auth_context.workspace.id
+            repository.assign_workspace_for_series(result["series"]["id"], workspace_id)
+            for episode in result["episodes"]:
+                repository.assign_workspace_for_script(episode["id"], workspace_id)
         return signed_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1572,114 +1946,27 @@ def load_user_config():
     # .env is already loaded at startup via dotenv
 
 
-def save_user_config(config_dict: dict):
-    """Saves user config to file."""
-    config_path = get_user_config_path()
-
-    if config_path.endswith(".json"):
-        # JSON config for packaged app
-        import json
-        existing_config = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    existing_config = json.load(f)
-            except:
-                pass
-        existing_config.update(config_dict)
-        with open(config_path, "w") as f:
-            json.dump(existing_config, f, indent=2)
-    else:
-        # .env for development
-        for key, value in config_dict.items():
-            if value is not None:
-                set_key(config_path, key, value)
-
-
-def remove_user_config_keys(keys: list):
-    """Removes keys from the persisted config file."""
-    if not keys:
-        return
-    config_path = get_user_config_path()
-
-    if config_path.endswith(".json"):
-        import json
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    existing_config = json.load(f)
-                for key in keys:
-                    existing_config.pop(key, None)
-                with open(config_path, "w") as f:
-                    json.dump(existing_config, f, indent=2)
-            except Exception as e:
-                logger.warning(f"Failed to remove keys from config: {e}")
-    else:
-        from dotenv import unset_key
-        for key in keys:
-            try:
-                unset_key(config_path, key)
-            except Exception as e:
-                logger.warning(f"Failed to unset key {key} from .env: {e}")
-
-
 # Load user config on startup
 import sys
 load_user_config()
 
 
-_LLM_RUNTIME_CONFIG_KEYS = {
-    "LLM_PROVIDER",
-    "DASHSCOPE_API_KEY",
-    "DASHSCOPE_BASE_URL",
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "OPENAI_MODEL",
-}
-
-
-def _refresh_llm_runtime(updated_keys: set[str]) -> bool:
-    """Recreate the pipeline LLM adapter when connection settings change.
-
-    ``ScriptProcessor`` is created once with the global pipeline and its OpenAI
-    client is lazy-cached. Updating ``os.environ`` alone therefore leaves the
-    running backend connected with the previous key/base URL until restart.
-    Swapping the adapter is atomic for new requests and lets in-flight requests
-    finish on their existing instance.
-    """
-    changed_keys = updated_keys & _LLM_RUNTIME_CONFIG_KEYS
-    if not changed_keys:
-        return False
-
-    script_processor = getattr(pipeline, "script_processor", None)
-    if script_processor is None:
-        logger.warning("LLM runtime refresh skipped: pipeline has no script processor")
-        return False
-
-    from .llm_adapter import LLMAdapter
-
-    script_processor.llm = LLMAdapter()
-    logger.info("LLM runtime refreshed after config update: %s", sorted(changed_keys))
-    return True
-
-
 @app.get("/config/info")
-def get_config_info():
-    """Returns information about the current config storage mode."""
-    config_path = get_user_config_path()
-    is_packaged = os.getenv("OMNI_STUDIO_PACKAGED", "false").lower() == "true" or getattr(sys, 'frozen', False)
+def get_config_info(request: Request):
+    """Return the selected Workspace's provider-config storage mode."""
     return {
-        "mode": "packaged" if is_packaged else "development",
-        "config_path": config_path,
-        "config_exists": os.path.exists(config_path)
+        "mode": "workspace",
+        "workspace_id": request.state.auth_context.workspace.id,
+        "config_exists": bool(current_workspace_config.get()),
+        "config_path": None,
     }
 
 
 @app.post("/config/env")
-def update_env_config(config: EnvConfig):
-    """Updates environment configuration and saves to config file."""
+def update_env_config(config: EnvConfig, request: Request):
+    """Update provider configuration only for the selected Workspace."""
     try:
-        raw_config = config.dict(exclude_unset=True)
+        raw_config = config.model_dump(exclude_unset=True)
 
         # Extract endpoint_overrides and flatten into config_dict
         endpoint_overrides = raw_config.pop("endpoint_overrides", {})
@@ -1718,32 +2005,16 @@ def update_env_config(config: EnvConfig):
                 config_dict[env_key] = value.strip()
             else:
                 # Clear override: remove from env and config file
-                os.environ.pop(env_key, None)
                 keys_to_remove.append(env_key)
-
-        # Update current process env
-        for key, value in config_dict.items():
-            os.environ[key] = value
-
-        # Save to file
-        save_user_config(config_dict)
-        remove_user_config_keys(keys_to_remove)
-
-        # Refresh cached LLM connection state. Without this, ScriptProcessor
-        # keeps using the client created from the previous key/base URL until
-        # the backend process is restarted.
-        _refresh_llm_runtime(set(config_dict) | set(keys_to_remove))
-
-        # Reset OSS singleton to pick up new config (non-blocking)
-        try:
-            OSSImageUploader.reset_instance()
-            logger.info("OSS instance reset successfully")
-        except Exception as oss_e:
-            # OSS reset failure should not block config saving
-            logger.warning(f"OSS reset failed (non-critical): {oss_e}")
-
-        config_path = get_user_config_path()
-        return {"status": "success", "message": f"Configuration saved to {config_path}"}
+        context = request.state.auth_context
+        request.app.state.auth_service.repository.update_workspace_provider_config(
+            workspace_id=context.workspace.id,
+            user_id=context.user.id,
+            values=config_dict,
+            removed_keys=keys_to_remove,
+            now=time.time(),
+        )
+        return {"status": "success", "message": "Configuration saved to Workspace"}
     except Exception as e:
         logger.exception("Failed to save environment configuration")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1751,7 +2022,7 @@ def update_env_config(config: EnvConfig):
 
 
 @app.get("/projects/{script_id}")
-def get_project(script_id: str):
+def get_project(script_id: str, request: Request):
     """Retrieves a project by ID. When the project belongs to a
     Series, the response merges series-shared characters / scenes /
     props on top of the episode-local lists. Each item carries a
@@ -1764,11 +2035,13 @@ def get_project(script_id: str):
     Response model dropped from `Script` because the `source` field
     is a presentation-layer concern (never persisted, derived from
     container membership at read time)."""
-    script = pipeline.get_script(script_id)
+    script = pipeline.repository.load_scripts().get(script_id)
     if not script:
         raise HTTPException(status_code=404, detail="Project not found")
+    pipeline.scripts[script_id] = script
 
     payload = script.model_dump()
+    payload["_revision"] = pipeline.repository.script_revision(script_id)
 
     # Episode-local entries always carry source="episode".
     for asset_list in (payload.get("characters", []),
@@ -1809,7 +2082,7 @@ def get_project(script_id: str):
     # series layers is appended with source="global" (read-time only —
     # never written back to projects.json). When the library is empty
     # this is a no-op and the response is byte-identical to before.
-    lib = pipeline.library_store
+    lib = pipeline.list_library_assets(request.state.auth_context.workspace.id)
     if lib.characters or lib.scenes or lib.props:
         seen_char_ids = {c["id"] for c in payload["characters"]}
         seen_scene_ids = {s["id"] for s in payload["scenes"]}
@@ -2440,7 +2713,7 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
         )
         
         # Add background processing
-        background_tasks.add_task(pipeline.process_motion_ref_task, script_id, task_id)
+        background_tasks.add_task(_context_call(pipeline.process_motion_ref_task, script_id, task_id))
         
         # Return script with task_id for frontend polling
         response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
@@ -2535,7 +2808,7 @@ def refine_storyboard_batch(script_id: str):
         raise HTTPException(status_code=404, detail="Script not found")
 
     def event_stream():
-        for event_type, data in pipeline.refine_batch_generator(script_id):
+        for event_type, data in _context_iterator(pipeline.refine_batch_generator(script_id)):
             yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -2755,7 +3028,7 @@ def create_video_task(script_id: str, request: CreateVideoTaskRequest, backgroun
                 tasks.append(created_task)
 
             # Add background processing
-            background_tasks.add_task(pipeline.process_video_task, script_id, task_id)
+            background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task_id))
 
         return signed_response(tasks)
 
@@ -2793,7 +3066,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
         )
         
         # Add background processing
-        background_tasks.add_task(pipeline.process_asset_generation_task, task_id)
+        background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
         
         # Return script with task_id for frontend polling
         response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
@@ -2807,11 +3080,19 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
 
 
 @app.get("/tasks/{task_id}")
-def get_task_status(task_id: str):
+def get_task_status(task_id: str, request: Request):
     """Returns the status of an asset generation task for polling."""
     status = pipeline.get_asset_generation_task_status(task_id)
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")
+    resource_id = status.get("script_id")
+    repository = getattr(pipeline, "repository", None)
+    if resource_id and repository is not None:
+        workspace_id = repository.workspace_for_script(resource_id)
+        if workspace_id is None:
+            workspace_id = repository.workspace_for_series(resource_id)
+        if workspace_id != request.state.auth_context.workspace.id:
+            raise HTTPException(status_code=404, detail="Task not found")
     
     # If completed, return the updated script as well
     if status["status"] == "completed":
@@ -2842,7 +3123,7 @@ def generate_asset_video(script_id: str, asset_type: str, asset_id: str, request
         )
         
         # Add background processing
-        background_tasks.add_task(pipeline.process_video_task, script_id, task_id)
+        background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task_id))
         
         return signed_response(script)
 
@@ -2880,6 +3161,8 @@ def toggle_asset_lock(script_id: str, request: ToggleLockRequest):
             request.asset_type
         )
         return signed_response(updated_script)
+    except WorkspacePermissionError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -2896,6 +3179,8 @@ def toggle_asset_starred(script_id: str, request: ToggleLockRequest):
             request.asset_type
         )
         return signed_response(updated_script)
+    except WorkspacePermissionError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -2914,6 +3199,8 @@ def update_asset_image(script_id: str, request: UpdateAssetImageRequest):
             request.image_url
         )
         return signed_response(updated_script)
+    except WorkspacePermissionError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -2932,6 +3219,8 @@ def update_asset_attributes(script_id: str, request: UpdateAssetAttributesReques
             request.attributes
         )
         return signed_response(updated_script)
+    except WorkspacePermissionError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -2956,6 +3245,8 @@ def update_asset_description(script_id: str, request: UpdateAssetDescriptionRequ
             request.description
         )
         return signed_response(updated_script)
+    except WorkspacePermissionError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -3191,12 +3482,12 @@ class VoicePreviewRequest(BaseModel):
 
 
 @app.post("/voice/preview")
-def voice_preview(request: VoicePreviewRequest):
+def voice_preview(request: VoicePreviewRequest, http_request: Request):
     """Generate or fetch cached preview audio for a voice.
 
     Cache key = md5(voice_id|text|speed|pitch|volume|instructions). First
     call triggers TTSProcessor.synthesize() and writes to
-    output/cache/voice_preview/{key}.mp3. Subsequent identical calls
+    output/cache/voice_preview/{workspace_id}/{key}.mp3. Subsequent identical calls
     return the cached URL instantly.
 
     PR-3h #2: handles CUSTOM voices (clones/designs) by looking up
@@ -3213,11 +3504,12 @@ def voice_preview(request: VoicePreviewRequest):
         )
 
     # PR-3h #2: resolve custom voice → target_model/family override
-    custom = pipeline.find_custom_voice(request.voice_id)
+    workspace_id = http_request.state.auth_context.workspace.id
+    custom = pipeline.find_custom_voice(request.voice_id, workspace_id)
     model_override = custom.target_model if custom else None
     family_override = custom.family if custom else None
 
-    cache_dir = "output/cache/voice_preview"
+    cache_dir = os.path.join("output", "cache", "voice_preview", workspace_id)
     os.makedirs(cache_dir, exist_ok=True)
     cache_key = hashlib.md5(
         f"{request.voice_id}|{request.text}|{request.speed}|{request.pitch}|{request.volume}|{request.instructions or ''}".encode("utf-8")
@@ -3245,7 +3537,7 @@ def voice_preview(request: VoicePreviewRequest):
     # Static mount /files maps to output/, so the relative path under output/
     # becomes the URL path frontend can hit. signed_response wraps for OSS
     # signing when configured, no-op otherwise.
-    url = f"cache/voice_preview/{cache_key}.mp3"
+    url = f"cache/voice_preview/{workspace_id}/{cache_key}.mp3"
     return signed_response({"url": url, "cached": cached})
 
 
@@ -3267,12 +3559,14 @@ class VoiceCloneRequest(BaseModel):
 
 
 @app.post("/voice/clone")
-def voice_clone(request: VoiceCloneRequest):
+def voice_clone(request: VoiceCloneRequest, http_request: Request):
     """Create a custom voice by cloning a reference audio sample.
 
     Per Q15.2: stored at series level so any character in the series can
     pick from the clone via the VoicePickerModal '我的复刻' tab.
     """
+    if pipeline.repository.workspace_for_series(request.series_id) != http_request.state.auth_context.workspace.id:
+        raise HTTPException(status_code=404, detail="Series not found")
     try:
         custom = pipeline.create_voice_clone(
             series_id=request.series_id,
@@ -3321,7 +3615,7 @@ class VoiceDesignPreviewRequest(BaseModel):
 
 
 @app.post("/voice/design/preview")
-def voice_design_preview(request: VoiceDesignPreviewRequest):
+def voice_design_preview(request: VoiceDesignPreviewRequest, http_request: Request):
     """Mint a fresh design voice and return a preview audio URL.
 
     The user re-calls this with a tweaked voice_prompt to iterate.
@@ -3332,6 +3626,7 @@ def voice_design_preview(request: VoiceDesignPreviewRequest):
             voice_prompt=request.voice_prompt,
             preview_text=request.preview_text,
             target_model=request.target_model,
+            workspace_id=http_request.state.auth_context.workspace.id,
         )
         return signed_response(result)
     except RuntimeError as e:
@@ -3347,8 +3642,10 @@ class VoiceDesignSaveRequest(BaseModel):
 
 
 @app.post("/voice/design/accept")
-def voice_design_accept(request: VoiceDesignSaveRequest):
+def voice_design_accept(request: VoiceDesignSaveRequest, http_request: Request):
     """Persist a previewed design voice into series.custom_voices[]."""
+    if pipeline.repository.workspace_for_series(request.series_id) != http_request.state.auth_context.workspace.id:
+        raise HTTPException(status_code=404, detail="Series not found")
     try:
         custom = pipeline.voice_design_save(
             series_id=request.series_id,
@@ -3824,13 +4121,16 @@ def extract_last_frame(script_id: str, frame_id: str, request: ExtractLastFrameR
 
 
 @app.post("/projects/{script_id}/frames/{frame_id}/upload_image")
-def upload_frame_image(script_id: str, frame_id: str, file: UploadFile = File(...)):
+def upload_frame_image(script_id: str, frame_id: str, request: Request, file: UploadFile = File(...)):
     """Upload an image as a variant for a frame's rendered_image_asset."""
     try:
         # Save file locally first
         file_ext = _safe_upload_ext(file.filename)
         filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join("output/uploads", filename)
+        _, file_path = _workspace_upload_paths(
+            request.state.auth_context.workspace.id,
+            filename,
+        )
 
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -3853,7 +4153,7 @@ _T2I_UPLOAD_ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 @app.post("/projects/{script_id}/frames/{frame_id}/upload_t2i")
-async def upload_t2i_frame(script_id: str, frame_id: str, file: UploadFile = File(...)):
+async def upload_t2i_frame(script_id: str, frame_id: str, request: Request, file: UploadFile = File(...)):
     """Upload an external image as a T2I首帧 candidate for an I2V flow.
 
     Validation:
@@ -3878,9 +4178,10 @@ async def upload_t2i_frame(script_id: str, frame_id: str, file: UploadFile = Fil
         # Stream-to-disk with explicit byte cap so we never load >8 MB
         # into memory if a client lies about Content-Length.
         filename = f"t2i_{uuid.uuid4().hex}{ext}"
-        rel_path = os.path.join("uploads", filename)
-        abs_path = os.path.join("output", rel_path)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        rel_path, abs_path = _workspace_upload_paths(
+            request.state.auth_context.workspace.id,
+            filename,
+        )
         size = 0
         try:
             with open(abs_path, "wb") as buffer:
@@ -3912,7 +4213,7 @@ async def upload_t2i_frame(script_id: str, frame_id: str, file: UploadFile = Fil
         loop = asyncio.get_event_loop()
         frame = await loop.run_in_executor(
             None,
-            partial(pipeline.upload_t2i_frame, script_id, frame_id, rel_path),
+            _context_call(pipeline.upload_t2i_frame, script_id, frame_id, rel_path),
         )
         if frame is None:
             # Roll back the file — frame/script gone, no reference will exist
@@ -4173,7 +4474,7 @@ async def analyze_script_for_styles(script_id: str, request: AnalyzeStyleRequest
         loop = asyncio.get_event_loop()
         recommendations = await loop.run_in_executor(
             None,  # Use default executor
-            partial(pipeline.script_processor.analyze_script_for_styles, request.script_text, custom_style)
+            _context_call(pipeline.script_processor.analyze_script_for_styles, request.script_text, custom_style)
         )
 
         return {"recommendations": recommendations}
@@ -4519,33 +4820,33 @@ def get_env_config():
         endpoint_overrides = {}
         for provider in PROVIDER_DEFAULTS:
             env_key = f"{provider}_BASE_URL"
-            value = os.getenv(env_key)
+            value = workspace_getenv(env_key)
             if value:
                 endpoint_overrides[env_key] = value
 
         secrets_configured = {
-            field: bool((os.getenv(field, "") or "").strip())
+            field: bool((workspace_getenv(field, "") or "").strip())
             for field in SECRET_FIELDS
         }
 
         return {
             # Masked secrets — never plaintext.
-            "DASHSCOPE_API_KEY": _mask_secret(os.getenv("DASHSCOPE_API_KEY")),
-            "ALIBABA_CLOUD_ACCESS_KEY_ID": _mask_secret(os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
-            "ALIBABA_CLOUD_ACCESS_KEY_SECRET": _mask_secret(os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")),
-            "KLING_ACCESS_KEY": _mask_secret(os.getenv("KLING_ACCESS_KEY")),
-            "KLING_SECRET_KEY": _mask_secret(os.getenv("KLING_SECRET_KEY")),
-            "VIDU_API_KEY": _mask_secret(os.getenv("VIDU_API_KEY")),
-            "MULEROUTER_API_KEY": _mask_secret(os.getenv("MULEROUTER_API_KEY")),
+            "DASHSCOPE_API_KEY": _mask_secret(workspace_getenv("DASHSCOPE_API_KEY")),
+            "ALIBABA_CLOUD_ACCESS_KEY_ID": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
+            "ALIBABA_CLOUD_ACCESS_KEY_SECRET": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")),
+            "KLING_ACCESS_KEY": _mask_secret(workspace_getenv("KLING_ACCESS_KEY")),
+            "KLING_SECRET_KEY": _mask_secret(workspace_getenv("KLING_SECRET_KEY")),
+            "VIDU_API_KEY": _mask_secret(workspace_getenv("VIDU_API_KEY")),
+            "MULEROUTER_API_KEY": _mask_secret(workspace_getenv("MULEROUTER_API_KEY")),
             # Non-secret config.
-            "OSS_BUCKET_NAME": os.getenv("OSS_BUCKET_NAME", ""),
-            "OSS_ENDPOINT": os.getenv("OSS_ENDPOINT", ""),
-            "OSS_BASE_PATH": os.getenv("OSS_BASE_PATH", ""),
+            "OSS_BUCKET_NAME": workspace_getenv("OSS_BUCKET_NAME", ""),
+            "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),
+            "OSS_BASE_PATH": workspace_getenv("OSS_BASE_PATH", ""),
             "OSS_ENABLE": is_oss_enabled(),
             "MULERUN_CLI_LOGGED_IN": _check_mulerun_cli_status(),
-            "KLING_PROVIDER_MODE": _normalize_provider_mode(os.getenv("KLING_PROVIDER_MODE")),
-            "VIDU_PROVIDER_MODE": _normalize_provider_mode(os.getenv("VIDU_PROVIDER_MODE")),
-            "PIXVERSE_PROVIDER_MODE": _normalize_provider_mode(os.getenv("PIXVERSE_PROVIDER_MODE")),
+            "KLING_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("KLING_PROVIDER_MODE")),
+            "VIDU_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("VIDU_PROVIDER_MODE")),
+            "PIXVERSE_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("PIXVERSE_PROVIDER_MODE")),
             "endpoint_overrides": endpoint_overrides,
             "secrets_configured": secrets_configured,
         }
@@ -5335,7 +5636,7 @@ def _call_llm_for_gaps(
     # Timeout control: 2 seconds
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_do_call)
+            future = executor.submit(_context_call(_do_call))
             raw = future.result(timeout=2)
     except concurrent.futures.TimeoutError:
         logger.warning("derive_gaps: LLM call timed out (2s), returning empty")

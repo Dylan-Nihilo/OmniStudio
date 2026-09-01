@@ -3,9 +3,11 @@ import oss2
 import hashlib
 import tempfile
 import time
+from threading import Lock
 from typing import Optional, Tuple
 from . import get_logger
 from .media_refs import classify_media_ref, MEDIA_REF_LOCAL_PATH, MEDIA_REF_OBJECT_KEY
+from .workspace_env import workspace_getenv
 
 logger = get_logger(__name__)
 
@@ -18,10 +20,10 @@ SIGN_URL_EXPIRES_API = 1800      # 30 minutes for AI API calls
 def is_oss_configured() -> bool:
     """Check if OSS is properly configured."""
     required = [
-        os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID"),
-        os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET"),
-        os.getenv("OSS_ENDPOINT"),
-        os.getenv("OSS_BUCKET_NAME")
+        workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID"),
+        workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET"),
+        workspace_getenv("OSS_ENDPOINT"),
+        workspace_getenv("OSS_BUCKET_NAME"),
     ]
     return all(required)
 
@@ -35,7 +37,7 @@ def is_oss_enabled() -> bool:
     (local-first). This only gates uploads — signing/display of objects that
     were already uploaded is unaffected.
     """
-    value = os.getenv("OSS_ENABLE")
+    value = workspace_getenv("OSS_ENABLE")
     if value is None:
         return True
     return value.strip().lower() not in ("false", "0", "no", "off")
@@ -43,7 +45,7 @@ def is_oss_enabled() -> bool:
 
 def get_oss_base_path() -> str:
     """Get OSS base path from environment or use default."""
-    return os.getenv("OSS_BASE_PATH", DEFAULT_OSS_BASE_PATH).rstrip("/")
+    return (workspace_getenv("OSS_BASE_PATH", DEFAULT_OSS_BASE_PATH) or DEFAULT_OSS_BASE_PATH).rstrip("/")
 
 
 def is_object_key(value: str) -> bool:
@@ -74,23 +76,46 @@ class OSSImageUploader:
     """
     
     _instance = None
+    _instances = {}
+    _instances_lock = Lock()
+
+    @classmethod
+    def _config_fingerprint(cls):
+        return (
+            workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID"),
+            workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET"),
+            workspace_getenv("OSS_ENDPOINT"),
+            workspace_getenv("OSS_BUCKET_NAME"),
+            get_oss_base_path(),
+        )
     
     def __new__(cls):
-        """Singleton pattern to reuse OSS connection."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-            cls._instance._url_cache = {}  # (object_key, expires) -> (signed_url, timestamp)
-        return cls._instance
+        """Reuse one OSS connection per effective Workspace configuration."""
+        fingerprint = cls._config_fingerprint()
+        with cls._instances_lock:
+            instance = cls._instances.get(fingerprint)
+            if instance is None:
+                instance = super().__new__(cls)
+                instance._initialized = False
+                instance._init_lock = Lock()
+                instance._url_cache = {}  # (object_key, expires) -> (signed_url, timestamp)
+                instance._fingerprint = fingerprint
+                cls._instances[fingerprint] = instance
+            cls._instance = instance
+            return instance
     
     def __init__(self):
-        if self._initialized:
-            return
-            
-        self.access_key_id = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")
-        self.access_key_secret = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")
-        self.endpoint = os.getenv("OSS_ENDPOINT")
-        self.bucket_name = os.getenv("OSS_BUCKET_NAME")
+        with self._init_lock:
+            if self._initialized:
+                return
+            self._initialize()
+            self._initialized = True
+
+    def _initialize(self):
+        self.access_key_id = workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")
+        self.access_key_secret = workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")
+        self.endpoint = workspace_getenv("OSS_ENDPOINT")
+        self.bucket_name = workspace_getenv("OSS_BUCKET_NAME")
         self.base_path = get_oss_base_path()
         
         # Debug prints for terminal
@@ -117,13 +142,12 @@ class OSSImageUploader:
                 print(f"DEBUG: OSS init - ERROR: {e}")
                 self.bucket = None
         
-        self._initialized = True
-
-    
     @classmethod
     def reset_instance(cls):
-        """Reset singleton instance (useful when credentials change)."""
-        cls._instance = None
+        """Reset cached instances (useful when credentials change)."""
+        with cls._instances_lock:
+            cls._instance = None
+            cls._instances = {}
     
     @property
     def is_configured(self) -> bool:

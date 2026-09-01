@@ -2,8 +2,10 @@ import os
 import time
 import logging
 import base64
+from threading import Lock
 from typing import Tuple, Optional
 from .base import VideoGenModel
+from ..utils.workspace_env import workspace_getenv
 
 # Try to import Ark, handle if not installed (though user said they installed it)
 try:
@@ -16,20 +18,31 @@ logger = logging.getLogger(__name__)
 class DoubaoModel(VideoGenModel):
     def __init__(self, config: dict):
         super().__init__(config)
-        self.api_key = os.getenv("ARK_API_KEY")
+        self._api_key = config.get("api_key")
         self.model_name = config.get('params', {}).get('model_name', 'doubao-seedance-1-0-pro-fast-251015')
-        
-        if not self.api_key:
-            logger.warning("ARK_API_KEY not found in environment variables.")
-            
-        if Ark:
-            self.client = Ark(
-                base_url="https://ark.cn-beijing.volces.com/api/v3",
-                api_key=self.api_key
-            )
-        else:
-            self.client = None
+        self._client = None
+        self._client_fingerprint = None
+        self._client_lock = Lock()
+        if Ark is None:
             logger.error("volcenginesdkarkruntime not installed.")
+
+    @property
+    def api_key(self):
+        return self._api_key or workspace_getenv("ARK_API_KEY")
+
+    @property
+    def client(self):
+        if Ark is None or not self.api_key:
+            return None
+        fingerprint = self.api_key
+        with self._client_lock:
+            if self._client is None or self._client_fingerprint != fingerprint:
+                self._client = Ark(
+                    base_url="https://ark.cn-beijing.volces.com/api/v3",
+                    api_key=self.api_key,
+                )
+                self._client_fingerprint = fingerprint
+            return self._client
 
     def _encode_image_to_base64(self, image_path: str) -> str:
         with open(image_path, "rb") as image_file:
@@ -39,7 +52,8 @@ class DoubaoModel(VideoGenModel):
         """
         Generate video using Doubao SeeDance-Pro-Fast model via Ark SDK.
         """
-        if not self.client:
+        client = self.client
+        if not client:
             raise RuntimeError("Ark client not initialized. Please install volcenginesdkarkruntime.")
 
         img_url = kwargs.get('img_url')
@@ -63,7 +77,7 @@ class DoubaoModel(VideoGenModel):
 
         try:
             # Create task
-            create_result = self.client.content_generation.tasks.create(
+            create_result = client.content_generation.tasks.create(
                 model=self.model_name,
                 content=[
                     {
@@ -84,7 +98,7 @@ class DoubaoModel(VideoGenModel):
 
             # Poll for result
             while True:
-                get_result = self.client.content_generation.tasks.get(task_id=task_id)
+                get_result = client.content_generation.tasks.get(task_id=task_id)
                 status = get_result.status
                 
                 if status == "succeeded":

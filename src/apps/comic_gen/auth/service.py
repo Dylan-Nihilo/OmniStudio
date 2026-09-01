@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
+import secrets
 import time
 import unicodedata
 import uuid
@@ -13,8 +14,8 @@ from typing import Any
 
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from ....storage.auth_repository import AuthRepository, OwnerSetupResult
-from ....storage.schema import Session, User, Workspace
+from ....storage.auth_repository import AuthRepository, OwnerSetupResult, WorkspaceAccess
+from ....storage.schema import Session, User, Workspace, WorkspaceMembership
 from .passwords import hash_password, verify_password
 from .rate_limit import InMemoryAuthRateLimiter
 from .settings import AuthSettings
@@ -47,6 +48,7 @@ class AuthContext:
     user: User
     workspace: Workspace
     session: Session
+    membership: WorkspaceMembership
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,171 @@ class AuthService:
         session = self.repository.create_session({"id": session_id, "user_id": user.id, "refresh_token_hash": hash_refresh_token(refresh_token), "rotation_counter": 0, "expires_at": refresh_expires_at, "created_at": now, "last_used_at": now, "user_agent": user_agent, "ip_address": ip})
         self.rate_limiter.clear(identifier_key)
         return AuthResult(user, workspace, session, access_token, refresh_token, min(now + self.settings.access_ttl_seconds, refresh_expires_at))
+
+    def list_workspaces(self, user_id: str) -> list[WorkspaceAccess]:
+        return self.repository.list_user_workspaces(user_id)
+
+    def resolve_workspace(self, context: AuthContext, workspace_id: str | None) -> AuthContext:
+        if not workspace_id or workspace_id == context.workspace.id:
+            return context
+        membership = self.repository.get_membership(workspace_id, context.user.id)
+        workspace = self.repository.get_workspace(workspace_id) if membership else None
+        if membership is None or workspace is None:
+            raise AuthError("AUTH_WORKSPACE_NOT_FOUND", "Workspace 不存在", status_code=404)
+        return AuthContext(
+            user=context.user,
+            workspace=workspace,
+            session=context.session,
+            membership=membership,
+        )
+
+    def create_workspace(self, user_id: str, name: str) -> WorkspaceAccess:
+        normalized = unicodedata.normalize("NFKC", name.strip()) if isinstance(name, str) else ""
+        if not 1 <= len(normalized) <= 128:
+            raise AuthInvalidInput("Workspace 名称长度必须为 1-128 个字符")
+        return self.repository.create_owned_workspace(
+            user_id=user_id,
+            name=normalized,
+            slug=f"workspace-{uuid.uuid4().hex[:12]}",
+            now=time.time(),
+        )
+
+    def create_invitation(
+        self,
+        context: AuthContext,
+        workspace_id: str,
+        email: str,
+    ) -> tuple[object, str]:
+        selected = self.resolve_workspace(context, workspace_id)
+        if selected.membership.role != "owner":
+            raise AuthError("AUTH_OWNER_REQUIRED", "只有 Workspace Owner 可以邀请成员", status_code=403)
+        _, email_normalized = normalize_email(email)
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        invitation = self.repository.create_invitation(
+            workspace_id=workspace_id,
+            email_normalized=email_normalized,
+            token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            invited_by_user_id=context.user.id,
+            now=now,
+            expires_at=now + 7 * 86400,
+        )
+        return invitation, token
+
+    def accept_invitation(self, context: AuthContext, token: str) -> WorkspaceAccess:
+        if not isinstance(token, str) or len(token) < 32:
+            raise AuthError("AUTH_INVITATION_INVALID", "邀请已失效", status_code=400)
+        try:
+            return self.repository.accept_invitation(
+                token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                user_id=context.user.id,
+                email_normalized=context.user.email_normalized,
+                now=time.time(),
+            )
+        except ValueError as exc:
+            code = str(exc)
+            if code == "AUTH_INVITATION_EMAIL_MISMATCH":
+                raise AuthError(code, "当前账号邮箱与邀请不一致", status_code=403) from exc
+            raise AuthError("AUTH_INVITATION_INVALID", "邀请已失效", status_code=400) from exc
+
+    def register_from_invitation(
+        self,
+        *,
+        token: str,
+        username: str,
+        email: str,
+        password: str,
+        display_name: str | None = None,
+        request: Any | None = None,
+        user_agent: str | None = None,
+    ) -> AuthResult:
+        username_display, username_normalized = normalize_username(username)
+        email_display, email_normalized = normalize_email(email)
+        validate_password(
+            password,
+            username_normalized=username_normalized,
+            email_normalized=email_normalized,
+        )
+        if not isinstance(token, str) or len(token) < 32:
+            raise AuthError("AUTH_INVITATION_INVALID", "邀请已失效", status_code=400)
+        normalized_display_name = (
+            unicodedata.normalize("NFKC", display_name.strip()) or None
+            if isinstance(display_name, str)
+            else None
+        )
+        now = time.time()
+        user_id, workspace_id, session_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+        refresh_expires_at = now + self.settings.refresh_ttl_seconds
+        refresh_token = issue_refresh_token(
+            user_id,
+            session_id,
+            self.settings.signing_secret,
+            ttl_seconds=self.settings.refresh_ttl_seconds,
+            now=now,
+            expires_at=refresh_expires_at,
+            issuer=self.settings.issuer,
+            audience=self.settings.audience,
+        )
+        access_token = issue_access_token(
+            user_id,
+            session_id,
+            self.settings.signing_secret,
+            ttl_seconds=self.settings.access_ttl_seconds,
+            now=now,
+            expires_at=refresh_expires_at,
+            issuer=self.settings.issuer,
+            audience=self.settings.audience,
+        )
+        try:
+            result = self.repository.register_from_invitation_atomically(
+                token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                now=now,
+                user_values={
+                    "id": user_id,
+                    "username": username_display,
+                    "username_normalized": username_normalized,
+                    "email": email_display,
+                    "email_normalized": email_normalized,
+                    "display_name": normalized_display_name,
+                    "password_hash": hash_password(password),
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                workspace_values={
+                    "id": workspace_id,
+                    "owner_user_id": user_id,
+                    "name": f"{normalized_display_name or username_display} 的 Workspace",
+                    "slug": "default",
+                    "created_at": now,
+                    "updated_at": now,
+                },
+                session_values={
+                    "id": session_id,
+                    "user_id": user_id,
+                    "refresh_token_hash": hash_refresh_token(refresh_token),
+                    "rotation_counter": 0,
+                    "expires_at": refresh_expires_at,
+                    "created_at": now,
+                    "last_used_at": now,
+                    "user_agent": user_agent,
+                    "ip_address": _request_client_ip(request, None),
+                },
+            )
+        except ValueError as exc:
+            code = str(exc)
+            if code == "AUTH_INVITATION_EMAIL_MISMATCH":
+                raise AuthError(code, "邮箱与邀请不一致", status_code=400) from exc
+            raise AuthError("AUTH_INVITATION_INVALID", "邀请已失效", status_code=400) from exc
+        except IntegrityError as exc:
+            raise AuthError("AUTH_ACCOUNT_CONFLICT", "用户名或邮箱已被使用", status_code=409) from exc
+        return AuthResult(
+            result.user,
+            result.workspace,
+            result.session,
+            access_token,
+            refresh_token,
+            min(now + self.settings.access_ttl_seconds, refresh_expires_at),
+        )
 
     def refresh_session(self, refresh_token: str, *, now: float | None = None) -> AuthResult:
         """Rotate a refresh token with a transactional CAS and detect reuse.
@@ -408,9 +575,10 @@ class AuthService:
             raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
         user = self.repository.get_user(user_id)
         workspace = self.repository.get_default_workspace(user_id) if user else None
-        if user is None or workspace is None:
+        membership = self.repository.get_membership(workspace.id, user_id) if workspace else None
+        if user is None or workspace is None or membership is None:
             raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
-        return AuthContext(user=user, workspace=workspace, session=session)
+        return AuthContext(user=user, workspace=workspace, session=session, membership=membership)
 
     def _result(self, result: OwnerSetupResult, access_token: str, refresh_token: str, now: float) -> AuthResult:
         return AuthResult(result.user, result.workspace, result.session, access_token, refresh_token, min(now + self.settings.access_ttl_seconds, result.session.expires_at))

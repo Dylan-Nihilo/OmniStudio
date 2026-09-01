@@ -131,6 +131,31 @@ def test_owned_media_supports_range_and_rejects_unreferenced_paths(tmp_path, mon
         _restore_full_app(api_module, engine, previous)
 
 
+def test_arbitrary_script_text_does_not_authorize_a_media_path(tmp_path, monkeypatch):
+    from src.apps.comic_gen import api as api_module
+
+    script = SimpleNamespace(
+        id="script-text",
+        model_dump=lambda: {
+            "id": "script-text",
+            "original_text": "storyboard/private.png",
+        },
+    )
+    app, engine, previous, _ = _configure_full_app(
+        tmp_path,
+        monkeypatch,
+        pipeline=_Pipeline(script),
+    )
+    media_file = tmp_path / "project-root" / "output" / "storyboard" / "private.png"
+    media_file.write_bytes(b"private")
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/files/storyboard/private.png")
+        assert response.status_code == 404
+    finally:
+        _restore_full_app(api_module, engine, previous)
+
+
 def test_authenticated_workspace_can_read_voice_preview_cache(tmp_path, monkeypatch):
     from src.apps.comic_gen import api as api_module
 
@@ -141,16 +166,16 @@ def test_authenticated_workspace_can_read_voice_preview_cache(tmp_path, monkeypa
     pipeline = _Pipeline(script)
     app, engine, previous, _ = _configure_full_app(tmp_path, monkeypatch, pipeline=pipeline)
     media_root = tmp_path / "project-root" / "output" / "cache"
-    preview_file = media_root / "voice_preview" / "sample.mp3"
-    design_file = media_root / "voice_design_preview" / "sample.mp3"
+    preview_file = media_root / "voice_preview" / "workspace-a" / "sample.mp3"
+    design_file = media_root / "voice_design_preview" / "workspace-a" / "sample.mp3"
     for media_file in (preview_file, design_file):
         media_file.parent.mkdir(parents=True, exist_ok=True)
         media_file.write_bytes(b"voice-preview")
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
-            response = client.get("/files/cache/voice_preview/sample.mp3")
-            design_response = client.get("/files/cache/voice_design_preview/sample.mp3")
-            guessed = client.get("/files/cache/voice_preview/other.mp3")
+            response = client.get("/files/cache/voice_preview/workspace-a/sample.mp3")
+            design_response = client.get("/files/cache/voice_design_preview/workspace-a/sample.mp3")
+            guessed = client.get("/files/cache/voice_preview/workspace-b/sample.mp3")
         assert response.status_code == 200
         assert response.content == b"voice-preview"
         assert design_response.status_code == 200

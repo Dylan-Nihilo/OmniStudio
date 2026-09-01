@@ -14,8 +14,13 @@ from fastapi.responses import JSONResponse
 from .csrf import issue_csrf_token, verify_csrf
 from .dependencies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, get_auth_service, get_current_user
 from .schemas import (
+    AcceptInvitationRequest,
     ChangePasswordRequest,
     ChangePasswordResponse,
+    CreateInvitationRequest,
+    CreateWorkspaceRequest,
+    InvitationRegistrationRequest,
+    InvitationResponse,
     LoginRequest,
     LoginResponse,
     LegacyClaimApplyRequest,
@@ -31,6 +36,7 @@ from .schemas import (
     SessionResponse,
     UserResponse,
     WorkspaceResponse,
+    WorkspaceMemberResponse,
 )
 from .service import AuthContext, AuthError, AuthResult, AuthService
 from .tokens import decode_access_token, decode_refresh_token
@@ -54,8 +60,13 @@ def _user(value: object) -> UserResponse:
     )
 
 
-def _workspace(value: object) -> WorkspaceResponse:
-    return WorkspaceResponse(id=str(getattr(value, "id")), name=str(getattr(value, "name")), slug=getattr(value, "slug", None))
+def _workspace(value: object, role: str) -> WorkspaceResponse:
+    return WorkspaceResponse(
+        id=str(getattr(value, "id")),
+        name=str(getattr(value, "name")),
+        slug=getattr(value, "slug", None),
+        role=role,
+    )
 
 
 def _session(result: AuthResult) -> SessionResponse:
@@ -89,7 +100,7 @@ def _clear_auth_cookies(response: Response, service: AuthService) -> None:
 
 
 def _auth_response(response_type: type[SetupResponse] | type[LoginResponse], result: AuthResult):
-    return response_type(access_token=result.access_token, refresh_token=result.refresh_token, user=_user(result.user), workspace=_workspace(result.workspace), session=_session(result))
+    return response_type(access_token=result.access_token, refresh_token=result.refresh_token, user=_user(result.user), workspace=_workspace(result.workspace, "owner"), session=_session(result))
 
 
 def _check_origin(request: Request, service: AuthService) -> None:
@@ -166,7 +177,7 @@ def _legacy_claim_service(request: Request) -> LegacyClaimService:
 
 
 def _require_owner(context: AuthContext) -> None:
-    if str(context.workspace.owner_user_id or "") != str(context.user.id):
+    if context.membership.role != "owner":
         raise AuthError(
             "AUTH_OWNER_REQUIRED",
             "只有当前 Workspace 的 Owner 可以管理旧数据认领",
@@ -307,6 +318,139 @@ def login(request: Request, payload: LoginRequest, response: Response, service: 
     return _auth_response(LoginResponse, result)
 
 
+@router.post("/invitations/register", response_model=SetupResponse, status_code=201)
+def register_from_invitation(
+    request: Request,
+    payload: InvitationRegistrationRequest,
+    response: Response,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> SetupResponse:
+    require_csrf(request, service, session_id=None)
+    result = service.register_from_invitation(
+        token=payload.token,
+        username=payload.username,
+        email=payload.email,
+        password=payload.password,
+        display_name=payload.display_name,
+        request=request,
+        user_agent=request.headers.get("user-agent"),
+    )
+    _set_auth_cookies(response, result, service)
+    _no_store(response)
+    return _auth_response(SetupResponse, result)
+
+
+@router.post("/invitations/accept", response_model=WorkspaceResponse)
+def accept_invitation(
+    request: Request,
+    payload: AcceptInvitationRequest,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> WorkspaceResponse:
+    require_csrf(request, service, session_id=context.session.id)
+    access = service.accept_invitation(context, payload.token)
+    _no_store(response)
+    return _workspace(access.workspace, access.role)
+
+
+@router.get("/workspaces", response_model=list[WorkspaceResponse])
+def list_workspaces(
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> list[WorkspaceResponse]:
+    return [_workspace(item.workspace, item.role) for item in service.list_workspaces(context.user.id)]
+
+
+@router.post("/workspaces", response_model=WorkspaceResponse, status_code=201)
+def create_workspace(
+    request: Request,
+    payload: CreateWorkspaceRequest,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> WorkspaceResponse:
+    require_csrf(request, service, session_id=context.session.id)
+    access = service.create_workspace(context.user.id, payload.name)
+    _no_store(response)
+    return _workspace(access.workspace, access.role)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/invitations",
+    response_model=InvitationResponse,
+    status_code=201,
+)
+def create_invitation(
+    workspace_id: str,
+    request: Request,
+    payload: CreateInvitationRequest,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> InvitationResponse:
+    require_csrf(request, service, session_id=context.session.id)
+    invitation, token = service.create_invitation(context, workspace_id, payload.email)
+    _no_store(response)
+    return InvitationResponse(
+        id=str(getattr(invitation, "id")),
+        workspace_id=str(getattr(invitation, "workspace_id")),
+        email=str(getattr(invitation, "email_normalized")),
+        token=token,
+        expires_at=_utc(float(getattr(invitation, "expires_at"))),
+    )
+
+
+@router.get(
+    "/workspaces/{workspace_id}/members",
+    response_model=list[WorkspaceMemberResponse],
+)
+def list_workspace_members(
+    workspace_id: str,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> list[WorkspaceMemberResponse]:
+    selected = service.resolve_workspace(context, workspace_id)
+    _require_owner(selected)
+    return [
+        WorkspaceMemberResponse(
+            id=row["id"],
+            username=row["username"],
+            email=row["email"],
+            display_name=row["display_name"],
+            role=row["role"],
+            joined_at=_utc(row["joined_at"]),
+        )
+        for row in service.repository.list_workspace_members(selected.workspace.id)
+    ]
+
+
+@router.delete("/workspaces/{workspace_id}/members/{user_id}", status_code=204)
+def remove_workspace_member(
+    workspace_id: str,
+    user_id: str,
+    request: Request,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> Response:
+    selected = service.resolve_workspace(context, workspace_id)
+    _require_owner(selected)
+    require_csrf(request, service, session_id=context.session.id)
+    try:
+        removed = service.repository.remove_member(workspace_id, user_id)
+    except ValueError as exc:
+        raise AuthError(
+            "AUTH_OWNER_CANNOT_BE_REMOVED",
+            "Workspace Owner 不能被移除",
+            status_code=409,
+        ) from exc
+    if not removed:
+        raise AuthError("AUTH_MEMBER_NOT_FOUND", "成员不存在", status_code=404)
+    response.status_code = 204
+    return response
+
+
 @router.post("/refresh", response_model=RefreshResponse)
 def refresh(request: Request, response: Response, service: Annotated[AuthService, Depends(get_auth_service)]) -> RefreshResponse:
     token = request.cookies.get(REFRESH_COOKIE_NAME)
@@ -398,8 +542,19 @@ def change_password(request: Request, response: Response, payload: ChangePasswor
 
 
 @router.get("/me", response_model=MeResponse)
-def me(context: Annotated[AuthContext, Depends(get_current_user)]) -> MeResponse:
-    return MeResponse(user=_user(context.user), workspace=_workspace(context.workspace))
+def me(
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> MeResponse:
+    workspaces = [
+        _workspace(item.workspace, item.role)
+        for item in service.list_workspaces(context.user.id)
+    ]
+    return MeResponse(
+        user=_user(context.user),
+        workspace=_workspace(context.workspace, context.membership.role),
+        workspaces=workspaces,
+    )
 
 
 __all__ = ["CSRF_COOKIE_NAME", "auth_exception_handler", "require_csrf", "router"]

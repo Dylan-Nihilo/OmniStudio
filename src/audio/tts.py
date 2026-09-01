@@ -7,9 +7,13 @@ See: https://help.aliyun.com/zh/model-studio/cosyvoice-python-sdk
 """
 import os
 import logging
+from threading import Lock
 from typing import Optional, Tuple
 
+from ..utils.workspace_env import workspace_getenv
+
 logger = logging.getLogger(__name__)
+_DASHSCOPE_KEY_LOCK = Lock()
 
 
 # Voice registry: key -> {model_id, name, gender, model}
@@ -125,16 +129,15 @@ class TTSProcessor:
             model: TTS model name (default: cosyvoice-v2)
             voice: Default voice ID (default: longxiaochun_v2)
         """
-        import dashscope
-
-        self.api_key = api_key or os.getenv('DASHSCOPE_API_KEY')
-        if self.api_key:
-            dashscope.api_key = self.api_key
-
+        self._api_key = api_key
         self.model = model
         self.voice = voice
 
         logger.info(f"TTS Processor initialized with model={model}, voice={voice}")
+
+    @property
+    def api_key(self) -> Optional[str]:
+        return self._api_key or workspace_getenv("DASHSCOPE_API_KEY")
 
     def synthesize(
         self,
@@ -228,7 +231,16 @@ class TTSProcessor:
         )
         logger.info(f"Text: {text[:100]}{'...' if len(text) > 100 else ''}")
 
-        synthesizer = SpeechSynthesizer(**synth_kwargs)
+        if not self.api_key:
+            raise RuntimeError("DASHSCOPE_API_KEY not configured")
+        import dashscope
+        with _DASHSCOPE_KEY_LOCK:
+            previous_api_key = dashscope.api_key
+            dashscope.api_key = self.api_key
+            try:
+                synthesizer = SpeechSynthesizer(**synth_kwargs)
+            finally:
+                dashscope.api_key = previous_api_key
         audio_data = synthesizer.call(text)
 
         request_id = synthesizer.get_last_request_id()

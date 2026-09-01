@@ -21,6 +21,7 @@ import requests
 
 from .base import VideoGenModel
 from .image import ImageGenModel
+from ..utils.workspace_env import workspace_config_active, workspace_getenv
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ MULEROUTER_ONLY_MODELS = ("openai/gpt-image-2",)
 
 def _get_site() -> str:
     """Get the configured site. Default: mulerouter (more models available)."""
-    return (os.getenv("MULEROUTER_SITE") or "mulerouter").strip().lower()
+    return (workspace_getenv("MULEROUTER_SITE") or "mulerouter").strip().lower()
 
 
 def _get_base_url_for_model(model_prefix: str) -> str:
@@ -85,7 +86,7 @@ def _get_base_url_for_model(model_prefix: str) -> str:
         if model_prefix.startswith(prefix):
             return SITE_BASE_URLS["mulerouter"]
     site = _get_site()
-    custom = os.getenv("MULEROUTER_BASE_URL")
+    custom = workspace_getenv("MULEROUTER_BASE_URL")
     if custom:
         return custom.rstrip("/")
     return SITE_BASE_URLS.get(site, SITE_BASE_URLS["mulerouter"])
@@ -119,7 +120,9 @@ def _use_cli_backend() -> bool:
     CLI is used only when no API key is configured and mulerun is logged in.
     """
     global _cli_available_cache
-    if os.getenv("MULEROUTER_API_KEY"):
+    if workspace_getenv("MULEROUTER_API_KEY"):
+        return False
+    if workspace_config_active():
         return False
     if _cli_available_cache is None:
         _cli_available_cache = _is_mulerun_cli_available()
@@ -135,9 +138,11 @@ def _run_mulerun_studio(endpoint: str, args: List[str], timeout: int = MAX_WAIT)
     cmd = ["mulerun", "studio", "run", endpoint, "--json"] + args
 
     env = os.environ.copy()
-    token = os.getenv("MULERUN_TOKEN")
+    token = workspace_getenv("MULERUN_TOKEN")
     if token:
         env["MULERUN_TOKEN"] = token
+    else:
+        env.pop("MULERUN_TOKEN", None)
 
     logger.info(f"[MuleRun CLI] {' '.join(cmd[:6])}...")
 
@@ -193,7 +198,7 @@ def _resolve_local_image_path(img_url: Optional[str] = None, img_path: Optional[
 # ---------------------------------------------------------------------------
 
 def _get_api_key() -> str:
-    key = os.getenv("MULEROUTER_API_KEY", "")
+    key = workspace_getenv("MULEROUTER_API_KEY", "") or ""
     if not key:
         raise RuntimeError("MULEROUTER_API_KEY not set in environment")
     return key
