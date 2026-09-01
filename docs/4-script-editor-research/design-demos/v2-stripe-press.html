@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LumenX Studio — 剧本编辑器重塑调研报告</title>
+<title>Omni Studio — 剧本编辑器重塑调研报告</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -160,13 +160,13 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
 <section class="hero">
   <div class="hero-main">
     <h1>剧本编辑器<br>重塑调研报告</h1>
-    <p class="subtitle">基于 40+ 信息来源的多维度深度调研，为 LumenX Studio 剧本编辑环节提供技术、设计与功能发展路线参考。</p>
+    <p class="subtitle">基于 40+ 信息来源的多维度深度调研，为 Omni Studio 剧本编辑环节提供技术、设计与功能发展路线参考。</p>
   </div>
   <div class="hero-side">
     <strong>Report Info</strong>
     Version 6.0<br>
     2026-07-03<br>
-    LumenX Studio<br>
+    Omni Studio<br>
     40+ sources<br>
     9 sections
   </div>
@@ -186,7 +186,7 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
 
 <section class="section" id="summary">
   <h2><span class="num">SECTION 01</span>执行摘要</h2>
-  <p class="lead">当前剧本编辑器为纯 textarea，与行业存在严重差距。市场处于 17–19% 高速增长，LumenX 需抓住中文短剧×AI 视频交叉机会窗口。</p>
+  <p class="lead">当前剧本编辑器为纯 textarea，与行业存在严重差距。市场处于 17–19% 高速增长，Omni Studio 需抓住中文短剧×AI 视频交叉机会窗口。</p>
   <div class="stats">
     <div class="stat"><div class="value">$860M</div><div class="label">2034 全球市场预测</div></div>
     <div class="stat"><div class="value">19.2%</div><div class="label">亚太 CAGR</div></div>
@@ -195,7 +195,7 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
   </div>
   <div class="card-grid">
     <div class="card"><div class="tag">技术选型</div><div class="title">Tiptap + Yjs + Fountain.js</div><div class="desc">三层架构：规则优先→LLM 兜底→用户做主。低上手成本，CRDT 协作就绪。</div></div>
-    <div class="card"><div class="tag">竞品洞察</div><div class="title">laper.ai CRDT + Multi-agent</div><div class="desc">格式化与协作兼得，但缺失视频管线和 API——LumenX 核心差异化所在。</div></div>
+    <div class="card"><div class="tag">竞品洞察</div><div class="title">laper.ai CRDT + Multi-agent</div><div class="desc">格式化与协作兼得，但缺失视频管线和 API——Omni Studio 核心差异化所在。</div></div>
     <div class="card"><div class="tag">优先级路径</div><div class="title">P0 格式引擎 → P1 AI+导出</div><div class="desc">4 阶段递进路线：格式引擎→结构化+AI→协作→生态。</div></div>
     <div class="card"><div class="tag">设计方向</div><div class="title">沉浸式创作座舱</div><div class="desc">Block 编辑 + 三栏布局 + AI 气泡 + 场景色带签名元素。</div></div>
   </div>
@@ -245,7 +245,7 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
   <p class="lead">Fountain 生态是零成本高价值起点，BetterFountain 是编辑器交互金标准，screenplay-tools 提供可复用数据模型。</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>工具</th><th>语言</th><th>核心能力</th><th>FDX</th><th>LumenX 价值</th></tr></thead>
+      <thead><tr><th>工具</th><th>语言</th><th>核心能力</th><th>FDX</th><th>Omni Studio 价值</th></tr></thead>
       <tbody>
         <tr><td><strong>Fountain.js</strong></td><td>JS</td><td>AST 解析 + HTML 输出</td><td>否</td><td>前端集成</td></tr>
         <tr><td><strong>screenplay-tools</strong></td><td>C++/JS/Py/C#</td><td>跨语言模型 + Fountain↔FDX</td><td>是</td><td>数据模型</td></tr>
@@ -288,7 +288,7 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
   <h3>维度对标</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>维度</th><th>laper.ai</th><th>LumenX（现状）</th><th>差距</th></tr></thead>
+      <thead><tr><th>维度</th><th>laper.ai</th><th>Omni Studio（现状）</th><th>差距</th></tr></thead>
       <tbody>
         <tr><td>格式引擎</td><td>自动 US/UK/FR+CJK</td><td>无（纯 textarea）</td><td style="color:var(--red)">严重落后</td></tr>
         <tr><td>结构化 DB</td><td>自动提取+实时同步</td><td>手动触发 LLM</td><td style="color:var(--red)">落后</td></tr>
@@ -318,7 +318,7 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
   <h3>关键趋势矩阵</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>趋势</th><th>描述</th><th>LumenX 行动</th></tr></thead>
+      <thead><tr><th>趋势</th><th>描述</th><th>Omni Studio 行动</th></tr></thead>
       <tbody>
         <tr><td>AI-Native 编辑流</td><td>AI 嵌入全流程</td><td>从按钮升级为 co-author</td></tr>
         <tr><td>Block-Based 编辑</td><td>Notion/Craft 范式</td><td>textarea → Tiptap</td></tr>
@@ -465,7 +465,7 @@ footer{max-width:var(--max-w);margin:0 auto;padding:5rem var(--gutter);font-size
 </section>
 
 <footer>
-  LumenX Studio · Script Editor Research Report v6.0 · 2026-07-03
+  Omni Studio · Script Editor Research Report v6.0 · 2026-07-03
 </footer>
 
 </body>

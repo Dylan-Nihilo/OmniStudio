@@ -1,11 +1,11 @@
 <!-- Banner -->
 <div align="center">
-  <img src="docs/images/LumenX-Studio-Banner-cybr.png" alt="LumenX" width="100%" />
+  <img src="docs/images/Omni-Studio-Banner-cybr.png" alt="Omni Studio" width="100%" />
 </div>
 
 <div align="center">
 
-# LumenX
+# Omni Studio
 
 ### AI-Native Motion Comic & Video Creation Platform
 **Render Noise into Narrative**
@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![Node](https://img.shields.io/badge/node-18%2B-green)](https://nodejs.org/)
-[![GitHub Stars](https://img.shields.io/github/stars/alibaba/lumenx?style=social)](https://github.com/alibaba/lumenx)
+[![GitHub Stars](https://img.shields.io/github/stars/Dylan-Nihilo/OmniStudio?style=social)](https://github.com/Dylan-Nihilo/OmniStudio)
 
 [English](README_EN.md) · [中文](README.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
@@ -21,14 +21,14 @@
 
 ---
 
-LumenX is an **AI-native motion comic & video creation platform**. It transforms creative text into publishable dynamic videos, providing a complete workflow from script analysis to final export, while also supporting standalone image/video generation.
+Omni Studio is an **AI-native motion comic & video creation platform**. It transforms creative text into publishable dynamic videos, providing a complete workflow from script analysis to final export, while also supporting standalone image/video generation.
 
-LumenX currently includes two core modules:
+Omni Studio currently includes two core modules:
 
 | Module | Purpose |
 |--------|---------|
-| **LumenX Studio** | Pipeline-first comic/video production (Script → Storyboard → Assets → Video → Export) |
-| **LumenX Playground** | Standalone image/video generation workbench (no project context required) |
+| **Omni Studio** | Pipeline-first comic/video production (Script → Storyboard → Assets → Video → Export) |
+| **Omni Studio Playground** | Standalone image/video generation workbench (no project context required) |
 
 ---
 
@@ -71,7 +71,7 @@ LumenX currently includes two core modules:
 
 | Before | After |
 |:---:|:---:|
-| <img src="docs/images/LumenX Studio Banner.jpeg" alt="Old Banner" width="100%" /> | <img src="docs/images/LumenX-Studio-Banner-cybr.png" alt="New Banner" width="100%" /> |
+| <img src="docs/images/Omni Studio Banner.jpeg" alt="Old Banner" width="100%" /> | <img src="docs/images/Omni-Studio-Banner-cybr.png" alt="New Banner" width="100%" /> |
 | Neon gradient lotus · Soft curves | Cyber Brutalism · Angular geometry · Circuit textures |
 
 </div>
@@ -119,8 +119,8 @@ LumenX currently includes two core modules:
 
 ```bash
 # Clone
-git clone https://github.com/alibaba/lumenx.git
-cd lumenx
+git clone https://github.com/Dylan-Nihilo/OmniStudio.git
+cd omni_studio
 
 # Configure API Key
 cp .env.example .env
@@ -151,7 +151,7 @@ cd frontend && npm install && npm run dev  # http://localhost:3008
 
 ## ⚙️ Configuration Modes
 
-LumenX uses a **local-first** architecture. The minimal setup requires only one API key.
+Omni Studio uses a **local-first** architecture. The minimal setup requires only one API key.
 
 | Mode | Required | Available Capabilities |
 |------|----------|----------------------|
@@ -166,7 +166,7 @@ LumenX uses a **local-first** architecture. The minimal setup requires only one 
 
 All settings can be configured via:
 - **Development**: `.env` file in project root
-- **In-app Settings**: Settings page (saves to `~/.lumen-x/config.json`)
+- **In-app Settings**: Settings page (saves to `~/.omni-studio/config.json`)
 
 MuleRun supports two authentication methods:
 1. **CLI mode** (recommended): `npm i -g @mulerunai/cli && mulerun login`
@@ -179,13 +179,13 @@ MuleRun supports two authentication methods:
 ## 🏗️ Architecture
 
 <div align="center">
-  <img src="docs/images/architecture-cybr.png" alt="LumenX System Architecture" width="90%" />
+  <img src="docs/images/architecture-cybr.png" alt="Omni Studio System Architecture" width="90%" />
 </div>
 
 ### Directory Structure
 
 ```
-lumenx/
+omni_studio/
 ├── frontend/                  # Next.js Frontend
 │   └── src/components/
 │       ├── modules/playground/   # Playground module
@@ -218,8 +218,8 @@ lumenx/
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md).
 
-- **Bug Reports**: [GitHub Issues](https://github.com/alibaba/lumenx/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/alibaba/lumenx/discussions)
+- **Bug Reports**: [GitHub Issues](https://github.com/Dylan-Nihilo/OmniStudio/issues)
+- **Feature Requests**: [GitHub Discussions](https://github.com/Dylan-Nihilo/OmniStudio/discussions)
 - **Email**: [zhangjunhe.zjh@alibaba-inc.com](mailto:zhangjunhe.zjh@alibaba-inc.com)
 
 ---

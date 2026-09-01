@@ -1,11 +1,11 @@
 ---
-name: lumenx-git-publish
-description: LumenX GitHub publish workflow for safe commits, sensitive-data scans, and PR-based pushes to the shared GitHub repo.
+name: omni-studio-git-publish
+description: Omni Studio GitHub publish workflow for safe commits, sensitive-data scans, and PR-based pushes to the shared GitHub repo.
 ---
 
-# LumenX GitHub Publish Workflow
+# Omni Studio GitHub Publish Workflow
 
-Use this workflow when working in this repository and the user asks to publish work to the LumenX GitHub repository, prepare a GitHub-ready branch, or follow the LumenX GitHub PR flow.
+Use this workflow when working in this repository and the user asks to publish work to the Omni Studio GitHub repository, prepare a GitHub-ready branch, or follow the Omni Studio GitHub PR flow.
 
 ## Core Rules
 
@@ -14,7 +14,7 @@ Use this workflow when working in this repository and the user asks to publish w
 - Run sensitive-data checks before any push.
 - Commit messages must follow Conventional Commits.
 - Use the locally configured git author (already set up in this repo; do NOT modify git config).
-- Open GitHub PRs with the `zhxqc` GitHub account (already authenticated via `gh`).
+- Open GitHub PRs with the currently authenticated maintainer account that has repository access. Never hardcode or automatically switch to a specific collaborator account.
 
 Repository-specific constraints:
 
@@ -159,7 +159,7 @@ Never push to `main` directly.
 
 ## Step 9: Create a Pull Request
 
-Use GitHub CLI (authenticated as `zhxqc`) to open the PR against `Dylan-Nihilo/OmniStudio`:
+Use the currently authenticated GitHub CLI maintainer account with repository access to open the PR against `Dylan-Nihilo/OmniStudio`. Do not switch to a fixed username because a workflow document names one:
 
 ```bash
 gh pr create --repo Dylan-Nihilo/OmniStudio --title "feat: your PR title" --body "$(cat <<'EOF'

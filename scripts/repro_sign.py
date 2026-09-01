@@ -14,7 +14,7 @@ print(f"OSS_BASE_PATH from env: {os.getenv('OSS_BASE_PATH')}")
 print(f"get_oss_base_path(): {get_oss_base_path()}")
 
 test_values = [
-    "lumenx/assets/characters/593da220-e315-4aac-9016-2e2b243912b1_fullbody_d452dadb-c703-419e-85c2-fc48dc75275a.png",
+    "omni_studio/assets/characters/593da220-e315-4aac-9016-2e2b243912b1_fullbody_d452dadb-c703-419e-85c2-fc48dc75275a.png",
     "assets/characters/593da220-e315-4aac-9016-2e2b243912b1_fullbody_d452dadb-c703-419e-85c2-fc48dc75275a.png",
     "/files/assets/characters/161b6d70-50a9-4a48-a18c-80a30469670a.png"
 ]

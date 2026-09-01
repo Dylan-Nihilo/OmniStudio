@@ -73,6 +73,25 @@ export function appendT2IImage(shot: ShotNode, url: string): ShotNode {
     };
 }
 
+/** Extract the generated first-frame URL from either the legacy direct
+ * response shape or the full Script returned by storyboard/render. */
+export function extractT2IImageUrl(result: any, frameId: string): string | undefined {
+    const direct = result?.image_url || result?.rendered_image_url;
+    if (typeof direct === "string" && direct) return direct;
+
+    const frame = Array.isArray(result?.frames)
+        ? result.frames.find((candidate: any) => candidate?.id === frameId)
+        : undefined;
+    if (!frame) return undefined;
+    if (Array.isArray(frame.t2i_image_urls) && frame.t2i_image_urls.length > 0) {
+        const selectedIndex = typeof frame.t2i_selected_index === "number"
+            ? Math.max(0, Math.min(frame.t2i_selected_index, frame.t2i_image_urls.length - 1))
+            : frame.t2i_image_urls.length - 1;
+        return frame.t2i_image_urls[selectedIndex];
+    }
+    return frame.rendered_image_url || frame.image_url || undefined;
+}
+
 /** Set the active T2I image by index. Clamps to range; updates the
  *  legacy t2iImageUrl mirror so consumers that haven't migrated keep
  *  reading the right URL. No-op if the index is already active. */

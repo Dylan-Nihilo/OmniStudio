@@ -16,10 +16,10 @@ from sqlalchemy.pool import StaticPool
 
 from .schema import Base, SchemaMigration
 
-DEFAULT_DB_PATH = Path("output") / "lumenx.db"
+DEFAULT_DB_PATH = Path("output") / "omni_studio.db"
 INITIAL_SCHEMA_VERSION = "w1.1"
 SCHEMA_VERSION = "w3.1-auth"
-SCHEMA_DESCRIPTION = "LumenX W3.1 authentication schema"
+SCHEMA_DESCRIPTION = "Omni Studio W3.1 authentication schema"
 SCHEMA_CHECKSUM = hashlib.sha256(SCHEMA_DESCRIPTION.encode("utf-8")).hexdigest()
 
 # Populated lazily to avoid an import cycle between the migration module and the
@@ -140,6 +140,10 @@ def init_schema(engine: Engine) -> None:
 
     versions = _schema_version_rows(engine)
     if SCHEMA_VERSION in versions:
+        # New feature tables are additive and safe to create for an existing
+        # W3 database. Column/constraint changes still require a versioned
+        # migration and are validated below.
+        Base.metadata.create_all(engine)
         from .migrations.w3_auth import validate_w3_schema
 
         validate_w3_schema(engine)
@@ -150,6 +154,7 @@ def init_schema(engine: Engine) -> None:
     if migration is None:
         raise RuntimeError(f"No migration registered for schema version {SCHEMA_VERSION!r}")
     migration(engine)
+    Base.metadata.create_all(engine)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -183,4 +188,3 @@ __all__ = [
     "get_session_factory",
     "session_factory",
 ]
-

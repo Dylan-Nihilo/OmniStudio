@@ -829,6 +829,34 @@ export default function StoryboardR2V() {
         return prompt.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
     };
 
+    const materializeShot = useCallback(async (shot: ShotNode, index: number): Promise<string> => {
+        if (!shot.id.startsWith("shot_")) return shot.id;
+        if (!currentProject?.id) throw new Error("No current project");
+
+        const projectId = currentProject.id;
+        const created = await crudApi.createFrame(projectId, {
+            scene_id: "",
+            action_description: shot.prompt || "",
+            insert_at: index,
+        });
+        const frames = Array.isArray(created?.frames) ? created.frames : [];
+        const newFrame = frames[Math.min(index, frames.length - 1)];
+        if (!newFrame?.id) throw new Error("Frame creation returned no persisted frame");
+
+        setShots(prev => prev.map((candidate, candidateIndex) =>
+            candidateIndex === index ? { ...candidate, id: newFrame.id } : candidate,
+        ));
+        setExpandedShots(prev => {
+            if (!prev.has(shot.id)) return prev;
+            const next = new Set(prev);
+            next.delete(shot.id);
+            next.add(newFrame.id);
+            return next;
+        });
+        updateProject(projectId, { frames });
+        return newFrame.id;
+    }, [currentProject?.id, updateProject]);
+
     // Generate T2I image for a shot (t2i_i2v mode stage 1)
     const generateT2I = useCallback(async (index: number) => {
         const shot = shots[index];
@@ -839,9 +867,10 @@ export default function StoryboardR2V() {
         ));
 
         try {
+            const frameId = await materializeShot(shot, index);
             const result = await api.renderFrame(
                 currentProject.id,
-                shot.id,
+                frameId,
                 {},  // compositionData (empty for now)
                 cleanPrompt(shot.prompt),
                 1    // batchSize
@@ -873,7 +902,7 @@ export default function StoryboardR2V() {
                 i === index ? { ...s, t2iStatus: "failed" } : s
             ));
         }
-    }, [shots, currentProject, persistWorkbench]);
+    }, [shots, currentProject, materializeShot, persistWorkbench]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
@@ -887,6 +916,7 @@ export default function StoryboardR2V() {
         ));
 
         try {
+            const frameId = await materializeShot(shot, index);
             if (shot.tabMode === "direct_r2v") {
                 // R2V mode: use reference assets. We prefer the user's
                 // explicit R2V model choice (videoConfig.r2vModel) over
@@ -915,7 +945,7 @@ export default function StoryboardR2V() {
                     videoConfig.negativePrompt,
                     1, // batchSize
                     routeModelId,  // use routed R2V model
-                    shot.id, // frameId
+                    frameId,
                     "multi", // shotType
                     "r2v", // generationMode
                     !imageBased ? referenceUrls : undefined, // referenceVideoUrls (Wan 2.6 legacy)
@@ -988,7 +1018,7 @@ export default function StoryboardR2V() {
                     videoConfig.negativePrompt,
                     1, // batchSize
                     videoConfig.model, // direct I2V model
-                    shot.id, // frameId
+                    frameId,
                     "multi", // shotType
                     "i2v", // generationMode
                     undefined, // referenceVideoUrls
@@ -1018,7 +1048,7 @@ export default function StoryboardR2V() {
                 i === index ? { ...s, videoStatus: "failed" } : s
             ));
         }
-    }, [shots, currentProject, videoConfig, parseAssetTags]);
+    }, [shots, currentProject, videoConfig, parseAssetTags, materializeShot]);
 
     // Batch-aware generation. The user's "抽卡" mental model: one
     // click of Generate ×N fires N independent createVideoTask calls
@@ -1098,6 +1128,7 @@ export default function StoryboardR2V() {
         ));
 
         try {
+            const frameId = await materializeShot(shot, index);
             // Build a per-call factory so the batch fires N parallel
             // requests through Promise.all — fail-fast on any one
             // failure leaves the others untouched on the backend (the
@@ -1124,7 +1155,7 @@ export default function StoryboardR2V() {
                         params?.negativePrompt ?? videoConfig.negativePrompt,
                         1,
                         routeModelId,
-                        shot.id,
+                        frameId,
                         params?.shotType ?? "multi",
                         "r2v",
                         !imageBased ? referenceUrls : undefined,
@@ -1159,7 +1190,7 @@ export default function StoryboardR2V() {
                     params?.negativePrompt ?? videoConfig.negativePrompt,
                     1,
                     i2vModelId,
-                    shot.id,
+                    frameId,
                     params?.shotType ?? "multi",
                     "i2v",
                     undefined,
@@ -1220,7 +1251,7 @@ export default function StoryboardR2V() {
                 i === index ? { ...s, videoStatus: "failed" as const } : s
             ));
         }
-    }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage]);
+    }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot]);
 
     // Project-level task refresh: when any task on any shot is in
     // flight, refetch the whole project every 5s. The candidates
@@ -1259,56 +1290,17 @@ export default function StoryboardR2V() {
         return () => window.clearInterval(id);
     }, [currentProject?.id, (currentProject as any)?.video_tasks, shots, updateProject]);
 
-    // Poll for task completion (both T2I and video)
+    // Poll only asset-generation tasks through the generic task endpoint.
+    // Video tasks are canonical on currentProject.video_tasks and are refreshed
+    // by the project-level poll above; /tasks/{id} does not expose video tasks.
     useEffect(() => {
         const processingShots = shots.filter(s =>
-            (s.videoTaskId && (s.videoStatus === "processing" || s.videoStatus === "pending")) ||
             (s.t2iTaskId && (s.t2iStatus === "processing" || s.t2iStatus === "pending"))
         );
         if (processingShots.length === 0) return;
 
         const interval = setInterval(async () => {
             for (const shot of processingShots) {
-                // Poll video task
-                if (shot.videoTaskId && (shot.videoStatus === "processing" || shot.videoStatus === "pending")) {
-                    try {
-                        const status = await api.getTaskStatus(shot.videoTaskId);
-                        if (status.status === "completed" && status.video_url) {
-                            setShots(prev => prev.map(s =>
-                                s.id === shot.id ? { ...s, videoStatus: "completed", videoUrl: status.video_url } : s
-                            ));
-                            // Persist as the frame's active take so reloads, refines, and
-                            // cross-device opens see the same hero video. Backend skips
-                            // the update when the user has pinned a take. Fire-and-forget
-                            // — UI already updated above, so failure here is non-fatal.
-                            // Sync shot.videoUrl from backend response too: if a sibling
-                            // task in the same batch completed first (so backend picked
-                            // that one as active) the hero stays in sync.
-                            const projectId = currentProject?.id;
-                            if (projectId) {
-                                api.autoSelectLatestVideo(projectId, shot.id)
-                                    .then(updated => {
-                                        updateProject(projectId, { frames: updated.frames });
-                                        const refreshed = updated.frames?.find((f: any) => f.id === shot.id);
-                                        if (refreshed?.video_url) {
-                                            setShots(prev => prev.map(s =>
-                                                s.id === shot.id
-                                                    ? { ...s, videoUrl: refreshed.video_url, isVideoPinned: Boolean(refreshed.is_video_pinned) }
-                                                    : s
-                                            ));
-                                        }
-                                    })
-                                    .catch(err => debugLog.warn("Studio", "autoSelectLatestVideo failed:", err));
-                            }
-                        } else if (status.status === "failed") {
-                            setShots(prev => prev.map(s =>
-                                s.id === shot.id ? { ...s, videoStatus: "failed" } : s
-                            ));
-                        }
-                    } catch (error) {
-                        debugLog.error("Studio", "Video poll failed for shot:", shot.id, error);
-                    }
-                }
                 // Poll T2I task
                 if (shot.t2iTaskId && (shot.t2iStatus === "processing" || shot.t2iStatus === "pending")) {
                     try {
@@ -2278,4 +2270,3 @@ export default function StoryboardR2V() {
         </div>
     );
 }
-

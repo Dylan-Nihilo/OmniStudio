@@ -27,7 +27,7 @@ def api_client(tmp_path, monkeypatch):
         isolated_pipeline = ComicGenPipeline(
             config={
                 "storage": {
-                    "db_path": str(tmp_path / "lumenx.db"),
+                    "db_path": str(tmp_path / "omni_studio.db"),
                     "legacy_projects_path": str(tmp_path / "projects.json"),
                     "legacy_series_path": str(tmp_path / "series.json"),
                     "auto_migrate": False,

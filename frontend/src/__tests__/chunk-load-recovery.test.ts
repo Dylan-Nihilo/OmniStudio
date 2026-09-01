@@ -57,10 +57,26 @@ describe("chunk load recovery", () => {
 
   it("clears a previous recovery marker after the module loads", async () => {
     const { runtime, values } = createRuntime();
-    values.set("lumenx:chunk-recovery", "stale");
+    values.set("omni_studio:chunk-recovery", "stale");
 
     await expect(withChunkLoadRecovery(() => Promise.resolve({ default: "ok" }), runtime))
       .resolves.toEqual({ default: "ok" });
     expect(values.size).toBe(0);
+  });
+
+  it("surfaces the chunk error when session storage cannot record a retry", async () => {
+    const error = new Error("ChunkLoadError: Loading chunk settings failed.");
+    const reload = vi.fn();
+    const runtime: ChunkRecoveryRuntime = {
+      href: "http://localhost:3008/#/settings",
+      now: () => 1_000,
+      getItem: () => { throw new Error("storage unavailable"); },
+      setItem: () => { throw new Error("storage unavailable"); },
+      removeItem: () => undefined,
+      reload,
+    };
+
+    await expect(withChunkLoadRecovery(() => Promise.reject(error), runtime)).rejects.toBe(error);
+    expect(reload).not.toHaveBeenCalled();
   });
 });

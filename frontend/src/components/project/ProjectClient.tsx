@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Palette, Layout, Film, BookOpen, Users, Video, Settings, Key, MessageSquareCode, Clapperboard } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
-import { buildLocalizedPipelineSteps, type PipelineStepId } from "@/lib/pipelineSteps";
+import { buildLocalizedPipelineSteps, resolveActivePipelineStep, type PipelineStepId } from "@/lib/pipelineSteps";
 import PipelineSidebar from "@/components/layout/PipelineSidebar";
 import EpisodeMiniList from "@/components/layout/EpisodeMiniList";
 import type { BreadcrumbSegment } from "@/components/layout/BreadcrumbBar";
@@ -112,6 +112,11 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         return base.map(s => ({ ...s, ...statusFor(s.id) }));
     }, [currentProject, seriesContentMode, tp]);
 
+    useEffect(() => {
+        const resolved = resolveActivePipelineStep(activeStep, steps);
+        if (resolved !== activeStep) setActiveStep(resolved);
+    }, [activeStep, steps]);
+
     const handleBackToHome = () => {
         window.location.hash = '';
     };
@@ -128,8 +133,8 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
                 setActiveStep(detail);
             }
         };
-        document.addEventListener("lumenx:navigateStep", handler);
-        return () => document.removeEventListener("lumenx:navigateStep", handler);
+        document.addEventListener("omni_studio:navigateStep", handler);
+        return () => document.removeEventListener("omni_studio:navigateStep", handler);
     }, [steps]);
 
     useEffect(() => {
@@ -152,7 +157,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         );
     }
 
-    const segments = breadcrumbSegments || [{ label: "MANGIX", hash: "#/" }, { label: currentProject.title }];
+    const segments = breadcrumbSegments || [{ label: "Omni Studio", hash: "#/" }, { label: currentProject.title }];
 
     const settingsActions = (
         <>
@@ -266,7 +271,7 @@ function EntityExtractionConfirm() {
             await confirmExtraction();
             const refreshed = useProjectStore.getState().currentProject;
             if (refreshed?.series_id) {
-                document.dispatchEvent(new CustomEvent("lumenx:openReconcile"));
+                document.dispatchEvent(new CustomEvent("omni_studio:openReconcile"));
             }
         } catch {
             const { toast } = await import("@/store/toastStore");

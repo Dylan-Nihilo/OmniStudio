@@ -1,4 +1,4 @@
-# THEME-TOKENS — LumenX Studio 主题 Token 架构
+# THEME-TOKENS — Omni Studio 主题 Token 架构
 
 > 三层派生：**seed（品牌 DNA）→ semantic（语义角色）→ component（组件级）**。
 > 改 seed 一处，整主题随之变化；组件 CSS 永不写死颜色。

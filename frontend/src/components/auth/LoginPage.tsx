@@ -5,7 +5,8 @@ import { AlertCircle, Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { consumeReturnHash, getApiErrorCode, getApiErrorStatus } from "@/lib/apiClient";
 import { useAuthStore } from "@/store/authStore";
-import LumenXBranding from "@/components/layout/LumenXBranding";
+import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
+import AuthThemeMenu from "./AuthThemeMenu";
 
 export default function LoginPage() {
   const t = useTranslations("auth");
@@ -19,7 +20,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     try {
-      const rememberedIdentifier = window.localStorage.getItem("lumenx-remembered-identifier");
+      const rememberedIdentifier = window.localStorage.getItem("omni_studio-remembered-identifier");
       if (rememberedIdentifier) {
         setIdentifier(rememberedIdentifier);
         setRememberMe(true);
@@ -35,8 +36,8 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       try {
-        if (rememberMe) window.localStorage.setItem("lumenx-remembered-identifier", identifier);
-        else window.localStorage.removeItem("lumenx-remembered-identifier");
+        if (rememberMe) window.localStorage.setItem("omni_studio-remembered-identifier", identifier);
+        else window.localStorage.removeItem("omni_studio-remembered-identifier");
       } catch {
         // Remember-me is best effort and must not block authentication.
       }
@@ -62,10 +63,11 @@ export default function LoginPage() {
   return (
     <main data-testid="auth-surface" className="auth-surface">
       <div className="auth-storyboard" />
+      <AuthThemeMenu />
       <div className="auth-shell">
         <section data-testid="auth-panel" className="auth-panel">
           <div data-testid="auth-brand" className="auth-brand">
-            <LumenXBranding size="lg" variant="auth" />
+            <OmniStudioBranding size="lg" variant="auth" />
             <div aria-hidden="true" className="auth-brand-rule" />
           </div>
           <div className="mb-7">

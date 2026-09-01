@@ -65,7 +65,7 @@ export function usePanelSectionState(
     return [open, set];
 }
 
-export const PANEL_SECTION_OVERRIDE_EVENT = "lumenx:panel-section-override";
+export const PANEL_SECTION_OVERRIDE_EVENT = "omni_studio:panel-section-override";
 
 /**
  * Bulk-set every (shotId × section) pair's persisted state and notify

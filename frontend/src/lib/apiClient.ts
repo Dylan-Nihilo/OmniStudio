@@ -34,9 +34,9 @@ const getApiUrl = (): string => {
 };
 
 export const API_URL = getApiUrl();
-export const AUTH_RETURN_TO_KEY = "lumenx.auth.returnTo";
-export const AUTH_EXPIRED_EVENT = "lumenx:auth-expired";
-const CSRF_COOKIE_NAME = "lumenx_csrf";
+export const AUTH_RETURN_TO_KEY = "omni_studio.auth.returnTo";
+export const AUTH_EXPIRED_EVENT = "omni_studio:auth-expired";
+const CSRF_COOKIE_NAME = "omni_studio_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
 

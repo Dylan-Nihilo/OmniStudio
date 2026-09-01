@@ -24,7 +24,7 @@ cwd = application_path
 from starlette.staticfiles import StaticFiles
 
 # 切换到用户数据目录
-path = os.path.expanduser("~/.lumen-x")
+path = os.path.expanduser("~/.omni-studio")
 os.makedirs(path, exist_ok=True)
 os.chdir(path)
 
@@ -110,7 +110,7 @@ def open_webview():
 
     # 创建 pywebview 窗口
     window = webview.create_window(
-        title="LumenX Studio",
+        title="Omni Studio",
         url=f"http://127.0.0.1:17177/static/index.html?timestamp={datetime.now().timestamp()}",
         width=1280,
         height=800,
@@ -125,14 +125,14 @@ def open_webview():
         webview.start(
             gui='edgechromium',
             private_mode=False,
-            storage_path=os.path.expanduser("~/.lumen-x/webview_storage")
+            storage_path=os.path.expanduser("~/.omni-studio/webview_storage")
         )
     else:
         # private_mode=False: 禁用隐私模式,允许保存 cookies 和 localStorage
         # storage_path: 指定持久化存储路径,确保 localStorage 数据不会丢失
         webview.start(
             private_mode=False,
-            storage_path=os.path.expanduser("~/.lumen-x/webview_storage")
+            storage_path=os.path.expanduser("~/.omni-studio/webview_storage")
         )
 
     # WebView 关闭后，退出整个进程

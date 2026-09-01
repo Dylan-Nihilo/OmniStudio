@@ -21,7 +21,7 @@ def test_update_env_config_refreshes_cached_llm_adapter(monkeypatch):
 
     response = api_module.update_env_config(
         api_module.EnvConfig(
-            DASHSCOPE_API_KEY="sk-test-runtime-refresh",
+            DASHSCOPE_API_KEY="test-runtime-key",
             endpoint_overrides={
                 "DASHSCOPE_BASE_URL": "https://workspace.example.com",
             },
@@ -32,7 +32,7 @@ def test_update_env_config_refreshes_cached_llm_adapter(monkeypatch):
     assert response["status"] == "success"
     assert saved_configs == [
         {
-            "DASHSCOPE_API_KEY": "sk-test-runtime-refresh",
+            "DASHSCOPE_API_KEY": "test-runtime-key",
             "DASHSCOPE_BASE_URL": "https://workspace.example.com",
         }
     ]
@@ -54,7 +54,7 @@ def test_update_env_config_keeps_llm_adapter_for_unrelated_changes(monkeypatch):
     monkeypatch.setattr(api_module.OSSImageUploader, "reset_instance", lambda: None)
 
     response = api_module.update_env_config(
-        api_module.EnvConfig(OSS_BASE_PATH="lumenx/test")
+        api_module.EnvConfig(OSS_BASE_PATH="omni_studio/test")
     )
 
     assert response["status"] == "success"

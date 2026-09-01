@@ -160,7 +160,7 @@ def test_vendor_vidu_local_image_with_oss_uses_signed_url(monkeypatch, tmp_path)
 
         def upload_file(self, local_path, sub_path="", custom_filename=None):
             filename = custom_filename or Path(local_path).name
-            return f"lumenx/{sub_path.strip('/')}/{filename}".replace("//", "/")
+            return f"omni_studio/{sub_path.strip('/')}/{filename}".replace("//", "/")
 
         def sign_url_for_api(self, object_key):
             return f"https://oss.example/{object_key}"
@@ -194,4 +194,4 @@ def test_vendor_vidu_local_image_with_oss_uses_signed_url(monkeypatch, tmp_path)
 
     assert captured["submit_url"].endswith("/img2video")
     assert captured["headers"]["Authorization"] == "Token test-key"
-    assert captured["body"]["images"][0].startswith("https://oss.example/lumenx/")
+    assert captured["body"]["images"][0].startswith("https://oss.example/omni_studio/")

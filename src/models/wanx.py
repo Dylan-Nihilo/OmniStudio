@@ -350,9 +350,7 @@ class WanxModel(VideoGenModel):
                 temp_url_resolver = self._build_dashscope_temp_url_resolver(resolver_model)
 
                 if is_wan27_r2v:
-                    first_frame_ref = img_path or img_url
-                    if not first_frame_ref:
-                        raise ValueError("img_path or img_url is required as first_frame for wan2.7-r2v")
+                    first_frame_ref = img_path or img_url or ref_urls[0]
 
                     # Wan 2.7 R2V requires URL-like media entries. Local images initially
                     # resolve to data URIs in image mode, so re-resolve them through the
@@ -479,7 +477,7 @@ class WanxModel(VideoGenModel):
                     watermark=watermark,
                     extra_headers=extra_media_headers,
                 )
-            elif final_model_name.startswith('happyhorse-1.0-'):
+            elif final_model_name.startswith(('happyhorse-1.0-', 'happyhorse-1.1-')):
                 # HappyHorse model family (I2V, R2V, T2V, V2V)
                 resolver_model = final_model_name
                 backend = self._resolve_provider_backend_for_model(resolver_model)
@@ -487,7 +485,7 @@ class WanxModel(VideoGenModel):
 
                 # Build media array based on model type
                 media = None
-                if final_model_name == 'happyhorse-1.0-i2v':
+                if final_model_name.endswith('-i2v'):
                     # I2V: first_frame image
                     image_ref = img_path or img_url
                     if image_ref:
@@ -502,7 +500,7 @@ class WanxModel(VideoGenModel):
                         media = [{"type": "first_frame", "url": resolved.value}]
                         self._merge_media_headers(extra_media_headers, resolved.headers)
 
-                elif final_model_name == 'happyhorse-1.0-r2v':
+                elif final_model_name.endswith('-r2v'):
                     # R2V: reference images (1-9)
                     ref_image_urls = kwargs.get('ref_image_urls', [])
                     if not ref_image_urls:
@@ -816,12 +814,27 @@ class WanxModel(VideoGenModel):
         max_wait_time = 900  # 15 minutes max wait
         poll_interval = 15   # Poll every 15 seconds
         elapsed = 0
+        consecutive_poll_errors = 0
         
         while elapsed < max_wait_time:
             time.sleep(poll_interval)
             elapsed += poll_interval
-            
-            poll_response = requests.get(poll_url, headers=poll_headers, timeout=30)
+
+            try:
+                poll_response = requests.get(poll_url, headers=poll_headers, timeout=30)
+            except (requests.exceptions.RequestException, OSError) as exc:
+                consecutive_poll_errors += 1
+                if consecutive_poll_errors >= 3:
+                    raise_classified(exc, provider="dashscope")
+                logger.warning(
+                    "Transient poll failure for task %s (%s/3): %s",
+                    task_id,
+                    consecutive_poll_errors,
+                    exc,
+                )
+                continue
+
+            consecutive_poll_errors = 0
             
             if poll_response.status_code != 200:
                 logger.warning(f"Poll request failed: {poll_response.status_code}")
@@ -896,7 +909,7 @@ class WanxModel(VideoGenModel):
             payload["input"]["media"] = media
 
         # Model-specific parameters
-        if ratio and model_name != "happyhorse-1.0-i2v":
+        if ratio and model_name not in {"happyhorse-1.0-i2v", "happyhorse-1.1-i2v"}:
             # I2V doesn't support ratio parameter
             payload["parameters"]["ratio"] = ratio
         if seed:

@@ -4,8 +4,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import axios from "axios";
 import { AlertCircle, ArrowLeft, CheckCircle2, KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { useTranslations } from "next-intl";
-import LumenXBranding from "@/components/layout/LumenXBranding";
+import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import { useAuthStore, type PasswordResetStatus } from "@/store/authStore";
+import AuthThemeMenu from "./AuthThemeMenu";
 
 const getAuthErrorCode = (error: unknown): string | null => {
   if (!axios.isAxiosError(error)) return null;
@@ -73,11 +74,12 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <main className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-[#050508] px-5 py-10 text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(100,108,255,0.2),transparent_34%),radial-gradient(circle_at_80%_82%,rgba(255,0,128,0.12),transparent_32%)]" />
-      <div className="relative z-10 w-full max-w-md">
-        <div className="mb-7 flex justify-center"><LumenXBranding size="md" /></div>
-        <section className="glass-panel rounded-2xl p-7 shadow-2xl shadow-primary/10 sm:p-9">
+    <main className="auth-surface auth-reset-surface">
+      <div className="auth-storyboard" />
+      <AuthThemeMenu />
+      <div className="auth-shell">
+        <div className="auth-brand"><OmniStudioBranding size="md" /></div>
+        <section className="auth-panel auth-reset-panel">
           {completed ? (
             <div className="text-center">
               <CheckCircle2 className="mx-auto mb-4 text-emerald-400" size={34} />
@@ -124,20 +126,20 @@ export default function ResetPasswordPage() {
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-medium">{t("identifier")}</span>
-                  <input className="glass-input w-full" value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required autoFocus />
+                  <input className="auth-input" value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required autoFocus />
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-medium">{t("newPassword")}</span>
-                  <input className="glass-input w-full" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" required minLength={8} maxLength={128} />
+                  <input className="auth-input" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" required minLength={8} maxLength={128} />
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-medium">{t("confirmNewPassword")}</span>
-                  <input className="glass-input w-full" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required minLength={8} maxLength={128} />
+                  <input className="auth-input" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required minLength={8} maxLength={128} />
                 </label>
                 {status.token_required && (
                   <label className="block">
                     <span className="mb-1.5 block text-sm font-medium">{t("resetToken")}</span>
-                    <input className="glass-input w-full" type="password" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} autoComplete="off" required />
+                    <input className="auth-input" type="password" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} autoComplete="off" required />
                     <span className="mt-1.5 block text-xs leading-5 text-text-tertiary">{t("resetTokenHint")}</span>
                   </label>
                 )}

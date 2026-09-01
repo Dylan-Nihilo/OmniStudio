@@ -484,6 +484,25 @@ html {
   /* Authentication uses a dedicated, high-contrast lockup instead of the
      workspace glass treatment so the brand stays legible before login. */
   .auth-surface {
+    --auth-fg: #f3faf8;
+    --auth-secondary: #b5cbc6;
+    --auth-muted: #a7c6c0;
+    --auth-label: #d5e6e2;
+    --auth-panel-bg: rgba(10, 25, 23, 0.9);
+    --auth-panel-border: rgba(164, 217, 205, 0.2);
+    --auth-panel-shadow: 0 28px 64px rgba(0, 0, 0, 0.42);
+    --auth-input-bg: rgba(3, 13, 12, 0.68);
+    --auth-input-focus-bg: rgba(3, 13, 12, 0.92);
+    --auth-input-border: rgba(164, 217, 205, 0.22);
+    --auth-input-fg: #eef8f5;
+    --auth-grid: rgba(160, 217, 205, 0.055);
+    --auth-control-bg: rgba(10, 25, 23, 0.78);
+    --auth-control-border: rgba(164, 217, 205, 0.22);
+    --auth-control-hover: rgba(45, 212, 191, 0.12);
+    --auth-menu-bg: rgba(10, 25, 23, 0.96);
+    --auth-menu-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+    --auth-option-hover: rgba(255, 255, 255, 0.055);
+    --auth-autofill-bg: #071211;
     position: relative;
     display: flex;
     min-height: 100dvh;
@@ -492,8 +511,31 @@ html {
     justify-content: center;
     overflow: hidden;
     padding: 2.5rem 1.25rem;
-    color: #f3faf8;
+    color: var(--auth-fg);
     background: #07100f;
+  }
+
+  :is(html.atelier-light, html.brand-light) .auth-surface {
+    --auth-fg: #241f1a;
+    --auth-secondary: #5d564d;
+    --auth-muted: #81786c;
+    --auth-label: #3f3932;
+    --auth-panel-bg: rgba(255, 253, 249, 0.88);
+    --auth-panel-border: rgba(62, 91, 82, 0.16);
+    --auth-panel-shadow: 0 28px 64px rgba(77, 61, 43, 0.16);
+    --auth-input-bg: rgba(241, 235, 225, 0.78);
+    --auth-input-focus-bg: rgba(255, 253, 249, 0.96);
+    --auth-input-border: rgba(62, 91, 82, 0.18);
+    --auth-input-fg: #241f1a;
+    --auth-grid: rgba(29, 108, 96, 0.07);
+    --auth-control-bg: rgba(255, 253, 249, 0.78);
+    --auth-control-border: rgba(62, 91, 82, 0.16);
+    --auth-control-hover: rgba(29, 156, 141, 0.1);
+    --auth-menu-bg: rgba(255, 253, 249, 0.97);
+    --auth-menu-shadow: 0 18px 42px rgba(77, 61, 43, 0.18);
+    --auth-option-hover: rgba(29, 156, 141, 0.07);
+    --auth-autofill-bg: #f5efe6;
+    background: #f6f1e9;
   }
 
   .auth-surface::before {
@@ -506,14 +548,21 @@ html {
       linear-gradient(115deg, rgba(6, 14, 13, 0.98), rgba(5, 10, 10, 0.86));
   }
 
+  :is(html.atelier-light, html.brand-light) .auth-surface::before {
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(29, 156, 141, 0.12), transparent 46%),
+      radial-gradient(ellipse at 100% 100%, rgba(232, 133, 43, 0.1), transparent 40%),
+      linear-gradient(115deg, rgba(246, 241, 233, 0.98), rgba(255, 253, 249, 0.9));
+  }
+
   .auth-storyboard {
     pointer-events: none;
     position: absolute;
     inset: 0;
     opacity: 0.5;
     background-image:
-      linear-gradient(rgba(160, 217, 205, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(160, 217, 205, 0.055) 1px, transparent 1px);
+      linear-gradient(var(--auth-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--auth-grid) 1px, transparent 1px);
     background-size: 72px 72px;
     mask-image: radial-gradient(ellipse at center, black, transparent 72%);
   }
@@ -525,15 +574,97 @@ html {
     max-width: 27rem;
   }
 
+  .auth-claim-shell { max-width: 42rem; }
+  .auth-setup-surface { align-items: flex-start; overflow-y: auto; }
+  .auth-setup-shell { max-width: 32rem; margin-block: auto; }
+  .auth-reset-surface { overflow-y: auto; }
+
+  .auth-theme-control {
+    position: fixed;
+    top: 3rem;
+    right: 1.25rem;
+    z-index: 3;
+  }
+
+  .auth-theme-trigger {
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    place-items: center;
+    border: 1px solid var(--auth-control-border);
+    border-radius: 50%;
+    color: var(--auth-secondary);
+    background: var(--auth-control-bg);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(16px);
+    transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  }
+
+  .auth-theme-trigger:hover,
+  .auth-theme-trigger[aria-expanded="true"] {
+    color: var(--color-primary);
+    border-color: color-mix(in srgb, var(--color-primary) 44%, transparent);
+    background: var(--auth-control-hover);
+  }
+
+  .auth-theme-trigger:active { transform: translateY(1px); }
+  .auth-theme-trigger:focus-visible,
+  .auth-theme-option:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  .auth-theme-menu {
+    position: absolute;
+    top: calc(100% + 0.55rem);
+    right: 0;
+    width: 10rem;
+    overflow: hidden;
+    padding: 0.3rem;
+    border: 1px solid var(--auth-control-border);
+    border-radius: 8px;
+    color: var(--auth-fg);
+    background: var(--auth-menu-bg);
+    box-shadow: var(--auth-menu-shadow);
+    backdrop-filter: blur(20px);
+    transform-origin: top right;
+    animation: auth-theme-menu-in 140ms ease-out;
+  }
+
+  .auth-theme-option {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr 1rem;
+    width: 100%;
+    min-height: 2.35rem;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 6px;
+    color: var(--auth-secondary);
+    font-size: 0.8125rem;
+    text-align: left;
+    transition: color 140ms ease, background-color 140ms ease;
+  }
+
+  .auth-theme-option:hover { color: var(--auth-fg); background: var(--auth-option-hover); }
+  .auth-theme-option[aria-checked="true"] { color: var(--color-primary); background: var(--auth-control-hover); }
+  .auth-theme-check { opacity: 0; }
+  .auth-theme-option[aria-checked="true"] .auth-theme-check { opacity: 1; }
+
+  @keyframes auth-theme-menu-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
   .auth-brand {
     margin-bottom: 1.75rem;
     display: grid;
     justify-items: center;
-    color: #f3faf8;
+    color: var(--auth-fg);
   }
 
-  .auth-brand [class~="text-foreground"] { color: #f3faf8; }
-  .auth-brand [class~="text-text-muted"] { color: #a7c6c0; }
+  .auth-brand [class~="text-foreground"] { color: var(--auth-fg); }
+  .auth-brand [class~="text-text-muted"] { color: var(--auth-muted); }
 
   .auth-brand-rule {
     width: min(100%, 19rem);
@@ -546,41 +677,57 @@ html {
   .auth-panel {
     position: relative;
     overflow: hidden;
-    border: 1px solid rgba(164, 217, 205, 0.2);
+    border: 1px solid var(--auth-panel-border);
     border-radius: 10px;
     padding: 1.75rem;
-    background: rgba(10, 25, 23, 0.9);
-    box-shadow: 0 28px 64px rgba(0, 0, 0, 0.42);
+    background: var(--auth-panel-bg);
+    box-shadow: var(--auth-panel-shadow);
     backdrop-filter: blur(18px);
   }
 
-  .auth-panel h1 { color: #f3faf8; }
-  .auth-panel .text-text-secondary { color: #b5cbc6; }
-  .auth-panel label > span { color: #d5e6e2; }
+  .auth-panel h1 { color: var(--auth-fg); }
+  .auth-panel .text-text-secondary { color: var(--auth-secondary); }
+  .auth-panel label > span { color: var(--auth-label); }
+
+  /* The claim summary shares the auth surface so light theme tokens cannot
+     wash its glass panel into an unreadable grey overlay. */
+  .auth-claim-panel { padding: 0; }
+  .auth-claim-panel [class~="text-foreground"] { color: #f3faf8; }
+  .auth-claim-panel [class~="text-text-secondary"] { color: #b5cbc6; }
+  .auth-claim-panel [class~="text-text-muted"] { color: #a7c6c0; }
+  .auth-claim-panel [class~="text-primary"] { color: #43d6c0; }
+  .auth-claim-panel [class~="bg-primary"] { color: #032a25; background: #43d6c0; }
+
+  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-foreground"] { color: var(--auth-fg); }
+  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-text-secondary"] { color: var(--auth-secondary); }
+  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-text-muted"] { color: var(--auth-muted); }
+  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-primary"] { color: var(--color-primary); }
+  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="bg-primary"] { color: white; background: var(--color-primary); }
+  :is(html.atelier-light, html.brand-light) .auth-setup-panel [class~="text-amber-100"] { color: #92400e; }
 
   .auth-input {
     width: 100%;
-    border: 1px solid rgba(164, 217, 205, 0.22);
+    border: 1px solid var(--auth-input-border);
     border-radius: 6px;
     padding: 0.7rem 0.8rem;
-    color: #eef8f5;
-    background: rgba(3, 13, 12, 0.68);
+    color: var(--auth-input-fg);
+    background: var(--auth-input-bg);
     outline: none;
     transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
-    color-scheme: dark;
+    color-scheme: inherit;
   }
 
   .auth-input:focus {
     border-color: #2dd4bf;
-    background: rgba(3, 13, 12, 0.92);
+    background: var(--auth-input-focus-bg);
     box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.13);
   }
 
   .auth-input:-webkit-autofill,
   .auth-input:-webkit-autofill:hover,
   .auth-input:-webkit-autofill:focus {
-    -webkit-text-fill-color: #eef8f5;
-    -webkit-box-shadow: 0 0 0 1000px #071211 inset;
+    -webkit-text-fill-color: var(--auth-input-fg);
+    -webkit-box-shadow: 0 0 0 1000px var(--auth-autofill-bg) inset;
     transition: background-color 9999s ease-out 0s;
   }
 
@@ -603,6 +750,12 @@ html {
   .auth-submit:hover { background: #76ead7; box-shadow: 0 12px 28px rgba(45, 212, 191, 0.3); }
   .auth-submit:active { transform: translateY(1px); }
   .auth-submit:disabled { cursor: not-allowed; opacity: 0.58; }
+
+  :is(html.atelier-light, html.brand-light) .auth-panel [role="alert"] {
+    border-color: rgba(185, 28, 28, 0.2);
+    color: #991b1b;
+    background: rgba(254, 226, 226, 0.72);
+  }
 
   @media (min-width: 640px) {
     .auth-panel { padding: 2.25rem; }
@@ -805,7 +958,7 @@ html.atelier-light .atelier-display {
 }
 
 /* Slogan-style overlay: when font-mono + atelier-display sit together
-   (MANGIX Branding's "Stories, Rendered Alive."), bump the size and
+   (Omni Studio Branding's "Stories, Rendered Alive."), bump the size and
    slightly relax tracking so Fraunces stays legible at small mass.
    This rule is doubly-scoped (both class names + atelier theme) so it
    only fires on the brand slogan and only on atelier. */

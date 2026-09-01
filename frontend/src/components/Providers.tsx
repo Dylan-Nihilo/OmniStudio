@@ -11,6 +11,8 @@ import { MotionConfig } from 'framer-motion';
 export function Providers({ children }: { children: React.ReactNode }) {
     const locale = useSettingsStore((s) => s.locale);
     const theme = useSettingsStore((s) => s.theme);
+    const themeMode = useSettingsStore((s) => s.themeMode);
+    const setThemeMode = useSettingsStore((s) => s.setThemeMode);
     const animations = useSettingsStore((s) => s.animations);
     const messages = getMessages(locale);
 
@@ -20,6 +22,24 @@ export function Providers({ children }: { children: React.ReactNode }) {
         html.classList.remove(...THEME_PRESETS, 'dark', 'light');
         html.classList.add(theme);
     }, [theme]);
+
+    useEffect(() => {
+        if (themeMode !== 'system') return;
+
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const syncSystemTheme = (event: MediaQueryList | MediaQueryListEvent) => {
+            setThemeMode('system', event.matches);
+        };
+
+        syncSystemTheme(mediaQuery);
+        if (typeof mediaQuery.addEventListener === 'function') {
+            mediaQuery.addEventListener('change', syncSystemTheme);
+            return () => mediaQuery.removeEventListener('change', syncSystemTheme);
+        }
+
+        mediaQuery.addListener(syncSystemTheme);
+        return () => mediaQuery.removeListener(syncSystemTheme);
+    }, [setThemeMode, themeMode]);
 
     useEffect(() => {
         // animations=false → 挂 html.no-motion，CSS 据此降低/禁用过渡动画

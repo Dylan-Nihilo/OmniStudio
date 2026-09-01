@@ -24,13 +24,13 @@ class FakeUploaderNoOss:
 
 class TestImageProviderMediaResolverIntegration:
     def test_wan26_reference_object_key_uses_signed_url_when_oss_configured(self, monkeypatch):
-        monkeypatch.setenv("OSS_BASE_PATH", "lumenx")
+        monkeypatch.setenv("OSS_BASE_PATH", "omni_studio")
         monkeypatch.setattr("src.models.image.OSSImageUploader", FakeUploaderConfigured)
 
         model = WanxImageModel({"params": {"i2i_model_name": "wan2.6-image"}})
-        resolved = model._resolve_wan26_reference_image("lumenx/temp/ref.png")
+        resolved = model._resolve_wan26_reference_image("omni_studio/temp/ref.png")
 
-        assert resolved == "https://oss.example/lumenx/temp/ref.png"
+        assert resolved == "https://oss.example/omni_studio/temp/ref.png"
 
     def test_wan26_reference_remote_url_pass_through(self, monkeypatch):
         monkeypatch.setattr("src.models.image.OSSImageUploader", FakeUploaderNoOss)

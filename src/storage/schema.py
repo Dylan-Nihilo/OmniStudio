@@ -1,4 +1,4 @@
-"""SQLAlchemy 2.x metadata for the initial LumenX SQLite schema.
+"""SQLAlchemy 2.x metadata for the initial Omni Studio SQLite schema.
 
 The W1 storage layer intentionally keeps the existing Script and Series aggregates
 in JSON payload columns.  The relational columns below are the stable identity,
@@ -20,7 +20,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all LumenX storage tables."""
+    """Declarative base for all Omni Studio storage tables."""
 
 
 class SchemaMigration(Base):
@@ -67,6 +67,44 @@ class MigrationRun(Base):
             "mode",
             unique=True,
         ),
+    )
+
+
+class LegacyClaimBatch(Base):
+    __tablename__ = "legacy_claim_batches"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    source_manifest_json: Mapped[str] = mapped_column(Text, nullable=False)
+    mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    project_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    series_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    media_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    conflict_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    completed_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    rolled_back_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('claimed', 'rolled_back')",
+            name="ck_legacy_claim_batches_status",
+        ),
+        CheckConstraint("json_valid(source_manifest_json)", name="ck_legacy_claim_source_manifest"),
+        CheckConstraint("json_valid(mapping_json)", name="ck_legacy_claim_mapping"),
+        Index("ix_legacy_claim_workspace_created", "workspace_id", "created_at"),
+        Index("ix_legacy_claim_source", "source_sha256", "status"),
     )
 
 
@@ -303,6 +341,7 @@ __all__ = [
     "Base",
     "SchemaMigration",
     "MigrationRun",
+    "LegacyClaimBatch",
     "User",
     "Workspace",
     "Session",

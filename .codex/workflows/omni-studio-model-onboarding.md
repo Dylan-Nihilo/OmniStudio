@@ -1,17 +1,17 @@
 ---
-name: lumenx-model-onboarding
-description: LumenX model onboarding workflow for vendor doc capture, model catalog updates, adapter/UI scope checks, and end-to-end verification.
+name: omni-studio-model-onboarding
+description: Omni Studio model onboarding workflow for vendor doc capture, model catalog updates, adapter/UI scope checks, and end-to-end verification.
 ---
 
-# LumenX Model Onboarding Workflow
+# Omni Studio Model Onboarding Workflow
 
 Use this workflow when working in this repository and the user asks to:
 
-- onboard a new model or model family into LumenX
+- onboard a new model or model family into Omni Studio
 - update model docs, versions, defaults, parameters, or UI exposure
 - refresh catalog definitions for the Wan, Kling, Vidu, or PixVerse model families
 - review whether a model change is catalog-only or requires runtime adapter work
-- run `/lumenx-model-onboarding`
+- run `/omni-studio-model-onboarding`
 
 This workflow is the repo-native entrypoint for model support work. It keeps the process observable, testable, and reviewable.
 

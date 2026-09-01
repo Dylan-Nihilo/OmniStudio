@@ -336,7 +336,7 @@ function NewProjectTile({ onClick, episode = false }: { onClick: () => void; epi
 }
 
 // localStorage key for the workspace gallery/list view preference.
-const WS_VIEW_KEY = "lumenx_workspace_view";
+const WS_VIEW_KEY = "omni_studio_workspace_view";
 
 // deriveCover is imported from ProjectCard (single source of truth).
 
@@ -450,7 +450,7 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
   }, [seriesId, episodeId]);
 
   const segments = [
-    { label: "MANGIX", hash: "#/" },
+    { label: "Omni Studio", hash: "#/" },
     { label: seriesTitle || t("series"), hash: `#/series/${seriesId}` },
     { label: episodeNumber != null ? t("episodeNum", { number: episodeNumber }) : t("episodeLabel") },
   ];

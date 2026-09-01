@@ -87,9 +87,9 @@ fn start_prod_backend(app_handle: &tauri::AppHandle) -> Result<Child, std::io::E
         .expect("failed to resolve resource dir");
 
     let binary_name = if cfg!(target_arch = "aarch64") {
-        "lumenx-backend-aarch64-apple-darwin"
+        "omni-studio-backend-aarch64-apple-darwin"
     } else {
-        "lumenx-backend-x86_64-apple-darwin"
+        "omni-studio-backend-x86_64-apple-darwin"
     };
 
     let sidecar_path = resource_path.join("binaries").join(binary_name);

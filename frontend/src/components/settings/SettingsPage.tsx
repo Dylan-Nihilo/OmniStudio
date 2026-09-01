@@ -18,7 +18,7 @@ import { toast } from "@/store/toastStore";
 import { rovingKeyDown } from "@/lib/a11y";
 import { Image, Video, Layout, User, Building, Box } from "lucide-react";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
-import LumenXBranding from "@/components/layout/LumenXBranding";
+import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import UpdateChecker from "./UpdateChecker";
 type SettingsCategory = "general" | "models" | "prompts" | "apikeys" | "storage" | "about";
 import {
@@ -100,8 +100,8 @@ const getValidationErrors = (env: EnvConfig): string[] => {
   return errors;
 };
 
-const LS_KEY_MODEL = "lumenx_default_model_settings";
-const LS_KEY_PROMPT = "lumenx_default_prompt_config";
+const LS_KEY_MODEL = "omni_studio_default_model_settings";
+const LS_KEY_PROMPT = "omni_studio_default_prompt_config";
 
 interface DefaultPromptConfig {
   storyboard_polish: string;
@@ -943,7 +943,7 @@ export default function SettingsPage() {
           type="text"
           value={config.OSS_BASE_PATH}
           onChange={(e) => handleChange("OSS_BASE_PATH", e.target.value)}
-          placeholder="mangix"
+          placeholder="omni-studio"
           className={settingsInputClass + " font-mono text-[0.71875rem]"}
         />
       </FormRow>
@@ -973,7 +973,7 @@ export default function SettingsPage() {
   const renderAbout = () => {
     const ff = system?.ffmpeg;
     const aboutRows: { k: string; v: string; tone?: "ok" | "warn" }[] = [
-      { k: t("aboutAppVersion"), v: `MANGIX Studio ${APP_VERSION}` },
+      { k: t("aboutAppVersion"), v: `Omni Studio ${APP_VERSION}` },
       { k: t("aboutBackendApi"), v: API_URL },
       { k: t("aboutDataDir"), v: dataDir || "—" },
       { k: t("logDirLabel"), v: logDir || "—" },
@@ -982,7 +982,7 @@ export default function SettingsPage() {
       <Section id="about" title={t("secAboutTitle")}>
         {/* Line B brand signature block — teal-glow logo, serif name, amber tagline */}
         <div className="flex flex-col items-start gap-3 pb-6 mb-6 border-b border-glass-border">
-          <LumenXBranding size="md" showSlogan={false} />
+          <OmniStudioBranding size="md" showSlogan={false} />
           <p className="font-display atelier-display text-base italic text-accent leading-snug">
             “Stories, Rendered Alive.”
           </p>

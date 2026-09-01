@@ -20,7 +20,7 @@ docs/design/tasty-sam/storyboard-r2v-unified.html
 
 ## 1. 仓库 / 分支 / 回退点（Git 安全网）
 
-- **Worktree**：`/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic-pilot-atelier-20260611-161001`（这是 git worktree，所有命令在此目录跑，**别 cd 到原始仓库**）
+- **Worktree**：`/path/to/omni-studio-worktree`（这是 git worktree，所有命令在此目录跑，**别 cd 到原始仓库**）
 - **分支**：`feat/atelier-pilot-20260611-161001`
 - **回退 tag（任何时候可 reset）**：
   - `pre-r2v-refactor` → `4eb3bab`：**重构前全量回退锚点**（`git reset --hard pre-r2v-refactor` 丢弃所有 R2V 改动）
@@ -72,7 +72,7 @@ docs/design/tasty-sam/storyboard-r2v-unified.html
 ### 已知"易在重塑里丢"的细节（对抗校验点名）
 - Cmd/Ctrl+E 开 PromptExpand、Cmd/Ctrl+Enter 保存；Shift+Click 候选=对比选择；CompareModal Space/S/Esc；FieldTagChip Esc + click-outside；T2ISubsection 拖拽 + 同文件重选（`input.value=''`）；PendingTaskAffordance Cancel（卡死阈值后才出）；label commit-on-blur；每批次 reuse-params；queue copy-diagnose/copy-ids；Pin/Unpin hover chip；cast-avatar→Cast nav；画风 pill；GenerationBanner phase 机（phase1 轮播文案 / phase2 精修进度 / 对白进度 / summary CTA）。
 - **别把 Params vs Candidates 的 SectionShell 内部独立折叠拍扁成单个「调整」**——`ShotPanel` 靠 `usePanelSectionState` 防御独立折叠，保留内层。
-- 事件名是跨壳契约，**精确保留**：`document 'lumenx:navigateStep'`（cast/art_direction）、`window 'navigateStep'`（script，来自 generate dialog）、`window 'lumenx:panel-section-override'`（全部展开/jump-to-shot）。
+- 事件名是跨壳契约，**精确保留**：`document 'omni_studio:navigateStep'`（cast/art_direction）、`window 'navigateStep'`（script，来自 generate dialog）、`window 'omni_studio:panel-section-override'`（全部展开/jump-to-shot）。
 - 重状态机**别 remount/re-key**：debounced persistPrompt、persistWorkbench（tab_mode/t2i urls+index/generate_count）、3s 字段 autosave、expand-state localStorage `storyboard-r2v-expanded-<projectId>`、`usePanelSectionState` localStorage + override 事件、model localStorage `storyboard-r2v-model`/`-r2v-model`、unmount flush + beforeunload、轮询 effects。
 
 ## 5. 验证方法（**重要：本会话踩过的坑**）

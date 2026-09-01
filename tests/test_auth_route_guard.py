@@ -115,7 +115,7 @@ def test_business_route_requires_auth_and_public_endpoints_remain_open(tmp_path)
 
             setup_status = client.get("/auth/setup-status")
             assert setup_status.status_code == 200
-            csrf = client.cookies.get("lumenx_csrf")
+            csrf = client.cookies.get("omni_studio_csrf")
             setup = client.post(
                 "/auth/setup",
                 headers={"Origin": "http://testserver", "X-CSRF-Token": csrf},
@@ -133,7 +133,7 @@ def test_business_route_requires_auth_and_public_endpoints_remain_open(tmp_path)
             assert unauthenticated.json()["error"]["code"] == "AUTH_SESSION_INVALID"
 
             client.get("/auth/setup-status")
-            csrf = client.cookies.get("lumenx_csrf")
+            csrf = client.cookies.get("omni_studio_csrf")
             login = client.post(
                 "/auth/login",
                 headers={"Origin": "http://testserver", "X-CSRF-Token": csrf},
@@ -245,7 +245,7 @@ def test_domain_project_list_is_filtered_to_authenticated_workspace(monkeypatch)
 
 def test_auth_rejection_keeps_cors_headers_for_allowed_browser_origin(tmp_path, monkeypatch):
     """A browser must be able to read an auth error instead of seeing a CORS network error."""
-    monkeypatch.setenv("LUMENX_AUTH_SIGNING_SECRET", "test-signing-secret-012345678901234567890123456789")
+    monkeypatch.setenv("OMNI_STUDIO_AUTH_SIGNING_SECRET", "test-signing-secret-012345678901234567890123456789")
     from src.apps.comic_gen.api import app as full_app
 
     engine = create_engine(tmp_path / "cors-route-guard.db")
@@ -281,8 +281,8 @@ def test_test_auth_bypass_is_rejected_outside_test_environment(tmp_path):
         AuthSettings.from_env(
             environ={
                 "APP_ENV": "production",
-                "LUMENX_AUTH_TEST_BYPASS": "1",
-                "LUMENX_AUTH_SIGNING_SECRET": "s" * 32,
+                "OMNI_STUDIO_AUTH_TEST_BYPASS": "1",
+                "OMNI_STUDIO_AUTH_SIGNING_SECRET": "s" * 32,
             },
             config_path=tmp_path / "config.json",
         )

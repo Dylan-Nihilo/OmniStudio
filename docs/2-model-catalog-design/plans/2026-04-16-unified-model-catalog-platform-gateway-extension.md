@@ -2,7 +2,7 @@
 
 > Date: 2026-04-16  
 > Status: Design addendum  
-> Scope: Shared schema extension note before LumenX implementation  
+> Scope: Shared schema extension note before Omni Studio implementation
 > Purpose: Explicitly account for future inference-platform / sponsored gateway integration in the unified model catalog design.
 
 ---
@@ -135,7 +135,7 @@ It recommends preserving the conceptual space for it now.
 
 ### Final decision
 
-For the next LumenX implementation generation:
+For the next Omni Studio implementation generation:
 
 > We should **design with Platform/Gateway explicitly in mind**, but **not force a full split from backend in phase 1**.
 
@@ -226,9 +226,9 @@ That is not good first-phase engineering.
 
 ---
 
-## 6. LumenX-Specific Recommendation
+## 6. Omni Studio-Specific Recommendation
 
-For LumenX implementation, we should treat Platform/Gateway as:
+For Omni Studio implementation, we should treat Platform/Gateway as:
 
 - **designed-in**
 - **schema-reserved**
@@ -236,13 +236,13 @@ For LumenX implementation, we should treat Platform/Gateway as:
 
 ### Concretely
 
-LumenX phase 1 does **not** need:
+Omni Studio phase 1 does **not** need:
 
 - frontend UI for gateway selection
 - persistent project-level gateway state
 - provider registry rewrite to use gateway as primary axis
 
-But LumenX phase 1 **should**:
+But Omni Studio phase 1 **should**:
 
 - allow runtime overlay to grow a `gateway` field later
 - avoid hardcoding assumptions that `backend == provider == family owner`
@@ -324,7 +324,7 @@ Phase 1 does not need to enforce these rules yet in code, but the design should 
 
 ### What to do now
 
-- Keep current backend routing model for LumenX phase 1
+- Keep current backend routing model for Omni Studio phase 1
 - Explicitly reserve `gateway` as part of runtime overlay design
 - Avoid schema decisions that would make `backend == platform` a permanent assumption
 
@@ -337,4 +337,3 @@ Phase 1 does not need to enforce these rules yet in code, but the design should 
 ### One-sentence summary
 
 > In this implementation generation, treat Platform/Gateway as a deliberate runtime extension point, not as a mandatory first-phase routing axis.
-

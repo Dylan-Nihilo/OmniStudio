@@ -1,4 +1,4 @@
-# LumenX Model Onboarding System Implementation Plan
+# Omni Studio Model Onboarding System Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -13,15 +13,15 @@
 ### Task 1: Add repo-native model onboarding workflow entry
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/.codex/workflows/lumenx-model-onboarding.md`
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/.claude/commands/lumenx-model-onboarding.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/AGENTS.md`
+- Create: `.codex/workflows/omni_studio-model-onboarding.md`
+- Create: `.claude/commands/omni_studio-model-onboarding.md`
+- Modify: `AGENTS.md`
 
 **Step 1: Write the workflow docs**
 
 Document:
 
-- when `/lumenx-model-onboarding` should be used
+- when `/omni_studio-model-onboarding` should be used
 - supported job types: new model, parameter update, default switch, doc refresh, UI exposure change
 - required inputs
 - the exact execution phases
@@ -34,14 +34,14 @@ Ensure the Codex workflow and Claude command carry the same process and repo rul
 
 **Step 3: Add AGENTS routing**
 
-Teach the repo that requests like “接入新模型”, “更新模型文档”, “运行模型接入工作流”, and `/lumenx-model-onboarding` should load the new workflow.
+Teach the repo that requests like “接入新模型”, “更新模型文档”, “运行模型接入工作流”, and `/omni_studio-model-onboarding` should load the new workflow.
 
 ### Task 2: Add deterministic validation and reporting utilities
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/validate_model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Create: `scripts/validate_model_catalog.py`
+- Modify: `scripts/build_model_catalog.py`
+- Modify: `tests/test_model_catalog.py`
 
 **Step 1: Add a validation/report script**
 
@@ -66,11 +66,11 @@ Cover the new validation expectations at the Python level where practical.
 ### Task 3: Add implementation-facing documentation
 
 **Files:**
-- Create: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/model-onboarding-implementation.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/plans/2026-04-03-model-docs-and-catalog-architecture.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md`
+- Create: `docs/model-onboarding-implementation.md`
+- Modify: `docs/plans/2026-04-03-model-docs-and-catalog-architecture.md`
+- Modify: `README.md`
+- Modify: `README_EN.md`
+- Modify: `CONTRIBUTING.md`
 
 **Step 1: Write implementation doc**
 
@@ -97,8 +97,8 @@ Add short, clear developer-facing pointers in README and CONTRIBUTING so future 
 ### Task 4: Verify the full onboarding system path
 
 **Files:**
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts`
+- Test: `tests/test_model_catalog.py`
+- Test: `frontend/src/__tests__/model-catalog.test.ts`
 
 **Step 1: Run backend tests**
 

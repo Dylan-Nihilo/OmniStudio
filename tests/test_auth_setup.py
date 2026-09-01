@@ -24,15 +24,15 @@ def test_empty_database_setup_creates_owner_workspace_session(tmp_path):
             "setup_token_required": False,
         }
 
-        response = client.post("/auth/setup", json=payload(display_name="LumenX Owner"))
+        response = client.post("/auth/setup", json=payload(display_name="Omni Studio Owner"))
         assert response.status_code == 201, response.text
         body = response.json()
         assert body["access_token"] and body["refresh_token"]
         assert body["user"]["username"] == "owner"
-        assert body["user"]["display_name"] == "LumenX Owner"
+        assert body["user"]["display_name"] == "Omni Studio Owner"
         assert body["workspace"]["slug"] == "default"
-        assert "lumenx_access=" in response.headers["set-cookie"]
-        assert "lumenx_refresh=" in response.headers["set-cookie"]
+        assert "omni_studio_access=" in response.headers["set-cookie"]
+        assert "omni_studio_refresh=" in response.headers["set-cookie"]
 
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT COUNT(*) FROM users")) == 1

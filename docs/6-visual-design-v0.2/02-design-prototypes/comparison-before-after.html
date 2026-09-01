@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>LumenX Studio — 视觉差异注释 (Before → After)</title>
+<title>Omni Studio — 视觉差异注释 (Before → After)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -20,7 +20,7 @@ body{background:var(--color-bg-base);color:var(--color-text-primary);font-family
 /* Header */
 .page-header{padding:48px 48px 32px;border-bottom:1px solid var(--color-border-default);max-width:1200px;margin:0 auto;}
 .doc-brand{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
-.doc-brand-mark{width:32px;height:32px;flex-shrink:0;background-image:url("LumenX-cybr.png");background-size:contain;background-repeat:no-repeat;background-position:center;}
+.doc-brand-mark{width:32px;height:32px;flex-shrink:0;background-image:url("omni-studio-cybr.png");background-size:contain;background-repeat:no-repeat;background-position:center;}
 .doc-brand-wordmark{display:flex;flex-direction:column;line-height:1;}
 .doc-brand-wordmark .row{font-family:var(--font-mono);font-size:15px;font-weight:700;letter-spacing:-0.02em;color:var(--color-text-primary);}
 .doc-brand-wordmark .row .x{color:var(--color-primary);font-weight:900;}
@@ -160,9 +160,9 @@ body{background:var(--color-bg-base);color:var(--color-text-primary);font-family
       <span class="tag">Cyber Brutalism · Design Doc</span>
     </div>
   </div>
-  <div class="page-eyebrow">LUMENX STUDIO · DESIGN DIFF · 视觉差异注释</div>
+  <div class="page-eyebrow">OMNI STUDIO · DESIGN DIFF · 视觉差异注释</div>
   <h1 class="page-title">Before → After 逐项对比</h1>
-  <p class="page-desc">本文档逐一标注"克制电影感 + Cyber Brutalism 焕新"方向与现有设计的<strong>具体视觉差异</strong>。每项变更附带 token 值对比、渲染示例和设计意图说明。<br><strong style="color:var(--color-primary)">v0.2 更新 (2026-06-09):</strong> 新增 Brand Identity 焕新 (commit <code>e6f86ea</code>) — 棱角几何莲花 logo + 等宽 LUMENX 字标，替代旧紫粉渐变方块。</p>
+  <p class="page-desc">本文档逐一标注"克制电影感 + Cyber Brutalism 焕新"方向与现有设计的<strong>具体视觉差异</strong>。每项变更附带 token 值对比、渲染示例和设计意图说明。<br><strong style="color:var(--color-primary)">v0.2 更新 (2026-06-09):</strong> 新增 Brand Identity 焕新 (commit <code>e6f86ea</code>) — 棱角几何莲花 logo + 等宽 OMNI STUDIO 字标，替代旧紫粉渐变方块。</p>
 </header>
 
 <div class="legend">
@@ -177,14 +177,14 @@ body{background:var(--color-bg-base);color:var(--color-text-primary);font-family
 <!-- ═══════════ DIFF 00: Brand Identity v0.2 (NEW) ═══════════ -->
 <div class="diff-section" style="border-left:3px solid var(--color-primary);padding-left:20px;background:rgba(100,108,255,0.03);border-radius:0 8px 8px 0;padding-right:20px;padding-top:24px;padding-bottom:24px;">
   <h2 class="diff-section-title" style="margin-top:0;">00 · Brand Identity 焕新 (Cyber Brutalism v0.2)</h2>
-  <p class="diff-section-desc">主视觉从柔性渐变方块切换为棱角几何莲花徽标 + 等宽体 LUMENX 字标。这是 v0.2 焕新的<strong>视觉锚点</strong>，影响所有 sidebar / banner / splash / 文档头部。</p>
+  <p class="diff-section-desc">主视觉从柔性渐变方块切换为棱角几何莲花徽标 + 等宽体 OMNI STUDIO 字标。这是 v0.2 焕新的<strong>视觉锚点</strong>，影响所有 sidebar / banner / splash / 文档头部。</p>
 
   <div class="compare-row">
     <div class="compare-panel">
       <span class="compare-label before">BEFORE · v0.1</span>
       <div class="mini-render" style="padding:32px;display:flex;align-items:center;gap:12px;background:#0a0a0d;">
         <div style="width:36px;height:36px;border-radius:7px;background:linear-gradient(135deg,#7c3aed,#4f46e5,#ec4899);display:grid;place-items:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;color:#fff;">X</div>
-        <div style="font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:600;background:linear-gradient(135deg,#7c3aed,#4f46e5,#ec4899);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">LumenX Studio</div>
+        <div style="font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:600;background:linear-gradient(135deg,#7c3aed,#4f46e5,#ec4899);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Omni Studio</div>
       </div>
       <div style="padding:10px 14px;font-size:11px;color:var(--color-text-muted);font-family:var(--font-mono);">
         圆角方块 · 紫→indigo→pink 渐变 · Sans-serif 标题字 · 渐变文本剪裁
@@ -193,7 +193,7 @@ body{background:var(--color-bg-base);color:var(--color-text-primary);font-family
     <div class="compare-panel">
       <span class="compare-label after">AFTER · v0.2</span>
       <div class="mini-render" style="padding:32px;display:flex;align-items:center;gap:12px;background:#050508;">
-        <div style="width:36px;height:36px;background-image:url('LumenX-cybr.png');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0;"></div>
+        <div style="width:36px;height:36px;background-image:url('omni-studio-cybr.png');background-size:contain;background-repeat:no-repeat;background-position:center;flex-shrink:0;"></div>
         <div style="display:flex;flex-direction:column;line-height:1;gap:4px;">
           <div style="font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;letter-spacing:-0.02em;color:#ededed;">LUMEN<span style="color:#646cff;font-weight:900;">X</span></div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.2em;color:rgba(255,255,255,0.3);text-transform:uppercase;">STUDIO</div>
@@ -206,16 +206,16 @@ body{background:var(--color-bg-base);color:var(--color-text-primary);font-family
   </div>
 
   <div style="margin-top:18px;padding:14px 18px;background:rgba(100,108,255,0.06);border:1px solid rgba(100,108,255,0.2);border-radius:8px;font-size:13px;line-height:1.7;">
-    <strong style="color:var(--color-primary);">为什么换：</strong> 旧渐变方块视觉上属于 2020-2022 年"AI SaaS 默认审美"集群（Linear / Vercel / Notion AI 同款）。新 logo 用<strong>角度强烈的几何切线 + 中央蓝色水晶 + 电路线点缀</strong>建立"机器制造 / 赛博粗野"的独特识别度，与 LumenX 作为"AI 短漫剧 pipeline 平台"的产品定位更契合（精度感 + 工业感 + 创作感）。
+    <strong style="color:var(--color-primary);">为什么换：</strong> 旧渐变方块视觉上属于 2020-2022 年"AI SaaS 默认审美"集群（Linear / Vercel / Notion AI 同款）。新 logo 用<strong>角度强烈的几何切线 + 中央蓝色水晶 + 电路线点缀</strong>建立"机器制造 / 赛博粗野"的独特识别度，与 Omni Studio 作为"AI 短漫剧 pipeline 平台"的产品定位更契合（精度感 + 工业感 + 创作感）。
   </div>
 
   <div style="margin-top:14px;padding:14px 18px;background:var(--color-bg-surface);border:1px solid var(--color-border-default);border-radius:8px;font-size:12px;line-height:1.8;font-family:var(--font-mono);">
     <strong style="color:var(--color-text-primary);">⛔ 禁用项：</strong><br>
     · 紫→indigo→pink 渐变 brand-icon 方块<br>
-    · 渐变 LumenX 文字 (background-clip: text)<br>
+    · 渐变 Omni Studio 文字 (background-clip: text)<br>
     · 任何彩色光晕环绕 logo<br>
     · Sans-serif 字标（必须 JetBrains Mono）<br>
-    · "LumenX Studio" 大小写混合写法 → 改为全大写 "LUMENX" + "STUDIO" tag
+    · "Omni Studio" 大小写混合写法 → 改为全大写 "OMNI STUDIO" + "STUDIO" tag
   </div>
 </div>
 

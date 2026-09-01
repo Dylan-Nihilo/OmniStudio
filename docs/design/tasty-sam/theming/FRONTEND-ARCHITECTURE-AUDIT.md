@@ -1,4 +1,4 @@
-# FRONTEND-ARCHITECTURE-AUDIT · LumenX Studio 前端架构审计
+# FRONTEND-ARCHITECTURE-AUDIT · Omni Studio 前端架构审计
 
 > **定位**：独立审计文档，**不属于本期换肤范围**。供「换肤 + 后端接线」验收稳定**之后**的下一期前端改造使用。
 > **方法**：全部基于真实代码核实（`frontend/src/**`、`next.config.mjs`、`package.json`），逐条带文件路径/行数，非凭印象。
@@ -84,7 +84,7 @@
 - **方向**：`PreviewImage` 统一加 `loading="lazy"` + `decoding="async"` + 尺寸占位。
 
 ### P3 · 已知小 bug
-- `StoryboardR2V.tsx:2295` 派发的事件名是 `"navigateStep"`，缺 `lumenx:` 前缀，监听方（`ProjectClient.tsx:113`）收的是 `"lumenx:navigateStep"` → **该跳转静默失效**。下一期顺手修。
+- `StoryboardR2V.tsx:2295` 派发的事件名是 `"navigateStep"`，缺 `omni_studio:` 前缀，监听方（`ProjectClient.tsx:113`）收的是 `"omni_studio:navigateStep"` → **该跳转静默失效**。下一期顺手修。
 
 ---
 

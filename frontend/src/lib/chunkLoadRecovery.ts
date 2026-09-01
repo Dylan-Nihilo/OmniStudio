@@ -1,4 +1,4 @@
-const CHUNK_RECOVERY_KEY = "lumenx:chunk-recovery";
+const CHUNK_RECOVERY_KEY = "omni_studio:chunk-recovery";
 const CHUNK_RECOVERY_WINDOW_MS = 30_000;
 
 export interface ChunkRecoveryRuntime {
@@ -103,15 +103,19 @@ export function withChunkLoadRecovery<T>(
         throw error;
       }
 
+      let persisted = false;
       try {
         runtime.setItem(
           CHUNK_RECOVERY_KEY,
           JSON.stringify({ signature, timestamp: now } satisfies ChunkRecoveryAttempt),
         );
+        persisted = true;
       } catch {
-        // Reload recovery still works when sessionStorage is unavailable.
+        // Without a durable marker, a reload would repeat forever in a hardened
+        // WebView. Surface the original error instead.
       }
 
+      if (!persisted) throw error;
       runtime.reload();
       return new Promise<T>(() => undefined);
     });

@@ -167,7 +167,7 @@ class AuthService:
             try:
                 result = self.repository.create_owner_atomically(
                     user_values={"id": user_id, "username": username_display, "username_normalized": username_normalized, "email": email_display, "email_normalized": email_normalized, "display_name": normalized_display_name, "password_hash": hash_password(password), "created_at": now, "updated_at": now},
-                    workspace_values={"id": workspace_id, "owner_user_id": user_id, "name": "LumenX Workspace", "slug": "default", "created_at": now, "updated_at": now},
+                    workspace_values={"id": workspace_id, "owner_user_id": user_id, "name": "Omni Studio Workspace", "slug": "default", "created_at": now, "updated_at": now},
                     session_values={"id": session_id, "user_id": user_id, "refresh_token_hash": hash_refresh_token(refresh_token), "rotation_counter": 0, "expires_at": refresh_expires_at, "created_at": now, "last_used_at": now, "user_agent": user_agent, "ip_address": ip},
                 )
             except (ValueError, IntegrityError, OperationalError) as exc:
@@ -338,7 +338,7 @@ class AuthService:
 
         Recovery is deliberately unavailable to remote clients. Deployments can
         additionally require a high-entropy token via
-        ``LUMENX_PASSWORD_RESET_TOKEN``. Every attempt is rate-limited before
+        ``OMNI_STUDIO_PASSWORD_RESET_TOKEN``. Every attempt is rate-limited before
         Argon2 hashing, and successful recovery revokes every existing session.
         """
         if not self.is_local_request(request, client_ip):

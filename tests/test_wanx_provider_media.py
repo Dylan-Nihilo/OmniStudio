@@ -1,6 +1,8 @@
 import base64
 from pathlib import Path
 
+import requests
+
 from src.models.wanx import WanxModel
 
 
@@ -77,7 +79,7 @@ def _install_fake_uploader(monkeypatch, configured: bool):
             if not self.is_configured:
                 return None
             filename = custom_filename or Path(local_path).name
-            return f"lumenx/{sub_path.strip('/')}/{filename}".replace("//", "/")
+            return f"omni_studio/{sub_path.strip('/')}/{filename}".replace("//", "/")
 
         def sign_url_for_api(self, object_key):
             return f"https://oss.example/{object_key}"
@@ -86,6 +88,50 @@ def _install_fake_uploader(monkeypatch, configured: bool):
 
 
 class TestWanxProviderMediaIntegration:
+    def test_happyhorse_11_i2v_uses_bailian_media_payload(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        _install_fake_uploader(monkeypatch, configured=False)
+
+        captured = {}
+        _install_fake_requests(monkeypatch, captured)
+        monkeypatch.setattr(
+            "src.models.wanx.WanxModel._create_dashscope_temp_url",
+            lambda self, local_path, model_name: "oss://dashscope-temp/hh11-first-frame.png",
+        )
+
+        first_frame = _write_output_file(
+            "storyboard/happyhorse_11_first_frame.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+
+        model = WanxModel({"params": {}})
+        model.generate(
+            prompt="cinematic noir rain",
+            output_path="output/video/happyhorse_11_i2v.mp4",
+            img_path=first_frame,
+            model_name="happyhorse-1.1-i2v",
+            resolution="1080p",
+            duration=5,
+        )
+
+        assert captured["create_payload"] == {
+            "model": "happyhorse-1.1-i2v",
+            "input": {
+                "prompt": "cinematic noir rain",
+                "media": [
+                    {
+                        "type": "first_frame",
+                        "url": "oss://dashscope-temp/hh11-first-frame.png",
+                    }
+                ],
+            },
+            "parameters": {
+                "resolution": "1080P",
+                "duration": 5,
+                "watermark": False,
+            },
+        }
+
     def test_i2v_local_image_without_oss_uses_temp_url_and_header(self, monkeypatch):
         monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
         _install_fake_uploader(monkeypatch, configured=False)
@@ -235,9 +281,97 @@ class TestWanxProviderMediaIntegration:
         assert captured["create_headers"]["X-DashScope-OssResourceResolve"] == "enable"
         assert provider_ids == [("dashscope", "task-1", None)]
 
+    def test_wan27_r2v_promotes_first_reference_image_when_first_frame_is_omitted(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        _install_fake_uploader(monkeypatch, configured=False)
+
+        captured = {}
+        _install_fake_requests(monkeypatch, captured)
+        monkeypatch.setattr(
+            "src.models.wanx.WanxModel._create_dashscope_temp_url",
+            lambda self, local_path, model_name: f"oss://dashscope-temp/{Path(local_path).name}",
+        )
+
+        first_reference = _write_output_file(
+            "assets/wan27_r2v_character.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+        second_reference = _write_output_file(
+            "assets/wan27_r2v_scene.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+
+        model = WanxModel({"params": {}})
+        model.generate(
+            prompt="character enters a deserted station",
+            output_path="output/video/wan27_r2v_from_references.mp4",
+            model_name="wan2.7-r2v",
+            ref_image_urls=[first_reference, second_reference],
+            resolution="720p",
+            duration=5,
+        )
+
+        assert captured["create_payload"]["input"]["media"] == [
+            {
+                "type": "first_frame",
+                "url": "oss://dashscope-temp/wan27_r2v_character.png",
+            },
+            {
+                "type": "reference_image",
+                "url": "oss://dashscope-temp/wan27_r2v_scene.png",
+            },
+        ]
+
+    def test_wan27_r2v_retries_a_transient_poll_timeout(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        _install_fake_uploader(monkeypatch, configured=False)
+
+        captured = {}
+        _install_fake_requests(monkeypatch, captured)
+        monkeypatch.setattr(
+            "src.models.wanx.WanxModel._create_dashscope_temp_url",
+            lambda self, local_path, model_name: f"oss://dashscope-temp/{Path(local_path).name}",
+        )
+
+        poll_attempts = 0
+
+        def flaky_get(url, headers=None, timeout=None, params=None):
+            nonlocal poll_attempts
+            if "/api/v1/tasks/" in url:
+                poll_attempts += 1
+                if poll_attempts == 1:
+                    raise requests.exceptions.ConnectTimeout("temporary poll timeout")
+                return _FakeResponse(
+                    200,
+                    {"output": {"task_status": "SUCCEEDED", "video_url": "https://example.com/out.mp4"}},
+                )
+            return _FakeResponse(404, {"message": "unexpected URL"})
+
+        monkeypatch.setattr("src.models.wanx.requests.get", flaky_get)
+        first_reference = _write_output_file(
+            "assets/wan27_r2v_retry_character.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+        second_reference = _write_output_file(
+            "assets/wan27_r2v_retry_scene.png",
+            base64.b64decode(PNG_1X1_BASE64),
+        )
+
+        model = WanxModel({"params": {}})
+        model.generate(
+            prompt="character enters a station",
+            output_path="output/video/wan27_r2v_retry.mp4",
+            model_name="wan2.7-r2v",
+            ref_image_urls=[first_reference, second_reference],
+            resolution="720p",
+            duration=5,
+        )
+
+        assert poll_attempts == 2
+
     def test_i2v_object_key_with_oss_configured_uses_signed_url(self, monkeypatch):
         monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
-        monkeypatch.setenv("OSS_BASE_PATH", "lumenx")
+        monkeypatch.setenv("OSS_BASE_PATH", "omni_studio")
         _install_fake_uploader(monkeypatch, configured=True)
 
         captured = {}
@@ -247,13 +381,13 @@ class TestWanxProviderMediaIntegration:
         model.generate(
             prompt="demo",
             output_path="output/video/wanx_i2v_object_key.mp4",
-            img_path="lumenx/temp/i2v_input/ref.png",
+            img_path="omni_studio/temp/i2v_input/ref.png",
             model_name="wan2.6-i2v",
         )
 
         assert (
             captured["create_payload"]["input"]["img_url"]
-            == "https://oss.example/lumenx/temp/i2v_input/ref.png"
+            == "https://oss.example/omni_studio/temp/i2v_input/ref.png"
         )
 
     def test_create_dashscope_temp_url_calls_policy_and_multipart_upload(self, monkeypatch):

@@ -1,1 +1,1 @@
-"""Authentication primitives for LumenX W3."""
+"""Authentication primitives for Omni Studio W3."""

@@ -10,9 +10,9 @@
 | 文件 | 说明 |
 |------|------|
 | `2026-05-20-cinematic-shortfilm-development-pack-v1.md` | 电影短片开发样板包 v1 |
-| `2026-05-21-lumenx-vs-volcano-juchuang-comparison.md` | LumenX vs 火山即创 竞品分析 |
+| `2026-05-21-omni_studio-vs-volcano-juchuang-comparison.md` | Omni Studio vs 火山即创 竞品分析 |
 | `2026-05-21-storyboard-r2v-persistence-design.md` | Storyboard R2V 持久化设计 |
-| `2026-05-27-lumenx-style-presets-handoff.md` | 风格预设交付 handoff |
+| `2026-05-27-omni_studio-style-presets-handoff.md` | 风格预设交付 handoff |
 | `2026-06-04-seedance2-shot-pack-v1.md` | Seedance2 分镜样板包 v1 |
 | `anglex-1/2/3.mp4` | 角色动态参考视频 |
 | `feishu-burst-district/` | 飞书爆款街区素材 |

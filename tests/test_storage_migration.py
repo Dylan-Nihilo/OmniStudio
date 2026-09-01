@@ -65,7 +65,7 @@ def write_payloads(path: Path, payloads: dict[str, ScriptPayload | SeriesPayload
 def legacy_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
     projects_path = tmp_path / "projects.json"
     series_path = tmp_path / "series.json"
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     script = make_script()
     write_payloads(projects_path, {script.id: script})
     return projects_path, series_path, db_path
@@ -228,7 +228,7 @@ def tmp_path_backups(db_path: Path) -> Path:
 def test_series_binding_creates_series_project(tmp_path: Path):
     projects_path = tmp_path / "projects.json"
     series_path = tmp_path / "series.json"
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     script = make_script(
         "episode-1",
         series_id="series-1",
@@ -260,7 +260,7 @@ def test_series_binding_creates_series_project(tmp_path: Path):
 
 def test_missing_series_is_marked_and_synthesized(tmp_path: Path):
     projects_path = tmp_path / "projects.json"
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     script = make_script(
         "episode-1",
         series_id="missing-series",
@@ -293,7 +293,7 @@ def test_bidirectional_series_mismatch_is_conflict(tmp_path: Path):
     write_payloads(projects_path, {script.id: script})
     write_payloads(series_path, {series.id: series})
 
-    report = preview(projects_path, series_path, tmp_path / "lumenx.db")
+    report = preview(projects_path, series_path, tmp_path / "omni_studio.db")
 
     assert any(
         item["type"] == "script_missing_from_series_episodes"
@@ -303,7 +303,7 @@ def test_bidirectional_series_mismatch_is_conflict(tmp_path: Path):
 
 def test_invalid_record_blocks_apply_without_partial_data(tmp_path: Path):
     projects_path = tmp_path / "projects.json"
-    db_path = tmp_path / "lumenx.db"
+    db_path = tmp_path / "omni_studio.db"
     good = make_script("good-script")
     payload = {
         good.id: good.model_dump(mode="json"),

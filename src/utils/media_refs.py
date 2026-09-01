@@ -8,6 +8,7 @@ LOCAL_MEDIA_PREFIXES = (
     "storyboard/",
     "video/",
     "audio/",
+    "cache/",
     "export/",
     "uploads/",
     "playground/",
@@ -41,7 +42,7 @@ def _is_under(path: Path, parent: Path) -> bool:
 
 
 def _normalized_oss_base_path(oss_base_path: Optional[str] = None) -> str:
-    value = oss_base_path if oss_base_path is not None else os.getenv("OSS_BASE_PATH", "lumenx")
+    value = oss_base_path if oss_base_path is not None else os.getenv("OSS_BASE_PATH", "omni_studio")
     return str(value).strip().strip("'\"/ ")
 
 

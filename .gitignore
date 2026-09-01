@@ -80,7 +80,7 @@ frontend/.vercel
 # Logs
 *.log
 logs/
-.lumen-x/
+.omni-studio/
 
 # Secrets (extra safety)
 *secret*
@@ -142,8 +142,11 @@ src-tauri/gen/
 
 # Local caches & scratch (regenerated constantly, keep on disk but untracked)
 .cache/
+.pnpm-store/
 frontend/.cache/
 .tmp_*
 .tmp-*
 .codex-tmp-*
 .pytest-tmp-*
+*_top_left_screenshot.png
+frontend/public/omni-studio_*.png

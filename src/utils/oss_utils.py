@@ -10,7 +10,7 @@ from .media_refs import classify_media_ref, MEDIA_REF_LOCAL_PATH, MEDIA_REF_OBJE
 logger = get_logger(__name__)
 
 # Default configuration
-DEFAULT_OSS_BASE_PATH = "lumenx"
+DEFAULT_OSS_BASE_PATH = "omni_studio"
 SIGN_URL_EXPIRES_DISPLAY = 7200  # 2 hours for frontend display
 SIGN_URL_EXPIRES_API = 1800      # 30 minutes for AI API calls
 
@@ -134,7 +134,7 @@ class OSSImageUploader:
         """
         Build full Object Key from base path, sub path, and filename.
         
-        Example: lumenx/proj_123/assets/characters/char_001.png
+        Example: omni_studio/proj_123/assets/characters/char_001.png
         """
         parts = [self.base_path]
         if sub_path:
@@ -152,7 +152,7 @@ class OSSImageUploader:
             custom_filename: Optional custom filename, defaults to original filename
         
         Returns:
-            Object Key (e.g., "lumenx/proj_123/assets/characters/file.png") or None if failed
+            Object Key (e.g., "omni_studio/proj_123/assets/characters/file.png") or None if failed
         """
         if not is_oss_enabled():
             logger.info("OSS upload disabled (OSS_ENABLE=false); skipping, using local path.")
@@ -320,7 +320,7 @@ def convert_local_path_to_object_key(local_path: str, project_id: str = None) ->
     Convert a local relative path to an OSS Object Key format.
     
     Example: 
-        "assets/characters/char_001.png" -> "lumenx/proj_123/assets/characters/char_001.png"
+        "assets/characters/char_001.png" -> "omni_studio/proj_123/assets/characters/char_001.png"
     """
     base_path = get_oss_base_path()
     

@@ -23,7 +23,7 @@ _PASSWORD_HASHER = PasswordHasher(
     salt_len=PASSWORD_SALT_LENGTH,
 )
 _ARGON2_SEMAPHORE = threading.BoundedSemaphore(ARGON2_MAX_CONCURRENCY)
-_DUMMY_PASSWORD: Final = "lumenx-auth-dummy-password-v1"
+_DUMMY_PASSWORD: Final = "omni_studio-auth-dummy-password-v1"
 _DUMMY_HASH: str | None = None
 _DUMMY_HASH_LOCK = threading.Lock()
 

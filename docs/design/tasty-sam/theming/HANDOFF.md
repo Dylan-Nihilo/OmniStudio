@@ -1,4 +1,4 @@
-# HANDOFF · LumenX Studio 多主题系统 + 模态补稿
+# HANDOFF · Omni Studio 多主题系统 + 模态补稿
 
 > **本文件的唯一目的**：让任何接手者（包括上下文被压缩后的我、或项目原 Agent）只读这一份就能安全各司其职、零返工、零功能删减。
 > 设计方：**Tasty Sam**（前端设计/主题/Logo/页面规格）。落地方建议：**项目原 Agent**（真实 Next.js 接入 + 后端数据流）。
@@ -10,7 +10,7 @@
 
 - 决策：把「Warm Bridge vs Full Atelier 二选一」升级为**用户可选 5 预设主题**（3 暗 + 2 亮），`atelier-dark`（Full Atelier）为默认；换主题时 **Logo 一并联动**。
 - 主题落地成本极低：现有前端颜色 100% 走 CSS 变量，只需「globals.css 加 token block + store 枚举升级 + tailwind 主色变量化」，**组件零改动**（除 Logo 组件）。
-- Logo 已重制：三个变体**同形**（电路枫叶），均由暗色 Logo 重着色、**透明底**，已弃用旧莲花图 `LumenX_亮色.png`。
+- Logo 已重制：三个变体**同形**（电路枫叶），均由暗色 Logo 重着色、**透明底**，已弃用旧莲花图 `omni-studio_亮色.png`。
 - 9 个核心文件 + 3 个模态补稿已交付；原 3 项「需沟通」已全部补稿，**全程未删减任何功能**。
 - 落地分工见 §4；防阉割契约见 §5；逐文件清单见 §2。
 
@@ -37,7 +37,7 @@
 |------|------|----------|
 | `tokens.css` | ★可落地：5 个 `[data-theme]` block，命名 100% 对齐现有 `globals.css`；seed→semantic→component 三层 | 并入 globals.css |
 | `theme-switch-demo.html` | 顶部扁平预设列表 + 同一工作台 DOM 实时换 5 主题 + Logo 联动 | 验证用 |
-| `logo-adaptation.html` | Logo × 5 主题联动矩阵 + 落地规则 | 接 LumenXBranding |
+| `logo-adaptation.html` | Logo × 5 主题联动矩阵 + 落地规则 | 接 OmniStudioBranding |
 | `THEME-TOKENS.md` | 三层架构说明 + 变量清单 + data-theme↔html.class 等价 | 落地依据 |
 | `README.md` | 五主题导览 + 四步接线说明 | 落地依据 |
 
@@ -82,8 +82,8 @@
 - `logo-light-teal.png`（新）：深墨 `#1e1b26` 描边 + teal `#1d9c8d` 核心 → `atelier-light`。
 - `logo-light.png`（重制覆盖）：深墨 `#1e1b26` 描边 + 蓝 `#4a54e6` 核心 → `brand-light`。
 
-**落地接线**（`LumenXBranding.tsx` 必改，详见 `logo-adaptation.html`）：
-1. 写死的 `src="/LumenX-cybr.png"` → 按 presetId 切：暗 → `/LumenX-cybr.png`；`atelier-light` → teal PNG；`brand-light` → 蓝 PNG。
+**落地接线**（`OmniStudioBranding.tsx` 必改，详见 `logo-adaptation.html`）：
+1. 写死的 `src="/omni-studio-cybr.png"` → 按 presetId 切：暗 → `/omni-studio-cybr.png`；`atelier-light` → teal PNG；`brand-light` → 蓝 PNG。
 2. `atelier-dark` 加内联 `filter: hue-rotate(-64deg) saturate(1.35) brightness(1.08)` 把蓝着成 teal；其余 `none`。
 3. wordmark 文字色：`text-white` → `var(--color-text-primary)`；"X" `#646cff` → `var(--color-primary)`；slogan/Studio → secondary/muted token。**（修复亮色下白底白字不可读）**
 4. 真实项目落地时，把这三张 PNG（或对应 SVG）放入 `frontend/public/`，命名与 src map 对齐。
@@ -105,7 +105,7 @@
 1. **store 枚举升级** `settingsStore.ts`：`Theme` → `ThemePreset`（5 值），默认 `'atelier-dark'`；persist `migrate` 旧值 `'dark'→'brand-dark'`、`'light'→'brand-light'`。
 2. **globals.css 并入** `tokens.css` 5 block：选择器 `:root[data-theme="<id>"]` → `html.<id>`，默认 `:root` 复用 `atelier-dark`；新增变量（`--color-primary`/`--halation`/`--font-display` 等）一并加入。
 3. **tailwind.config.ts 主色变量化**（唯一须动配置）：`primary/secondary/accent` 硬编码 hex → `var(--color-primary)` 等。**这是主色能随主题翻转的关键。**
-4. **Providers + layout + Logo**：`Providers.tsx` class 列表扩 5 值；`layout.tsx` 防闪烁内联脚本白名单扩 5 + 默认 `atelier-dark`；`LumenXBranding.tsx` 按 §3 改造。
+4. **Providers + layout + Logo**：`Providers.tsx` class 列表扩 5 值；`layout.tsx` 防闪烁内联脚本白名单扩 5 + 默认 `atelier-dark`；`OmniStudioBranding.tsx` 按 §3 改造。
 5. **设置页**：加一排扁平主题预设卡（5 张，参考三页右上角 `.themepick` 视觉）。
 6. **模态接线**：三个模态本就存在于代码，落地只需「换肤（颜色走 token）」+ 对照各模态风险表保持交互逻辑不变，**不要重构布局**。
 
@@ -145,7 +145,7 @@
 ## 7. 关键参考文件（只读，保一致性）
 
 - 主题基建：`frontend/src/store/settingsStore.ts`、`frontend/src/app/globals.css`、`frontend/src/components/Providers.tsx`、`frontend/src/app/layout.tsx`、`frontend/tailwind.config.ts`
-- Logo：`frontend/src/components/layout/LumenXBranding.tsx`、`frontend/public/{LumenX-cybr.png,LumenX-cybr-transparent.png}`
+- Logo：`frontend/src/components/layout/OmniStudioBranding.tsx`、`frontend/public/{omni-studio-cybr.png,omni-studio-cybr-transparent.png}`
 - 侧栏/步骤：`frontend/src/components/layout/PipelineSidebar.tsx`（lucide 图标）、`frontend/src/components/project/ProjectClient.tsx`（`UNIFIED_STEPS`/`LEGACY_STEPS` 定义）
 - 数据/接线：`frontend/src/lib/api.ts`（全部端点）、`frontend/src/store/{projectStore,settingsStore,toastStore}.ts`、`frontend/src/components/modules/StoryboardR2V.tsx`（顶层 orchestrator，所有 api.* 汇聚处）
 - 模态源码：`frontend/src/components/modules/storyboard-r2v/shot-panel/CompareModal.tsx`、`.../DialogueAudioRow.tsx`、`.../StoryboardGenerateDialog.tsx`、`.../PromptExpandModal.tsx`、`.../PolishPanel.tsx`
@@ -168,7 +168,7 @@
 | `PolishPanel.tsx` | 不动逻辑 | 仅换肤 | `api.polishR2VPrompt` / `api.polishVideoPrompt` |
 | `PreviousEpisodeFramesRail.tsx` | 不动逻辑 | 仅换肤 | `api.getPreviousEpisodeSummary` |
 | `GenerationBanner.tsx` / `StoryboardGenerateDialog.tsx` / `PromptExpandModal.tsx` / `AssetDrawer.tsx` / `AssetChipBar.tsx` / `TaskQueuePanel.tsx` / `TaskQueueButton.tsx` | 不动逻辑 | 仅换肤 | 无后端调用，全 callback 委托 |
-| `LumenXBranding.tsx` | **改造** | Logo src 按 preset 切 + wordmark 文字 token 化（§3）| 无 |
+| `OmniStudioBranding.tsx` | **改造** | Logo src 按 preset 切 + wordmark 文字 token 化（§3）| 无 |
 | `PipelineSidebar.tsx` | **不动** | 图标已是 lucide，**零改动** | 无 |
 | `settingsStore.ts` | **替换枚举** | `Theme`→`ThemePreset`(5 值) + persist migrate | 无（纯前端态）|
 | `globals.css` / `tailwind.config.ts` / `Providers.tsx` / `layout.tsx` | **改造** | token block / 主色变量化 / class 列表 / 防闪烁脚本（§4）| 无 |
@@ -179,7 +179,7 @@
 
 ## 9. 组件 → 数据依赖（store / API 读取）
 
-> store 现状：`projectStore`（persist key `project-storage`）持有 `currentProject`（含 frames / video_tasks / model_settings / prompt_config 等）；`settingsStore`（key `lumenx-settings`）持 locale/theme；`toastStore`（不持久）。**无独立 task-queue store**——视频任务态就在 `currentProject.video_tasks` + `generatingTasks[]` + `runningOps` 上。
+> store 现状：`projectStore`（persist key `project-storage`）持有 `currentProject`（含 frames / video_tasks / model_settings / prompt_config 等）；`settingsStore`（key `omni_studio-settings`）持 locale/theme；`toastStore`（不持久）。**无独立 task-queue store**——视频任务态就在 `currentProject.video_tasks` + `generatingTasks[]` + `runningOps` 上。
 
 | 组件 | 读 store | 读取字段 | 数据来源 API |
 |------|----------|----------|--------------|
@@ -268,7 +268,7 @@
 1. **全部 API 端点签名不变**：§10 所列 `api.*` / `crudApi.*` 的方法名、HTTP 动词、路径、入参/出参一律不动。换肤不碰 `api.ts`。
 2. **数据流方向不变**：`StoryboardR2V.tsx` 仍是唯一 orchestrator；子组件保持「纯展示 + callback 委托」，**不要把 api 调用下沉进子组件**。
 3. **轮询/防抖时序不变**：项目轮询 5s、任务轮询 5s、workbench 防抖 1000ms、prompt/字段防抖 800ms、提交锁 500ms、caption 轮播 3000ms、`beforeunload` flush + 卸载 drain。这些是数据一致性保障，换肤勿动。
-4. **localStorage 键不变**：`storyboard-r2v-model` / `storyboard-r2v-r2v-model` / `storyboard-r2v-expanded-${projectId}`；store persist 键 `project-storage`、`lumenx-settings`（settingsStore 仅升级枚举值 + migrate，键名不变）。
+4. **localStorage 键不变**：`storyboard-r2v-model` / `storyboard-r2v-r2v-model` / `storyboard-r2v-expanded-${projectId}`；store persist 键 `project-storage`、`omni_studio-settings`（settingsStore 仅升级枚举值 + migrate，键名不变）。
 5. **buildAssembledPrompt 规则不变**：剥离 `[characterN:name]` tag（单独走 `reference_image_urls`）；后缀顺序 **运镜描述 → 景别+机位 → 转场**，以中文逗号 `，` 连接；**时长不入文本**（走 `duration` 参数）；base 末尾已有标点则不再补逗号。
 6. **关键交互语义不变**（详见 §5.3）：CompareModal 纯视频/上限 4/★ 只读；StoryboardGenerateDialog 仅确认无参数无 loading；PromptExpandModal 单语；DialogueAudioRow 的 `canDub` 门控 + 视频源三态 `preview>dubbed>video`。
 7. **任务端点异步语义不变**：生成类端点返回 taskId 即走，状态查询走 `/tasks/{taskId}` + `getProject` 合并；勿改同步阻塞。

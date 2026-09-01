@@ -15,23 +15,23 @@ _LOG_BACKUP_COUNT = 3
 def get_user_data_dir() -> str:
     """Returns the user data directory for the application.
 
-    Honors the LUMENX_DATA_DIR environment variable when set; otherwise
-    defaults to ~/.lumen-x. Kept backward-compatible so existing installs
-    are unaffected unless the env var is explicitly provided.
+    Honors the OMNI_STUDIO_DATA_DIR environment variable when set; otherwise
+    defaults to ~/.omni-studio for packaged installs; the development launcher
+    injects a repository-local path so auth and logs remain writable.
     """
-    env_dir = os.environ.get("LUMENX_DATA_DIR", "").strip()
+    env_dir = os.environ.get("OMNI_STUDIO_DATA_DIR", "").strip()
     if env_dir:
         return os.path.expanduser(env_dir)
-    return os.path.join(os.path.expanduser("~"), ".lumen-x")
+    return os.path.join(os.path.expanduser("~"), ".omni-studio")
 
 
 def get_log_dir() -> str:
     """Returns the log directory.
 
-    Honors the LUMENX_LOG_DIR environment variable when set; otherwise
+    Honors the OMNI_STUDIO_LOG_DIR environment variable when set; otherwise
     defaults to <user_data_dir>/logs.
     """
-    env_log_dir = os.environ.get("LUMENX_LOG_DIR", "").strip()
+    env_log_dir = os.environ.get("OMNI_STUDIO_LOG_DIR", "").strip()
     log_dir = os.path.expanduser(env_log_dir) if env_log_dir else os.path.join(get_user_data_dir(), "logs")
     os.makedirs(log_dir, exist_ok=True)
     return log_dir
@@ -91,4 +91,3 @@ def setup_logging(level=logging.INFO, log_file=None):
 def get_logger(name):
     """Returns a logger with the specified name."""
     return logging.getLogger(name)
-

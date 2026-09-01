@@ -1,8 +1,8 @@
-# LumenX Unified Model Catalog Phase 1 Implementation Plan
+# Omni Studio Unified Model Catalog Phase 1 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Upgrade LumenX’s `model_catalog` to a mode-aware, future gateway-ready source schema while preserving all current frontend/backend consumer behavior and stored project compatibility.
+**Goal:** Upgrade Omni Studio’s `model_catalog` to a mode-aware, future gateway-ready source schema while preserving all current frontend/backend consumer behavior and stored project compatibility.
 
 **Architecture:** Phase 1 is a compatibility-preserving source-schema upgrade, not a consumer rewrite. The catalog builder should learn a richer internal model — family, model line, mode, backend, gateway-ready runtime metadata, alias mapping — while continuing to emit today’s flat compatibility artifact for existing frontend/backend consumers. This phase also reserves `runtime.<backend>.gateway` as a first-class extension point, but does not make gateway the active routing axis yet.
 
@@ -35,8 +35,8 @@ This implementation **must not**:
 ### Task 1: Freeze the current compatibility contract with regression tests
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts`
+- Modify: `tests/test_model_catalog.py`
+- Modify: `frontend/src/__tests__/model-catalog.test.ts`
 
 **Step 1: Add a backend test that locks the current generated compatibility shape**
 
@@ -87,7 +87,7 @@ Extend the current frontend test file to assert that:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend
+cd frontend
 npm run test -- src/__tests__/model-catalog.test.ts
 ```
 
@@ -100,8 +100,8 @@ Expected:
 ### Task 2: Introduce an internal mode-aware normalization layer in the Python builder
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Modify: `src/utils/model_catalog.py`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Add internal helper structures for normalized family / model line / mode data**
 
@@ -163,10 +163,10 @@ Expected:
 ### Task 3: Emit a dual-track generated artifact
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/validate_model_catalog.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Modify: `src/utils/model_catalog.py`
+- Modify: `scripts/build_model_catalog.py`
+- Modify: `scripts/validate_model_catalog.py`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Extend `build_catalog_dict()` to emit additive canonical sections**
 
@@ -246,15 +246,15 @@ Expected:
 ### Task 4: Pilot the new source schema on the lowest-risk catalog entries
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/wan.yaml`
-- Optionally modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/kling.yaml`
-- Optionally modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/vidu.yaml`
-- Optionally modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families/pixverse.yaml`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Modify: `config/model_catalog/families/wan.yaml`
+- Optionally modify: `config/model_catalog/families/kling.yaml`
+- Optionally modify: `config/model_catalog/families/vidu.yaml`
+- Optionally modify: `config/model_catalog/families/pixverse.yaml`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Convert only the highest-value line first**
 
-Pilot the mode-aware source shape on the strongest LumenX candidate first:
+Pilot the mode-aware source shape on the strongest Omni Studio candidate first:
 
 - Wan video line
 
@@ -297,8 +297,8 @@ Do not force gateway on every existing entry yet.
 Run:
 
 ```bash
-python /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/build_model_catalog.py
-python /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/scripts/validate_model_catalog.py
+python scripts/build_model_catalog.py
+python scripts/validate_model_catalog.py
 ```
 
 Expected:
@@ -326,13 +326,13 @@ Do **not** convert additional families in the same pass if:
 ### Task 5: Preserve current frontend consumption shape exactly
 
 **Files:**
-- Verify only: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts`
-- Verify only: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/store/projectStore.ts`
-- Verify only: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx`
-- Verify only: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/series/SeriesModelSettingsModal.tsx`
-- Verify only: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx`
-- Verify only: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoSidebar.tsx`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/__tests__/model-catalog.test.ts`
+- Verify only: `frontend/src/lib/modelCatalog.ts`
+- Verify only: `frontend/src/store/projectStore.ts`
+- Verify only: `frontend/src/components/common/ModelSettingsModal.tsx`
+- Verify only: `frontend/src/components/series/SeriesModelSettingsModal.tsx`
+- Verify only: `frontend/src/components/settings/SettingsPage.tsx`
+- Verify only: `frontend/src/components/modules/VideoSidebar.tsx`
+- Test: `frontend/src/__tests__/model-catalog.test.ts`
 
 **Step 1: Do not rewrite frontend lookups to canonical mode IDs**
 
@@ -360,7 +360,7 @@ still resolve to current legacy IDs in the frontend consumer.
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend
+cd frontend
 npm run test -- src/__tests__/model-catalog.test.ts
 npm run typecheck
 ```
@@ -374,8 +374,8 @@ Expected:
 ### Task 6: Keep provider routing and transport stable while adding future-ready metadata
 
 **Files:**
-- Modify minimally if needed: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py`
-- Test: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/tests/test_model_catalog.py`
+- Modify minimally if needed: `src/utils/provider_registry.py`
+- Test: `tests/test_model_catalog.py`
 
 **Step 1: Preserve current provider registry behavior**
 
@@ -412,10 +412,10 @@ Expected:
 ### Task 7: Run full verification and document the phase-1 boundary
 
 **Files:**
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/docs/model-onboarding-implementation.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README.md`
-- Modify: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/README_EN.md`
-- Modify if needed: `/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/CONTRIBUTING.md`
+- Modify: `docs/model-onboarding-implementation.md`
+- Modify: `README.md`
+- Modify: `README_EN.md`
+- Modify if needed: `CONTRIBUTING.md`
 
 **Step 1: Update implementation docs after code is stable**
 
@@ -437,7 +437,7 @@ But did **not** introduce:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+cd /path/to/OmniStudio
 pytest -q
 ```
 
@@ -450,7 +450,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend
+cd frontend
 npm run typecheck
 npm run test:all
 npm run build
@@ -465,7 +465,7 @@ Expected:
 Run:
 
 ```bash
-cd /Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic
+cd /path/to/OmniStudio
 python scripts/build_model_catalog.py
 python scripts/validate_model_catalog.py
 ```

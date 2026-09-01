@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>LumenX 前端重构 · 设计评审中心</title>
+<title>Omni Studio 前端重构 · 设计评审中心</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -261,11 +261,11 @@
 <body>
 
 <header class="hub">
-  <div class="eyebrow">LumenX Studio · Frontend Redesign Review</div>
+  <div class="eyebrow">Omni Studio · Frontend Redesign Review</div>
   <h1 class="hub">前端重构 · <em>设计评审中心</em></h1>
   <p class="sub">一站式横向对比四套 UI 方案 —— 按核心模块对齐缩略图、点击进入真实页面交互测试，并附 QoderWork 的信息架构审计、重构路线、ShotCard 交互规范与设计系统文档。</p>
   <div class="legend">
-    <div class="lg"><span class="dot" style="background:var(--c-original)"></span><b>原版 LumenX</b><span>当前生产前端</span></div>
+    <div class="lg"><span class="dot" style="background:var(--c-original)"></span><b>原版 Omni Studio</b><span>当前生产前端</span></div>
     <div class="lg"><span class="dot" style="background:var(--c-qoderwork)"></span><b>QoderWork</b><span>ReDesign 方案</span></div>
     <div class="lg"><span class="dot" style="background:var(--c-linea)"></span><b>Line A · Cyber Refined</b><span>Tasty Sam 延续线</span></div>
     <div class="lg"><span class="dot" style="background:var(--c-lineb)"></span><b>Line B · Luminous Atelier</b><span>Tasty Sam 突破线</span></div>
@@ -332,7 +332,7 @@
         <thead>
           <tr>
             <th>维度</th>
-            <th><span class="d" style="background:var(--c-original)"></span>原版 LumenX</th>
+            <th><span class="d" style="background:var(--c-original)"></span>原版 Omni Studio</th>
             <th><span class="d" style="background:var(--c-qoderwork)"></span>QoderWork</th>
             <th><span class="d" style="background:var(--c-linea)"></span>Line A · Cyber Refined</th>
             <th><span class="d" style="background:var(--c-lineb)"></span>Line B · Atelier</th>
@@ -355,7 +355,7 @@
     <h3><span class="hn">C</span>逐方案判词</h3>
     <div class="verdicts">
       <div class="vc" style="--vcc:var(--c-original)">
-        <div class="vh"><span class="dot" style="background:var(--c-original)"></span><b>原版 LumenX</b><span class="score">基线</span></div>
+        <div class="vh"><span class="dot" style="background:var(--c-original)"></span><b>原版 Omni Studio</b><span class="score">基线</span></div>
         <div class="verdict">功能最完整、唯一经真实数据与用户验证，但视觉是「能用」而非「有主张」。</div>
         <div class="pro"><span>+</span><span>真实可用、数据完整、零迁移风险</span></div>
         <div class="con"><span>–</span><span>玻璃拟态 + 星空粒子与内容争注意力；层级靠颜色而非结构；chrome 偏吵</span></div>
@@ -442,7 +442,7 @@
   <div class="doc-head">
     <div>
       <h2>设计系统 · Design System</h2>
-      <p>LumenX Studio 设计系统 v0.2 —— Cyber Brutalism × Cinematic Restraint，三层 token 架构（seed → semantic → component）。下方为核心摘要，完整文件见链接。</p>
+      <p>Omni Studio 设计系统 v0.2 —— Cyber Brutalism × Cinematic Restraint，三层 token 架构（seed → semantic → component）。下方为核心摘要，完整文件见链接。</p>
     </div>
     <div class="ds-links">
       <a href="../01-brand-system/DESIGN.md" target="_blank" rel="noopener">↗ DESIGN.md</a>
@@ -524,7 +524,7 @@
         </ul>
       </div>
       <div class="callout" style="margin-top:0">
-        <b>品牌 v0.2：</b>棱角几何莲花徽标 + 等宽 LUMENX 字标（X 为 #646cff 加粗焦点），仅纯白 + 纯黑底 + #646cff，禁渐变。Slogan「Render Noise into Narrative」仅在品牌强化时刻出现。
+        <b>品牌 v0.2：</b>棱角几何莲花徽标 + 等宽 OMNI STUDIO 字标（X 为 #646cff 加粗焦点），仅纯白 + 纯黑底 + #646cff，禁渐变。Slogan「Render Noise into Narrative」仅在品牌强化时刻出现。
       </div>
     </div>
   </div>
@@ -557,14 +557,14 @@
 </main>
 
 <footer class="hub">
-  <span>LumenX Studio · Frontend Redesign Review Hub</span>
+  <span>Omni Studio · Frontend Redesign Review Hub</span>
   <span>by Tasty Sam · 零侵入聚合 · docs/design/review-hub/</span>
 </footer>
 
 <script>
 // ───────── module + style data ─────────
 const STYLES = [
-  {key:"original",  label:"原版 LumenX",            color:"var(--c-original)",  tag:"PROD"},
+  {key:"original",  label:"原版 Omni Studio",            color:"var(--c-original)",  tag:"PROD"},
   {key:"qoderwork", label:"QoderWork",              color:"var(--c-qoderwork)", tag:"REDESIGN"},
   {key:"linea",     label:"Line A · Cyber",         color:"var(--c-linea)",     tag:"延续线"},
   {key:"lineb",     label:"Line B · Atelier",       color:"var(--c-lineb)",     tag:"突破线"},

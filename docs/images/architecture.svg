@@ -41,7 +41,7 @@
   <rect width="1200" height="800" fill="#f8f9fa"/>
   
   <!-- Title -->
-  <text x="600" y="50" text-anchor="middle" font-size="32" font-weight="700" fill="#263238" letter-spacing="1">LumenX Studio Architecture</text>
+  <text x="600" y="50" text-anchor="middle" font-size="32" font-weight="700" fill="#263238" letter-spacing="1">Omni Studio Architecture</text>
   <text x="600" y="80" text-anchor="middle" font-size="16" fill="#78909C">High-Level System Design &amp; Data Flow</text>
 
   <!-- Containers -->

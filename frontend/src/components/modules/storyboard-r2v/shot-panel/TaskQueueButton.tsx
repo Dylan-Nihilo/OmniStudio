@@ -22,7 +22,7 @@ export default function TaskQueueButton({ inFlightCount, open, onToggle }: TaskQ
             className={`relative inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 font-mono text-chrome-sm font-medium uppercase transition-colors duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
                 open
                     ? "border-primary/55 bg-primary/15 text-primary"
-                    : "border-glass-border bg-black/20 text-text-secondary hover:border-foreground/30 hover:text-foreground"
+                    : "border-glass-border bg-glass text-text-secondary hover:border-foreground/30 hover:text-foreground"
             }`}
         >
             <ListChecks size={13} aria-hidden="true" />

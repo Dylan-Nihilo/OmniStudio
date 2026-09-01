@@ -82,8 +82,9 @@ export default function TaskQueuePanel({
                 role="region"
                 aria-label="Task queue"
                 className={[
-                    // Always: flex layout, glass surface, slide-in entry.
-                    "flex h-full shrink-0 flex-col border-l border-glass-border bg-surface/55 backdrop-blur-xl",
+                    // Keep the drawer opaque so the responsive backdrop cannot
+                    // tint the queue content through a translucent surface.
+                    "flex h-full shrink-0 flex-col border-l border-glass-border bg-surface",
                     "motion-safe:animate-[queuePanelIn_280ms_cubic-bezier(0.22,1,0.36,1)_both]",
                     // ≥xl (1280): push column — mock queue width 344px.
                     "xl:static xl:w-[344px] xl:shadow-none xl:z-auto",
@@ -385,7 +386,7 @@ function TaskRow({
                     {fullPrompt ? (
                         <div className="space-y-0.5">
                             <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-text-muted">prompt</p>
-                            <p className="whitespace-pre-wrap rounded border border-glass-border/60 bg-black/30 px-2 py-1.5 font-sans text-body-sm leading-snug text-foreground">
+                            <p className="whitespace-pre-wrap rounded border border-glass-border/60 bg-surface-inset px-2 py-1.5 font-sans text-body-sm leading-snug text-foreground">
                                 {fullPrompt}
                             </p>
                         </div>
@@ -413,7 +414,7 @@ function TaskRow({
 
                     {/* Provider IDs — full + copy buttons */}
                     {task.provider_task_id || task.provider_request_id ? (
-                        <div className="space-y-1 rounded border border-glass-border/60 bg-black/30 px-2 py-1.5">
+                        <div className="space-y-1 rounded border border-glass-border/60 bg-surface-inset px-2 py-1.5">
                             <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-text-muted">{providerLabel} ids</p>
                             {task.provider_task_id ? (
                                 <div className="flex items-center gap-1.5">
@@ -465,7 +466,7 @@ function TaskRow({
                                 type="button"
                                 onClick={() => void handleCopy("diagnose", diagnoseBlob)}
                                 title={t("queueCopyDiagnose")}
-                                className="inline-flex min-h-[24px] items-center gap-1 rounded border border-glass-border bg-black/30 px-2 py-[2px] font-mono text-chrome-sm font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                                className="inline-flex min-h-[24px] items-center gap-1 rounded border border-glass-border bg-surface-inset px-2 py-[2px] font-mono text-chrome-sm font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
                             >
                                 {copiedField === "diagnose" ? <Check size={10} /> : <Copy size={10} />}
                                 {copiedField === "diagnose" ? t("queueCopied") : t("queueCopyDiagnoseShort")}

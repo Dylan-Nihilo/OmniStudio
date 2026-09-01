@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { api, API_URL } from '@/lib/api';
+import { api } from '@/lib/api';
 import type { FrontendModelSettings } from '@/lib/modelCatalog';
 export {
     I2I_MODELS,
@@ -345,8 +345,8 @@ interface ProjectStore {
 // localStorage keys mirrored from SettingsPage. These hold the user's
 // global default model settings / prompt config. Kept here so newly
 // created projects can be backfilled with those defaults.
-const LS_KEY_DEFAULT_MODEL = 'lumenx_default_model_settings';
-const LS_KEY_DEFAULT_PROMPT = 'lumenx_default_prompt_config';
+const LS_KEY_DEFAULT_MODEL = 'omni_studio_default_model_settings';
+const LS_KEY_DEFAULT_PROMPT = 'omni_studio_default_prompt_config';
 
 function readLS<T>(key: string): T | null {
     if (typeof window === 'undefined') return null;
@@ -510,34 +510,26 @@ export const useProjectStore = create<ProjectStore>()(
 
                 // Then fetch latest data from backend
                 try {
-                    const response = await fetch(`${API_URL}/projects/${id}`);
-                    if (response.ok) {
-                        const rawData = await response.json();
-                        // Transform data to match frontend model (snake_case -> camelCase for specific fields)
-                        const latestProject = {
-                            ...rawData,
-                            originalText: rawData.original_text
-                        };
+                    const latestProject = await api.getProject(id);
 
-                        // Update both currentProject and projects array with latest data
-                        set((state) => ({
-                            currentProject: latestProject,
-                            projects: state.projects.map((p) =>
-                                p.id === id ? latestProject : p
-                            ),
-                        }));
+                    // Update both currentProject and projects array with latest data
+                    set((state) => ({
+                        currentProject: latestProject,
+                        projects: state.projects.map((p) =>
+                            p.id === id ? latestProject : p
+                        ),
+                    }));
 
-                        // Auto-load parent series for style inheritance (always fetch fresh for up-to-date art_direction)
-                        const seriesId = latestProject.series_id;
-                        if (seriesId) {
-                            const cached = get().seriesList.find((s) => s.id === seriesId);
-                            if (cached) {
-                                set({ currentSeries: cached });
-                            }
-                            get().fetchSeries(seriesId);
-                        } else {
-                            set({ currentSeries: null });
+                    // Auto-load parent series for style inheritance (always fetch fresh for up-to-date art_direction)
+                    const seriesId = latestProject.series_id;
+                    if (seriesId) {
+                        const cached = get().seriesList.find((s) => s.id === seriesId);
+                        if (cached) {
+                            set({ currentSeries: cached });
                         }
+                        get().fetchSeries(seriesId);
+                    } else {
+                        set({ currentSeries: null });
                     }
                 } catch (error) {
                     console.error('Failed to fetch latest project data:', error);

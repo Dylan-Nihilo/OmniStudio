@@ -1,4 +1,4 @@
-// MANGIX Studio - Tauri 2.0 Main Entry
+// Omni Studio - Tauri 2.0 Main Entry
 // Implements: transparent titlebar, Traffic Light, vibrancy, sidecar management, API proxy
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -108,9 +108,9 @@ pub fn run() {
             }
             // External links: open in default browser
             match id {
-                "docs" => { let _ = open::that("https://github.com/alibaba/lumenx/wiki"); }
-                "release_notes" => { let _ = open::that("https://github.com/alibaba/lumenx/releases"); }
-                "report_issue" => { let _ = open::that("https://github.com/alibaba/lumenx/issues/new"); }
+                "docs" => { let _ = open::that("https://github.com/Dylan-Nihilo/OmniStudio/wiki"); }
+                "release_notes" => { let _ = open::that("https://github.com/Dylan-Nihilo/OmniStudio/releases"); }
+                "report_issue" => { let _ = open::that("https://github.com/Dylan-Nihilo/OmniStudio/issues/new"); }
                 _ => {}
             }
         })
@@ -145,5 +145,5 @@ pub fn run() {
             check_backend_health,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running MANGIX Studio");
+        .expect("error while running Omni Studio");
 }

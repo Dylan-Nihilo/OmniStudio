@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LumenX · Logo × 5 主题联动矩阵</title>
+<title>Omni Studio · Logo × 5 主题联动矩阵</title>
 <link rel="stylesheet" href="tokens.css">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -136,13 +136,13 @@
   </div>
 
   <div class="notes">
-    <h2>落地规则（接 LumenXBranding.tsx）</h2>
+    <h2>落地规则（接 Omni StudioBranding.tsx）</h2>
     <ul>
-      <li>现有组件写死 <code>src="/LumenX-cybr.png"</code> 且 “LUMEN” 用 <code>text-white</code> —— 亮色下白底白字不可读，必须改造。</li>
-      <li>按 presetId 切 <code>src</code>：暗主题 → <code>/LumenX-cybr.png</code>（白描边）；亮主题 → 各自亮色 PNG（均由暗色 Logo 同形重着色，透明底）。</li>
+      <li>现有组件写死 <code>src="/omni-studio-cybr.png"</code> 且 “LUMEN” 用 <code>text-white</code> —— 亮色下白底白字不可读，必须改造。</li>
+      <li>按 presetId 切 <code>src</code>：暗主题 → <code>/omni-studio-cybr.png</code>（白描边）；亮主题 → 各自亮色 PNG（均由暗色 Logo 同形重着色，透明底）。</li>
       <li>teal 着色：仅 <code>atelier-dark</code> 加内联 <code>style={{filter:'hue-rotate(-64deg) saturate(1.35) brightness(1.08)'}}</code>，其余 <code>none</code>。</li>
       <li>wordmark 文字色：全部从 <code>text-white</code> 改为 <code>var(--color-text-primary)</code>；“X” 从 <code>#646cff</code> 改为 <code>var(--color-primary)</code>。</li>
-      <li><code>atelier-light</code> 用 <code>logo-light-teal.png</code>（深墨描边 + teal 核心）；<code>brand-light</code> 用 <code>logo-light.png</code>（深墨描边 + 品牌蓝核心）。二者与暗色 Logo 同形，仅换色，已替换旧莲花图 <code>LumenX_亮色.png</code>。</li>
+      <li><code>atelier-light</code> 用 <code>logo-light-teal.png</code>（深墨描边 + teal 核心）；<code>brand-light</code> 用 <code>logo-light.png</code>（深墨描边 + 品牌蓝核心）。二者与暗色 Logo 同形，仅换色，已替换旧莲花图 <code>omni-studio_亮色.png</code>。</li>
     </ul>
   </div>
 </div>

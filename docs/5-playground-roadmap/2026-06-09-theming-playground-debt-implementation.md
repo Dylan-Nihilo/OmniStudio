@@ -1,4 +1,4 @@
-# LumenX 前端主题化 + Playground 还债 — 后端侧实施规划
+# Omni Studio 前端主题化 + Playground 还债 — 后端侧实施规划
 
 > 落地方：项目原 Agent（我）。设计方：Tasty Sam（handoff 已交付）。
 > 本文档是我这侧的执行计划 + 关键决策登记。每完成一个 Phase 即 commit（遵循 atomic commit 规则）。
@@ -76,7 +76,7 @@
 ### Phase 2+（本次先不做，等你看完 Phase 0-1 效果再定）
 
 - shared / cast / storyboard-r2v 的 171 white-alpha 批量转
-- Logo 联动（LumenXBranding 按 preset 切 src + filter）
+- Logo 联动（OmniStudioBranding 按 preset 切 src + filter）
 - 模态换肤微调
 
 ---
@@ -145,7 +145,7 @@
   | brand-dark | #646cff | #ff0080 | #050508 | Space Grotesk |
   | atelier-light | #1d9c8d | #e8852b | #f6f1e9 | Fraunces |
   | brand-light | #646cff | #ff0080 | #f8f9fa | Space Grotesk |
-- **视觉**（加 WebGL 容错后 headless 截图）：5 主题截图巡检通过，底色/主色/字体翻转正确，对比度良好，无白底白字（除下方 logo 待办）。截图存 `/private/tmp/lumenx-theme-shots/`。
+- **视觉**（加 WebGL 容错后 headless 截图）：5 主题截图巡检通过，底色/主色/字体翻转正确，对比度良好，无白底白字（除下方 logo 待办）。截图存 `/private/tmp/omni_studio-theme-shots/`。
 - **测试**：`settings-store.test.ts` 更新到新 ThemePreset + 遍历断言 + preset 列表断言，6 tests passed；typecheck 中 CreativeCanvas/settings-store 干净（仅剩 pre-existing EnvConfig/ModelSettings 错误，与主题无关）。
 
 ### 遗留待办（Phase 2 logo 联动，非 Phase 0 阻塞）

@@ -50,10 +50,10 @@ Studio backend
 |---|---|
 | Fidelity (skill ecosystem) | ⭐⭐⭐⭐⭐ — 1:1 reuse of `~/.claude/skills/` |
 | Implementation cost | 🔴 High — install Claude Code on every dev/prod machine, manage `ANTHROPIC_API_KEY`, parse stdin/stdout protocol, handle timeouts/cancel/streaming |
-| Codebase fit | 🔴 Low — LumenX currently has **zero** Claude dependency; introduces a new secret-management surface |
+| Codebase fit | 🔴 Low — Omni Studio currently has **zero** Claude dependency; introduces a new secret-management surface |
 | Cost per polish | 🔴 High — Claude Opus/Sonnet pricing × full tool-loop turns |
 
-**Verdict**: Highest fidelity but worst fit. Reasonable for a Claude-native shop; wrong for LumenX which is Qwen-native.
+**Verdict**: Highest fidelity but worst fit. Reasonable for a Claude-native shop; wrong for Omni Studio which is Qwen-native.
 
 ### Option B — Claude Agent SDK (Python)
 
@@ -292,7 +292,7 @@ Phase 4 is **not** committed — keeping a separate fast path may always be valu
 If after Phase 2 the C path consistently underperforms what a direct Claude Code skill call would produce (e.g., the SKILL relies heavily on Claude's tool-use idioms that Qwen3.6-plus can't replicate), upgrade to Option B (`claude-agent-sdk`):
 
 1. Keep `StudioPolishAgent` as the public interface; swap its planner internals
-2. Introduce optional `ANTHROPIC_API_KEY` setting in `~/.lumen-x/config.json`
+2. Introduce optional `ANTHROPIC_API_KEY` setting in `~/.omni-studio/config.json`
 3. Add per-model-family routing: cheap models stay on Qwen-C path, premium models can opt into Anthropic-B path
 
 This is reversible at any time without changing the frontend contract.
@@ -307,7 +307,7 @@ To keep the design tight, the following are **out of scope**:
 2. Multi-modal polish (using a reference image as polish input) — handled today by Wan's I2I refine endpoint, not polish
 3. Streaming partial results to UI mid-polish — nice-to-have; current "skeleton + final swap" is sufficient
 4. Cost telemetry / billing UI — separate observability work
-5. User-facing skill installer UI ("Install HappyHorse Polish Skill" button) — users manage `~/.claude/skills/` themselves via Claude Code; LumenX just reads
+5. User-facing skill installer UI ("Install HappyHorse Polish Skill" button) — users manage `~/.claude/skills/` themselves via Claude Code; Omni Studio just reads
 6. Polish agent that can refuse jobs ("this prompt is too vague, please add more detail before I polish") — interesting but out of v1 scope
 
 ---
@@ -316,10 +316,10 @@ To keep the design tight, the following are **out of scope**:
 
 These are not blockers for **this** design doc but must be answered before implementation:
 
-1. **Where does `~/.claude/skills/` live in production / desktop builds?** Today's assumption is the user's home dir. For packaged LumenX desktop, do we ship a default skill bundle? Empty by default?
+1. **Where does `~/.claude/skills/` live in production / desktop builds?** Today's assumption is the user's home dir. For packaged Omni Studio desktop, do we ship a default skill bundle? Empty by default?
 2. **Should the polish agent see the user's previous polish attempts** (turn history, à la Atelier session)? Atelier persists `agent_turns` per project; Studio doesn't (yet). Adding turn history changes the persistence story.
 3. **Per-shot vs per-project polish settings**: ✨ POLISH today loads `script_id` prompt config. Should 🤖 SMART have its own per-project enable/disable, or share?
-4. **What's the licensing story for ingesting user skill files into LumenX's LLM context?** SKILL.md says "Role: 你是一位精通..."; we pass that verbatim to Qwen. If skill is MIT/CC0 from user's own machine, this is fine. If a skill was shared from elsewhere, license bears noting.
+4. **What's the licensing story for ingesting user skill files into Omni Studio's LLM context?** SKILL.md says "Role: 你是一位精通..."; we pass that verbatim to Qwen. If skill is MIT/CC0 from user's own machine, this is fine. If a skill was shared from elsewhere, license bears noting.
 
 ---
 

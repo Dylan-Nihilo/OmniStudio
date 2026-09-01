@@ -1,12 +1,12 @@
 [package]
-name = "lumenx-studio"
+name = "omni-studio"
 version = "1.2.1"
-description = "MANGIX Studio - AI Motion Comic Production Platform"
-authors = ["LumenX Team"]
+description = "Omni Studio - AI Motion Comic Production Platform"
+authors = ["Omni Studio Team"]
 edition = "2021"
 
 [lib]
-name = "lumenx_studio_lib"
+name = "omni_studio_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

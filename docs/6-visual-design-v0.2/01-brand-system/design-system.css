@@ -1,11 +1,11 @@
 /*
- * LumenX Studio — Cyber Brutalism × Cinematic Restraint Design System v0.2
+ * Omni Studio — Cyber Brutalism × Cinematic Restraint Design System v0.2
  * Direction: Dark-first cinematic restraint + cyber-brutalist brand identity
  * Product: AI 短漫剧 pipeline-first 创作平台
  *
  * v0.2 visual refresh (2026-06-09 commit e6f86ea):
- *   - Brand mark: angular geometric lotus (LumenX-cybr.png) replaces gradient square
- *   - Wordmark: monospace LUMENX (LUMEN white + X #646cff bold) replaces gradient text
+ *   - Brand mark: angular geometric lotus (omni-studio-cybr.png) replaces gradient square
+ *   - Wordmark: monospace OMNI_STUDIO (LUMEN white + X #646cff bold) replaces gradient text
  *   - Optional cyber-brutalist motifs (grid, scanlines) for splash / banners
  *
  * Token architecture: seed → semantic → component
@@ -14,7 +14,7 @@
 
 :root {
   /* ═══ SEED LAYER ═══
-     Brand DNA shared across the LumenX product family.
+     Brand DNA shared across the Omni Studio product family.
      Atelier derives its own semantic tokens from these seeds. */
   --seed-bg: #050508;
   --seed-fg: #ededed;

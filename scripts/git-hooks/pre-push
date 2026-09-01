@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ========================================
-# LumenX pre-push hook (git-safe-push 自动化)
+# Omni Studio pre-push hook (git-safe-push 自动化)
 # 来源: .agent/workflows/git-safe-push.md 第 8 条 — 不要直接 push 到 main
 # 安装: ./scripts/git-hooks/install.sh
 # 跳过(仅紧急情况): SKIP_SAFE_PUSH=1 git push ...

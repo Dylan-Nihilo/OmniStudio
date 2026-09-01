@@ -8,7 +8,7 @@ access_key_id = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")
 access_key_secret = os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")
 endpoint = os.getenv("OSS_ENDPOINT")
 bucket_name = os.getenv("OSS_BUCKET_NAME")
-base_path = os.getenv("OSS_BASE_PATH", "lumenx").strip("'\"/")
+base_path = os.getenv("OSS_BASE_PATH", "omni_studio").strip("'\"/")
 
 auth = oss2.Auth(access_key_id, access_key_secret)
 bucket = oss2.Bucket(auth, endpoint, bucket_name)

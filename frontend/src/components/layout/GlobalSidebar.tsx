@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import clsx from "clsx";
-import LumenXBranding from "./LumenXBranding";
+import OmniStudioBranding from "./OmniStudioBranding";
 import { isTauri } from "@/lib/transport";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
@@ -111,7 +111,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
     }
   };
 
-  const displayName = user?.display_name || user?.username || "MANGIX";
+  const displayName = user?.display_name || user?.username || "Omni Studio";
   const avatarLetter = displayName.trim().charAt(0).toUpperCase() || "M";
 
   return (
@@ -127,7 +127,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
           aria-label={t("workspaceAria")}
           className="border-b border-glass-border px-4 pb-4 pt-5 text-left transition-opacity hover:opacity-90"
         >
-          <LumenXBranding size="md" showSlogan={false} />
+          <OmniStudioBranding size="md" showSlogan={false} />
           <p className="atelier-display mt-2.5 font-display text-[0.75rem] italic leading-snug tracking-wide text-text-muted">
             Stories, Rendered Alive.
           </p>

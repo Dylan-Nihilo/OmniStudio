@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check behavioral parity between the Claude/Codex mirrored workflow docs.
 
-`.claude/commands/lumenx-*.md` (zh) and `.codex/workflows/lumenx-*.md` (en)
+`.claude/commands/omni-studio-*.md` (zh) and `.codex/workflows/omni-studio-*.md` (en)
 are intentionally written in different languages, so prose is expected to
 differ. What must NOT drift silently is the behavioral surface:
 
@@ -29,9 +29,9 @@ CLAUDE_DIR = REPO_ROOT / ".claude" / "commands"
 CODEX_DIR = REPO_ROOT / ".codex" / "workflows"
 
 PAIR_NAMES = [
-    "lumenx-build",
-    "lumenx-git-publish",
-    "lumenx-model-onboarding",
+    "omni-studio-build",
+    "omni-studio-git-publish",
+    "omni-studio-model-onboarding",
 ]
 
 # Confirmed intentional divergences. Keyed by pair name; each entry maps an

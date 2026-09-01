@@ -1,8 +1,8 @@
-# LumenX Product Roadmap And Implementation Plan
+# Omni Studio Product Roadmap And Implementation Plan
 
 > **For Claude/Codex:** This is a planning artifact for roadmap alignment and future implementation sequencing. It is intentionally product-facing first, but each initiative includes concrete codebase touchpoints so it can be turned into execution plans later.
 
-**Goal:** Provide a prioritized product roadmap for LumenX after the recent model-catalog, onboarding, no-OSS, provider-routing, and dev-runtime work, while incorporating the newly proposed feature directions:
+**Goal:** Provide a prioritized product roadmap for Omni Studio after the recent model-catalog, onboarding, no-OSS, provider-routing, and dev-runtime work, while incorporating the newly proposed feature directions:
 
 1. Chinese / English language switch
 2. Day / night theme switch (night remains the default)
@@ -10,7 +10,7 @@
 4. Add an infinite-canvas creation mode
 5. Add a sidebar `video_agent` capability inspired by Claude / OpenAI agent-sdk workflows
 
-**Architecture framing:** LumenX should continue evolving along three interacting axes:
+**Architecture framing:** Omni Studio should continue evolving along three interacting axes:
 
 - **Platform axis** — model catalog, onboarding, provider/gateway routing, local-first media, runtime reliability
 - **Creation axis** — script → asset → storyboard → motion → export workflow plus new infinite-canvas mode
@@ -22,7 +22,7 @@
 
 ## 1. Strategic framing
 
-The next stage of LumenX should not be “add random features.”  
+The next stage of Omni Studio should not be “add random features.”
 It should be a deliberate shift from:
 
 - a capable but still evolving AI comic generation tool
@@ -58,10 +58,10 @@ These are the current frontend/backend areas most relevant to the roadmap.
 
 ### 3.1 App shell and global product chrome
 
-- [frontend/src/app/layout.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/layout.tsx)
-- [frontend/src/components/layout/AppShell.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/AppShell.tsx)
-- [frontend/src/components/layout/GlobalSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/GlobalSidebar.tsx)
-- [frontend/src/components/layout/PipelineSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/PipelineSidebar.tsx)
+- [frontend/src/app/layout.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/layout.tsx)
+- [frontend/src/components/layout/AppShell.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/AppShell.tsx)
+- [frontend/src/components/layout/GlobalSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/GlobalSidebar.tsx)
+- [frontend/src/components/layout/PipelineSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/PipelineSidebar.tsx)
 
 These files are likely touchpoints for:
 
@@ -72,14 +72,14 @@ These files are likely touchpoints for:
 
 ### 3.2 Current guided project workflow
 
-- [frontend/src/components/project/ProjectClient.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/ProjectClient.tsx)
-- [frontend/src/components/modules/ScriptProcessor.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/ScriptProcessor.tsx)
-- [frontend/src/components/modules/ConsistencyVault.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/ConsistencyVault.tsx)
-- [frontend/src/components/modules/StoryboardComposer.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/StoryboardComposer.tsx)
-- [frontend/src/components/modules/VideoGenerator.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx)
-- [frontend/src/components/modules/VideoCreator.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoCreator.tsx)
-- [frontend/src/components/modules/VideoSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoSidebar.tsx)
-- [frontend/src/components/modules/PropertiesPanel.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/PropertiesPanel.tsx)
+- [frontend/src/components/project/ProjectClient.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/project/ProjectClient.tsx)
+- [frontend/src/components/modules/ScriptProcessor.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/ScriptProcessor.tsx)
+- [frontend/src/components/modules/ConsistencyVault.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/ConsistencyVault.tsx)
+- [frontend/src/components/modules/StoryboardComposer.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/StoryboardComposer.tsx)
+- [frontend/src/components/modules/VideoGenerator.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoGenerator.tsx)
+- [frontend/src/components/modules/VideoCreator.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoCreator.tsx)
+- [frontend/src/components/modules/VideoSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoSidebar.tsx)
+- [frontend/src/components/modules/PropertiesPanel.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/PropertiesPanel.tsx)
 
 These files are likely touchpoints for:
 
@@ -90,9 +90,9 @@ These files are likely touchpoints for:
 
 ### 3.3 Theme and rendering surface
 
-- [frontend/src/app/globals.css](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/globals.css)
-- [frontend/tailwind.config.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/tailwind.config.ts)
-- [frontend/src/components/canvas/CreativeCanvas.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/canvas/CreativeCanvas.tsx)
+- [frontend/src/app/globals.css](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/globals.css)
+- [frontend/tailwind.config.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/tailwind.config.ts)
+- [frontend/src/components/canvas/CreativeCanvas.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/canvas/CreativeCanvas.tsx)
 
 These files are likely touchpoints for:
 
@@ -102,12 +102,12 @@ These files are likely touchpoints for:
 
 ### 3.4 Model, provider, and backend evolution
 
-- [config/model_catalog/catalog.meta.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/catalog.meta.yaml)
-- [config/model_catalog/families/*.yaml](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/config/model_catalog/families)
-- [src/utils/model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py)
-- [src/utils/provider_registry.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/provider_registry.py)
-- [frontend/src/lib/modelCatalog.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts)
-- [frontend/src/lib/api.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/api.ts)
+- [config/model_catalog/catalog.meta.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/catalog.meta.yaml)
+- [config/model_catalog/families/*.yaml](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/config/model_catalog/families)
+- [src/utils/model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/model_catalog.py)
+- [src/utils/provider_registry.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/provider_registry.py)
+- [frontend/src/lib/modelCatalog.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/modelCatalog.ts)
+- [frontend/src/lib/api.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/api.ts)
 
 These files are likely touchpoints for:
 
@@ -187,7 +187,7 @@ This broadens real usability immediately.
 
 **Why now**
 
-LumenX already contains mixed Chinese / English copy in:
+Omni Studio already contains mixed Chinese / English copy in:
 
 - layout
 - settings
@@ -199,11 +199,11 @@ This becomes increasingly expensive to retrofit later.
 
 **Current likely touchpoints**
 
-- [frontend/src/app/layout.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/layout.tsx)
-- [frontend/src/components/layout/GlobalSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/PipelineSidebar.tsx)
-- [frontend/src/components/layout/AppShell.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/AppShell.tsx)
-- [frontend/src/components/settings/SettingsPage.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx)
-- [frontend/src/components/project/ProjectClient.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/ProjectClient.tsx)
+- [frontend/src/app/layout.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/layout.tsx)
+- [frontend/src/components/layout/GlobalSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/PipelineSidebar.tsx)
+- [frontend/src/components/layout/AppShell.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/AppShell.tsx)
+- [frontend/src/components/settings/SettingsPage.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx)
+- [frontend/src/components/project/ProjectClient.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/project/ProjectClient.tsx)
 
 **Recommended scope**
 
@@ -235,9 +235,9 @@ That has worked so far, but user-requested light mode means:
 
 **Current likely touchpoints**
 
-- [frontend/src/app/globals.css](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/globals.css)
-- [frontend/tailwind.config.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/tailwind.config.ts)
-- [frontend/src/app/layout.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/layout.tsx)
+- [frontend/src/app/globals.css](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/globals.css)
+- [frontend/tailwind.config.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/tailwind.config.ts)
+- [frontend/src/app/layout.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/layout.tsx)
 - shared layout components under `frontend/src/components/layout/`
 
 **Recommended scope**
@@ -269,7 +269,7 @@ This is small, but it is a good cleanup target because:
 
 **Likely current location**
 
-- [frontend/src/components/modules/PropertiesPanel.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/PropertiesPanel.tsx)
+- [frontend/src/components/modules/PropertiesPanel.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/PropertiesPanel.tsx)
   - `ScriptInspector`
   - `Quick Notes` block
 
@@ -328,10 +328,10 @@ That means the current linear pipeline may stop being the only valid creation pa
 
 **Current likely touchpoints**
 
-- [frontend/src/components/canvas/CreativeCanvas.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/canvas/CreativeCanvas.tsx)
-- [frontend/src/components/project/ProjectClient.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/ProjectClient.tsx)
-- [frontend/src/components/modules/VideoGenerator.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoGenerator.tsx)
-- [frontend/src/components/modules/ConsistencyVault.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/ConsistencyVault.tsx)
+- [frontend/src/components/canvas/CreativeCanvas.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/canvas/CreativeCanvas.tsx)
+- [frontend/src/components/project/ProjectClient.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/project/ProjectClient.tsx)
+- [frontend/src/components/modules/VideoGenerator.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoGenerator.tsx)
+- [frontend/src/components/modules/ConsistencyVault.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/ConsistencyVault.tsx)
 
 **Recommended product framing**
 
@@ -368,10 +368,10 @@ Potential uses:
 
 **Current likely touchpoints**
 
-- [frontend/src/components/layout/GlobalSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/GlobalSidebar.tsx)
-- [frontend/src/components/layout/AppShell.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/AppShell.tsx)
-- [frontend/src/components/project/ProjectClient.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/ProjectClient.tsx)
-- [frontend/src/components/modules/VideoSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoSidebar.tsx)
+- [frontend/src/components/layout/GlobalSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/GlobalSidebar.tsx)
+- [frontend/src/components/layout/AppShell.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/AppShell.tsx)
+- [frontend/src/components/project/ProjectClient.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/project/ProjectClient.tsx)
+- [frontend/src/components/modules/VideoSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoSidebar.tsx)
 
 **Recommended scope**
 
@@ -402,10 +402,10 @@ As `model_catalog` becomes richer, manual parameter rendering becomes technical 
 
 **Current likely touchpoints**
 
-- [frontend/src/lib/modelCatalog.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts)
-- [frontend/src/components/modules/VideoSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/VideoSidebar.tsx)
-- [frontend/src/components/common/ModelSettingsModal.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/common/ModelSettingsModal.tsx)
-- [frontend/src/components/settings/SettingsPage.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx)
+- [frontend/src/lib/modelCatalog.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/modelCatalog.ts)
+- [frontend/src/components/modules/VideoSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/VideoSidebar.tsx)
+- [frontend/src/components/common/ModelSettingsModal.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/common/ModelSettingsModal.tsx)
+- [frontend/src/components/settings/SettingsPage.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx)
 
 **Reason it is P1**
 
@@ -444,7 +444,7 @@ Current series support already exists, but later phases can deepen:
 
 ### P2.2 — Templates / presets / workflow bundles
 
-This is where LumenX can become more production-efficient for repeated output types.
+This is where Omni Studio can become more production-efficient for repeated output types.
 
 ### P2.3 — Gateway/platform active routing support
 
@@ -578,16 +578,16 @@ It creates the best balance of:
 
 ### Files likely touched
 
-- [frontend/src/app/layout.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/layout.tsx)
-- [frontend/src/components/layout/AppShell.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/AppShell.tsx)
-- [frontend/src/components/layout/GlobalSidebar.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/layout/GlobalSidebar.tsx)
-- [frontend/src/components/settings/SettingsPage.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/settings/SettingsPage.tsx)
-- [frontend/src/components/modules/PropertiesPanel.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/modules/PropertiesPanel.tsx)
-- [frontend/src/components/project/ProjectClient.tsx](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/components/project/ProjectClient.tsx)
-- [frontend/src/app/globals.css](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/app/globals.css)
-- [frontend/tailwind.config.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/tailwind.config.ts)
-- [frontend/src/lib/modelCatalog.ts](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/frontend/src/lib/modelCatalog.ts)
-- [src/utils/model_catalog.py](/Users/hoshinoren/Documents/code/project/video_gen/gitlab/tron-comic/src/utils/model_catalog.py)
+- [frontend/src/app/layout.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/layout.tsx)
+- [frontend/src/components/layout/AppShell.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/AppShell.tsx)
+- [frontend/src/components/layout/GlobalSidebar.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/layout/GlobalSidebar.tsx)
+- [frontend/src/components/settings/SettingsPage.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/settings/SettingsPage.tsx)
+- [frontend/src/components/modules/PropertiesPanel.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/modules/PropertiesPanel.tsx)
+- [frontend/src/components/project/ProjectClient.tsx](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/components/project/ProjectClient.tsx)
+- [frontend/src/app/globals.css](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/app/globals.css)
+- [frontend/tailwind.config.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/tailwind.config.ts)
+- [frontend/src/lib/modelCatalog.ts](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/frontend/src/lib/modelCatalog.ts)
+- [src/utils/model_catalog.py](https://github.com/Dylan-Nihilo/OmniStudio/blob/main/src/utils/model_catalog.py)
 
 ---
 
@@ -644,4 +644,3 @@ Any roadmap item that enters execution should include:
 If only one roadmap message should be kept, it is this:
 
 > The next best iteration is not “more features everywhere.” It is a focused foundation wave: complete the model-catalog platform layer, add i18n and theming foundations, remove clearly non-functional UI, and only then branch into new creation modes like infinite canvas and assistant workflows like video_agent.
-

@@ -166,6 +166,23 @@ def test_mark_video_task_failed_returns_false_for_unknown(pipeline):
 # ---------------------------------------------------------------------------
 
 
+def test_create_video_task_rejects_unknown_frame_id(pipeline):
+    pipeline.scripts = {"p1": _script_with_tasks()}
+
+    with pytest.raises(ValueError, match="Frame not found"):
+        pipeline.create_video_task(
+            script_id="p1",
+            image_url="",
+            prompt="A scene",
+            model="wan2.7-r2v",
+            generation_mode="r2v",
+            frame_id="shot_synthetic",
+            reference_image_urls=["assets/character.png", "assets/scene.png"],
+        )
+
+    assert pipeline.scripts["p1"].video_tasks == []
+
+
 def test_create_video_task_rejects_r2v_model_without_refs(pipeline):
     """The user reproduced this: stale localStorage carried wan2.7-r2v
     into an I2V flow that never supplies ref images. Without the guard

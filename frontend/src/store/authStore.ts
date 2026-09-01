@@ -57,6 +57,8 @@ interface AuthStore {
   setupStatus: SetupStatus | null;
   user: AuthUser | null;
   bootstrapping: boolean;
+  legacyClaimPending: boolean;
+  legacyClaimAcknowledged: boolean;
   bootstrap: () => Promise<void>;
   setup: (input: OwnerSetupInput) => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
@@ -66,6 +68,7 @@ interface AuthStore {
   getPasswordResetStatus: () => Promise<PasswordResetStatus>;
   resetPassword: (input: PasswordResetInput) => Promise<void>;
   clearSession: () => void;
+  finishLegacyClaim: () => void;
 }
 
 let bootstrapPromise: Promise<void> | null = null;
@@ -76,6 +79,43 @@ const authenticatedStatus = (current: SetupStatus | null): SetupStatus => ({
   setup_token_required: current?.setup_token_required ?? false,
 });
 
+interface ClaimDiscoveryResponse {
+  summary: { projects: number; series: number; media: number; conflicts: number };
+  batch: { id: string } | null;
+}
+
+const hasLegacyClaimWork = (status: ClaimDiscoveryResponse): boolean =>
+  Boolean(
+    status.batch ||
+      status.summary.projects ||
+      status.summary.series ||
+      status.summary.media ||
+      status.summary.conflicts,
+  );
+
+const discoverLegacyClaim = async (): Promise<boolean> => {
+  try {
+    const { data } = await apiClient.get<ClaimDiscoveryResponse>(`${API_URL}/auth/legacy-claim/status`);
+    return hasLegacyClaimWork(data);
+  } catch {
+    return false;
+  }
+};
+
+const isCsrfFailure = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const response = (error as { response?: unknown }).response;
+  if (!response || typeof response !== "object") return false;
+  const payload = (response as { data?: unknown }).data;
+  if (!payload || typeof payload !== "object") return false;
+  const errorEnvelope = (payload as { error?: unknown }).error;
+  return (
+    Boolean(errorEnvelope) &&
+    typeof errorEnvelope === "object" &&
+    (errorEnvelope as { code?: unknown }).code === "AUTH_CSRF_FAILED"
+  );
+};
+
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
@@ -83,6 +123,8 @@ export const useAuthStore = create<AuthStore>()(
       setupStatus: null,
       user: null,
       bootstrapping: true,
+      legacyClaimPending: false,
+      legacyClaimAcknowledged: false,
 
       bootstrap: async () => {
         if (bootstrapPromise) return bootstrapPromise;
@@ -100,7 +142,11 @@ export const useAuthStore = create<AuthStore>()(
 
           try {
             const { data } = await apiClient.get<MeResponse>(`${API_URL}/auth/me`);
-            set({ user: data.user });
+            const claimPending = await discoverLegacyClaim();
+            set({
+              user: data.user,
+              legacyClaimPending: !get().legacyClaimAcknowledged && claimPending,
+            });
           } catch {
             // Any failure to confirm the session (401, expired refresh, network)
             // means there is no valid logged-in identity right now.
@@ -125,16 +171,30 @@ export const useAuthStore = create<AuthStore>()(
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
           user: data.user,
+          legacyClaimPending: true,
+          legacyClaimAcknowledged: false,
         }));
       },
 
       login: async (input) => {
         await refreshCsrfToken();
-        const { data } = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
+        let response;
+        try {
+          response = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
+        } catch (error) {
+          if (!isCsrfFailure(error)) throw error;
+          // A backend restart or expired session can leave a stale CSRF cookie.
+          // Refresh the anonymous token once, then retry the same login request.
+          await refreshCsrfToken();
+          response = await apiClient.post<AuthResponse>(`${API_URL}/auth/login`, input);
+        }
+        const { data } = response;
+        const claimPending = await discoverLegacyClaim();
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
           user: data.user,
+          legacyClaimPending: !state.legacyClaimAcknowledged && claimPending,
         }));
       },
 
@@ -182,13 +242,19 @@ export const useAuthStore = create<AuthStore>()(
         clearReturnHash();
       },
 
-      clearSession: () => set({ user: null }),
+      clearSession: () => set({ user: null, legacyClaimPending: false }),
+      finishLegacyClaim: () => set({
+        legacyClaimPending: false,
+        legacyClaimAcknowledged: true,
+      }),
     }),
     {
-      name: "lumenx-auth",
+      name: "omni_studio-auth",
       partialize: (state) => ({
         setupStatus: state.setupStatus,
         user: state.user,
+        legacyClaimPending: state.legacyClaimPending,
+        legacyClaimAcknowledged: state.legacyClaimAcknowledged,
       }),
     },
   ),

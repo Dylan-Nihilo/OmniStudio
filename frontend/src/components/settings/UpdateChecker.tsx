@@ -17,7 +17,7 @@ import { RefreshCw, Loader2, Check, Sparkles, ExternalLink, CircleAlert } from "
 
 // 本地版本常量,避免跨文件耦合(与 SettingsPage 的 APP_VERSION 同源)。
 const APP_VERSION = "v0.2.0";
-const REPO = "alibaba/lumenx";
+const REPO = "Dylan-Nihilo/OmniStudio";
 const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const RELEASES_URL = `https://github.com/${REPO}/releases`;
 

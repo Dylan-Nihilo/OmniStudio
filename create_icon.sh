@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Check if source image exists
-SOURCE="frontend/public/LumenX.png"
+SOURCE="frontend/public/omni-studio.png"
 if [ ! -f "$SOURCE" ]; then
     echo "Error: $SOURCE not found"
     exit 1
@@ -10,7 +10,7 @@ fi
 echo "Creating icon.icns from $SOURCE..."
 
 # Create a temporary iconset directory
-ICONSET="LumenX.iconset"
+ICONSET="Omni Studio.iconset"
 mkdir -p "$ICONSET"
 
 # Generate icons of different sizes

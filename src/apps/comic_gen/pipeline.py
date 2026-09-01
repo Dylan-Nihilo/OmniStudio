@@ -2264,6 +2264,9 @@ class ComicGenPipeline:
         script = self.get_script(script_id)
         if not script:
             raise ValueError("Script not found")
+
+        if frame_id and not any(frame.id == frame_id for frame in script.frames):
+            raise ValueError(f"Frame not found: {frame_id}")
         
         task_id = str(uuid.uuid4())
         
@@ -2649,7 +2652,7 @@ class ComicGenPipeline:
 
         Handles three cases:
         1. Local relative path (e.g. 'video/xxx.mp4') → resolve under output/
-        2. OSS object key (e.g. 'lumenx/videos/xxx.mp4') → sign URL then download
+        2. OSS object key (e.g. 'omni_studio/videos/xxx.mp4') → sign URL then download
         3. Full HTTP URL → download directly
         """
         if not url:
@@ -3173,6 +3176,8 @@ class ComicGenPipeline:
                     ],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=30,
                 )
                 if result.returncode != 0:
@@ -3365,7 +3370,7 @@ class ComicGenPipeline:
         # every segment has a consistent video+audio layout.
         import tempfile
         import shutil
-        normalization_dir = tempfile.mkdtemp(prefix=f"lumenx_merge_{script.id}_")
+        normalization_dir = tempfile.mkdtemp(prefix=f"omni_studio_merge_{script.id}_")
         normalized_paths = []
         try:
             for index, source_path in enumerate(abs_video_paths):
@@ -3467,14 +3472,14 @@ class ComicGenPipeline:
             self._set_merge_progress(script, "writing", "写入成片", 0.75)
             
             # Update script with merged video path
-            # Use 'videos/' (plural) to match the /files/videos route
-            script.merged_video_url = f"videos/{output_filename}"
+            # Media URLs are relative to output/, whose video directory is singular.
+            script.merged_video_url = f"video/{output_filename}"
 
             # Verify file was created and log details
             if os.path.exists(output_path):
                 file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
                 logger.info(f"[MERGE] ✅ Merged video created successfully: {output_filename} ({file_size_mb:.2f} MB)")
-                logger.info(f"[MERGE] ✅ Video accessible at: /files/videos/{output_filename}")
+                logger.info(f"[MERGE] ✅ Video accessible at: /files/video/{output_filename}")
             else:
                 logger.error(f"[MERGE] ❌ Merged video file NOT found at: {output_path}")
                 raise RuntimeError(f"Video merge completed but output file not found: {output_path}")
@@ -3579,6 +3584,8 @@ class ComicGenPipeline:
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=30,
             )
         except subprocess.TimeoutExpired:
@@ -4271,14 +4278,23 @@ class ComicGenPipeline:
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
-            
+
         char = next((c for c in script.characters if c.id == char_id), None)
+        series_char = False
+        if not char and script.series_id:
+            series = self.series_store.get(script.series_id)
+            if series:
+                char = next((c for c in series.characters if c.id == char_id), None)
+                series_char = char is not None
         if not char:
             raise ValueError("Character not found")
-            
+
         char.voice_id = voice_id
         char.voice_name = voice_name
-        self._save_data()
+        if series_char:
+            self._save_series_data()
+        else:
+            self._save_data()
         return script
 
     def get_script(self, script_id: str) -> Optional[Script]:
@@ -4636,7 +4652,7 @@ class ComicGenPipeline:
             self._save_library_data_unlocked()
 
     # ------------------------------------------------------------------
-    # Global Asset Library — CRUD + feed channels (LumenX Core shared pool)
+    # Global Asset Library — CRUD + feed channels (Omni Studio Core shared pool)
     # ------------------------------------------------------------------
     # These methods are the single source of truth for mutating the
     # project-independent library. Both the /library/assets endpoints and
@@ -5054,7 +5070,7 @@ class ComicGenPipeline:
                 raise RuntimeError("DASHSCOPE_API_KEY not configured")
 
             # Dashscope customization endpoint (Beijing region; intl uses
-            # dashscope-intl URL — TODO when LumenX supports intl deployment)
+            # dashscope-intl URL — TODO when Omni Studio supports intl deployment)
             url = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts/customization"
             payload = {
                 "model": "voice-enrollment",

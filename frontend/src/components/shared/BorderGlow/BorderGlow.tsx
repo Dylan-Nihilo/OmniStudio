@@ -6,7 +6,7 @@
  * 边光 + mesh-gradient 边框。设计意图是让较大尺寸的 hero card / panel 在被
  * 关注时获得"真材实料"的发光描边，而不是简单的 box-shadow。
  *
- * 在 LumenX 里的应用场景（截至 2026-05）：
+ * 在 Omni Studio 里的应用场景（截至 2026-05）：
  *   - PolishPanel 展开容器（首次结果完成时 sweep + hover 时 ambient glow）
  *
  * 不要用在小尺寸按钮 / chrome 控件上 —— glow 半径默认 40px，按钮太小会让

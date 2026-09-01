@@ -1,4 +1,4 @@
-# LumenX Studio · 多主题系统（可落地）
+# Omni Studio · 多主题系统（可落地）
 
 > Tasty Sam 交付 · 纯设计 + 可落地蓝图，**零侵入**（不改任何现有代码，全部新增于 `docs/design/tasty-sam/theming/`）。
 > 把「Warm Bridge vs Full Atelier 二选一」升级为**用户可选的 5 个预设主题**，Full Atelier 默认；换主题时 Logo 一并联动；在三个暗色主题上再加两个亮色主题。
@@ -13,7 +13,7 @@
 | `bridge-dark` | Warm Bridge | 暗 | 暖中性 `#0a0a0d` | 蓝 `#646cff` | amber 仅选中 | 原蓝 | |
 | `brand-dark` | Brand-True | 暗 | 冷黑 `#050508` | 蓝 `#646cff` | hot pink `#ff0080` | 原蓝 | |
 | `atelier-light` | 暖亮 Atelier | 亮 | 暖陶白 `#f6f1e9` | teal deep `#1d9c8d` | amber deep `#e8852b` | 深描边 teal | |
-| `brand-light` | 品牌亮色 | 亮 | 复用 `html.light` | 蓝 `#646cff` | — | `LumenX_亮色.png` | |
+| `brand-light` | 品牌亮色 | 亮 | 复用 `html.light` | 蓝 `#646cff` | — | `omni-studio_亮色.png` | |
 
 ---
 
@@ -83,8 +83,8 @@ html.classList.add(theme);
 
 // layout.tsx 防闪烁内联脚本：白名单扩成 5 个 preset，默认 'atelier-dark'
 
-// LumenXBranding.tsx（必须改造，详见 logo-adaptation.html）：
-//  - src 写死 → 按 preset 切（暗 /LumenX-cybr.png；亮 各自亮色 PNG）
+// OmniStudioBranding.tsx（必须改造，详见 logo-adaptation.html）：
+//  - src 写死 → 按 preset 切（暗 /omni-studio-cybr.png；亮 各自亮色 PNG）
 //  - "LUMEN" text-white → text-[color:var(--color-text-primary)]
 //  - "X" text-[#646cff] → text-[color:var(--color-primary)]
 //  - Studio/slogan text-white/30,/20 → 走 text-secondary/muted token
@@ -97,7 +97,7 @@ html.classList.add(theme);
 
 - **零侵入**：本目录全部新增，未改任何现有文件。`git status` 仅见 `docs/design/tasty-sam/theming/**`。
 - **不阉割功能**：核心三页严格映射后端契约（`src/apps/comic_gen/models.py`）与现有交互；任何「放不下」的功能在 `FUNCTION-COVERAGE.md` 标「需沟通」，绝不自行删减。
-- **Logo 资源（已定稿）**：三个亮/暗变体均由暗色 Logo 同形重着色、透明底：`logo-dark.png`（白描边+蓝核心，暗主题；`atelier-dark` 另加 teal filter）、`logo-light-teal.png`（深墨描边+teal 核心，`atelier-light`）、`logo-light.png`（深墨描边+蓝核心，`brand-light`）。旧莲花图 `LumenX_亮色.png` 已弃用。
+- **Logo 资源（已定稿）**：三个亮/暗变体均由暗色 Logo 同形重着色、透明底：`logo-dark.png`（白描边+蓝核心，暗主题；`atelier-dark` 另加 teal filter）、`logo-light-teal.png`（深墨描边+teal 核心，`atelier-light`）、`logo-light.png`（深墨描边+蓝核心，`brand-light`）。旧莲花图 `omni-studio_亮色.png` 已弃用。
 
 ---
 

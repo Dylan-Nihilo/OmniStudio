@@ -62,6 +62,48 @@ export interface EnvConfigPayload {
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
 }
 
+export interface LegacyClaimSummary {
+    projects: number;
+    series: number;
+    media: number;
+    conflicts: number;
+}
+
+export interface LegacyClaimBatch {
+    id: string;
+    source_sha256: string;
+    status: "claimed" | "rolled_back";
+    project_ids: string[];
+    series_ids: string[];
+    created_at: number;
+    completed_at: number;
+    rolled_back_at: number | null;
+}
+
+export interface LegacyClaimStatus {
+    state: "ready" | "blocked" | "claimed" | "rolled_back";
+    source_sha256: string | null;
+    source_files: Array<Record<string, unknown>>;
+    summary: LegacyClaimSummary;
+    diagnostics: Array<{ type: string; message?: string; [key: string]: unknown }>;
+    rollback_available: boolean;
+    batch: LegacyClaimBatch | null;
+    idempotent?: boolean | null;
+}
+
+export const legacyClaimApi = {
+    getStatus: () =>
+        apiClient.get<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/status`).then((response) => response.data),
+    preview: () =>
+        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/preview`).then((response) => response.data),
+    apply: (expectedSourceSha256: string) =>
+        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/apply`, {
+            expected_source_sha256: expectedSourceSha256,
+        }).then((response) => response.data),
+    rollback: () =>
+        apiClient.post<LegacyClaimStatus>(`${API_URL}/auth/legacy-claim/rollback`).then((response) => response.data),
+};
+
 // R2V v2 Phase 4 — Cross-episode reconcile types
 export interface ReconcileSuggestion {
     local_id: string;
@@ -824,7 +866,7 @@ export const api = {
             composition_data: compositionData,
             prompt: prompt,
             batch_size: batchSize
-        });
+        }, { timeout: 120_000 });
         return res.data;
     },
 

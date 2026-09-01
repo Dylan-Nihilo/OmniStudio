@@ -116,7 +116,7 @@ export default function SeriesSidebar({
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="text-xs text-text-secondary truncate">MANGIX</span>
+            <span className="text-xs text-text-secondary truncate">Omni Studio</span>
           </div>
 
           {/* Editable title */}

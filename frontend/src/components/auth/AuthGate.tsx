@@ -5,7 +5,7 @@ import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuthStore } from "@/store/authStore";
 import { AUTH_EXPIRED_EVENT, isSafeReturnHash, rememberReturnHash } from "@/lib/apiClient";
-import LumenXBranding from "@/components/layout/LumenXBranding";
+import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import LoginPage from "./LoginPage";
 import ResetPasswordPage from "./ResetPasswordPage";
 import SetupPage from "./SetupPage";
@@ -25,7 +25,7 @@ function AuthSurface({ children }: { children: ReactNode }) {
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.018)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.018)_1px,transparent_1px)] bg-[size:42px_42px] [mask-image:radial-gradient(circle_at_center,black,transparent_78%)]" />
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-7 flex justify-center">
-          <LumenXBranding size="md" />
+          <OmniStudioBranding size="md" />
         </div>
         {children}
       </div>
@@ -51,6 +51,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const bootstrapping = useAuthStore((state) => state.bootstrapping);
   const setupStatus = useAuthStore((state) => state.setupStatus);
   const user = useAuthStore((state) => state.user);
+  const legacyClaimPending = useAuthStore((state) => state.legacyClaimPending);
   const [bootstrapError, setBootstrapError] = useState(false);
   const [authExpired, setAuthExpired] = useState(false);
   const [currentHash, setCurrentHash] = useState(() =>
@@ -105,10 +106,16 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (legacyClaimPending) {
+      if (currentHash !== "#/setup") window.location.hash = "#/setup";
+      return;
+    }
+
     if (currentHash === "#/login" || currentHash === "#/setup" || currentHash === RESET_PASSWORD_HASH) {
       window.location.hash = "#/workspace";
     }
-  }, [authExpired, bootstrapError, bootstrapping, currentHash, setupStatus, user]);
+
+  }, [authExpired, bootstrapError, bootstrapping, currentHash, legacyClaimPending, setupStatus, user]);
 
   if (bootstrapping) return <AuthLoadingScreen />;
 
@@ -139,5 +146,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (!setupStatus?.initialized) return <SetupPage />;
   if (!user && currentHash === RESET_PASSWORD_HASH) return <ResetPasswordPage />;
   if (!user) return <LoginPage />;
+  if (legacyClaimPending) return <SetupPage />;
   return <>{children}</>;
 }

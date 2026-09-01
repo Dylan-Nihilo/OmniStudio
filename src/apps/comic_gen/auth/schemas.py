@@ -139,6 +139,43 @@ class SetupStatusResponse(BaseModel):
     setup_token_required: bool
 
 
+class LegacyClaimApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_source_sha256: str = Field(min_length=64, max_length=64)
+
+
+class LegacyClaimSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projects: int
+    series: int
+    media: int
+    conflicts: int
+
+
+class LegacyClaimBatchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    source_sha256: str
+    status: str
+    project_ids: list[str]
+    series_ids: list[str]
+    created_at: float
+    completed_at: float
+    rolled_back_at: float | None = None
+
+
+class LegacyClaimResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: str
+    source_sha256: str | None = None
+    source_files: list[dict[str, Any]]
+    summary: LegacyClaimSummaryResponse
+    diagnostics: list[dict[str, Any]]
+    rollback_available: bool
+    batch: LegacyClaimBatchResponse | None = None
+    idempotent: bool | None = None
+
+
 class ErrorBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: str
@@ -151,4 +188,22 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
-__all__ = ["ChangePasswordRequest", "ChangePasswordResponse", "ErrorResponse", "LoginRequest", "LoginResponse", "MeResponse", "PasswordResetRequest", "PasswordResetResponse", "PasswordResetStatusResponse", "RefreshResponse", "SetupRequest", "SetupResponse", "SetupStatusResponse", "UserResponse", "WorkspaceResponse"]
+__all__ = [
+    "ChangePasswordRequest",
+    "ChangePasswordResponse",
+    "ErrorResponse",
+    "LegacyClaimApplyRequest",
+    "LegacyClaimResponse",
+    "LoginRequest",
+    "LoginResponse",
+    "MeResponse",
+    "PasswordResetRequest",
+    "PasswordResetResponse",
+    "PasswordResetStatusResponse",
+    "RefreshResponse",
+    "SetupRequest",
+    "SetupResponse",
+    "SetupStatusResponse",
+    "UserResponse",
+    "WorkspaceResponse",
+]

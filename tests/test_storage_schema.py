@@ -39,6 +39,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
     assert set(inspector.get_table_names()) == {
         "schema_migrations",
         "migration_runs",
+        "legacy_claim_batches",
         "users",
         "workspaces",
         "projects",
@@ -52,6 +53,10 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "migration_runs": {
             "uq_migration_runs_apply_source",
             "ix_migration_runs_source",
+        },
+        "legacy_claim_batches": {
+            "ix_legacy_claim_workspace_created",
+            "ix_legacy_claim_source",
         },
         "workspaces": {"ix_workspaces_owner_user_id"},
         "projects": {
@@ -75,6 +80,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
     assert set(Base.metadata.tables) == {
         "schema_migrations",
         "migration_runs",
+        "legacy_claim_batches",
         "users",
         "workspaces",
         "projects",
@@ -262,7 +268,7 @@ def test_series_project_delete_is_restricted(memory_engine):
 
 
 def test_file_database_path_is_parameterized_and_isolated(tmp_path):
-    db_path = tmp_path / "nested" / "lumenx.db"
+    db_path = tmp_path / "nested" / "omni_studio.db"
     engine = create_engine(db_path)
     try:
         init_schema(engine)
@@ -273,6 +279,4 @@ def test_file_database_path_is_parameterized_and_isolated(tmp_path):
         engine.dispose()
 
     assert not (tmp_path / "output").exists()
-
-
 

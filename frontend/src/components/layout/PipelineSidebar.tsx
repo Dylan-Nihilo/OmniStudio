@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { useTranslations } from "next-intl";
-import LumenXBranding from "./LumenXBranding";
+import OmniStudioBranding from "./OmniStudioBranding";
 import type { BreadcrumbSegment } from "./BreadcrumbBar";
 
 interface Step {
@@ -110,7 +110,7 @@ export default function PipelineSidebar({ activeStep, onStepChange, steps, bread
                         )}
                     </div>
                 ) : (
-                    <LumenXBranding size="sm" />
+                    <OmniStudioBranding size="sm" />
                 )}
             </div>
 

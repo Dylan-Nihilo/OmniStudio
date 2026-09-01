@@ -1,10 +1,10 @@
 ---
-description: LumenX Studio 桌面应用构建流程 - macOS DMG 和 Windows EXE 打包
+description: Omni Studio 桌面应用构建流程 - macOS DMG 和 Windows EXE 打包
 ---
 
-# LumenX Studio 桌面应用构建
+# Omni Studio 桌面应用构建
 
-此 skill 用于将 LumenX Studio 打包为桌面应用分发包。
+此 skill 用于将 Omni Studio 打包为桌面应用分发包。
 
 ## 前置条件
 
@@ -46,14 +46,14 @@ chmod +x build_mac.sh
 ### 3. 输出位置
 
 ```
-dist_mac/LumenX Studio.app   # macOS 应用
-dist_mac/LumenX Studio.dmg   # DMG 安装包（分发用）
+dist_mac/Omni Studio.app   # macOS 应用
+dist_mac/Omni Studio.dmg   # DMG 安装包（分发用）
 ```
 
 ### 4. 测试
 
 ```bash
-open "dist_mac/LumenX Studio.app"
+open "dist_mac/Omni Studio.app"
 ```
 
 ### macOS 常见问题
@@ -61,7 +61,7 @@ open "dist_mac/LumenX Studio.app"
 | 问题 | 解决方案 |
 |------|---------|
 | FFmpeg 未找到 | `brew install ffmpeg` |
-| DMG 创建失败 | 卸载已挂载的 DMG: `hdiutil detach "/Volumes/LumenX Studio"` |
+| DMG 创建失败 | 卸载已挂载的 DMG: `hdiutil detach "/Volumes/Omni Studio"` |
 | 签名错误 | 首次运行需右键→打开，绕过 Gatekeeper |
 
 ## Windows 构建 (.exe)
@@ -82,7 +82,7 @@ open "dist_mac/LumenX Studio.app"
 ### 2. 输出位置
 
 ```
-dist_windows\LumenX Studio.exe   # Windows 可执行文件
+dist_windows\Omni Studio.exe   # Windows 可执行文件
 ```
 
 ### Windows 常见问题
@@ -103,8 +103,8 @@ rm -rf frontend/.next frontend/out static/
 ## 应用数据路径
 
 打包后应用的用户数据存储在：
-- **macOS/Linux:** `~/.lumen-x/`
-- **Windows:** `C:\Users\<username>\.lumen-x\`
+- **macOS/Linux:** `~/.omni-studio/`
+- **Windows:** `C:\Users\<username>\.omni-studio\`
 
 包含：
 - `config.json` — 配置（API Key、OSS 等）

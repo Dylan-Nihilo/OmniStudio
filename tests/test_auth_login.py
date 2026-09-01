@@ -35,7 +35,7 @@ def test_login_with_username_and_email_succeeds(tmp_path):
         by_email = client.post("/auth/login", json=payload(" owner@example.com "))
         assert by_email.status_code == 200, by_email.text
         assert by_email.json()["workspace"]["slug"] == "default"
-        assert "lumenx_access=" in by_email.headers["set-cookie"]
+        assert "omni_studio_access=" in by_email.headers["set-cookie"]
     engine.dispose()
 
 

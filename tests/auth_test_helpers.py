@@ -44,12 +44,12 @@ class AuthTestClient(TestClient):
         headers = dict(kwargs.pop("headers", {}) or {})
         headers.setdefault("Origin", "http://testserver")
         if method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and "X-CSRF-Token" not in headers:
-            csrf = self.cookies.get("lumenx_csrf")
+            csrf = self.cookies.get("omni_studio_csrf")
             if not csrf and str(url).startswith("/auth/"):
                 # Clearing cookies between login attempts is common in the
                 # auth tests; bootstrap the pre-auth CSRF cookie again.
                 self.get("/auth/setup-status")
-                csrf = self.cookies.get("lumenx_csrf")
+                csrf = self.cookies.get("omni_studio_csrf")
             if csrf:
                 headers["X-CSRF-Token"] = csrf
         kwargs["headers"] = headers

@@ -7,7 +7,7 @@
  *     中文标题 + 副标题走 sans (Inter→PingFang fallback)。
  *     Space Grotesk 在这一层不出现 —— 它的中文 fallback 偏粗，
  *     16px 中文已经足够"工具焦点"，不需要营销 hero 尺度。
- *   - **对齐 LumenX type scale**：标题 16px = display token 上限；
+ *   - **对齐 Omni Studio type scale**：标题 16px = display token 上限；
  *     副标题 12px = body-sm；eyebrow 9.5px mono uppercase 0.20em。
  *   - **克制 progress**：1px hairline + 节点，单色紫，无 glow / 无 pink halo。
  *     仅 current node 有微 ring（紫 10%），是全 panel 唯一的"有色信号"。
@@ -99,7 +99,7 @@ export default function StepHeader({
                         <span aria-hidden="true" className="h-px w-3 bg-glass-border" />
                         <span>{englishName}</span>
                     </span>
-                    {/* 中文标题 — Inter Medium 16px (LumenX display token 上限) */}
+                    {/* 中文标题 — Inter Medium 16px (Omni Studio display token 上限) */}
                     <span
                         className="text-[1rem] font-medium leading-[1.3] text-foreground"
                         style={{ letterSpacing: 0 }}

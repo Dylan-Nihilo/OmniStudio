@@ -22,6 +22,15 @@ export interface LocalizedPipelineStep {
     label: string;
 }
 
+export function resolveActivePipelineStep(
+    activeStep: string,
+    steps: ReadonlyArray<Pick<LocalizedPipelineStep, "id">>,
+): string {
+    return steps.some((step) => step.id === activeStep)
+        ? activeStep
+        : (steps[0]?.id ?? "script");
+}
+
 const LEGACY_STEP_DEFINITIONS: ReadonlyArray<{
     id: PipelineStepId;
     messageKey: PipelineStepMessageKey;

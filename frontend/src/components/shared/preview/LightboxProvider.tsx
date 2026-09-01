@@ -14,7 +14,7 @@
  *   - `useLightbox()` — components call `open({src, alt, kind, group?})`
  *   - `LightboxGroup` — wraps children to register them as a navigable set
  *
- * Visual treatment matches CompareModal (z-60 backdrop, motion-safe
+ * Visual treatment matches CompareModal (high-priority z-300 backdrop, motion-safe
  * enter animation, click-outside / ESC to close).
  */
 import React, {
@@ -216,7 +216,7 @@ function LightboxPortal({
             <div
                 aria-hidden="true"
                 onClick={onClose}
-                className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm motion-safe:animate-[lightboxFadeIn_200ms_ease-out_both]"
+                className="fixed inset-0 z-[300] bg-black/85 backdrop-blur-sm motion-safe:animate-[lightboxFadeIn_200ms_ease-out_both]"
             />
             <div
                 ref={dialogRef}
@@ -224,15 +224,15 @@ function LightboxPortal({
                 aria-modal="true"
                 aria-label={item.alt || t("previewAlt")}
                 tabIndex={-1}
-                className="fixed inset-0 z-[61] flex items-center justify-center p-8 outline-none motion-safe:animate-[lightboxScaleIn_220ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                className="fixed inset-0 z-[301] flex items-center justify-center p-8 outline-none motion-safe:animate-[lightboxScaleIn_220ms_cubic-bezier(0.22,1,0.36,1)_both]"
             >
                 {/* Top-right toolbar */}
-                <div className="absolute right-4 top-4 z-[62] flex items-center gap-1">
+                <div className="absolute right-4 top-4 z-[302] flex items-center gap-1">
                     <button
                         type="button"
                         onClick={onCopyUrl}
                         title={t("copyUrl")}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-md border border-foreground/15 bg-black/55 px-3 font-mono text-chrome-sm font-medium text-foreground backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-black/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/35 bg-[#101018]/95 px-3 font-mono text-chrome-sm font-medium text-white shadow-lg shadow-black/40 backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-[#1b1b28] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/75"
                     >
                         {copied ? <Check size={13} /> : <Copy size={13} />}
                         {copied ? t("copied") : t("copyUrl")}
@@ -242,7 +242,7 @@ function LightboxPortal({
                         target="_blank"
                         rel="noreferrer"
                         title={t("openInNewTab")}
-                        className="grid h-9 w-9 place-items-center rounded-md border border-foreground/15 bg-black/55 text-foreground backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-black/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        className="grid h-9 w-9 place-items-center rounded-md border border-white/35 bg-[#101018]/95 text-white shadow-lg shadow-black/40 backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-[#1b1b28] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/75"
                     >
                         <ExternalLink size={14} />
                     </a>
@@ -251,7 +251,7 @@ function LightboxPortal({
                         onClick={onClose}
                         title={t("closeEsc")}
                         aria-label={t("close")}
-                        className="grid h-9 w-9 place-items-center rounded-md border border-foreground/15 bg-black/55 text-foreground backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-black/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        className="grid h-9 w-9 place-items-center rounded-md border border-white/35 bg-[#101018]/95 text-white shadow-lg shadow-black/40 backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-[#1b1b28] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/75"
                     >
                         <X size={16} />
                     </button>
@@ -264,7 +264,7 @@ function LightboxPortal({
                         onClick={onPrev}
                         aria-label={t("prev")}
                         title={t("prevTitle")}
-                        className="absolute left-4 top-1/2 z-[62] grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-foreground/15 bg-black/55 text-foreground backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        className="absolute left-4 top-1/2 z-[302] grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/35 bg-[#101018]/95 text-white shadow-lg shadow-black/40 backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-[#1b1b28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/75"
                     >
                         <ChevronLeft size={20} />
                     </button>
@@ -275,7 +275,7 @@ function LightboxPortal({
                         onClick={onNext}
                         aria-label={t("next")}
                         title={t("nextTitle")}
-                        className="absolute right-4 top-1/2 z-[62] grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-foreground/15 bg-black/55 text-foreground backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        className="absolute right-4 top-1/2 z-[302] grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/35 bg-[#101018]/95 text-white shadow-lg shadow-black/40 backdrop-blur transition-colors duration-fast ease-out-quart hover:bg-[#1b1b28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/75"
                     >
                         <ChevronRight size={20} />
                     </button>
@@ -283,7 +283,7 @@ function LightboxPortal({
 
                 {/* Group counter */}
                 {groupCount > 1 ? (
-                    <div className="absolute bottom-4 left-1/2 z-[62] -translate-x-1/2 rounded-full border border-foreground/15 bg-black/55 px-3 py-1 font-mono text-chrome-sm text-foreground backdrop-blur">
+                    <div className="absolute bottom-4 left-1/2 z-[302] -translate-x-1/2 rounded-full border border-white/35 bg-[#101018]/95 px-3 py-1 font-mono text-chrome-sm text-white shadow-lg shadow-black/40 backdrop-blur">
                         {groupIndex + 1} / {groupCount}
                     </div>
                 ) : null}

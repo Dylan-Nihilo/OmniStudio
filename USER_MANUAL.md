@@ -1,4 +1,4 @@
-# Lumen-X 用户手册
+# Omni Studio 用户手册
 
 > 作者：星莲(StarLotus，张钧贺)
 
@@ -16,7 +16,7 @@
 
 ### 首次启动（仅限应用打包方式）
 
-1. **双击应用图标**启动 Lumen-X
+1. **双击应用图标**启动 Omni Studio
 2. 应用会自动打开**设置页面**
 3. 按照提示完成 **API 密钥配置**
 
@@ -26,14 +26,14 @@
 
 | 系统 | 路径 |
 |------|------|
-| macOS / Linux | `~/.lumen-x/` |
-| Windows | `C:\Users\<用户名>\.lumen-x\` |
+| macOS / Linux | `~/.omni-studio/` |
+| Windows | `C:\Users\<用户名>\.omni-studio\` |
 
 ---
 
 ## 🔑 API 密钥配置
 
-LumenX 使用阿里云灵积平台(DashScope)提供 AI 能力。
+Omni Studio 使用阿里云灵积平台(DashScope)提供 AI 能力。
 
 ### 获取 API Key
 
@@ -45,7 +45,7 @@ LumenX 使用阿里云灵积平台(DashScope)提供 AI 能力。
 
 ### 在应用中配置
 
-1. 启动 LumenX
+1. 启动 Omni Studio
 2. 点击左上角 **设置图标** ⚙️
 3. 找到 **DASHSCOPE_API_KEY** 输入框
 4. 粘贴您的 API Key
@@ -57,7 +57,7 @@ LumenX 使用阿里云灵积平台(DashScope)提供 AI 能力。
 
 ## 🧩 运行模式说明（含必填项）
 
-LumenX 的媒体存储是 **本地优先**：
+Omni Studio 的媒体存储是 **本地优先**：
 
 - 所有素材先落盘到 `output/`；
 - OSS 仅在你配置后作为“可选镜像 + 签名 URL”使用；
@@ -123,9 +123,9 @@ OSS 配置用于云端存储生成的资产，适合团队协作或跨设备使�
 |------|------|------|
 | ALIBABA_CLOUD_ACCESS_KEY_ID | AccessKey ID | `LTAI5t...` |
 | ALIBABA_CLOUD_ACCESS_KEY_SECRET | AccessKey Secret | `xxxxxx...` |
-| OSS_BUCKET_NAME | Bucket 名称 | `my-lumenx-bucket` |
+| OSS_BUCKET_NAME | Bucket 名称 | `my-omni_studio-bucket` |
 | OSS_ENDPOINT | OSS 地域节点 | `oss-cn-beijing.aliyuncs.com` |
-| OSS_BASE_PATH | 存储路径前缀 | `lumenx` |
+| OSS_BASE_PATH | 存储路径前缀 | `omni_studio` |
 
 ---
 
@@ -137,19 +137,19 @@ OSS 配置用于云端存储生成的资产，适合团队协作或跨设备使�
 
 | 系统 | 路径 |
 |------|------|
-| macOS / Linux | `~/.lumen-x/logs/app.log` |
-| Windows | `C:\Users\<用户名>\.lumen-x\logs\app.log` |
+| macOS / Linux | `~/.omni-studio/logs/app.log` |
+| Windows | `C:\Users\<用户名>\.omni-studio\logs\app.log` |
 
 ### 打开日志目录
 
 **macOS**：
 1. 打开 Finder
 2. 按 `Cmd + Shift + G`
-3. 输入 `~/.lumen-x/logs` 并回车
+3. 输入 `~/.omni-studio/logs` 并回车
 
 **Windows**：
 1. 打开资源管理器
-2. 在地址栏输入 `%USERPROFILE%\.lumen-x\logs`
+2. 在地址栏输入 `%USERPROFILE%\.omni-studio\logs`
 3. 按回车
 
 ### 如何提交问题报告
@@ -164,7 +164,7 @@ OSS 配置用于云端存储生成的资产，适合团队协作或跨设备使�
 
 ### Q: 为什么需要配置 API Key？
 
-A: LumenX 使用阿里云灵积平台的 AI 模型进行图像和视频生成。API Key 用于验证您的身份并计费。
+A: Omni Studio 使用阿里云灵积平台的 AI 模型进行图像和视频生成。API Key 用于验证您的身份并计费。
 
 ### Q: OSS 配置失败怎么办？
 
@@ -182,7 +182,7 @@ A: LumenX 使用阿里云灵积平台的 AI 模型进行图像和视频生成。
 
 ### Q: 如何清理缓存？
 
-删除 `~/.lumen-x/` 目录下的 `webview_storage` 文件夹，然后重启应用。
+删除 `~/.omni-studio/` 目录下的 `webview_storage` 文件夹，然后重启应用。
 
 ---
 
