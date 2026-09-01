@@ -34,6 +34,9 @@ export type CastKind = "character" | "scene" | "prop";
 // Module-level poll registry — survives modal close/reopen.
 export const activePolls = new Map<string, ReturnType<typeof setInterval>>();
 
+export const getCastPromptTextareaClasses = () =>
+    "w-full min-h-[260px] max-h-[400px] rounded-md border border-glass-border bg-input-bg px-3.5 py-2.5 text-[0.875rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 disabled:cursor-wait disabled:bg-surface-inset disabled:text-text-secondary disabled:opacity-100 resize-y leading-relaxed";
+
 function startAssetPoll(
     entityId: string,
     taskId: string,
@@ -602,12 +605,12 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                                         isActive
                                                             ? "border-primary/60 ring-1 ring-primary/30 bg-primary/5"
                                                             : isLocked
-                                                                ? "border-glass-border bg-black/20 opacity-50 cursor-not-allowed"
-                                                                : "border-glass-border bg-black/20 hover:border-foreground/30 hover:bg-hover-bg"
+                                                                ? "border-glass-border bg-surface-inset opacity-50 cursor-not-allowed"
+                                                                : "border-glass-border bg-surface-inset hover:border-foreground/30 hover:bg-hover-bg"
                                                     }`}
                                                 >
                                                     {/* Example thumbnail area — 4:3 ratio */}
-                                                    <div className="aspect-[4/3] bg-black/30 flex items-center justify-center overflow-hidden">
+                                                    <div className="aspect-[4/3] bg-input-bg flex items-center justify-center overflow-hidden">
                                                         {tpl.exampleImage ? (
                                                             <img src={tpl.exampleImage} alt="" className="w-full h-full object-cover" />
                                                         ) : (
@@ -678,7 +681,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                 value={prompt}
                                 onChange={(e) => { setPrompt(e.target.value); setPromptDirty(true); }}
                                 disabled={generating}
-                                className="w-full min-h-[260px] max-h-[400px] rounded-md border border-glass-border bg-black/30 px-3.5 py-2.5 text-[0.875rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 disabled:opacity-60 resize-y leading-relaxed"
+                                className={getCastPromptTextareaClasses()}
                             />
 
                             {/* Quick tags — immediately below textarea */}
@@ -702,7 +705,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
 
                             {/* Final prompt preview — collapsible, scrollable */}
                             {applyStyle && stylePositive && (
-                                <div className="mt-3 rounded-md bg-black/20 border border-glass-border">
+                                <div className="mt-3 rounded-md bg-surface-inset border border-glass-border">
                                     <button
                                         type="button"
                                         onClick={() => setFinalPreviewExpanded(!finalPreviewExpanded)}

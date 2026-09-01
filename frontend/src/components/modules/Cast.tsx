@@ -43,6 +43,15 @@ interface CastItem {
     persona?: string;               // R2V v2 P1-a — characters only; groups visual variants of same person
 }
 
+export const getCastThumbnailClasses = (aspect: string) =>
+    `${aspect} overflow-hidden rounded-md bg-surface-inset relative cursor-pointer`;
+
+export const getCastEmptyThumbnailClasses = () =>
+    "relative grid h-full w-full place-items-center bg-surface-inset text-text-secondary hover:bg-hover-bg hover:text-foreground transition-colors overflow-hidden";
+
+export const getCastGeneratingOverlayClasses = () =>
+    "absolute inset-0 z-20 grid place-items-center rounded-md border border-status-processing-border bg-elevated text-status-processing-fg";
+
 /**
  * Resolve a character's primary reference image URL with legacy fallback.
  * Per design v2 (Q12-补充 A): new schema is `reference_sheet`; old
@@ -825,7 +834,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                 {/* Kind chip — top-right, near-mono. Sits on TOP of the thumb
                     so it works for both empty and ready states without
                     occluding the image (small + corner-tucked). */}
-                <span className="absolute top-2.5 right-2.5 z-10 pointer-events-none inline-flex items-center rounded-sm border border-glass-border bg-black/40 px-1.5 py-[1px] font-mono text-[0.53125rem] uppercase tracking-[0.18em] text-text-muted backdrop-blur-sm">
+                <span className="absolute top-2.5 right-2.5 z-10 pointer-events-none inline-flex items-center rounded-sm border border-glass-border bg-elevated px-1.5 py-[1px] font-mono text-[0.53125rem] uppercase tracking-[0.18em] text-text-muted shadow-sm">
                     {k.chipLabel}
                 </span>
                 {/* Hover hairline accent — single top edge, animated on group-hover */}
@@ -835,7 +844,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                     style={{ background: k.hoverAccent }}
                 />
                 <div
-                    className={`${k.aspect} overflow-hidden rounded-md bg-black/40 relative cursor-pointer`}
+                    className={getCastThumbnailClasses(k.aspect)}
                     onClick={() => item.referenceImageUrl && onOpenWorkbench?.()}
                 >
                     {item.referenceImageUrl ? (
@@ -856,7 +865,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                     ) : (
                         <button
                             onClick={() => onOpenWorkbench?.()}
-                            className="relative grid h-full w-full place-items-center bg-black/20 text-text-secondary hover:text-foreground transition-colors overflow-hidden"
+                            className={getCastEmptyThumbnailClasses()}
                             style={k.emptyPattern}
                         >
                             {item.kind === "scene" && (
@@ -873,10 +882,10 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                         </button>
                     )}
                     {isGenerating && (
-                        <div className="absolute inset-0 z-20 grid place-items-center bg-black/60 backdrop-blur-sm rounded-md">
+                        <div className={getCastGeneratingOverlayClasses()}>
                             <div className="flex flex-col items-center gap-1.5">
-                                <Loader2 size={20} className="animate-spin text-primary" />
-                                <span className="text-[0.625rem] text-text-secondary">生成中...</span>
+                                <Loader2 size={20} className="animate-spin text-status-processing-fg" />
+                                <span className="text-[0.625rem] font-medium text-status-processing-fg">生成中...</span>
                             </div>
                         </div>
                     )}
@@ -899,7 +908,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                     <div className="flex items-center gap-1 px-0.5 opacity-0 group-hover/cast-card:opacity-100 transition-opacity">
                         <button
                             onClick={(e) => { e.stopPropagation(); setPickerOpen(true); }}
-                            className="flex-1 inline-flex items-center gap-1.5 rounded-md border border-glass-border bg-black/30 px-2 py-1 text-[0.625rem] text-text-secondary hover:border-foreground/30 hover:text-foreground transition-colors min-w-0"
+                            className="flex-1 inline-flex items-center gap-1.5 rounded-md border border-glass-border bg-surface-inset px-2 py-1 text-[0.625rem] text-text-secondary hover:border-foreground/30 hover:bg-hover-bg hover:text-foreground transition-colors min-w-0"
                             title={voiceId ? t("voiceBindChange") : t("voiceBindAdd")}
                         >
                             <Volume2 size={10} className={voiceId ? "text-primary" : "text-text-muted"} />
@@ -915,7 +924,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                                 className={`shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors ${
                                     playing
                                         ? "border-primary bg-primary/15 text-primary"
-                                        : "border-glass-border bg-black/30 text-text-secondary hover:border-foreground/30 hover:text-foreground"
+                                        : "border-glass-border bg-surface-inset text-text-secondary hover:border-foreground/30 hover:bg-hover-bg hover:text-foreground"
                                 }`}
                             >
                                 {previewing ? <Loader2 size={10} className="animate-spin" /> : playing ? <Pause size={10} /> : <Play size={10} />}
