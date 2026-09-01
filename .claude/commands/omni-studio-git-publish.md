@@ -13,7 +13,7 @@ description: Omni Studio GitHub 发布流程 - 安全提交、敏感数据扫描
 - **推送前必须执行敏感数据扫描**
 - **Commit Message 遵循 Conventional Commits** (`feat:` / `fix:` / `docs:` / `refactor:` / `chore:`)
 - **GitHub remote 名称为 `github`**，仓库地址：`https://github.com/Dylan-Nihilo/OmniStudio.git`
-- **PR 统一由 `zhxqc` 账号发起**（已通过 `gh` 登录）
+- **PR 由当前已通过 `gh` 认证且拥有仓库权限的维护者账号发起**；禁止写死或自动切换到某个协作者账号
 - **Git 作者使用本地已配置的作者**（本仓库已配置好，不要修改 git config），**禁止添加 `Co-Authored-By` 行**
 - **合并一律使用 squash merge**，保证 main 历史「一个功能一个提交」
 
@@ -142,7 +142,7 @@ git push -u github <branch-name>
 
 ### 4. 创建 Pull Request
 
-使用 GitHub CLI（已用 `zhxqc` 登录）向 `Dylan-Nihilo/OmniStudio` 发起 PR：
+使用 GitHub CLI 当前已认证且拥有仓库权限的维护者账号，向 `Dylan-Nihilo/OmniStudio` 发起 PR。不要因流程文档而切换到某个固定用户名：
 
 ```bash
 gh pr create --repo Dylan-Nihilo/OmniStudio --title "feat: your PR title" --body "$(cat <<'EOF'
