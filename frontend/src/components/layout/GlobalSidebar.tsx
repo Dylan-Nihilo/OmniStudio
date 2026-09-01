@@ -125,10 +125,10 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
           type="button"
           onClick={() => handleNav("workspace", "#/")}
           aria-label={t("workspaceAria")}
-          className="border-b border-glass-border px-4 pb-4 pt-5 text-left transition-opacity hover:opacity-90"
+          className="border-b border-glass-border px-4 pb-3.5 pt-4 text-left transition-opacity hover:opacity-90"
         >
-          <OmniStudioBranding size="md" showSlogan={false} />
-          <p className="atelier-display mt-2.5 font-display text-[0.75rem] italic leading-snug tracking-wide text-text-muted">
+          <OmniStudioBranding size="sm" showSlogan={false} />
+          <p className="atelier-display mt-1.5 font-display text-[0.6875rem] italic leading-snug tracking-wide text-text-muted">
             Stories, Rendered Alive.
           </p>
         </button>
