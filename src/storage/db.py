@@ -16,7 +16,16 @@ from sqlalchemy.pool import StaticPool
 
 from .schema import Base, SchemaMigration, Workspace, WorkspaceMembership
 
-DEFAULT_DB_PATH = Path("output") / "omni_studio.db"
+
+def resolve_default_db_path(output_dir: Path = Path("output")) -> Path:
+    preferred_path = output_dir / "omni_studio.db"
+    legacy_path = output_dir / "lumenx.db"
+    # ponytail: Keep the legacy filename in place; use a versioned migration if
+    # the physical database file ever needs to be renamed.
+    return legacy_path if legacy_path.exists() and not preferred_path.exists() else preferred_path
+
+
+DEFAULT_DB_PATH = resolve_default_db_path()
 INITIAL_SCHEMA_VERSION = "w1.1"
 SCHEMA_VERSION = "w3.1-auth"
 SCHEMA_DESCRIPTION = "Omni Studio W3.1 authentication schema"
@@ -198,6 +207,7 @@ session_factory = create_session_factory
 
 __all__ = [
     "DEFAULT_DB_PATH",
+    "resolve_default_db_path",
     "SCHEMA_VERSION",
     "INITIAL_SCHEMA_VERSION",
     "SCHEMA_DESCRIPTION",
