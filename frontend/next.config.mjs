@@ -22,6 +22,12 @@ const nextConfig = {
     async rewrites() {
         return isProd ? [] : [
             {
+                // Keep the browser-visible path under /auth so HttpOnly
+                // refresh cookies scoped to Path=/auth are sent on renewal.
+                source: '/auth/:path*',
+                destination: `${BACKEND_URL}/auth/:path*`,
+            },
+            {
                 source: '/api-proxy/:path*',
                 destination: `${BACKEND_URL}/:path*`,
             },

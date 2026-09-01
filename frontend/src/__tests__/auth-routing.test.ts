@@ -1,8 +1,17 @@
 import axios from "axios";
 import { describe, expect, it } from "vitest";
-import { isAuthenticationRecoveryError, isSafeReturnHash } from "@/lib/apiClient";
+import {
+  isAuthenticationRecoveryError,
+  isSafeReturnHash,
+  resolveAuthApiUrl,
+} from "@/lib/apiClient";
 
 describe("authentication hash routing", () => {
+  it("keeps development refresh requests on the refresh cookie path", () => {
+    expect(resolveAuthApiUrl("/api-proxy")).toBe("");
+    expect(resolveAuthApiUrl("http://127.0.0.1:17177")).toBe("http://127.0.0.1:17177");
+  });
+
   it("does not remember public authentication pages as return targets", () => {
     expect(isSafeReturnHash("#/login")).toBe(false);
     expect(isSafeReturnHash("#/setup")).toBe(false);
