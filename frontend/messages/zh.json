@@ -1827,7 +1827,9 @@
       "empty": "队列为空",
       "pending": "待发",
       "dispatching": "派发中",
-      "cancel": "取消"
+      "cancel": "取消",
+      "dispatchFailed": "生成任务启动失败",
+      "unknownError": "未知错误"
     }
   },
   "scriptEditor": {

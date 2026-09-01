@@ -1827,7 +1827,9 @@
       "empty": "Queue is empty",
       "pending": "Queued",
       "dispatching": "Starting",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "dispatchFailed": "Generation could not start",
+      "unknownError": "Unknown error"
     }
   },
   "scriptEditor": {

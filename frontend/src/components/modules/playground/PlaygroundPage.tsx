@@ -11,6 +11,7 @@ import ParameterBar from './ParameterBar';
 import ResultGallery from './ResultGallery';
 import { usePlaygroundStore, type PlaygroundMode, type PlaygroundGeneration, type QueuedRequest } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
+import { toast } from '@/store/toastStore';
 import { normalizeGeneration, normalizeTemplate } from './normalizers';
 
 // ---------------------------------------------------------------------------
@@ -159,6 +160,9 @@ export default function PlaygroundPage() {
       }
     } catch (err) {
       console.error('[Playground] Dispatch failed:', err);
+      toast.error(t('queue.dispatchFailed'), {
+        body: err instanceof Error ? err.message : t('queue.unknownError'),
+      });
       removeFromQueue(req.id);
     }
   }, [startGeneration, removeFromQueue, startPolling]);
