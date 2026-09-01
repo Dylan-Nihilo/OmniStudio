@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Editor } from '@tiptap/react';
+import { createUuid } from '@/lib/id';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ function buildFormattedContent(text: string, suggestions: PasteSuggestion[]) {
       case 'section_heading_japanese_bracket':
         nodes.push({
           type: 'sceneHeading',
-          attrs: { id: crypto.randomUUID() },
+          attrs: { id: createUuid() },
           content: [{ type: 'text', text: trimmed }],
         });
         break;

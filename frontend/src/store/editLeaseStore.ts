@@ -1,6 +1,7 @@
 import axios from "axios";
 import { create } from "zustand";
 import { apiClient, API_URL, CLIENT_INSTANCE_KEY } from "@/lib/apiClient";
+import { createUuid } from "@/lib/id";
 
 type LeaseStatus = "idle" | "acquiring" | "editing" | "locked" | "lost";
 
@@ -30,7 +31,7 @@ interface EditLeaseStore {
 const clientInstanceId =
   typeof window === "undefined"
     ? "server"
-    : window.sessionStorage.getItem(CLIENT_INSTANCE_KEY) || crypto.randomUUID();
+    : window.sessionStorage.getItem(CLIENT_INSTANCE_KEY) || createUuid();
 
 if (typeof window !== "undefined") {
   window.sessionStorage.setItem(CLIENT_INSTANCE_KEY, clientInstanceId);
