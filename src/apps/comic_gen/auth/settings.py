@@ -53,9 +53,11 @@ class AuthSettings:
         allow_test_bypass = _bool_env(env, "OMNI_STUDIO_AUTH_TEST_BYPASS", False)
         if allow_test_bypass and app_env != "test":
             raise RuntimeError("OMNI_STUDIO_AUTH_TEST_BYPASS is allowed only when APP_ENV=test")
-        path = Path(config_path or env.get("OMNI_STUDIO_CONFIG_PATH", "~/.omni-studio/config.json")).expanduser()
+        path = Path(
+            config_path or _auth_env(env, "OMNI_STUDIO_CONFIG_PATH", "~/.omni-studio/config.json")
+        ).expanduser()
         stored = _read_config(path)
-        secret = env.get("OMNI_STUDIO_AUTH_SIGNING_SECRET") or _stored_secret(stored)
+        secret = _auth_env(env, "OMNI_STUDIO_AUTH_SIGNING_SECRET") or _stored_secret(stored)
         if not secret:
             if engine is not None and _count_users(engine) > 0:
                 raise RuntimeError(
@@ -66,14 +68,14 @@ class AuthSettings:
         if len(secret.encode("utf-8")) < 32:
             raise ValueError("OMNI_STUDIO_AUTH_SIGNING_SECRET must contain at least 32 bytes")
 
-        setup_token = env.get("OMNI_STUDIO_SETUP_TOKEN") or None
+        setup_token = _auth_env(env, "OMNI_STUDIO_SETUP_TOKEN") or None
         if (
             setup_token is not None
             and len(setup_token.encode("utf-8")) < 32
         ):
             raise ValueError("OMNI_STUDIO_SETUP_TOKEN must contain at least 32 bytes")
 
-        password_reset_token = env.get("OMNI_STUDIO_PASSWORD_RESET_TOKEN") or None
+        password_reset_token = _auth_env(env, "OMNI_STUDIO_PASSWORD_RESET_TOKEN") or None
         if (
             password_reset_token is not None
             and len(password_reset_token.encode("utf-8")) < 32
@@ -88,7 +90,7 @@ class AuthSettings:
             raise ValueError(
                 "OMNI_STUDIO_AUTH_REFRESH_TTL_SECONDS must be between 604800 and 2592000"
             )
-        env_origins = env.get("OMNI_STUDIO_AUTH_ALLOWED_ORIGINS", "").strip()
+        env_origins = _auth_env(env, "OMNI_STUDIO_AUTH_ALLOWED_ORIGINS", "").strip()
         if env_origins:
             origins = _csv(env_origins)
         else:
@@ -105,9 +107,11 @@ class AuthSettings:
             refresh_ttl_seconds=refresh_ttl,
             cookie_secure=_bool_env(env, "OMNI_STUDIO_AUTH_COOKIE_SECURE", False),
             allowed_origins=origins,
-            issuer=env.get("OMNI_STUDIO_AUTH_ISSUER", "omni_studio"),
-            audience=env.get("OMNI_STUDIO_AUTH_AUDIENCE", "omni-studio"),
-            trusted_proxy_cidrs=_csv(env.get("OMNI_STUDIO_AUTH_TRUSTED_PROXY_CIDRS", "")),
+            issuer=_auth_env(env, "OMNI_STUDIO_AUTH_ISSUER", "omni_studio"),
+            audience=_auth_env(env, "OMNI_STUDIO_AUTH_AUDIENCE", "omni-studio"),
+            trusted_proxy_cidrs=_csv(
+                _auth_env(env, "OMNI_STUDIO_AUTH_TRUSTED_PROXY_CIDRS", "")
+            ),
             app_env=app_env,
             allow_test_bypass=allow_test_bypass,
         )
@@ -168,15 +172,27 @@ def _csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _auth_env(
+    env: Mapping[str, str],
+    key: str,
+    default: str | None = None,
+) -> str | None:
+    value = env.get(key)
+    if value is not None and value.strip():
+        return value
+    legacy_key = key.replace("OMNI_STUDIO_", "LUMENX_", 1)
+    return env.get(legacy_key, default)
+
+
 def _int_env(env: Mapping[str, str], key: str, default: int) -> int:
     try:
-        return int(env.get(key, default))
+        return int(_auth_env(env, key, str(default)))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{key} must be an integer") from exc
 
 
 def _bool_env(env: Mapping[str, str], key: str, default: bool) -> bool:
-    value = env.get(key)
+    value = _auth_env(env, key)
     if value is None:
         return default
     normalized = value.strip().lower()
