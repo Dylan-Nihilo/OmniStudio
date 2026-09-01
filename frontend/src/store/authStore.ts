@@ -10,6 +10,13 @@ export interface AuthUser {
   created_at: string;
 }
 
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  slug: string | null;
+  role: "owner" | "member";
+}
+
 export interface SetupStatus {
   initialized: boolean;
   setup_allowed: boolean;
@@ -21,6 +28,11 @@ export interface OwnerSetupInput {
   email: string;
   password: string;
   setup_token?: string;
+}
+
+export interface InvitationRegistrationInput extends OwnerSetupInput {
+  token: string;
+  display_name?: string;
 }
 
 export interface LoginInput {
@@ -46,24 +58,32 @@ export interface PasswordResetInput {
 
 interface AuthResponse {
   user: AuthUser;
+  workspace: WorkspaceSummary;
 }
 
 interface MeResponse {
   user: AuthUser;
+  workspace: WorkspaceSummary;
+  workspaces: WorkspaceSummary[];
 }
 
 interface AuthStore {
   initialized: boolean;
   setupStatus: SetupStatus | null;
   user: AuthUser | null;
+  activeWorkspace: WorkspaceSummary | null;
+  workspaces: WorkspaceSummary[];
   bootstrapping: boolean;
   legacyClaimPending: boolean;
   legacyClaimAcknowledged: boolean;
   bootstrap: () => Promise<void>;
   setup: (input: OwnerSetupInput) => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
+  registerInvitation: (input: InvitationRegistrationInput) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  setActiveWorkspace: (workspaceId: string) => Promise<void>;
+  createWorkspace: (name: string) => Promise<WorkspaceSummary>;
   changePassword: (input: ChangePasswordInput) => Promise<void>;
   getPasswordResetStatus: () => Promise<PasswordResetStatus>;
   resetPassword: (input: PasswordResetInput) => Promise<void>;
@@ -78,6 +98,25 @@ const authenticatedStatus = (current: SetupStatus | null): SetupStatus => ({
   setup_allowed: false,
   setup_token_required: current?.setup_token_required ?? false,
 });
+
+export const ACTIVE_WORKSPACE_KEY = "omni_studio.activeWorkspaceId";
+
+const rememberActiveWorkspace = (workspace: WorkspaceSummary | null): void => {
+  if (typeof window === "undefined") return;
+  if (workspace) window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspace.id);
+  else window.localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+};
+
+const rehydrateProjectWorkspace = async (): Promise<void> => {
+  const { useProjectStore } = await import("@/store/projectStore");
+  useProjectStore.setState({
+    projects: [],
+    currentProject: null,
+    seriesList: [],
+    currentSeries: null,
+  });
+  await useProjectStore.persist.rehydrate();
+};
 
 interface ClaimDiscoveryResponse {
   summary: { projects: number; series: number; media: number; conflicts: number };
@@ -122,6 +161,8 @@ export const useAuthStore = create<AuthStore>()(
       initialized: false,
       setupStatus: null,
       user: null,
+      activeWorkspace: null,
+      workspaces: [],
       bootstrapping: true,
       legacyClaimPending: false,
       legacyClaimAcknowledged: false,
@@ -145,8 +186,16 @@ export const useAuthStore = create<AuthStore>()(
             const claimPending = await discoverLegacyClaim();
             set({
               user: data.user,
+              activeWorkspace:
+                data.workspaces.find((workspace) => workspace.id === window.localStorage.getItem(ACTIVE_WORKSPACE_KEY)) ??
+                data.workspace,
+              workspaces: data.workspaces,
               legacyClaimPending: !get().legacyClaimAcknowledged && claimPending,
             });
+            rememberActiveWorkspace(
+              data.workspaces.find((workspace) => workspace.id === window.localStorage.getItem(ACTIVE_WORKSPACE_KEY)) ??
+                data.workspace,
+            );
           } catch {
             // Any failure to confirm the session (401, expired refresh, network)
             // means there is no valid logged-in identity right now.
@@ -171,9 +220,13 @@ export const useAuthStore = create<AuthStore>()(
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
           user: data.user,
+          activeWorkspace: data.workspace,
+          workspaces: [data.workspace],
           legacyClaimPending: true,
           legacyClaimAcknowledged: false,
         }));
+        rememberActiveWorkspace(data.workspace);
+        await rehydrateProjectWorkspace();
       },
 
       login: async (input) => {
@@ -189,13 +242,38 @@ export const useAuthStore = create<AuthStore>()(
           response = await apiClient.post<AuthResponse>(`${AUTH_API_URL}/auth/login`, input);
         }
         const { data } = response;
+        const { data: me } = await apiClient.get<MeResponse>(`${AUTH_API_URL}/auth/me`);
         const claimPending = await discoverLegacyClaim();
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
           user: data.user,
+          activeWorkspace: me.workspace,
+          workspaces: me.workspaces,
           legacyClaimPending: !state.legacyClaimAcknowledged && claimPending,
         }));
+        rememberActiveWorkspace(me.workspace);
+        await rehydrateProjectWorkspace();
+      },
+
+      registerInvitation: async (input) => {
+        await refreshCsrfToken();
+        const { data } = await apiClient.post<AuthResponse>(
+          `${AUTH_API_URL}/auth/invitations/register`,
+          input,
+        );
+        const { data: me } = await apiClient.get<MeResponse>(`${AUTH_API_URL}/auth/me`);
+        const invitedWorkspace = me.workspaces.find((workspace) => workspace.role === "member") ?? me.workspace;
+        set((state) => ({
+          initialized: true,
+          setupStatus: authenticatedStatus(state.setupStatus),
+          user: data.user,
+          activeWorkspace: invitedWorkspace,
+          workspaces: me.workspaces,
+          legacyClaimPending: false,
+        }));
+        rememberActiveWorkspace(invitedWorkspace);
+        await rehydrateProjectWorkspace();
       },
 
       logout: async () => {
@@ -216,7 +294,29 @@ export const useAuthStore = create<AuthStore>()(
 
       refreshUser: async () => {
         const { data } = await apiClient.get<MeResponse>(`${AUTH_API_URL}/auth/me`);
-        set({ user: data.user });
+        const activeWorkspace =
+          data.workspaces.find((workspace) => workspace.id === get().activeWorkspace?.id) ?? data.workspace;
+        set({ user: data.user, activeWorkspace, workspaces: data.workspaces });
+        rememberActiveWorkspace(activeWorkspace);
+      },
+
+      setActiveWorkspace: async (workspaceId) => {
+        const workspace = get().workspaces.find((item) => item.id === workspaceId);
+        if (!workspace || workspace.id === get().activeWorkspace?.id) return;
+        rememberActiveWorkspace(workspace);
+        set({ activeWorkspace: workspace });
+        await rehydrateProjectWorkspace();
+        window.location.hash = "#/";
+        window.dispatchEvent(new Event("hashchange"));
+      },
+
+      createWorkspace: async (name) => {
+        const { data } = await apiClient.post<WorkspaceSummary>(
+          `${AUTH_API_URL}/auth/workspaces`,
+          { name },
+        );
+        set((state) => ({ workspaces: [...state.workspaces, data] }));
+        return data;
       },
 
       changePassword: async (input) => {
@@ -242,7 +342,16 @@ export const useAuthStore = create<AuthStore>()(
         clearReturnHash();
       },
 
-      clearSession: () => set({ user: null, legacyClaimPending: false }),
+      clearSession: () => {
+        rememberActiveWorkspace(null);
+        set({
+          user: null,
+          activeWorkspace: null,
+          workspaces: [],
+          legacyClaimPending: false,
+        });
+        void rehydrateProjectWorkspace();
+      },
       finishLegacyClaim: () => set({
         legacyClaimPending: false,
         legacyClaimAcknowledged: true,
@@ -253,6 +362,8 @@ export const useAuthStore = create<AuthStore>()(
       partialize: (state) => ({
         setupStatus: state.setupStatus,
         user: state.user,
+        activeWorkspace: state.activeWorkspace,
+        workspaces: state.workspaces,
         legacyClaimPending: state.legacyClaimPending,
         legacyClaimAcknowledged: state.legacyClaimAcknowledged,
       }),

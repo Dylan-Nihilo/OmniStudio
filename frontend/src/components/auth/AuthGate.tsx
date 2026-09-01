@@ -9,8 +9,18 @@ import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import LoginPage from "./LoginPage";
 import ResetPasswordPage from "./ResetPasswordPage";
 import SetupPage from "./SetupPage";
+import InvitationRegisterPage from "./InvitationRegisterPage";
+import InvitationAcceptPage from "./InvitationAcceptPage";
 
 const RESET_PASSWORD_HASH = "#/reset-password";
+const invitationToken = (hash: string): string | null => {
+  if (!hash.startsWith("#/invite/")) return null;
+  try {
+    return decodeURIComponent(hash.slice("#/invite/".length)) || null;
+  } catch {
+    return null;
+  }
+};
 
 function AuthSurface({ children }: { children: ReactNode }) {
   return (
@@ -100,6 +110,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     }
 
     if (!user) {
+      if (invitationToken(currentHash)) return;
       if (currentHash === RESET_PASSWORD_HASH) return;
       if (isSafeReturnHash(currentHash)) rememberReturnHash(currentHash);
       if (currentHash !== "#/login") window.location.hash = "#/login";
@@ -144,8 +155,13 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (!setupStatus?.initialized) return <SetupPage />;
+  const inviteToken = invitationToken(currentHash);
+  if (!user && inviteToken) {
+    return <AuthSurface><InvitationRegisterPage token={inviteToken} /></AuthSurface>;
+  }
   if (!user && currentHash === RESET_PASSWORD_HASH) return <ResetPasswordPage />;
   if (!user) return <LoginPage />;
   if (legacyClaimPending) return <SetupPage />;
+  if (inviteToken) return <AuthSurface><InvitationAcceptPage token={inviteToken} /></AuthSurface>;
   return <>{children}</>;
 }

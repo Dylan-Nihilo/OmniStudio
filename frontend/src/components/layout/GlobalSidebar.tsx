@@ -18,6 +18,7 @@ import { isTauri } from "@/lib/transport";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
 import ChangePasswordDialog from "@/components/auth/ChangePasswordDialog";
+import WorkspaceControls from "@/components/collaboration/WorkspaceControls";
 
 export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
 
@@ -146,6 +147,7 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
         </nav>
 
         <div className="border-t border-glass-border p-2.5">
+          <WorkspaceControls />
           <NavButton
             active={activeTab === "settings"}
             label={t("settings")}

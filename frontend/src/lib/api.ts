@@ -297,8 +297,22 @@ export const api = {
 
     /** Persist `original_text` without LLM reparse. Used for textarea
      *  blur-saves so navigation/reload doesn't drop in-progress drafts. */
-    updateScriptText: async (scriptId: string, text: string) => {
-        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/text`, { text });
+    updateScriptText: async (
+        scriptId: string,
+        text: string,
+        expectedRevision: string,
+        leaseToken: string,
+        clientInstanceId: string,
+    ) => {
+        const res = await apiClient.put(
+            `${API_URL}/projects/${scriptId}/text`,
+            {
+                text,
+                expected_revision: expectedRevision,
+                client_instance_id: clientInstanceId,
+            },
+            { headers: { "X-Edit-Lease": leaseToken } },
+        );
         return { ...res.data, originalText: res.data.original_text };
     },
 
