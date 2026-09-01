@@ -52,6 +52,9 @@ export const getCastEmptyThumbnailClasses = () =>
 export const getCastGeneratingOverlayClasses = () =>
     "absolute inset-0 z-20 grid place-items-center rounded-md border border-status-processing-border bg-elevated text-status-processing-fg";
 
+export const getCastKindChipClasses = () =>
+    "absolute right-2.5 top-2.5 z-10 pointer-events-none inline-flex min-h-5 items-center gap-1 rounded-md border border-white/40 bg-black/80 px-1.5 py-0.5 font-mono text-[0.625rem] font-semibold leading-none tracking-[0.1em] text-white shadow-[0_2px_8px_rgba(0,0,0,0.45)] backdrop-blur-md";
+
 /**
  * Resolve a character's primary reference image URL with legacy fallback.
  * Per design v2 (Q12-补充 A): new schema is `reference_sheet`; old
@@ -776,6 +779,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
         aspect: string;
         emptyPattern: React.CSSProperties;
         chipLabel: string;
+        chipIcon: React.ReactNode;
         hoverAccent: string;
         watermarkIcon: React.ReactNode;
         ctaIcon: React.ReactNode;
@@ -788,6 +792,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                     "repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(255,255,255,0.025) 23px, rgba(255,255,255,0.025) 24px)",
             },
             chipLabel: t("tabCharacters"),
+            chipIcon: <Users size={10} strokeWidth={2.2} aria-hidden="true" />,
             hoverAccent: "rgba(167,139,250,0.55)",
             watermarkIcon: <Users size={48} className="text-text-muted" strokeWidth={1} />,
             ctaIcon: <Wand2 size={22} strokeWidth={1.75} />,
@@ -802,6 +807,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                 ].join(", "),
             },
             chipLabel: t("tabScenes"),
+            chipIcon: <MapPin size={10} strokeWidth={2.2} aria-hidden="true" />,
             hoverAccent: "rgba(110,231,183,0.5)",
             watermarkIcon: <MapPin size={64} className="text-text-muted" strokeWidth={0.75} />,
             ctaIcon: <Sparkles size={22} strokeWidth={1.75} />,
@@ -816,6 +822,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                 backgroundPosition: "5px 5px",
             },
             chipLabel: t("tabProps"),
+            chipIcon: <Box size={10} strokeWidth={2.2} aria-hidden="true" />,
             hoverAccent: "rgba(252,211,77,0.5)",
             watermarkIcon: <Box size={40} className="text-text-muted" strokeWidth={1} />,
             ctaIcon: <Layers size={22} strokeWidth={1.75} />,
@@ -831,10 +838,10 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
             <div
                 className={`group/cast-card relative flex flex-col gap-2 ${cardRadius} border border-glass-border bg-glass p-2 transition-[border-color,background-color] duration-fast ease-out-quart hover:border-foreground/30`}
             >
-                {/* Kind chip — top-right, near-mono. Sits on TOP of the thumb
-                    so it works for both empty and ready states without
-                    occluding the image (small + corner-tucked). */}
-                <span className="absolute top-2.5 right-2.5 z-10 pointer-events-none inline-flex items-center rounded-sm border border-glass-border bg-elevated px-1.5 py-[1px] font-mono text-[0.53125rem] uppercase tracking-[0.18em] text-text-muted shadow-sm">
+                {/* Kind chip — a media overlay with stable contrast on both
+                    bright and dark artwork. */}
+                <span className={getCastKindChipClasses()}>
+                    {k.chipIcon}
                     {k.chipLabel}
                 </span>
                 {/* Hover hairline accent — single top edge, animated on group-hover */}
