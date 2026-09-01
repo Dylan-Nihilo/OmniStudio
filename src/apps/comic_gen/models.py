@@ -240,6 +240,7 @@ class VideoTask(BaseModel):
     created_at: float = Field(default_factory=time.time)
 
 class Character(BaseModel):
+    workspace_id: Optional[str] = Field(None, description="Workspace scope for shared-library assets")
     id: str = Field(..., description="Unique identifier for the character")
     name: str = Field(..., description="Name of the character")
     description: str = Field(..., description="Physical appearance and personality description")
@@ -319,6 +320,7 @@ class Character(BaseModel):
     status: GenerationStatus = GenerationStatus.PENDING
 
 class Scene(BaseModel):
+    workspace_id: Optional[str] = Field(None, description="Workspace scope for shared-library assets")
     id: str = Field(..., description="Unique identifier for the scene")
     name: str = Field(..., description="Name of the location/scene")
     description: str = Field(..., description="Visual description of the environment")
@@ -337,6 +339,7 @@ class Scene(BaseModel):
     status: GenerationStatus = GenerationStatus.PENDING
 
 class Prop(BaseModel):
+    workspace_id: Optional[str] = Field(None, description="Workspace scope for shared-library assets")
     id: str = Field(..., description="Unique identifier for the prop")
     name: str = Field(..., description="Name of the object")
     description: str = Field(..., description="Visual description of the object")

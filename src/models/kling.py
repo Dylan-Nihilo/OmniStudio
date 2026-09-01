@@ -8,6 +8,7 @@ Models: kling-v2-6 (default), kling-v2-5-turbo
 import logging
 import os
 import time
+from threading import Lock
 from typing import Dict, Any, Tuple
 
 import jwt
@@ -17,6 +18,7 @@ from .base import VideoGenModel
 from ..utils.endpoints import get_provider_base_url
 from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_input
+from ..utils.workspace_env import workspace_getenv
 
 logger = logging.getLogger(__name__)
 
@@ -24,28 +26,43 @@ logger = logging.getLogger(__name__)
 class KlingModel(VideoGenModel):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.access_key = config.get("access_key") or os.getenv("KLING_ACCESS_KEY", "")
-        self.secret_key = config.get("secret_key") or os.getenv("KLING_SECRET_KEY", "")
+        self._access_key = config.get("access_key")
+        self._secret_key = config.get("secret_key")
         self.model_name = config.get("params", {}).get("model_name", "kling-v3")
         self._cached_token = None
+        self._token_fingerprint = None
         self._token_exp = 0
+        self._token_lock = Lock()
+
+    @property
+    def access_key(self) -> str:
+        return self._access_key or workspace_getenv("KLING_ACCESS_KEY", "") or ""
+
+    @property
+    def secret_key(self) -> str:
+        return self._secret_key or workspace_getenv("KLING_SECRET_KEY", "") or ""
 
     def _get_token(self) -> str:
         """Generate a signed JWT token, cached until near expiry."""
-        now = int(time.time())
-        # Reuse cached token if still valid (with 60s buffer)
-        if self._cached_token and now < self._token_exp - 60:
-            return self._cached_token
-        headers = {"alg": "HS256", "typ": "JWT"}
-        exp = now + 1800
-        payload = {
-            "iss": self.access_key,
-            "exp": exp,
-            "nbf": now - 30,
-        }
-        self._cached_token = jwt.encode(payload, self.secret_key, algorithm="HS256", headers=headers)
-        self._token_exp = exp
-        return self._cached_token
+        access_key, secret_key = self.access_key, self.secret_key
+        fingerprint = (access_key, secret_key)
+        with self._token_lock:
+            now = int(time.time())
+            # Reuse cached token if still valid (with 60s buffer)
+            if self._cached_token and self._token_fingerprint == fingerprint and now < self._token_exp - 60:
+                return self._cached_token
+            headers = {"alg": "HS256", "typ": "JWT"}
+            exp = now + 1800
+            payload = {
+                "iss": access_key,
+                "exp": exp,
+                "nbf": now - 30,
+            }
+            token = jwt.encode(payload, secret_key, algorithm="HS256", headers=headers)
+            self._cached_token = token
+            self._token_fingerprint = fingerprint
+            self._token_exp = exp
+            return token
 
     def _auth_headers(self) -> Dict[str, str]:
         return {

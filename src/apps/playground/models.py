@@ -22,6 +22,7 @@ class PlaygroundOutput(BaseModel):
 
 class PlaygroundGeneration(BaseModel):
     id: str = Field(..., description="Unique identifier (UUID)")
+    workspace_id: Optional[str] = Field(None, description="Owning Workspace ID")
     mode: PlaygroundMode = Field(..., description="Generation mode")
     model_id: str = Field(..., description="Model identifier from model catalog")
     prompt: str = Field(..., description="Text prompt for generation")
@@ -37,6 +38,7 @@ class PlaygroundGeneration(BaseModel):
 
 class PlaygroundTemplate(BaseModel):
     id: str = Field(..., description="Unique identifier (UUID)")
+    workspace_id: Optional[str] = Field(None, description="Owning Workspace ID")
     name: str = Field(..., description="Template display name")
     category: str = Field("general", description="Template category: image/video/general")
     prompt: str = Field(..., description="Template prompt text")

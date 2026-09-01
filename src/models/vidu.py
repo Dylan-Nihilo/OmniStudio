@@ -16,6 +16,7 @@ from .base import VideoGenModel
 from ..utils.endpoints import get_provider_base_url
 from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_input
+from ..utils.workspace_env import workspace_getenv
 
 logger = logging.getLogger(__name__)
 DEFAULT_T2V_MODEL = "viduq3-pro"
@@ -25,8 +26,12 @@ DEFAULT_I2V_MODEL = "viduq3-pro"
 class ViduModel(VideoGenModel):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_key = config.get("api_key") or os.getenv("VIDU_API_KEY", "")
+        self._api_key = config.get("api_key")
         self.model_name = config.get("params", {}).get("model_name", DEFAULT_I2V_MODEL)
+
+    @property
+    def api_key(self) -> str:
+        return self._api_key or workspace_getenv("VIDU_API_KEY", "") or ""
 
     def _headers(self) -> Dict[str, str]:
         return {

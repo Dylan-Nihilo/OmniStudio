@@ -2,9 +2,11 @@ import os
 import logging
 import base64
 import time
+from threading import Lock
 from typing import Tuple
 
 from ..utils.endpoints import get_provider_base_url
+from ..utils.workspace_env import workspace_getenv
 
 logger = logging.getLogger(__name__)
 
@@ -40,28 +42,37 @@ I2V_OPTIMIZATION_PROMPT = """你是一个AI视频提示词专家，我需要你�
 class QwenVLModel:
     def __init__(self, config: dict):
         self.model_name = config.get('params', {}).get('model_name', 'qwen3.7-plus')
+        self._api_key = config.get("api_key")
         self._client = None
+        self._client_fingerprint = None
+        self._client_lock = Lock()
 
     @property
     def api_key(self):
-        api_key = os.getenv("DASHSCOPE_API_KEY")
+        api_key = self._api_key or workspace_getenv("DASHSCOPE_API_KEY")
         if not api_key:
             logger.warning("Dashscope API Key not found in config or environment variables.")
         return api_key
 
     def _get_client(self):
         """Get or create the OpenAI-compatible client (lazy, cached)."""
-        if self._client is None:
+        api_key = self.api_key
+        base_url = f"{get_provider_base_url('DASHSCOPE')}/compatible-mode/v1"
+        fingerprint = (api_key, base_url)
+        with self._client_lock:
+            if self._client is not None and self._client_fingerprint == fingerprint:
+                return self._client
             try:
                 from openai import OpenAI
             except ImportError:
                 raise RuntimeError("openai package not installed. Run: pip install openai>=1.0.0")
             self._client = OpenAI(
-                api_key=self.api_key,
-                base_url=f"{get_provider_base_url('DASHSCOPE')}/compatible-mode/v1",
+                api_key=api_key,
+                base_url=base_url,
                 timeout=120.0,
             )
-        return self._client
+            self._client_fingerprint = fingerprint
+            return self._client
 
     def _encode_image_to_base64(self, image_path: str) -> str:
         """Convert local image to base64 string"""

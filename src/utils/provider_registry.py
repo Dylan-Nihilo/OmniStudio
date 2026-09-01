@@ -1,8 +1,8 @@
-import os
 from dataclasses import dataclass, field, replace
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 from .model_catalog import build_provider_family_configs, load_generated_model_catalog
+from .workspace_env import workspace_getenv
 
 SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter")
 
@@ -54,8 +54,12 @@ class ProviderRegistry:
         family = self.get_family_config(model_name)
         mode = ""
         if family.backend_env_key:
-            env_mapping = env if env is not None else os.environ
-            mode = (env_mapping.get(family.backend_env_key) or "").strip().lower()
+            value = (
+                env.get(family.backend_env_key)
+                if env is not None
+                else workspace_getenv(family.backend_env_key)
+            )
+            mode = (value or "").strip().lower()
 
         if mode in SUPPORTED_PROVIDER_BACKENDS:
             return mode

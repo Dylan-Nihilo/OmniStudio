@@ -1,4 +1,4 @@
-import os
+from .workspace_env import workspace_getenv
 
 # Provider endpoint registry: {provider_key: default_base_url}
 PROVIDER_DEFAULTS = {
@@ -18,4 +18,4 @@ def get_provider_base_url(provider: str, default: str = None) -> str:
     """
     env_key = f"{provider.upper()}_BASE_URL"
     fallback = default or PROVIDER_DEFAULTS.get(provider.upper(), "")
-    return (os.getenv(env_key) or fallback).rstrip("/")
+    return (workspace_getenv(env_key) or fallback).rstrip("/")
