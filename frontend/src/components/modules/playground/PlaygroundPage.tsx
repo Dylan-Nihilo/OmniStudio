@@ -11,6 +11,7 @@ import ParameterBar from './ParameterBar';
 import ResultGallery from './ResultGallery';
 import { usePlaygroundStore, type PlaygroundMode, type PlaygroundGeneration, type QueuedRequest } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
+import { toast } from '@/store/toastStore';
 import { normalizeGeneration, normalizeTemplate } from './normalizers';
 
 // ---------------------------------------------------------------------------
@@ -124,7 +125,7 @@ export default function PlaygroundPage() {
   // ─── Generate handler — enqueue a request; the dispatcher runs it ──────────
 
   const handleGenerate = useCallback(() => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || (MODES_WITH_MEDIA.includes(mode) && inputMedia.length === 0)) return;
     // Auto-detect i2i: t2i + reference images -> i2i
     const effectiveMode = (mode === 't2i' && inputMedia.length > 0) ? 'i2i' : mode;
     enqueueRequest({
@@ -159,6 +160,9 @@ export default function PlaygroundPage() {
       }
     } catch (err) {
       console.error('[Playground] Dispatch failed:', err);
+      toast.error(t('queue.dispatchFailed'), {
+        body: err instanceof Error ? err.message : t('queue.unknownError'),
+      });
       removeFromQueue(req.id);
     }
   }, [startGeneration, removeFromQueue, startPolling]);
@@ -187,7 +191,8 @@ export default function PlaygroundPage() {
 
   const resultCount = history.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0);
   const showMediaInput = MODES_WITH_MEDIA.includes(mode) || MODES_WITH_OPTIONAL_MEDIA.includes(mode);
-  const canGenerate = prompt.trim().length > 0;
+  const canGenerate = prompt.trim().length > 0
+    && (!MODES_WITH_MEDIA.includes(mode) || inputMedia.length > 0);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 

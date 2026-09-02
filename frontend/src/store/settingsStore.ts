@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useToastStore } from './toastStore';
 
 export type Locale = 'zh' | 'en';
 
@@ -57,7 +58,11 @@ export const useSettingsStore = create<SettingsStore>()(
             darkTheme: DEFAULT_DARK_THEME,
             lightTheme: DEFAULT_LIGHT_THEME,
             animations: true,
-            setLocale: (locale: Locale) => set({ locale }),
+            setLocale: (locale: Locale) => set((state) => {
+                if (state.locale === locale) return state;
+                useToastStore.getState().clear();
+                return { locale };
+            }),
             setTheme: (theme: ThemePreset) => set(() => {
                 if (isDarkTheme(theme)) {
                     return { theme, themeMode: 'dark', darkTheme: theme };

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useSettingsStore, THEME_PRESETS, DEFAULT_THEME } from '@/store/settingsStore';
+import { useToastStore } from '@/store/toastStore';
 
 describe('settingsStore', () => {
     beforeEach(() => {
@@ -7,9 +8,10 @@ describe('settingsStore', () => {
             locale: 'zh',
             theme: DEFAULT_THEME,
             themeMode: 'dark',
-            darkTheme: 'atelier-dark',
-            lightTheme: 'atelier-light',
-        });
+        darkTheme: 'atelier-dark',
+        lightTheme: 'atelier-light',
+    });
+        useToastStore.setState({ toasts: [] });
     });
 
     it('has correct default values', () => {
@@ -21,6 +23,18 @@ describe('settingsStore', () => {
     it('setLocale updates locale', () => {
         useSettingsStore.getState().setLocale('en');
         expect(useSettingsStore.getState().locale).toBe('en');
+    });
+
+    it('clears existing toasts when the locale changes', () => {
+        useToastStore.getState().push({
+            kind: 'error',
+            title: '项目同步失败',
+            autoCloseMs: 0,
+        });
+
+        useSettingsStore.getState().setLocale('en');
+
+        expect(useToastStore.getState().toasts).toEqual([]);
     });
 
     it('setTheme updates theme', () => {
