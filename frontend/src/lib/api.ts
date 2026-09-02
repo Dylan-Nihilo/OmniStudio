@@ -4,6 +4,7 @@ import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
 export type LlmProvider = "dashscope" | "openai";
+export type ImageProvider = "mulerouter" | "openai";
 
 /**
  * PR-3g #3 · TTS voice metadata returned by GET /voices.
@@ -47,6 +48,10 @@ export interface EnvConfigPayload {
     OPENAI_API_KEY?: string;
     OPENAI_BASE_URL?: string;
     OPENAI_MODEL?: string;
+    IMAGE_PROVIDER?: ImageProvider;
+    OPENAI_IMAGE_API_KEY?: string;
+    OPENAI_IMAGE_BASE_URL?: string;
+    OPENAI_IMAGE_MODEL?: string;
     DASHSCOPE_API_KEY?: string;
     ALIBABA_CLOUD_ACCESS_KEY_ID?: string;
     ALIBABA_CLOUD_ACCESS_KEY_SECRET?: string;

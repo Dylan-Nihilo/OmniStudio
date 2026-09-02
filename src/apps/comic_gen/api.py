@@ -84,6 +84,9 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_MODEL",
+    "OPENAI_IMAGE_API_KEY",
+    "OPENAI_IMAGE_BASE_URL",
+    "OPENAI_IMAGE_MODEL",
     "ARK_API_KEY",
     "ALIBABA_CLOUD_ACCESS_KEY_ID",
     "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
@@ -102,6 +105,7 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "MULEROUTER_API_KEY",
     "MULEROUTER_BASE_URL",
     "MULEROUTER_SITE",
+    "IMAGE_PROVIDER",
 }
 
 
@@ -1887,6 +1891,10 @@ class EnvConfig(ProviderRoutingConfig):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: Optional[str] = None
     OPENAI_MODEL: Optional[str] = None
+    IMAGE_PROVIDER: Literal["mulerouter", "openai"] = "mulerouter"
+    OPENAI_IMAGE_API_KEY: Optional[str] = None
+    OPENAI_IMAGE_BASE_URL: Optional[str] = None
+    OPENAI_IMAGE_MODEL: Optional[str] = None
     DASHSCOPE_API_KEY: Optional[str] = None
     ALIBABA_CLOUD_ACCESS_KEY_ID: Optional[str] = None
     ALIBABA_CLOUD_ACCESS_KEY_SECRET: Optional[str] = None
@@ -4786,6 +4794,7 @@ def trigger_mulerun_login():
 # Credential-like env fields that must never be returned in plaintext.
 SECRET_FIELDS = {
     "OPENAI_API_KEY",
+    "OPENAI_IMAGE_API_KEY",
     "DASHSCOPE_API_KEY",
     "ALIBABA_CLOUD_ACCESS_KEY_ID",
     "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
@@ -4839,6 +4848,7 @@ def get_env_config():
         return {
             # Masked secrets — never plaintext.
             "OPENAI_API_KEY": _mask_secret(workspace_getenv("OPENAI_API_KEY")),
+            "OPENAI_IMAGE_API_KEY": _mask_secret(workspace_getenv("OPENAI_IMAGE_API_KEY")),
             "DASHSCOPE_API_KEY": _mask_secret(workspace_getenv("DASHSCOPE_API_KEY")),
             "ALIBABA_CLOUD_ACCESS_KEY_ID": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
             "ALIBABA_CLOUD_ACCESS_KEY_SECRET": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")),
@@ -4854,6 +4864,9 @@ def get_env_config():
             "LLM_PROVIDER": (workspace_getenv("LLM_PROVIDER", "dashscope") or "dashscope").strip().lower(),
             "OPENAI_BASE_URL": workspace_getenv("OPENAI_BASE_URL", ""),
             "OPENAI_MODEL": workspace_getenv("OPENAI_MODEL", ""),
+            "IMAGE_PROVIDER": (workspace_getenv("IMAGE_PROVIDER", "mulerouter") or "mulerouter").strip().lower(),
+            "OPENAI_IMAGE_BASE_URL": workspace_getenv("OPENAI_IMAGE_BASE_URL", ""),
+            "OPENAI_IMAGE_MODEL": workspace_getenv("OPENAI_IMAGE_MODEL", ""),
             "MULERUN_CLI_LOGGED_IN": _check_mulerun_cli_status(),
             "KLING_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("KLING_PROVIDER_MODE")),
             "VIDU_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("VIDU_PROVIDER_MODE")),
