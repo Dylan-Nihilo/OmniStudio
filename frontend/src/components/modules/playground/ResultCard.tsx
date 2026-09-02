@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { Download, Video, Copy, Check, Replace, Crown, Bookmark } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { playgroundApi } from '@/lib/api';
+import { apiStreamRequest } from '@/lib/apiClient';
 import { getAssetUrl } from '@/lib/utils';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 
@@ -144,7 +145,8 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
     e.stopPropagation();
     if (!mediaUrl) return;
     try {
-      const resp = await fetch(mediaUrl);
+      const resp = await apiStreamRequest(mediaUrl);
+      if (!resp.ok) throw new Error(`Media download failed: ${resp.status}`);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -194,9 +196,14 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
       <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio: '16/9' }}>
         {mediaUrl ? (
           isVideo ? (
-            <div className="w-full h-full bg-gradient-to-br from-elevated to-surface flex items-center justify-center">
-              <Video className="w-8 h-8 text-text-muted" />
-            </div>
+            <video
+              data-testid="playground-result-video"
+              src={mediaUrl}
+              controls
+              preload="metadata"
+              playsInline
+              className="w-full h-full object-cover"
+            />
           ) : imgError ? (
             <div className="w-full h-full bg-gradient-to-br from-elevated to-surface flex flex-col items-center justify-center gap-1.5">
               <svg className="w-8 h-8 text-text-muted/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
