@@ -46,6 +46,24 @@ class TestIsEcho:
 # ---------------------------------------------------------------------------
 
 class TestPolishVideoPromptErrors:
+    @pytest.mark.parametrize(
+        ("provider", "credential"),
+        [
+            ("dashscope", "DASHSCOPE_API_KEY"),
+            ("openai", "OPENAI_API_KEY"),
+        ],
+    )
+    def test_missing_configuration_names_provider_credential(self, provider, credential):
+        sp = ScriptProcessor.__new__(ScriptProcessor)
+        sp.llm = MagicMock()
+        sp.llm.provider = provider
+        sp.llm.is_configured = False
+
+        with pytest.raises(PolishError) as exc_info:
+            sp.polish_video_prompt("draft")
+
+        assert credential in exc_info.value.message_en
+
     def test_is_configured_false_raises(self):
         sp = ScriptProcessor.__new__(ScriptProcessor)
         sp.llm = MagicMock()

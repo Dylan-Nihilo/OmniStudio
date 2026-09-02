@@ -6,9 +6,13 @@ import { motion } from 'framer-motion';
 import { Film, Camera, Plus, Eye } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useEditorStore } from '@/store/editorStore';
+import type { Project } from '@/store/projectStore';
+import PreviewImage from '@/components/shared/preview/PreviewImage';
+import PreviewVideo from '@/components/shared/preview/PreviewVideo';
 
 export interface ShotPanelProps {
   editor: Editor | null;
+  project?: Project | null;
 }
 
 type ShotStatus = 'suggested' | 'reviewing' | 'confirmed' | 'queued' | 'generating' | 'done' | 'failed';
@@ -19,11 +23,13 @@ interface ShotBlockData {
   shotType: string;
   status: ShotStatus;
   description?: string;
+  thumbnailUrl?: string;
+  videoUrl?: string;
   pos: number;
 }
 
 const STATUS_CLASSNAMES: Record<ShotStatus, string> = {
-  suggested: 'bg-zinc-600/50 text-zinc-300',
+  suggested: 'bg-surface-inset text-text-secondary',
   reviewing: 'bg-blue-600/30 text-blue-300',
   confirmed: 'bg-green-600/30 text-green-300',
   queued: 'bg-yellow-600/30 text-yellow-300',
@@ -59,19 +65,19 @@ function ShotCard({
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-3 rounded-lg border border-white/10 bg-zinc-800/80 p-3 cursor-pointer hover:border-white/20 hover:bg-zinc-800 transition-colors"
+      className="flex items-center gap-3 rounded-lg border border-glass-border bg-surface p-3 cursor-pointer hover:border-primary/40 hover:bg-hover-bg transition-colors"
       onClick={onClick}
     >
       {/* Thumbnail placeholder */}
-      <div className="flex h-10 w-14 shrink-0 items-center justify-center rounded bg-zinc-900 border border-white/5">
-        <Camera size={14} className="text-zinc-500" />
+      <div className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded bg-surface-inset border border-border-subtle">
+        {shot.videoUrl ? <PreviewVideo src={shot.videoUrl} noLightbox className="h-full w-full" /> : shot.thumbnailUrl ? <PreviewImage src={shot.thumbnailUrl} alt={`Shot ${shot.shotNumber}`} noLightbox className="h-full w-full" /> : <Camera size={14} className="text-text-secondary" />}
       </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground">#{shot.shotNumber}</span>
           {shot.shotType && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-300">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-surface-inset text-text-secondary">
               {shot.shotType}
             </span>
           )}
@@ -89,12 +95,27 @@ function ShotCard({
   );
 }
 
-export default function ShotPanel({ editor }: ShotPanelProps) {
+export default function ShotPanel({ editor, project }: ShotPanelProps) {
   const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
 
   // Extract ShotBlock nodes from editor JSON
   const shotBlocks = useMemo<ShotBlockData[]>(() => {
+    if (project?.frames?.length) {
+      return project.frames.map((frame: any, index) => {
+        const task = project.video_tasks?.find((item: any) => item.frame_id === frame.id);
+        return {
+          id: frame.id || `frame-${index + 1}`,
+          shotNumber: frame.shot_number ?? index + 1,
+          shotType: frame.shot_type || frame.camera_movement || '',
+          status: (frame.status as ShotStatus) || 'suggested',
+          description: frame.description || frame.prompt || '',
+          thumbnailUrl: frame.rendered_image_url || frame.image_url || frame.image_asset?.variants?.[0]?.url,
+          videoUrl: frame.video_url || task?.video_url,
+          pos: 0,
+        };
+      });
+    }
     if (!editor) return [];
 
     const shots: ShotBlockData[] = [];
@@ -115,7 +136,7 @@ export default function ShotPanel({ editor }: ShotPanelProps) {
     });
 
     return shots;
-  }, [editor, editor?.state.doc]);
+  }, [editor, editor?.state.doc, project]);
 
   const handleShotClick = useCallback(
     (shot: ShotBlockData) => {
@@ -139,15 +160,15 @@ export default function ShotPanel({ editor }: ShotPanelProps) {
   if (shotBlocks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
-          <Film size={20} className="text-zinc-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
+          <Film size={20} className="text-text-secondary" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.shotsEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">{t('panels.shotsEmptyHint')}</p>
         <button
           type="button"
           onClick={handleAddShot}
-          className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-700 hover:bg-zinc-600 text-sm text-foreground transition-colors"
+          className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-inset hover:bg-hover-bg text-sm text-foreground transition-colors"
         >
           <Plus size={14} />
           {t('panels.addShot')}
@@ -181,7 +202,7 @@ export default function ShotPanel({ editor }: ShotPanelProps) {
       <button
         type="button"
         onClick={handleAddShot}
-        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/10 py-2.5 text-sm text-text-muted hover:text-foreground hover:border-white/20 transition-colors"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-glass-border py-2.5 text-sm text-text-muted hover:text-foreground hover:border-primary/40 transition-colors"
       >
         <Plus size={14} />
         {t('panels.addShot')}

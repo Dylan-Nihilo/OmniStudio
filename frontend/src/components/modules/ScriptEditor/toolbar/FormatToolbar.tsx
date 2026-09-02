@@ -56,13 +56,13 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
   }, [editor]);
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-zinc-900/80 px-4">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-glass-border bg-surface px-4">
       {/* Format Selector */}
       <div className="relative">
         <select
           value={currentFormat}
           onChange={(e) => setFormat(e.target.value as ScriptFormat)}
-          className="appearance-none rounded-md border border-white/10 bg-zinc-800 px-3 py-1.5 pr-7 text-xs text-zinc-200 outline-none transition-colors hover:border-white/20 focus:border-[var(--color-primary)]"
+          className="appearance-none rounded-md border border-glass-border bg-input-bg px-3 py-1.5 pr-7 text-xs text-foreground outline-none transition-colors hover:border-primary focus:border-[var(--color-primary)]"
         >
           {FORMAT_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -72,7 +72,7 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
         </select>
         <ChevronDown
           size={12}
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400"
+          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
         />
       </div>
 
@@ -81,7 +81,7 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
         <select
           value={currentRendering}
           onChange={(e) => setRendering(e.target.value as TextRendering)}
-          className="appearance-none rounded-md border border-white/10 bg-zinc-800 px-3 py-1.5 pr-7 text-xs text-zinc-200 outline-none transition-colors hover:border-white/20 focus:border-[var(--color-primary)]"
+          className="appearance-none rounded-md border border-glass-border bg-input-bg px-3 py-1.5 pr-7 text-xs text-foreground outline-none transition-colors hover:border-primary focus:border-[var(--color-primary)]"
         >
           {RENDERING_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -91,19 +91,19 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
         </select>
         <ChevronDown
           size={12}
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400"
+          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
         />
       </div>
 
       {/* Separator */}
-      <div className="mx-1 h-5 w-px bg-white/10" />
+      <div className="mx-1 h-5 w-px bg-glass-border" />
 
       {/* Undo / Redo */}
       <button
         type="button"
         onClick={handleUndo}
         disabled={!editor?.can().undo()}
-        className="rounded p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-30"
+        className="rounded p-1.5 text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         aria-label={t('toolbar.undo')}
       >
         <Undo2 size={15} />
@@ -112,7 +112,7 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
         type="button"
         onClick={handleRedo}
         disabled={!editor?.can().redo()}
-        className="rounded p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-30"
+        className="rounded p-1.5 text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         aria-label={t('toolbar.redo')}
       >
         <Redo2 size={15} />
@@ -125,7 +125,7 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
       <button
         type="button"
         disabled
-        className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-zinc-500 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         aria-label={t('toolbar.ai')}
       >
         <Sparkles size={14} />
@@ -136,7 +136,7 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
       <div className="flex-1" />
 
       {/* View Mode Toggle */}
-      <div className="flex items-center gap-0.5 rounded-md border border-white/10 bg-zinc-800/50 p-0.5">
+      <div className="flex items-center gap-0.5 rounded-md border border-glass-border bg-surface-inset p-0.5">
         {VIEW_OPTIONS.map((opt) => {
           const Icon = opt.icon;
           const isActive = viewMode === opt.value;
@@ -147,8 +147,8 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
               onClick={() => onViewModeChange?.(opt.value)}
               className={`rounded px-2 py-1 text-[11px] transition-all ${
                 isActive
-                  ? 'bg-white/10 text-zinc-100 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'bg-surface text-foreground shadow-sm'
+                  : 'text-text-muted hover:text-foreground'
               }`}
               aria-label={opt.label}
               title={opt.label}
@@ -163,7 +163,7 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
       <button
         type="button"
         disabled
-        className="rounded p-1.5 text-zinc-500 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        className="rounded p-1.5 text-text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         aria-label={t('toolbar.export')}
       >
         <Download size={15} />

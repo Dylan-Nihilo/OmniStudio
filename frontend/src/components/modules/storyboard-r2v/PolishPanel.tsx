@@ -14,7 +14,7 @@
  *
  * 视觉寄存于 Studio 现有 chrome-sm / display-sm / status colors token 体系。
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Loader2, Sparkles, Check, X, RefreshCw, Copy, CornerDownLeft, AlertCircle, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
 import { useTranslations } from "next-intl";
@@ -101,6 +101,7 @@ export default function PolishPanel({
     const [feedback, setFeedback] = useState("");
     /** 跟踪两栏的 "已复制" 闪烁状态。 */
     const [copiedCol, setCopiedCol] = useState<"cn" | "en" | "original" | null>(null);
+    const requestGenerationRef = useRef(0);
 
     const runPolish = useCallback(async (feedbackText: string = "") => {
         // 迭代时：draft=上一版 EN，prev_cn=上一版 CN，让后端双语锚点。
@@ -110,6 +111,7 @@ export default function PolishPanel({
         const prevCn = isIteration ? (polished?.cn ?? "") : "";
         if (!draft.trim()) return;
 
+        const requestGeneration = ++requestGenerationRef.current;
         setIsPolishing(true);
         setError(null);
         // 不立即清 polished：若失败可保留上次结果继续 refine；
@@ -119,6 +121,7 @@ export default function PolishPanel({
             const res = tabMode === "direct_r2v"
                 ? await api.polishR2VPrompt(draft, slots, feedbackText, scriptId, prevCn, imageUrls)
                 : await api.polishVideoPrompt(draft, feedbackText, scriptId, prevCn, imageUrls);
+            if (requestGeneration !== requestGenerationRef.current) return;
             if (res?.prompt_cn && res?.prompt_en) {
                 setPolished({ cn: res.prompt_cn, en: res.prompt_en });
                 setFeedback("");
@@ -131,6 +134,7 @@ export default function PolishPanel({
                 });
             }
         } catch (err: any) {
+            if (requestGeneration !== requestGenerationRef.current) return;
             debugLog.error("Studio", "Polish failed:", err);
             const parsed = parsePolishError(err, t);
             setError(parsed);
@@ -140,7 +144,7 @@ export default function PolishPanel({
                 setPolished({ cn: parsed.prompt_cn, en: parsed.prompt_en });
             }
         } finally {
-            setIsPolishing(false);
+            if (requestGeneration === requestGenerationRef.current) setIsPolishing(false);
         }
     }, [tabMode, prompt, slots, scriptId, polished?.en, polished?.cn, imageUrls]);
 
@@ -152,6 +156,8 @@ export default function PolishPanel({
     }, [onApply]);
 
     const handleDiscard = useCallback(() => {
+        requestGenerationRef.current += 1;
+        setIsPolishing(false);
         setPolished(null);
         setError(null);
         setFeedback("");
@@ -252,7 +258,7 @@ export default function PolishPanel({
                         <button
                             type="button"
                             onClick={() => handleCopy(prompt, "original")}
-                            className="inline-flex items-center gap-1 rounded border border-glass-border bg-black/20 px-2.5 py-1 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                            className="inline-flex items-center gap-1 rounded border border-glass-border bg-input-bg px-2.5 py-1 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
                         >
                             {copiedCol === "original" ? (
                                 <><Check size={11} aria-hidden="true" />{t("polishCopied")}</>
@@ -271,35 +277,40 @@ export default function PolishPanel({
                 </p>
             ) : null}
 
-            {/* CN 栏 — skeleton（loading 时）/ 文本 + 按钮 */}
-            <BilingualColumn
-                label={t("polishCnLabel")}
-                text={polished?.cn}
-                isLoading={isPolishing && !polished}
-                isMono={false}
-                copied={copiedCol === "cn"}
-                copyLabel={t("polishCopy")}
-                copiedLabel={t("polishCopied")}
-                applyLabel={t("polishApply")}
-                applyHint={t("polishApplyHint")}
-                onCopy={() => polished && handleCopy(polished.cn, "cn")}
-                onApply={() => polished && handleApply(polished.cn)}
-            />
+            {/* 首次失败时没有结果，不展示空的双语栏；已有结果时保留它供重试/迭代。 */}
+            {(isPolishing || polished) ? (
+                <>
+                    {/* CN 栏 — skeleton（loading 时）/ 文本 + 按钮 */}
+                    <BilingualColumn
+                        label={t("polishCnLabel")}
+                        text={polished?.cn}
+                        isLoading={isPolishing && !polished}
+                        isMono={false}
+                        copied={copiedCol === "cn"}
+                        copyLabel={t("polishCopy")}
+                        copiedLabel={t("polishCopied")}
+                        applyLabel={t("polishApply")}
+                        applyHint={t("polishApplyHint")}
+                        onCopy={() => polished && handleCopy(polished.cn, "cn")}
+                        onApply={() => polished && handleApply(polished.cn)}
+                    />
 
-            {/* EN 栏 */}
-            <BilingualColumn
-                label={t("polishEnLabel")}
-                text={polished?.en}
-                isLoading={isPolishing && !polished}
-                isMono={true}
-                copied={copiedCol === "en"}
-                copyLabel={t("polishCopy")}
-                copiedLabel={t("polishCopied")}
-                applyLabel={t("polishApply")}
-                applyHint={t("polishApplyHint")}
-                onCopy={() => polished && handleCopy(polished.en, "en")}
-                onApply={() => polished && handleApply(polished.en)}
-            />
+                    {/* EN 栏 */}
+                    <BilingualColumn
+                        label={t("polishEnLabel")}
+                        text={polished?.en}
+                        isLoading={isPolishing && !polished}
+                        isMono={true}
+                        copied={copiedCol === "en"}
+                        copyLabel={t("polishCopy")}
+                        copiedLabel={t("polishCopied")}
+                        applyLabel={t("polishApply")}
+                        applyHint={t("polishApplyHint")}
+                        onCopy={() => polished && handleCopy(polished.en, "en")}
+                        onApply={() => polished && handleApply(polished.en)}
+                    />
+                </>
+            ) : null}
 
             {/* Feedback iteration — 仅在有结果时（错误态下隐藏，避免基于无效结果迭代） */}
             {polished ? (
@@ -316,13 +327,13 @@ export default function PolishPanel({
                         }}
                         placeholder={t("polishFeedbackPlaceholder")}
                         disabled={isPolishing}
-                        className="flex-1 rounded border border-glass-border bg-black/30 px-2.5 py-1.5 font-sans text-body-sm text-foreground placeholder:text-text-muted outline-none transition-colors duration-fast ease-out-quart focus:border-primary/55 focus-visible:ring-2 focus-visible:ring-primary/45 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex-1 rounded border border-glass-border bg-input-bg px-2.5 py-1.5 font-sans text-body-sm text-foreground placeholder:text-text-muted outline-none transition-colors duration-fast ease-out-quart focus:border-primary/55 focus-visible:ring-2 focus-visible:ring-primary/45 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                     <button
                         type="button"
                         onClick={() => void runPolish(feedback)}
                         disabled={!feedback.trim() || isPolishing}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-glass-border bg-black/20 px-2.5 py-1.5 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:border-primary/45 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-glass-border bg-input-bg px-2.5 py-1.5 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:border-primary/45 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {isPolishing ? (
                             <Loader2 size={11} className="animate-spin" aria-hidden="true" />
@@ -344,7 +355,7 @@ export default function PolishPanel({
                 animated={!!polished}
                 glowColor="262 80 70"
                 colors={["#646cff", "#a855f7", "#ec4899"]}
-                backgroundColor="rgba(20, 17, 31, 0.92)"
+                backgroundColor="var(--color-bg-surface)"
                 borderRadius={8}
                 glowRadius={28}
                 glowIntensity={0.85}
@@ -418,7 +429,7 @@ function BilingualColumn({
                             type="button"
                             onClick={onCopy}
                             title={copyLabel}
-                            className="btn-tip inline-flex items-center gap-1 rounded border border-glass-border bg-black/20 px-2 py-0.5 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:border-primary/45 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                            className="btn-tip inline-flex items-center gap-1 rounded border border-glass-border bg-input-bg px-2 py-0.5 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:border-primary/45 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
                         >
                             {copied ? (
                                 <><Check size={10} aria-hidden="true" />{copiedLabel}</>
@@ -430,7 +441,7 @@ function BilingualColumn({
                             type="button"
                             onClick={onApply}
                             title={applyHint}
-                            className="btn-tip inline-flex items-center gap-1 rounded bg-primary/90 px-2 py-0.5 font-mono text-chrome font-semibold text-white transition-colors duration-fast ease-out-quart hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                            className="btn-tip inline-flex items-center gap-1 rounded bg-primary/90 px-2 py-0.5 font-mono text-chrome font-semibold text-on-accent transition-colors duration-fast ease-out-quart hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
                         >
                             <CornerDownLeft size={10} aria-hidden="true" />
                             {applyLabel}
@@ -439,7 +450,7 @@ function BilingualColumn({
                 ) : null}
             </div>
             {isLoading ? (
-                <div className="space-y-1 rounded bg-black/30 px-2.5 py-2">
+                <div className="space-y-1 rounded bg-surface-inset px-2.5 py-2">
                     <div className="h-3 w-full animate-pulse rounded bg-elevated" />
                     <div className="h-3 w-[88%] animate-pulse rounded bg-elevated" />
                     <div className="h-3 w-[72%] animate-pulse rounded bg-elevated" />
@@ -447,7 +458,7 @@ function BilingualColumn({
             ) : (
                 <p
                     className={clsx(
-                        "rounded bg-black/30 px-2.5 py-2 text-body-sm leading-relaxed text-foreground whitespace-pre-wrap",
+                        "rounded bg-surface-inset px-2.5 py-2 text-body-sm leading-relaxed text-foreground whitespace-pre-wrap",
                         isMono ? "font-mono" : "font-sans",
                     )}
                 >

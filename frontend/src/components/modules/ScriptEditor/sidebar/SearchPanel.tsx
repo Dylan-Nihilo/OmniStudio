@@ -103,7 +103,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Search Input */}
-      <div className="p-2 space-y-2 border-b border-white/5">
+      <div className="p-2 space-y-2 border-b border-border-subtle bg-surface">
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
@@ -111,7 +111,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('sidebar.searchPlaceholder')}
-            className="w-full rounded-lg bg-zinc-800 border border-white/10 py-2 pl-8 pr-8 text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-indigo-500/50"
+            className="w-full rounded-lg bg-input-bg border border-glass-border py-2 pl-8 pr-8 text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary"
           />
           {query && (
             <button
@@ -128,7 +128,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as NodeTypeFilter)}
-          className="w-full rounded-lg bg-zinc-800 border border-white/10 py-1.5 px-2 text-xs text-foreground focus:outline-none focus:border-indigo-500/50"
+          className="w-full rounded-lg bg-input-bg border border-glass-border py-1.5 px-2 text-xs text-foreground focus:outline-none focus:border-primary"
         >
           {NODE_TYPE_OPTIONS.map((opt) => (
             <option key={opt.id} value={opt.id}>
@@ -142,7 +142,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
       <div className="flex-1 overflow-y-auto p-2">
         {query.trim() === '' ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <Search size={16} className="text-zinc-500 mb-2" />
+            <Search size={16} className="text-text-secondary mb-2" />
             <p className="text-xs text-text-muted">{t('sidebar.searchHint')}</p>
           </div>
         ) : results.length === 0 ? (
@@ -159,10 +159,10 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
                 key={result.id}
                 type="button"
                 onClick={() => handleResultClick(result.pos)}
-                className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
+                className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-hover-bg transition-colors border border-transparent hover:border-glass-border"
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] px-1 py-0.5 rounded bg-zinc-700 text-zinc-300 shrink-0">
+                  <span className="text-[10px] px-1 py-0.5 rounded bg-surface-inset text-text-secondary shrink-0">
                     {t(result.nodeTypeLabel)}
                   </span>
                   <span className="text-[10px] text-text-muted truncate flex items-center gap-1">

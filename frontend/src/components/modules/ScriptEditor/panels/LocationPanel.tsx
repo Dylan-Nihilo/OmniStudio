@@ -6,9 +6,12 @@ import { MapPin, ChevronDown } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useTranslations } from 'next-intl';
 import { useEditorStore, type DerivedScene } from '@/store/editorStore';
+import type { Project } from '@/store/projectStore';
+import PreviewImage from '@/components/shared/preview/PreviewImage';
 
 export interface LocationPanelProps {
   editor: Editor | null;
+  project?: Project | null;
 }
 
 interface LocationEntry {
@@ -16,19 +19,19 @@ interface LocationEntry {
   scenes: DerivedScene[];
 }
 
-function LocationCard({ entry }: { entry: LocationEntry }) {
+function LocationCard({ entry, imageUrl }: { entry: LocationEntry; imageUrl?: string }) {
   const [expanded, setExpanded] = useState(false);
   const t = useTranslations('scriptEditor');
 
   return (
     <motion.div
       layout
-      className="rounded-lg border border-white/10 bg-zinc-800/80 p-3 cursor-pointer hover:border-white/20 hover:bg-zinc-800 transition-colors"
+      className="rounded-lg border border-glass-border bg-surface p-3 cursor-pointer hover:border-primary/40 hover:bg-hover-bg transition-colors"
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-start gap-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-700">
-          <MapPin size={14} className="text-zinc-300" />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-inset">
+          {imageUrl ? <PreviewImage src={imageUrl} alt={entry.name} noLightbox className="h-full w-full" /> : <MapPin size={14} className="text-text-secondary" />}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{entry.name}</p>
@@ -51,13 +54,13 @@ function LocationCard({ entry }: { entry: LocationEntry }) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="mt-3 pt-2 border-t border-white/5">
+            <div className="mt-3 pt-2 border-t border-border-subtle">
               <p className="text-xs text-text-muted mb-1.5">{t('panels.relatedScenes')}</p>
               <ul className="space-y-1">
                 {entry.scenes.map((scene) => (
                   <li
                     key={scene.id}
-                    className="text-xs text-text-secondary px-2 py-1 rounded bg-zinc-900/50"
+                    className="text-xs text-text-secondary px-2 py-1 rounded bg-surface-inset"
                   >
                     {scene.number != null ? `#${scene.number} ` : ''}
                     {scene.title || t('panels.untitledScene')}
@@ -72,13 +75,23 @@ function LocationCard({ entry }: { entry: LocationEntry }) {
   );
 }
 
-export default function LocationPanel({ editor }: LocationPanelProps) {
+export default function LocationPanel({ editor, project }: LocationPanelProps) {
   const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
+  const scenes = project?.scenes?.length
+    ? project.scenes.map((scene, index): DerivedScene => ({
+      id: scene.id,
+      number: index + 1,
+      intExt: null,
+      location: scene.name,
+      timeOfDay: scene.time_of_day || null,
+      title: scene.name,
+    }))
+    : derivedScenes;
 
   const locations = useMemo<LocationEntry[]>(() => {
     const map = new Map<string, DerivedScene[]>();
-    for (const scene of derivedScenes) {
+    for (const scene of scenes) {
       if (scene.location) {
         const key = scene.location.trim();
         if (!map.has(key)) {
@@ -88,13 +101,13 @@ export default function LocationPanel({ editor }: LocationPanelProps) {
       }
     }
     return Array.from(map.entries()).map(([name, scenes]) => ({ name, scenes }));
-  }, [derivedScenes]);
+  }, [scenes]);
 
   if (locations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
-          <MapPin size={20} className="text-zinc-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
+          <MapPin size={20} className="text-text-secondary" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.locationEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">
@@ -114,7 +127,11 @@ export default function LocationPanel({ editor }: LocationPanelProps) {
       </div>
       <div className="space-y-2">
         {locations.map((entry) => (
-          <LocationCard key={entry.name} entry={entry} />
+          <LocationCard
+            key={entry.name}
+            entry={entry}
+            imageUrl={project?.scenes.find((scene) => scene.name === entry.name)?.image_url}
+          />
         ))}
       </div>
     </div>

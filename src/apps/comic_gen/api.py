@@ -4931,7 +4931,12 @@ def delete_prop(script_id: str, prop_id: str):
 from pathlib import Path
 from datetime import datetime, timezone
 
-_TRON_PROJECTS_DIR = Path.home() / ".tron" / "comic" / "projects"
+def _get_document_root() -> Path:
+    """Return the writable document root for the current runtime."""
+    configured_root = os.getenv("OMNI_STUDIO_DOCUMENT_ROOT")
+    if configured_root and configured_root.strip():
+        return Path(configured_root).expanduser().resolve()
+    return (MEDIA_PROJECT_ROOT / "output" / "documents").resolve()
 
 
 class SaveDocumentRequest(BaseModel):
@@ -4946,9 +4951,30 @@ class DocumentSnapshotInfo(BaseModel):
 
 def _get_project_dir(project_id: str) -> Path:
     """Return the project directory, raising 404 if it doesn't exist."""
-    project_dir = _TRON_PROJECTS_DIR / project_id
-    if not project_dir.exists():
+    if not _project_exists(project_id):
         raise HTTPException(status_code=404, detail="Project not found")
+    project_dir = _get_document_root() / project_id
+    return project_dir
+
+
+def _project_exists(project_id: str) -> bool:
+    """Check the canonical script store before creating document files."""
+    if project_id in getattr(pipeline, "scripts", {}):
+        return True
+    repository = getattr(pipeline, "repository", None)
+    if repository is None:
+        return False
+    try:
+        return repository.workspace_for_script(project_id) is not None
+    except (ValueError, KeyError):
+        return False
+
+
+def _get_or_create_project_dir(project_id: str) -> Path:
+    if not _project_exists(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    project_dir = _get_document_root() / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
     return project_dir
 
 
@@ -4970,11 +4996,21 @@ def _create_snapshot(project_dir: Path) -> None:
     shutil.copy2(str(doc_path), str(snapshot_path))
 
 
+def _write_json_atomically(path: Path, content: dict) -> None:
+    """Write JSON through a sibling temp file so readers never see a partial doc."""
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(content, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 @app.post("/projects/{project_id}/document")
 def save_document(project_id: str, request: SaveDocumentRequest):
     """Save the Tiptap JSON document for a project."""
-    project_dir = _TRON_PROJECTS_DIR / project_id
-    project_dir.mkdir(parents=True, exist_ok=True)
+    project_dir = _get_or_create_project_dir(project_id)
 
     doc_path = project_dir / "document.json"
 
@@ -4983,8 +5019,7 @@ def save_document(project_id: str, request: SaveDocumentRequest):
         _create_snapshot(project_dir)
 
     try:
-        with open(doc_path, "w", encoding="utf-8") as f:
-            json.dump(request.content, f, ensure_ascii=False, indent=2)
+        _write_json_atomically(doc_path, request.content)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
 
@@ -4994,11 +5029,15 @@ def save_document(project_id: str, request: SaveDocumentRequest):
 @app.get("/projects/{project_id}/document")
 def load_document(project_id: str):
     """Load the Tiptap JSON document for a project."""
-    project_dir = _TRON_PROJECTS_DIR / project_id
+    if not _project_exists(project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    project_dir = _get_document_root() / project_id
     doc_path = project_dir / "document.json"
 
     if not doc_path.exists():
-        return {"type": "doc", "content": []}
+        script = pipeline.scripts.get(project_id) or pipeline.repository.load_scripts().get(project_id)
+        original_text = getattr(script, "original_text", "") if script else ""
+        return _parse_txt(original_text)
 
     try:
         with open(doc_path, "r", encoding="utf-8") as f:

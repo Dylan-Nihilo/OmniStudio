@@ -4,16 +4,18 @@ import { motion } from 'framer-motion';
 import { Clapperboard, Users, Clock, FileText, ArrowRight, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
+import type { Project } from '@/store/projectStore';
 
 export interface PipelinePanelProps {
   projectId?: string;
+  project?: Project | null;
   onEnterPipeline?: () => void;
 }
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg bg-zinc-800/60 border border-white/5 px-3 py-2.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded bg-zinc-700/50">
+    <div className="flex items-center gap-2.5 rounded-lg bg-surface border border-border-subtle px-3 py-2.5">
+      <div className="flex h-7 w-7 items-center justify-center rounded bg-surface-inset">
         {icon}
       </div>
       <div>
@@ -33,7 +35,7 @@ function formatDuration(seconds: number, t: (key: string, values?: Record<string
   return t('panels.durationMin', { min: mins });
 }
 
-export default function PipelinePanel({ projectId, onEnterPipeline }: PipelinePanelProps) {
+export default function PipelinePanel({ projectId, project, onEnterPipeline }: PipelinePanelProps) {
   const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
   const derivedCharacters = useEditorStore((s) => s.derivedCharacters);
@@ -42,6 +44,10 @@ export default function PipelinePanel({ projectId, onEnterPipeline }: PipelinePa
   const editorMode = useEditorStore((s) => s.editorMode);
 
   const isEmbedded = editorMode === 'embedded';
+  const sceneCount = project?.scenes?.length ?? derivedScenes.length;
+  const characterCount = project?.characters?.length ?? derivedCharacters.length;
+  const propCount = project?.props?.length ?? 0;
+  const frameCount = project?.frames?.length ?? 0;
 
   return (
     <div className="p-3 space-y-4">
@@ -57,12 +63,12 @@ export default function PipelinePanel({ projectId, onEnterPipeline }: PipelinePa
           <StatCard
             icon={<Clapperboard size={13} className="text-blue-400" />}
             label={t('panels.statScenes')}
-            value={derivedScenes.length}
+            value={sceneCount}
           />
           <StatCard
             icon={<Users size={13} className="text-purple-400" />}
             label={t('panels.statCharacters')}
-            value={derivedCharacters.length}
+            value={characterCount}
           />
           <StatCard
             icon={<Clock size={13} className="text-amber-400" />}
@@ -92,18 +98,18 @@ export default function PipelinePanel({ projectId, onEnterPipeline }: PipelinePa
       )}
 
       {/* Progress dashboard placeholder */}
-      <div className="rounded-lg border border-white/5 bg-zinc-900/50 p-4">
+      <div className="rounded-lg border border-border-subtle bg-surface-inset p-4">
         <div className="flex items-center gap-2 mb-2">
           <Loader2 size={14} className="text-text-muted" />
           <span className="text-xs font-medium text-text-muted">{t('panels.generationProgress')}</span>
         </div>
         <div className="flex items-center justify-center py-4">
-          <p className="text-xs text-text-muted/60 italic">{t('panels.noActiveTasks')}</p>
+          <p className="text-xs text-text-muted/60 italic">{frameCount > 0 || propCount > 0 ? `${frameCount} shots · ${propCount} props` : t('panels.noActiveTasks')}</p>
         </div>
       </div>
 
       {/* Recent history placeholder */}
-      <div className="rounded-lg border border-white/5 bg-zinc-900/50 p-4">
+      <div className="rounded-lg border border-border-subtle bg-surface-inset p-4">
         <div className="flex items-center gap-2 mb-2">
           <Clock size={14} className="text-text-muted" />
           <span className="text-xs font-medium text-text-muted">{t('panels.recentGeneration')}</span>

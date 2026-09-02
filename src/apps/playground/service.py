@@ -47,6 +47,18 @@ class PlaygroundService:
     # Public API
     # ------------------------------------------------------------------
 
+    def cancel_generation(
+        self,
+        generation_id: str,
+        workspace_id: str | None = None,
+    ) -> PlaygroundGeneration | None:
+        """Cancel local state; an already-running provider call may continue remotely."""
+        return self.storage.cancel_generation(
+            generation_id,
+            workspace_id,
+            error="Canceled by user",
+        )
+
     def create_generation(
         self,
         request: GenerateRequest,
@@ -80,9 +92,12 @@ class PlaygroundService:
             logger.error("Generation %s not found", generation_id)
             return
 
-        # Mark processing
-        gen.status = "processing"
-        self.storage.update_generation(gen)
+        if gen.status in ("completed", "failed"):
+            return
+
+        # Mark processing only if cancellation has not won the race.
+        if not self.storage.start_generation(gen):
+            return
 
         try:
             mode = gen.mode
@@ -93,13 +108,11 @@ class PlaygroundService:
             else:
                 raise ValueError(f"Unsupported playground mode: {mode}")
 
-            gen.status = "completed"
+            if not self.storage.finish_generation(gen, "completed"):
+                return
         except Exception as exc:
             logger.exception("Generation %s failed", generation_id)
-            gen.status = "failed"
-            gen.error = str(exc)
-
-        self.storage.update_generation(gen)
+            self.storage.finish_generation(gen, "failed", str(exc))
 
     def save_to_library(
         self,

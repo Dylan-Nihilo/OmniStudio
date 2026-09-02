@@ -1835,6 +1835,9 @@
       "pending": "Queued",
       "dispatching": "Starting",
       "cancel": "Cancel",
+      "running": "Running",
+      "cancelRunning": "Cancel running task",
+      "cancelFailed": "Failed to cancel task",
       "dispatchFailed": "Generation could not start",
       "unknownError": "Unknown error"
     }
@@ -1842,7 +1845,39 @@
   "scriptEditor": {
     "shell": {
       "title": "Script Editor",
-      "loading": "Loading editor..."
+      "loading": "Loading editor...",
+      "loadingDocument": "Loading project script...",
+      "emptyDocument": "Start writing here",
+      "emptyDocumentHint": "Add scene headings, characters, and dialogue. The editor will organize scenes and characters as you write.",
+      "unbound": "No project selected",
+      "changeProject": "Switch project",
+      "loadDocumentFailed": "Failed to load the project script",
+      "retryLoadDocument": "Retry loading",
+      "saveFailed": "Save failed: {message}",
+      "saveErrorFallback": "Check that the service is running",
+      "saving": "Saving..."
+    },
+    "standalone": {
+      "emptyTitle": "Choose a project to start editing",
+      "emptyDescription": "The script editor needs a project binding to load content and save changes. Open an existing project or create a new empty one.",
+      "selectProject": "Open an existing project",
+      "searchProjects": "Search projects...",
+      "refreshProjects": "Refresh projects",
+      "loadingProjects": "Loading projects...",
+      "noProjects": "No projects yet. Create one to get started.",
+      "noMatchingProjects": "No matching projects",
+      "projectStats": "{scenes} scenes · {characters} characters",
+      "createProject": "Create a new project",
+      "createDescription": "The editor opens after creation so you can start writing immediately.",
+      "projectTitle": "Project name",
+      "projectTitlePlaceholder": "For example: Episode 1",
+      "createAndOpen": "Create and open",
+      "creatingProject": "Creating...",
+      "createProjectFailed": "Failed to create project",
+      "loadProjectsFailed": "Failed to load projects",
+      "loadError": "{message}",
+      "backToWorkspace": "Back to workspace",
+      "switchProject": "Switch project"
     },
     "toolbar": {
       "format": "Format",
@@ -1962,6 +1997,8 @@
       "storyboard": "Storyboard",
       "read": "Read",
       "focus": "Focus",
+      "exitFocus": "Exit focus",
+      "exitFocusHint": "Press Esc to exit",
       "statusDraft": "Draft",
       "statusConfirmed": "Confirmed",
       "statusRendered": "Rendered",
@@ -1982,6 +2019,7 @@
       "offlineBanner": "Offline mode — content cached locally",
       "localCacheFound": "A newer local version was found",
       "restore": "Restore",
+      "dismissLocalCache": "Dismiss notification",
       "wordCount": "{count} words",
       "sceneCount": "{count} scenes",
       "allExpanded": "All expanded",

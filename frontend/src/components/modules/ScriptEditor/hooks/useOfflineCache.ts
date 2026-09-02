@@ -6,12 +6,23 @@ import { Editor } from '@tiptap/react';
 const DB_NAME = 'scriptEditorCache';
 const STORE_NAME = 'documents';
 const DB_VERSION = 1;
+const DISMISSED_HINT_KEY_PREFIX = 'omni_studio.script-editor.dismissed-cache:';
+const LOCAL_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 interface CachedDocument {
   projectId: string;
   content: object;
   timestamp: number;
   wordCount: number;
+}
+
+export function shouldShowLocalCacheHint(
+  cacheTimestamp: number,
+  now: number,
+  dismissedAt: number | null,
+): boolean {
+  return now - cacheTimestamp < LOCAL_CACHE_MAX_AGE
+    && (!dismissedAt || dismissedAt < cacheTimestamp);
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -66,6 +77,7 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
   const cachedContentRef = useRef<object | null>(null);
+  const cachedTimestampRef = useRef<number | null>(null);
   const syncPendingRef = useRef(false);
 
   // Monitor online/offline status
@@ -94,11 +106,15 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
         const cached = await getCache(projectId);
         if (cached) {
           cachedContentRef.current = cached.content;
-          // If we have a local cache that's newer than a threshold (e.g. within last 24h)
-          const now = Date.now();
-          const age = now - cached.timestamp;
-          if (age < 24 * 60 * 60 * 1000) {
-            // Mark as potentially newer — the shell can compare with server timestamp
+          cachedTimestampRef.current = cached.timestamp;
+          let dismissedAt: number | null = null;
+          try {
+            const rawDismissedAt = window.localStorage.getItem(`${DISMISSED_HINT_KEY_PREFIX}${projectId}`);
+            dismissedAt = rawDismissedAt ? Number(rawDismissedAt) : null;
+          } catch {
+            // Local storage can be unavailable in restricted contexts.
+          }
+          if (shouldShowLocalCacheHint(cached.timestamp, Date.now(), dismissedAt)) {
             setHasNewerLocal(true);
           }
         }
@@ -120,6 +136,7 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
           wordCount,
         });
         cachedContentRef.current = content;
+        cachedTimestampRef.current = Date.now();
       } catch {
         // Silently fail if IndexedDB is unavailable
       }
@@ -147,13 +164,27 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
   const restoreFromLocal = useCallback(() => {
     if (!editor || !cachedContentRef.current) return;
     editor.commands.setContent(cachedContentRef.current);
+    if (projectId && cachedTimestampRef.current) {
+      try {
+        window.localStorage.setItem(`${DISMISSED_HINT_KEY_PREFIX}${projectId}`, String(cachedTimestampRef.current));
+      } catch {
+        // Local storage can be unavailable in restricted contexts.
+      }
+    }
     setHasNewerLocal(false);
-  }, [editor]);
+  }, [editor, projectId]);
 
   // Dismiss the local restore hint
   const dismissLocalRestore = useCallback(() => {
+    if (projectId && cachedTimestampRef.current) {
+      try {
+        window.localStorage.setItem(`${DISMISSED_HINT_KEY_PREFIX}${projectId}`, String(cachedTimestampRef.current));
+      } catch {
+        // Local storage can be unavailable in restricted contexts.
+      }
+    }
     setHasNewerLocal(false);
-  }, []);
+  }, [projectId]);
 
   return {
     hasNewerLocal,

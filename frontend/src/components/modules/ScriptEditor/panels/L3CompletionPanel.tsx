@@ -52,7 +52,7 @@ function ResultCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      className="group rounded-lg border border-white/10 bg-zinc-800/80 p-3 hover:border-white/20 hover:bg-zinc-800 transition-colors"
+      className="group rounded-lg border border-glass-border bg-surface p-3 hover:border-primary/40 hover:bg-hover-bg transition-colors"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
@@ -63,7 +63,7 @@ function ResultCard({
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <ConfidenceBadge value={item.confidence} label={confidenceLabel} />
             {item.sceneIndex !== undefined && (
-              <span className="text-[10px] text-text-muted bg-zinc-700/50 rounded px-1.5 py-0.5">
+              <span className="text-[10px] text-text-muted bg-surface-inset rounded px-1.5 py-0.5">
                 {sceneLabel} {item.sceneIndex + 1}
               </span>
             )}
@@ -159,8 +159,8 @@ export default function L3CompletionPanel() {
   if (l3Status === 'idle' && (!l3Results || l3Results.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
-          <Sparkles size={20} className="text-zinc-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
+          <Sparkles size={20} className="text-text-secondary" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.aiIdle')}</p>
       </div>
@@ -171,7 +171,7 @@ export default function L3CompletionPanel() {
   if (l3Status === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
           <Loader2 size={20} className="text-indigo-400 animate-spin" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.aiLoading')}</p>
@@ -190,7 +190,7 @@ export default function L3CompletionPanel() {
         <button
           type="button"
           onClick={handleRetry}
-          className="mt-3 flex items-center gap-1.5 rounded-md bg-zinc-800 px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-zinc-700 transition-colors"
+          className="mt-3 flex items-center gap-1.5 rounded-md bg-surface-inset px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover-bg transition-colors"
         >
           <RefreshCw size={12} />
           {t('panels.aiRetry')}
@@ -203,8 +203,8 @@ export default function L3CompletionPanel() {
   if (l3Status === 'success' && (!l3Results || l3Results.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
-          <Check size={20} className="text-zinc-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
+          <Check size={20} className="text-text-secondary" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.aiEmpty')}</p>
       </div>

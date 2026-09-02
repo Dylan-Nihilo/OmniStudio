@@ -1630,6 +1630,9 @@ export const playgroundApi = {
   getGenerationStatus: (id: string) =>
     apiClient.get<{ id: string; status: string; outputs: any[]; error?: string }>(API_URL + "/playground/history/" + id + "/status").then(r => r.data),
 
+  cancelGeneration: (id: string) =>
+    apiClient.post<PlaygroundGenerationResponse>(API_URL + "/playground/history/" + id + "/cancel").then(r => r.data),
+
   deleteGeneration: (id: string) =>
     apiClient.delete(API_URL + "/playground/history/" + id).then(r => r.data),
 

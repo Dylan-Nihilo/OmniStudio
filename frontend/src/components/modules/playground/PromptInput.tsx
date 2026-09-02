@@ -27,7 +27,7 @@ export default function PromptInput() {
         value={prompt}
         onChange={(e) => setPrompt(e.target.value.slice(0, MAX_LENGTH))}
         placeholder={t('prompt.placeholder')}
-        className="w-full min-h-[120px] max-h-[280px] resize-y bg-transparent border-0 rounded-none p-0 text-foreground text-[0.9375rem] leading-[1.65] placeholder-text-muted focus:ring-0"
+        className="w-full min-h-[120px] max-h-[280px] resize-y bg-transparent border-0 rounded-none p-0 text-foreground text-[0.9375rem] leading-[1.65] placeholder-text-muted focus:outline-none focus:ring-0"
       />
 
       {/* Toolbar — below the textarea, not overlapping */}
@@ -72,7 +72,7 @@ export default function PromptInput() {
           value={negativePrompt}
           onChange={(e) => setNegativePrompt(e.target.value)}
           placeholder={t('prompt.negativePlaceholder')}
-          className="w-full min-h-[60px] resize-y bg-transparent border-0 rounded-none p-0 text-text-secondary text-xs placeholder-text-muted focus:ring-0"
+          className="w-full min-h-[60px] resize-y bg-transparent border-0 rounded-none p-0 text-text-secondary text-xs placeholder-text-muted focus:outline-none focus:ring-0"
         />
       )}
 
