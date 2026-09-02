@@ -35,6 +35,7 @@ const SettingsPage = dynamic(() => withChunkLoadRecovery(() => import("@/compone
 const AssetLibraryPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/library/AssetLibraryPage")), { ssr: false });
 const PlaygroundPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/playground/PlaygroundPage")), { ssr: false });
 const ScriptEditorShell = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/ScriptEditorShell")), { ssr: false });
+const StandaloneScriptEditor = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/StandaloneScriptEditor")), { ssr: false });
 
 // ── Create Series Dialog ──
 function CreateSeriesDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -706,7 +707,7 @@ function AuthenticatedHome() {
       return <PlaygroundPage />;
     }
     if (currentView === 'studio/editor') {
-      return <ScriptEditorShell mode="full" />;
+      return <StandaloneScriptEditor />;
     }
     if (currentView === 'project-editor' && projectId) {
       return <ScriptEditorShell mode="embedded" projectId={projectId} />;

@@ -94,13 +94,13 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
       <div
         ref={panelRef}
-        className="relative w-[520px] max-h-[80vh] overflow-y-auto rounded-xl border border-white/10 bg-[#0c0c12] shadow-2xl"
+        className="relative w-[520px] max-h-[80vh] overflow-y-auto rounded-xl border border-glass-border bg-surface shadow-2xl"
       >
         {/* Header */}
-        <div className="sticky top-0 flex items-center justify-between border-b border-white/10 bg-[#0c0c12] px-6 py-4">
+        <div className="sticky top-0 flex items-center justify-between border-b border-glass-border bg-surface px-6 py-4">
           <h2 className="text-base font-semibold text-foreground">{t('shortcuts.title')}</h2>
           <button
             type="button"
@@ -126,7 +126,7 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
                     className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.03] transition-colors"
                   >
                     <span className="text-sm text-text-secondary">{t(item.descKey)}</span>
-                    <kbd className="inline-flex items-center gap-0.5 rounded border border-white/10 bg-white/5 px-2 py-0.5 text-xs font-mono text-text-muted">
+                    <kbd className="inline-flex items-center gap-0.5 rounded border border-glass-border bg-surface-inset px-2 py-0.5 text-xs font-mono text-text-muted">
                       {item.keys}
                     </kbd>
                   </div>
@@ -137,7 +137,7 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-white/10 px-6 py-3">
+        <div className="border-t border-glass-border px-6 py-3">
           <p className="text-xs text-text-muted/60 text-center">
             {t('shortcuts.footer')}
           </p>

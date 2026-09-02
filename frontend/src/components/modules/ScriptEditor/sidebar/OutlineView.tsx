@@ -92,8 +92,8 @@ export default function OutlineView({ editor }: OutlineViewProps) {
   if (!hasAny) {
     return (
       <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 mb-2">
-          <TreePine size={16} className="text-zinc-500" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-inset mb-2">
+          <TreePine size={16} className="text-text-secondary" />
         </div>
         <p className="text-xs text-text-muted">{t('sidebar.noOutline')}</p>
       </div>
@@ -110,7 +110,7 @@ export default function OutlineView({ editor }: OutlineViewProps) {
           onClick={() => handleJump(scene.pos)}
           className="flex w-full items-center gap-2 px-2 py-1.5 text-left rounded hover:bg-white/5 transition-colors"
         >
-          <Film size={12} className="shrink-0 text-zinc-400" />
+            <Film size={12} className="shrink-0 text-text-secondary" />
           <span className="text-sm text-foreground truncate">
             {scene.number != null && (
               <span className="text-xs font-mono text-text-muted mr-1">#{scene.number}</span>
@@ -152,7 +152,7 @@ export default function OutlineView({ editor }: OutlineViewProps) {
                 transition={{ duration: 0.15 }}
                 className="overflow-hidden"
               >
-                <div className="ml-4 border-l border-white/5 pl-2">
+                <div className="ml-4 border-l border-border-subtle pl-2">
                   {section.scenes.map((scene) => (
                     <button
                       key={scene.id}
@@ -160,7 +160,7 @@ export default function OutlineView({ editor }: OutlineViewProps) {
                       onClick={() => handleJump(scene.pos)}
                       className="flex w-full items-center gap-2 px-2 py-1 text-left rounded hover:bg-white/5 transition-colors"
                     >
-                      <Film size={10} className="shrink-0 text-zinc-500" />
+                      <Film size={10} className="shrink-0 text-text-secondary" />
                       <span className="text-xs text-text-secondary truncate">
                         {scene.number != null && (
                           <span className="font-mono text-text-muted mr-1">#{scene.number}</span>

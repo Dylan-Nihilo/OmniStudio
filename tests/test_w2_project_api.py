@@ -111,6 +111,44 @@ def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
     assert [item["id"] for item in response.json()] == [project["id"]]
 
 
+def test_script_document_uses_current_project_storage(api_client, tmp_path):
+    project = _create_project(api_client, "剧本文档保存回归")
+    content = {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "第一场"}]}],
+    }
+
+    empty_document = api_client.get(f"/projects/{project['id']}/document")
+    empty_snapshots = api_client.get(f"/projects/{project['id']}/document/snapshots")
+
+    assert empty_document.status_code == 200, empty_document.text
+    assert empty_document.json() == {
+        "type": "doc",
+        "content": [{
+            "type": "action",
+            "content": [{"type": "text", "text": "剧本文档保存回归正文"}],
+        }],
+    }
+    assert empty_snapshots.status_code == 200, empty_snapshots.text
+    assert empty_snapshots.json() == []
+
+    saved = api_client.post(
+        f"/projects/{project['id']}/document",
+        json={"content": content},
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "ok"
+
+    loaded = api_client.get(f"/projects/{project['id']}/document")
+
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json() == content
+    assert (
+        tmp_path / "output" / "documents" / project["id"] / "document.json"
+    ).is_file()
+
+
 def test_provider_configuration_is_isolated_by_workspace(api_client):
     team_id = api_client.get("/auth/me").json()["workspace"]["id"]
     saved = api_client.post(

@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Camera, Workflow, MapPin, Package, StickyNote, Sparkles, Lock, Unlock } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
+import type { Project } from '@/store/projectStore';
 import { useEditorStore } from '@/store/editorStore';
 import CharacterPanel from './CharacterPanel';
 import ShotPanel from './ShotPanel';
@@ -18,6 +19,7 @@ export interface RightPanelContainerProps {
   editor: Editor | null;
   mode?: 'full' | 'embedded' | 'focus';
   projectId?: string;
+  project?: Project | null;
   onEnterPipeline?: () => void;
 }
 
@@ -34,6 +36,7 @@ export default function RightPanelContainer({
   editor,
   mode = 'full',
   projectId,
+  project,
   onEnterPipeline,
 }: RightPanelContainerProps) {
   const t = useTranslations('scriptEditor');
@@ -114,7 +117,7 @@ export default function RightPanelContainer({
   return (
     <div className="flex h-full flex-col">
       {/* Tab bar - Primary group */}
-      <div className="flex shrink-0 border-b border-white/10">
+      <div className="flex shrink-0 border-b border-glass-border bg-surface">
         {primaryTabs.map((tab) => (
           <button
             key={tab.id}
@@ -143,7 +146,7 @@ export default function RightPanelContainer({
           type="button"
           onClick={togglePanelLock}
           title={panelLocked ? t('panels.unlockPanel') : t('panels.lockPanel')}
-          className={`flex items-center justify-center px-2.5 py-2.5 text-xs transition-colors border-l border-white/5 ${
+          className={`flex items-center justify-center px-2.5 py-2.5 text-xs transition-colors border-l border-border-subtle ${
             panelLocked
               ? 'text-amber-400 hover:text-amber-300'
               : 'text-text-muted hover:text-text-secondary'
@@ -155,7 +158,7 @@ export default function RightPanelContainer({
 
       {/* Tab bar - Secondary group */}
       {secondaryTabs.length > 0 && (
-        <div className="flex shrink-0 border-b border-white/5 bg-zinc-900/30">
+        <div className="flex shrink-0 border-b border-border-subtle bg-surface-inset">
           {secondaryTabs.map((tab) => (
             <button
               key={tab.id}
@@ -192,10 +195,10 @@ export default function RightPanelContainer({
             transition={{ duration: 0.15 }}
           >
             {currentTab === 'characters' && !isEmbedded && (
-              <CharacterPanel editor={editor} />
+              <CharacterPanel editor={editor} project={project} />
             )}
             {currentTab === 'shots' && (
-              <ShotPanel editor={editor} />
+              <ShotPanel editor={editor} project={project} />
             )}
             {currentTab === 'pipeline' && (
               <PipelinePanel
@@ -204,10 +207,10 @@ export default function RightPanelContainer({
               />
             )}
             {currentTab === 'locations' && !isEmbedded && (
-              <LocationPanel editor={editor} />
+              <LocationPanel editor={editor} project={project} />
             )}
             {currentTab === 'props' && !isEmbedded && (
-              <PropsPanel editor={editor} />
+              <PropsPanel editor={editor} project={project} />
             )}
             {currentTab === 'notes' && !isEmbedded && (
               <NotesPanel editor={editor} />

@@ -66,8 +66,8 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
   if (notes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
-          <StickyNote size={20} className="text-zinc-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
+          <StickyNote size={20} className="text-text-secondary" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.notesEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">{t('panels.notesEmptyHint')}</p>
@@ -85,7 +85,7 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-1 mb-3 rounded-lg bg-zinc-900/60 p-0.5">
+      <div className="flex gap-1 mb-3 rounded-lg bg-surface-inset p-0.5">
         {([
           { id: 'all', label: t('panels.filterAll') },
           { id: 'unresolved', label: t('panels.filterUnresolved') },
@@ -97,7 +97,7 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
             onClick={() => setFilter(f.id)}
             className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
               filter === f.id
-                ? 'bg-zinc-700 text-foreground'
+                ? 'bg-surface text-foreground'
                 : 'text-text-muted hover:text-text-secondary'
             }`}
           >
@@ -117,18 +117,18 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
-              className="rounded-lg border border-white/10 bg-zinc-800/80 p-3 cursor-pointer hover:border-white/20 hover:bg-zinc-800 transition-colors"
+              className="rounded-lg border border-glass-border bg-surface p-3 cursor-pointer hover:border-primary/40 hover:bg-hover-bg transition-colors"
               onClick={() => handleNoteClick(note.pos)}
             >
               <div className="flex items-start gap-2">
-                <MessageSquare size={12} className="shrink-0 mt-0.5 text-zinc-400" />
+                <MessageSquare size={12} className="shrink-0 mt-0.5 text-text-secondary" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-foreground line-clamp-2">{note.content}</p>
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className="text-xs text-text-muted">{note.author}</span>
                     {note.timestamp && (
                       <>
-                        <span className="text-white/20">·</span>
+                        <span className="text-text-muted">·</span>
                         <span className="text-xs text-text-muted">{note.timestamp}</span>
                       </>
                     )}

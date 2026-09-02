@@ -5,14 +5,18 @@ import { Package } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
+import type { Project } from '@/store/projectStore';
+import PreviewImage from '@/components/shared/preview/PreviewImage';
 
 export interface PropsPanelProps {
   editor: Editor | null;
+  project?: Project | null;
 }
 
 interface PropEntry {
   name: string;
   firstSceneTitle: string;
+  imageUrl?: string;
 }
 
 /**
@@ -39,11 +43,19 @@ function extractProps(text: string): string[] {
   return Array.from(props);
 }
 
-export default function PropsPanel({ editor }: PropsPanelProps) {
+export default function PropsPanel({ editor, project }: PropsPanelProps) {
   const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
+  const projectProps = project?.props || [];
 
   const propEntries = useMemo<PropEntry[]>(() => {
+    if (projectProps.length > 0) {
+      return projectProps.map((prop) => ({
+        name: prop.name,
+        firstSceneTitle: prop.description || t('panels.untitledScene'),
+        imageUrl: prop.image_url,
+      }));
+    }
     if (!editor) return [];
 
     const propsMap = new Map<string, string>(); // propName -> first scene title
@@ -70,14 +82,15 @@ export default function PropsPanel({ editor }: PropsPanelProps) {
     return Array.from(propsMap.entries()).map(([name, firstSceneTitle]) => ({
       name,
       firstSceneTitle,
+      imageUrl: undefined,
     }));
-  }, [editor, derivedScenes]);
+  }, [editor, derivedScenes, projectProps, t]);
 
   if (propEntries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 mb-3">
-          <Package size={20} className="text-zinc-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
+          <Package size={20} className="text-text-secondary" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.propsEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">
@@ -99,10 +112,10 @@ export default function PropsPanel({ editor }: PropsPanelProps) {
         {propEntries.map((entry) => (
           <div
             key={entry.name}
-            className="flex items-center justify-between rounded-lg border border-white/10 bg-zinc-800/80 px-3 py-2 hover:border-white/20 transition-colors"
+            className="flex items-center justify-between gap-2 rounded-lg border border-glass-border bg-surface px-3 py-2 hover:border-primary/40 transition-colors"
           >
             <div className="flex items-center gap-2 min-w-0">
-              <Package size={12} className="shrink-0 text-zinc-400" />
+              {entry.imageUrl ? <PreviewImage src={entry.imageUrl} alt={entry.name} noLightbox className="h-7 w-7 shrink-0 rounded object-cover" /> : <Package size={12} className="shrink-0 text-text-secondary" />}
               <span className="text-sm text-foreground truncate">{entry.name}</span>
             </div>
             <span className="shrink-0 text-xs text-text-muted ml-2 truncate max-w-[120px]">

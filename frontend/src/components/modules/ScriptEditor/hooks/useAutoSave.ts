@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { scriptEditorApi } from '@/lib/scriptEditorApi';
 import { useEditorStore } from '@/store/editorStore';
@@ -11,10 +11,16 @@ const AUTOSAVE_INTERVAL_MS = 30_000; // 30 seconds
  * - Cmd+S / Ctrl+S 手动保存 + 创建快照
  * - beforeunload 事件拦截（离开页面前提醒保存）
  */
-export function useAutoSave(editor: Editor | null, projectId: string | null) {
-  const { isDirty, setDirty, setLastSavedAt } = useEditorStore();
+export function useAutoSave(
+  editor: Editor | null,
+  projectId: string | null,
+  saveToLocal?: (content: object, wordCount: number) => Promise<void> | void,
+) {
+  const { setDirty, setLastSavedAt } = useEditorStore();
   const isSavingRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // 核心保存逻辑
   const save = useCallback(
@@ -24,22 +30,28 @@ export function useAutoSave(editor: Editor | null, projectId: string | null) {
 
       const content = editor.getJSON();
       isSavingRef.current = true;
+      setIsSaving(true);
+      setSaveError(null);
 
       try {
         await scriptEditorApi.saveDocument(projectId, content, createSnapshot);
+        await saveToLocal?.(content, editor.getText().length);
         setDirty(false);
         setLastSavedAt(new Date());
       } catch (err) {
         console.error('[useAutoSave] Save failed:', err);
+        setSaveError(err instanceof Error ? err.message : 'Save failed');
       } finally {
         isSavingRef.current = false;
+        setIsSaving(false);
       }
     },
-    [editor, projectId, setDirty, setLastSavedAt]
+    [editor, projectId, saveToLocal, setDirty, setLastSavedAt]
   );
 
   // 30s 周期自动保存
   useEffect(() => {
+    if (!editor || !projectId) return;
     intervalRef.current = setInterval(() => {
       if (useEditorStore.getState().isDirty) {
         save(false);
@@ -52,7 +64,7 @@ export function useAutoSave(editor: Editor | null, projectId: string | null) {
         intervalRef.current = null;
       }
     };
-  }, [save]);
+  }, [editor, projectId, save]);
 
   // Cmd+S / Ctrl+S 手动保存（创建快照）
   useEffect(() => {
@@ -69,6 +81,7 @@ export function useAutoSave(editor: Editor | null, projectId: string | null) {
 
   // beforeunload 拦截
   useEffect(() => {
+    if (!editor || !projectId) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (useEditorStore.getState().isDirty) {
         e.preventDefault();
@@ -88,5 +101,5 @@ export function useAutoSave(editor: Editor | null, projectId: string | null) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [editor, projectId]);
 
-  return { save };
+  return { save, isSaving, saveError };
 }

@@ -67,7 +67,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 bg-overlay backdrop-blur-sm"
             onClick={onClose}
           />
 
@@ -79,9 +79,9 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl">
+            <div className="w-full max-w-lg rounded-2xl border border-glass-border bg-surface shadow-2xl">
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div className="flex items-center justify-between border-b border-glass-border px-6 py-4">
                 <h2 className="text-base font-semibold text-foreground">{t('dialogs.pipeline.title')}</h2>
                 <button
                   type="button"
@@ -101,7 +101,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                     className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                       mode === 'existing'
                         ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                        : 'bg-zinc-800 text-text-muted hover:text-text-secondary border border-white/5'
+                        : 'bg-surface-inset text-text-muted hover:text-text-secondary border border-border-subtle'
                     }`}
                   >
                     <Link2 size={14} />
@@ -113,7 +113,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                     className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                       mode === 'create'
                         ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                        : 'bg-zinc-800 text-text-muted hover:text-text-secondary border border-white/5'
+                        : 'bg-surface-inset text-text-muted hover:text-text-secondary border border-border-subtle'
                     }`}
                   >
                     <FolderPlus size={14} />
@@ -141,12 +141,12 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder={t('dialogs.pipeline.searchPlaceholder')}
-                          className="w-full rounded-lg border border-white/10 bg-zinc-800 pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-indigo-500/50 focus:outline-none transition-colors"
+                        className="w-full rounded-lg border border-glass-border bg-input-bg pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-primary focus:outline-none transition-colors"
                         />
                       </div>
 
                       {/* Project list */}
-                      <div className="max-h-[240px] overflow-y-auto space-y-1 rounded-lg border border-white/5 bg-zinc-800/30 p-2">
+                      <div className="max-h-[240px] overflow-y-auto space-y-1 rounded-lg border border-border-subtle bg-surface-inset p-2">
                         {filteredProjects.length > 0 ? (
                           filteredProjects.map((project) => (
                             <button
@@ -156,7 +156,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                               className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
                                 selectedProjectId === project.id
                                   ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/30'
-                                  : 'text-text-secondary hover:bg-zinc-700/50 border border-transparent'
+                                  : 'text-text-secondary hover:bg-hover-bg border border-transparent'
                               }`}
                             >
                               <div className="flex-1 min-w-0">
@@ -190,7 +190,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
                         value={newProjectName}
                         onChange={(e) => setNewProjectName(e.target.value)}
                         placeholder={t('dialogs.pipeline.projectNamePlaceholder')}
-                        className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2.5 text-sm text-foreground placeholder:text-text-muted focus:border-indigo-500/50 focus:outline-none transition-colors"
+                        className="w-full rounded-lg border border-glass-border bg-input-bg px-3 py-2.5 text-sm text-foreground placeholder:text-text-muted focus:border-primary focus:outline-none transition-colors"
                         autoFocus
                       />
                       <p className="mt-2 text-xs text-text-muted">
@@ -202,7 +202,7 @@ export default function PipelineLinkDialog({ open, onClose, onLink }: PipelineLi
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+              <div className="flex items-center justify-end gap-3 border-t border-glass-border px-6 py-4">
                 <button
                   type="button"
                   onClick={onClose}

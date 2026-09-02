@@ -1219,6 +1219,7 @@ html.atelier-light .atelier-new-tile:hover > span:first-child {
 .script-editor .ProseMirror {
   width: 100%;
   min-width: 0;
+  outline: none;
   font-family: var(--script-font-family);
   font-size: var(--script-font-size);
   line-height: var(--script-line-height);

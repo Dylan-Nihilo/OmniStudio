@@ -170,11 +170,11 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
           exit={{ opacity: 0 }}
         >
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
+          <div className="absolute inset-0 bg-overlay backdrop-blur-sm" onClick={handleClose} />
 
           {/* Dialog */}
           <motion.div
-            className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-[#0a0a0f]/90 p-6 shadow-2xl backdrop-blur-xl"
+            className="relative z-10 w-full max-w-md rounded-2xl border border-glass-border bg-surface p-6 shadow-2xl backdrop-blur-xl"
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
@@ -182,10 +182,10 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white">{t('dialogs.export.title')}</h2>
+              <h2 className="text-lg font-semibold text-foreground">{t('dialogs.export.title')}</h2>
               <button
                 onClick={handleClose}
-                className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white transition-colors"
+                className="rounded-lg p-1.5 text-text-secondary hover:bg-hover-bg hover:text-foreground transition-colors"
               >
                 <X size={18} />
               </button>
@@ -212,7 +212,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
                           : isSuccess
                             ? 'border border-green-500/30 bg-green-500/10'
                             : 'border border-blue-500/30 bg-blue-500/10'
-                        : 'border border-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/10'
+                        : 'border border-border-subtle bg-glass hover:bg-hover-bg hover:border-glass-border'
                       }
                       disabled:opacity-50 disabled:cursor-not-allowed
                     `}
@@ -229,19 +229,19 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white">{format.labelKey ? t(format.labelKey) : format.label}</p>
-                      <p className="text-xs text-white/50 truncate">
+                      <p className="text-sm font-medium text-foreground">{format.labelKey ? t(format.labelKey) : format.label}</p>
+                      <p className="text-xs text-text-muted truncate">
                         {isError ? errorMsg : t(format.descKey)}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs text-white/30">{format.ext}</span>
+                    <span className="shrink-0 text-xs text-text-muted">{format.ext}</span>
                   </button>
                 )
               })}
             </div>
 
             {/* Footer */}
-            <p className="mt-4 text-xs text-white/30 text-center">
+            <p className="mt-4 text-xs text-text-muted text-center">
               {t('dialogs.export.footer')}
             </p>
           </motion.div>

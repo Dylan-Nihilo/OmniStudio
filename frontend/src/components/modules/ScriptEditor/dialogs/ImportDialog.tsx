@@ -143,11 +143,11 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
           exit={{ opacity: 0 }}
         >
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
+          <div className="absolute inset-0 bg-overlay backdrop-blur-sm" onClick={handleClose} />
 
           {/* Dialog */}
           <motion.div
-            className="relative z-10 w-full max-w-lg rounded-2xl border border-white/10 bg-[#0a0a0f]/90 p-6 shadow-2xl backdrop-blur-xl"
+            className="relative z-10 w-full max-w-lg rounded-2xl border border-glass-border bg-surface p-6 shadow-2xl backdrop-blur-xl"
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
@@ -155,10 +155,10 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-white">{t('dialogs.import.title')}</h2>
+              <h2 className="text-lg font-semibold text-foreground">{t('dialogs.import.title')}</h2>
               <button
                 onClick={handleClose}
-                className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white transition-colors"
+                className="rounded-lg p-1.5 text-text-secondary hover:bg-hover-bg hover:text-foreground transition-colors"
               >
                 <X size={18} />
               </button>
@@ -178,7 +178,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                     ? 'border-red-400/50 bg-red-500/5'
                     : status === 'success'
                       ? 'border-green-400/50 bg-green-500/5'
-                      : 'border-white/20 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]'
+                      : 'border-glass-border bg-glass hover:border-primary/40 hover:bg-hover-bg'
                 }
               `}
             >
@@ -192,11 +192,11 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
 
               {status === 'idle' && (
                 <>
-                  <Upload size={32} className="text-white/40 mb-3" />
-                  <p className="text-sm text-white/70 text-center">
+                  <Upload size={32} className="text-text-secondary mb-3" />
+                  <p className="text-sm text-text-secondary text-center">
                     {t('dialogs.import.dropzone')}
                   </p>
-                  <p className="text-xs text-white/40 mt-2">
+                  <p className="text-xs text-text-muted mt-2">
                     {t('dialogs.import.supportedFormats')}
                   </p>
                 </>
@@ -207,9 +207,9 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                   <Loader2 size={28} className="text-blue-400 animate-spin" />
                   <div className="flex items-center gap-2">
                     {getFileIcon(ext)}
-                    <span className="text-sm text-white/80">{selectedFile?.name}</span>
+                    <span className="text-sm text-foreground">{selectedFile?.name}</span>
                   </div>
-                  <p className="text-xs text-white/50">{t('dialogs.import.parsing')}</p>
+                  <p className="text-xs text-text-secondary">{t('dialogs.import.parsing')}</p>
                 </div>
               )}
 
@@ -218,7 +218,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                   <CheckCircle2 size={28} className="text-green-400" />
                   <div className="flex items-center gap-2">
                     {getFileIcon(ext)}
-                    <span className="text-sm text-white/80">{selectedFile?.name}</span>
+                    <span className="text-sm text-foreground">{selectedFile?.name}</span>
                   </div>
                   <p className="text-xs text-green-400/80">
                     {t('dialogs.import.success', { count: sceneCount })}
@@ -235,7 +235,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
                       e.stopPropagation()
                       reset()
                     }}
-                    className="text-xs text-white/60 hover:text-white underline mt-1"
+                    className="text-xs text-text-secondary hover:text-foreground underline mt-1"
                   >
                     {t('dialogs.import.retry')}
                   </button>
@@ -244,7 +244,7 @@ export default function ImportDialog({ open, onClose, projectId, onImportSuccess
             </div>
 
             {/* Footer hint */}
-            <p className="mt-4 text-xs text-white/30 text-center">
+            <p className="mt-4 text-xs text-text-muted text-center">
               {t('dialogs.import.replaceWarning')}
             </p>
           </motion.div>

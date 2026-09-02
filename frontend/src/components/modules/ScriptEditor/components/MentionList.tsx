@@ -66,29 +66,29 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
 
     if (!items.length) {
       return (
-        <div className="bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl p-2 text-sm text-zinc-400">
+        <div className="bg-surface border border-glass-border rounded-lg shadow-xl p-2 text-sm text-text-secondary">
           {t('components.noMatchCharacter')}
         </div>
       )
     }
 
     return (
-      <div className="bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+      <div className="bg-surface border border-glass-border rounded-lg shadow-xl overflow-hidden max-h-60 overflow-y-auto">
         {items.map((item, index) => (
           <button
             key={item.id}
             type="button"
             className={`w-full text-left px-3 py-2 text-sm transition-colors ${
               index === selectedIndex
-                ? 'bg-zinc-600 text-white'
-                : 'text-zinc-300 hover:bg-zinc-700'
+                ? 'bg-primary text-on-accent'
+                : 'text-text-secondary hover:bg-hover-bg'
             }`}
             onClick={() => selectItem(index)}
             onMouseEnter={() => setSelectedIndex(index)}
           >
             <span className="font-medium">{item.name}</span>
             {item.occurrences > 0 && (
-              <span className="ml-2 text-xs text-zinc-500">
+              <span className="ml-2 text-xs text-text-muted">
                 {t('components.occurrenceCount', { count: item.occurrences })}
               </span>
             )}

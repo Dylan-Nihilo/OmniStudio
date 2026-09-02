@@ -52,7 +52,7 @@ export default function LeftSidebar({ editor, collapsed = false }: LeftSidebarPr
   return (
     <div className="flex h-full flex-col">
       {/* Tab bar */}
-      <div className="flex shrink-0 border-b border-white/10">
+      <div className="flex shrink-0 border-b border-glass-border bg-surface">
         {TABS.map((tab) => (
           <button
             key={tab.id}

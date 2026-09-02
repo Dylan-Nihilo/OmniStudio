@@ -65,9 +65,9 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
 
       {/* Expanded Panel */}
       {expanded && (
-        <div className="absolute bottom-full left-0 mb-2 w-[360px] rounded-lg border border-white/10 bg-[#0c0c12] shadow-xl z-40 max-h-[320px] overflow-y-auto">
+        <div className="absolute bottom-full left-0 mb-2 w-[360px] rounded-lg border border-glass-border bg-surface shadow-xl z-40 max-h-[320px] overflow-y-auto">
           {/* Stats Summary */}
-          <div className="border-b border-white/10 px-4 py-3">
+          <div className="border-b border-glass-border px-4 py-3">
             <div className="flex items-center gap-4 text-xs text-text-muted">
               <span className="flex items-center gap-1">
                 <User size={11} />
