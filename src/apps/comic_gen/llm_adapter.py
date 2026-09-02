@@ -46,7 +46,7 @@ class LLMAdapter:
         provider = self.provider
         if provider == "openai":
             api_key = workspace_getenv("OPENAI_API_KEY")
-            base_url = workspace_getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            base_url = workspace_getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1"
         else:
             api_key = workspace_getenv("DASHSCOPE_API_KEY")
             base_url = f"{get_provider_base_url('DASHSCOPE')}/compatible-mode/v1"

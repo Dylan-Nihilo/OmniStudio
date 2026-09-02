@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, R
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Optional, Dict, List, Any, Tuple, Literal
 import asyncio
 import time
 from contextvars import copy_context
@@ -1883,6 +1883,10 @@ async def import_file_confirm(request: ConfirmImportRequest, http_request: Reque
 
 
 class EnvConfig(ProviderRoutingConfig):
+    LLM_PROVIDER: Literal["dashscope", "openai"] = "dashscope"
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_BASE_URL: Optional[str] = None
+    OPENAI_MODEL: Optional[str] = None
     DASHSCOPE_API_KEY: Optional[str] = None
     ALIBABA_CLOUD_ACCESS_KEY_ID: Optional[str] = None
     ALIBABA_CLOUD_ACCESS_KEY_SECRET: Optional[str] = None
@@ -4781,6 +4785,7 @@ def trigger_mulerun_login():
 
 # Credential-like env fields that must never be returned in plaintext.
 SECRET_FIELDS = {
+    "OPENAI_API_KEY",
     "DASHSCOPE_API_KEY",
     "ALIBABA_CLOUD_ACCESS_KEY_ID",
     "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
@@ -4802,8 +4807,9 @@ def _mask_secret(value: Optional[str]) -> str:
     if not v:
         return ""
     if len(v) <= 4:
-        return _MASK_CHAR * len(v)
-    return _MASK_CHAR * 8 + v[-4:]
+        return v[:3] if v.startswith("sk-") else _MASK_CHAR * len(v)
+    prefix = "sk-" if v.startswith("sk-") else ""
+    return prefix + _MASK_CHAR * 8 + v[-4:]
 
 
 @app.get("/config/env")
@@ -4832,6 +4838,7 @@ def get_env_config():
 
         return {
             # Masked secrets — never plaintext.
+            "OPENAI_API_KEY": _mask_secret(workspace_getenv("OPENAI_API_KEY")),
             "DASHSCOPE_API_KEY": _mask_secret(workspace_getenv("DASHSCOPE_API_KEY")),
             "ALIBABA_CLOUD_ACCESS_KEY_ID": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
             "ALIBABA_CLOUD_ACCESS_KEY_SECRET": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")),
@@ -4844,6 +4851,9 @@ def get_env_config():
             "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),
             "OSS_BASE_PATH": workspace_getenv("OSS_BASE_PATH", ""),
             "OSS_ENABLE": is_oss_enabled(),
+            "LLM_PROVIDER": (workspace_getenv("LLM_PROVIDER", "dashscope") or "dashscope").strip().lower(),
+            "OPENAI_BASE_URL": workspace_getenv("OPENAI_BASE_URL", ""),
+            "OPENAI_MODEL": workspace_getenv("OPENAI_MODEL", ""),
             "MULERUN_CLI_LOGGED_IN": _check_mulerun_cli_status(),
             "KLING_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("KLING_PROVIDER_MODE")),
             "VIDU_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("VIDU_PROVIDER_MODE")),

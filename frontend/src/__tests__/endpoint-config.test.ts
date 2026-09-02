@@ -8,8 +8,13 @@
 import { describe, it, expect } from "vitest";
 
 type ProviderMode = "dashscope" | "vendor";
+type LlmProvider = "dashscope" | "openai";
 
 interface EnvConfig {
+  LLM_PROVIDER: LlmProvider;
+  OPENAI_API_KEY: string;
+  OPENAI_BASE_URL: string;
+  OPENAI_MODEL: string;
   DASHSCOPE_API_KEY: string;
   ALIBABA_CLOUD_ACCESS_KEY_ID: string;
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: string;
@@ -30,9 +35,14 @@ const ENDPOINT_PROVIDERS = [
   { key: "DASHSCOPE_BASE_URL", label: "DashScope", placeholder: "https://dashscope.aliyuncs.com" },
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
+  { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
+  LLM_PROVIDER: "dashscope",
+  OPENAI_API_KEY: "",
+  OPENAI_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_MODEL: "gpt-4o",
   DASHSCOPE_API_KEY: "",
   ALIBABA_CLOUD_ACCESS_KEY_ID: "",
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: "",
@@ -52,10 +62,16 @@ function normalizeProviderMode(mode?: string): ProviderMode {
   return mode === "vendor" ? "vendor" : "dashscope";
 }
 
+function normalizeLlmProvider(provider?: string): LlmProvider {
+  return provider === "openai" ? "openai" : "dashscope";
+}
+
 /** Mirrors validateRequiredFields() after Task 8 */
 function validateRequiredFields(config: EnvConfig): boolean {
-  const dashscopeKey = config.DASHSCOPE_API_KEY?.trim();
-  if (!dashscopeKey) return false;
+  const llmKey = config.LLM_PROVIDER === "openai"
+    ? config.OPENAI_API_KEY?.trim()
+    : config.DASHSCOPE_API_KEY?.trim();
+  if (!llmKey) return false;
 
   if (config.KLING_PROVIDER_MODE === "vendor") {
     const klingAccessKey = config.KLING_ACCESS_KEY?.trim();
@@ -105,6 +121,7 @@ function normalizeApiResponse(existing: EnvConfig, data: { [key: string]: unknow
   return {
     ...existing,
     ...base,
+    LLM_PROVIDER: normalizeLlmProvider(typeof data.LLM_PROVIDER === "string" ? data.LLM_PROVIDER : existing.LLM_PROVIDER),
     KLING_PROVIDER_MODE: normalizeProviderMode(klingMode),
     VIDU_PROVIDER_MODE: normalizeProviderMode(viduMode),
     PIXVERSE_PROVIDER_MODE: normalizeProviderMode(pixverseMode),
@@ -137,15 +154,44 @@ describe("ENDPOINT_PROVIDERS registry", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("contains exactly DashScope, Kling, Vidu", () => {
-    expect(ENDPOINT_PROVIDERS).toHaveLength(3);
+  it("contains the supported endpoint providers", () => {
+    expect(ENDPOINT_PROVIDERS).toHaveLength(4);
     const labels = ENDPOINT_PROVIDERS.map((p) => p.label);
-    expect(labels).toEqual(expect.arrayContaining(["DashScope", "Kling", "Vidu"]));
+    expect(labels).toEqual(expect.arrayContaining(["DashScope", "Kling", "Vidu", "MuleRouter"]));
+  });
+});
+
+describe("OpenAI-compatible LLM configuration", () => {
+  it("switches validation to the OpenAI-compatible API key", () => {
+    expect(validateRequiredFields({ ...DEFAULT_CONFIG, LLM_PROVIDER: "openai" })).toBe(false);
+    expect(validateRequiredFields({
+      ...DEFAULT_CONFIG,
+      LLM_PROVIDER: "openai",
+      OPENAI_API_KEY: "test-key",
+    })).toBe(true);
+  });
+
+  it("normalizes unknown LLM providers back to DashScope", () => {
+    const result = normalizeApiResponse(DEFAULT_CONFIG, { LLM_PROVIDER: "unknown" });
+    expect(result.LLM_PROVIDER).toBe("dashscope");
+  });
+
+  it("preserves OpenAI-compatible fields returned by the API", () => {
+    const result = normalizeApiResponse(DEFAULT_CONFIG, {
+      LLM_PROVIDER: "openai",
+      OPENAI_API_KEY: "••••••••last",
+      OPENAI_BASE_URL: "https://api.deepseek.com/v1",
+      OPENAI_MODEL: "deepseek-chat",
+    });
+    expect(result.LLM_PROVIDER).toBe("openai");
+    expect(result.OPENAI_API_KEY).toBe("••••••••last");
+    expect(result.OPENAI_BASE_URL).toBe("https://api.deepseek.com/v1");
+    expect(result.OPENAI_MODEL).toBe("deepseek-chat");
   });
 });
 
 describe("validateRequiredFields", () => {
-  it("returns false when DashScope key is missing", () => {
+  it("returns false when the active LLM key is missing", () => {
     expect(validateRequiredFields(DEFAULT_CONFIG)).toBe(false);
   });
 
@@ -311,5 +357,15 @@ describe("computeCanClose", () => {
       KLING_PROVIDER_MODE: "vendor" as const,
     };
     expect(computeCanClose(true, invalid)).toBe(false);
+  });
+
+  it("allows the required dialog to close with an OpenAI-compatible key", () => {
+    const openAiConfig = {
+      ...DEFAULT_CONFIG,
+      LLM_PROVIDER: "openai" as const,
+      OPENAI_API_KEY: "",
+    };
+    expect(computeCanClose(true, openAiConfig)).toBe(false);
+    expect(computeCanClose(true, { ...openAiConfig, OPENAI_API_KEY: "sk-test" })).toBe(true);
   });
 });
