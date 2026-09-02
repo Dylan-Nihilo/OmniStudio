@@ -102,6 +102,21 @@ def get_generation_status(generation_id: str, http_request: Request):
     }
 
 
+def cancel_generation(generation_id: str, http_request: Request):
+    """Cancel local generation state and release the client from polling."""
+    gen = _service.cancel_generation(generation_id, _workspace_id(http_request))
+    if not gen:
+        raise HTTPException(status_code=404, detail="Generation not found or already completed")
+    return gen
+
+
+router.add_api_route(
+    "/history/{generation_id}/cancel",
+    cancel_generation,
+    methods=["POST"],
+)
+
+
 def delete_generation(generation_id: str, http_request: Request):
     """Delete a generation record and its outputs."""
     if not _storage.delete_generation(generation_id, _workspace_id(http_request)):
@@ -216,7 +231,8 @@ async def upload_media(request: Request, file: UploadFile = File(...)):
     contents = await file.read()
     with open(dest, "wb") as f:
         f.write(contents)
-    return {"path": dest}
+    # Media paths are sent back to the browser and must be URL-style on every OS.
+    return {"path": dest.replace(os.sep, "/")}
 
 
 router.add_api_route("/upload", upload_media, methods=["POST"])

@@ -110,6 +110,56 @@ class PlaygroundStorage:
                     return
         logger.warning("update_generation: id %s not found", gen.id)
 
+    def cancel_generation(
+        self,
+        gen_id: str,
+        workspace_id: str | None = None,
+        error: str = "Canceled by user",
+    ) -> Optional[PlaygroundGeneration]:
+        """Atomically mark a non-terminal generation as canceled."""
+        with self._lock:
+            for i, existing in enumerate(self._history):
+                if existing.id != gen_id or (
+                    workspace_id is not None and existing.workspace_id != workspace_id
+                ):
+                    continue
+                if existing.status in ("completed", "failed"):
+                    return None
+                canceled = existing.model_copy(update={"status": "failed", "error": error})
+                self._history[i] = canceled
+                self._save_history()
+                return canceled.model_copy(deep=True)
+        return None
+
+    def finish_generation(
+        self,
+        gen: PlaygroundGeneration,
+        status: str,
+        error: str | None = None,
+    ) -> bool:
+        """Finish only an active generation, preserving a concurrent cancel."""
+        with self._lock:
+            for i, existing in enumerate(self._history):
+                if existing.id != gen.id or existing.status != "processing":
+                    continue
+                finished = gen.model_copy(update={"status": status, "error": error})
+                self._history[i] = finished
+                self._save_history()
+                return True
+        return False
+
+    def start_generation(self, gen: PlaygroundGeneration) -> bool:
+        """Transition a pending generation to processing if still active."""
+        with self._lock:
+            for i, existing in enumerate(self._history):
+                if existing.id != gen.id or existing.status != "pending":
+                    continue
+                started = gen.model_copy(update={"status": "processing", "error": None})
+                self._history[i] = started
+                self._save_history()
+                return True
+        return False
+
     def delete_generation(self, gen_id: str, workspace_id: str | None = None) -> bool:
         """Remove a generation by id. Returns True if found and deleted."""
         with self._lock:

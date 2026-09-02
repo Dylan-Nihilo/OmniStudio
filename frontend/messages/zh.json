@@ -1835,6 +1835,9 @@
       "pending": "待发",
       "dispatching": "派发中",
       "cancel": "取消",
+      "running": "运行中",
+      "cancelRunning": "取消运行中任务",
+      "cancelFailed": "取消任务失败",
       "dispatchFailed": "生成任务启动失败",
       "unknownError": "未知错误"
     }

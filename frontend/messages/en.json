@@ -1835,6 +1835,9 @@
       "pending": "Queued",
       "dispatching": "Starting",
       "cancel": "Cancel",
+      "running": "Running",
+      "cancelRunning": "Cancel running task",
+      "cancelFailed": "Failed to cancel task",
       "dispatchFailed": "Generation could not start",
       "unknownError": "Unknown error"
     }
