@@ -8,6 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export function getAssetUrl(path: string | null | undefined): string {
     if (!path) return "";
+    const normalizedPath = path.replaceAll("\\", "/");
     const mediaBase = typeof window !== "undefined"
         && window.location.origin !== API_URL
         && !window.location.protocol.startsWith("tauri")
@@ -38,10 +39,10 @@ export function getAssetUrl(path: string | null | undefined): string {
         return "";
     }
 
-    if (path.startsWith("/api-proxy/files/")) return path;
-    if (path.startsWith("/files/")) return `${mediaBase}${path.slice("/files".length)}`;
+    if (normalizedPath.startsWith("/api-proxy/files/")) return normalizedPath;
+    if (normalizedPath.startsWith("/files/")) return `${mediaBase}${normalizedPath.slice("/files".length)}`;
     // Remove leading slash if present to avoid double slashes with the media route.
-    const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+    const cleanPath = normalizedPath.startsWith("/") ? normalizedPath.slice(1) : normalizedPath;
     return `${mediaBase}/files/${encodeURI(cleanPath)}`;
 }
 
