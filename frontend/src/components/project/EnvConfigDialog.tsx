@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Save, ChevronDown, ChevronRight, Loader2, Key } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { api, type EnvConfigPayload, type ProviderMode } from "@/lib/api";
+import { api, type EnvConfigPayload, type LlmProvider, type ProviderMode } from "@/lib/api";
 
 interface EnvConfigDialogProps {
   isOpen: boolean;
@@ -13,6 +13,10 @@ interface EnvConfigDialogProps {
 }
 
 type EnvConfig = EnvConfigPayload & {
+  LLM_PROVIDER: LlmProvider;
+  OPENAI_API_KEY: string;
+  OPENAI_BASE_URL: string;
+  OPENAI_MODEL: string;
   DASHSCOPE_API_KEY: string;
   ALIBABA_CLOUD_ACCESS_KEY_ID: string;
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: string;
@@ -38,6 +42,10 @@ const ENDPOINT_PROVIDERS = [
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
+  LLM_PROVIDER: "dashscope",
+  OPENAI_API_KEY: "",
+  OPENAI_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_MODEL: "gpt-4o",
   DASHSCOPE_API_KEY: "",
   ALIBABA_CLOUD_ACCESS_KEY_ID: "",
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: "",
@@ -55,10 +63,14 @@ const DEFAULT_CONFIG: EnvConfig = {
 };
 
 const normalizeProviderMode = (mode?: string): ProviderMode => (mode === "vendor" ? "vendor" : "dashscope");
+const normalizeLlmProvider = (provider?: string): LlmProvider => (provider === "openai" ? "openai" : "dashscope");
 
 const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvConfig => ({
   ...existing,
   ...data,
+  LLM_PROVIDER: normalizeLlmProvider(data?.LLM_PROVIDER ?? existing.LLM_PROVIDER),
+  OPENAI_BASE_URL: data?.OPENAI_BASE_URL || existing.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  OPENAI_MODEL: data?.OPENAI_MODEL || existing.OPENAI_MODEL || "gpt-4o",
   KLING_PROVIDER_MODE: normalizeProviderMode(data?.KLING_PROVIDER_MODE ?? existing.KLING_PROVIDER_MODE),
   VIDU_PROVIDER_MODE: normalizeProviderMode(data?.VIDU_PROVIDER_MODE ?? existing.VIDU_PROVIDER_MODE),
   PIXVERSE_PROVIDER_MODE: normalizeProviderMode(data?.PIXVERSE_PROVIDER_MODE ?? existing.PIXVERSE_PROVIDER_MODE),
@@ -68,8 +80,9 @@ const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvCo
 const getValidationErrors = (env: EnvConfig): string[] => {
   const errors: string[] = [];
 
-  if (!env.DASHSCOPE_API_KEY?.trim()) {
-    errors.push("DashScope API Key");
+  const activeLlmKey = env.LLM_PROVIDER === "openai" ? env.OPENAI_API_KEY : env.DASHSCOPE_API_KEY;
+  if (!activeLlmKey?.trim()) {
+    errors.push(env.LLM_PROVIDER === "openai" ? "OpenAI-compatible API Key" : "DashScope API Key");
   }
   if (env.KLING_PROVIDER_MODE === "vendor") {
     if (!env.KLING_ACCESS_KEY?.trim()) {
@@ -223,6 +236,68 @@ export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }:
             ) : (
               <>
                 <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    LLM Provider
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleChange("LLM_PROVIDER", "dashscope")}
+                      className={modeButtonClass(config.LLM_PROVIDER === "dashscope")}
+                    >
+                      DashScope
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleChange("LLM_PROVIDER", "openai")}
+                      className={modeButtonClass(config.LLM_PROVIDER === "openai")}
+                    >
+                      OpenAI Compatible
+                    </button>
+                  </div>
+                </div>
+
+                {config.LLM_PROVIDER === "openai" ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        OpenAI-compatible API Key <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={config.OPENAI_API_KEY}
+                        onChange={(e) => handleChange("OPENAI_API_KEY", e.target.value)}
+                        placeholder="sk-..."
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        OpenAI-compatible Base URL
+                      </label>
+                      <input
+                        type="url"
+                        value={config.OPENAI_BASE_URL}
+                        onChange={(e) => handleChange("OPENAI_BASE_URL", e.target.value)}
+                        placeholder="https://api.openai.com/v1"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        OpenAI-compatible Model
+                      </label>
+                      <input
+                        type="text"
+                        value={config.OPENAI_MODEL}
+                        onChange={(e) => handleChange("OPENAI_MODEL", e.target.value)}
+                        placeholder="gpt-4o"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                <div>
                   <label className="flex items-center justify-between text-sm font-medium text-foreground mb-2">
                     <span>DashScope API Key <span className="text-red-500">*</span></span>
                     <span className="text-text-muted font-normal text-xs">e.g. sk-xxx</span>
@@ -235,6 +310,7 @@ export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }:
                     className={inputClass}
                   />
                 </div>
+                )}
 
                 <div className="bg-glass border border-glass-border rounded-lg p-4 space-y-4">
                   <div className="text-xs text-text-secondary">

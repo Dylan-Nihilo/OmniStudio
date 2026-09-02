@@ -3,6 +3,7 @@ import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
 export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
+export type LlmProvider = "dashscope" | "openai";
 
 /**
  * PR-3g #3 · TTS voice metadata returned by GET /voices.
@@ -42,6 +43,10 @@ export interface CustomVoice {
 }
 
 export interface EnvConfigPayload {
+    LLM_PROVIDER?: LlmProvider;
+    OPENAI_API_KEY?: string;
+    OPENAI_BASE_URL?: string;
+    OPENAI_MODEL?: string;
     DASHSCOPE_API_KEY?: string;
     ALIBABA_CLOUD_ACCESS_KEY_ID?: string;
     ALIBABA_CLOUD_ACCESS_KEY_SECRET?: string;
