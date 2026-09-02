@@ -179,7 +179,7 @@ export default function ScriptEditorShell({
               onDismiss={dismissHint}
             />
             <div
-              className={`script-editor script-editor-content mx-auto px-8 py-10 ${
+              className={`script-editor script-editor-content mx-auto w-full min-w-0 px-8 py-10 ${
                 viewMode === 'focus' ? 'max-w-[860px]' : 'max-w-[720px]'
               }`}
               data-format={currentFormat}
@@ -188,7 +188,7 @@ export default function ScriptEditorShell({
               {isReady ? (
                 <EditorContent
                   editor={editor}
-                  className={`prose prose-invert max-w-none focus:outline-none min-h-[60vh] ${
+                  className={`w-full min-w-0 prose prose-invert max-w-none focus:outline-none min-h-[60vh] ${
                     isReadOnly ? 'pointer-events-none opacity-90' : ''
                   }`}
                 />
