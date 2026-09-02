@@ -129,3 +129,18 @@ def test_openai_compatible_env_config_is_explicit_and_secret_is_masked():
     assert config.OPENAI_MODEL == "deepseek-chat"
     assert "OPENAI_API_KEY" in SECRET_FIELDS
     assert _mask_secret(config.OPENAI_API_KEY) == "sk-••••••••cret"
+
+
+def test_openai_compatible_image_env_config_is_explicit_and_secret_is_masked():
+    config = EnvConfig(
+        IMAGE_PROVIDER="openai",
+        OPENAI_IMAGE_API_KEY="sk-image-secret",
+        OPENAI_IMAGE_BASE_URL="https://api.kaizo.example/v1",
+        OPENAI_IMAGE_MODEL="gpt-image-2",
+    )
+
+    assert config.IMAGE_PROVIDER == "openai"
+    assert config.OPENAI_IMAGE_BASE_URL == "https://api.kaizo.example/v1"
+    assert config.OPENAI_IMAGE_MODEL == "gpt-image-2"
+    assert "OPENAI_IMAGE_API_KEY" in SECRET_FIELDS
+    assert _mask_secret(config.OPENAI_IMAGE_API_KEY) == "sk-••••••••cret"

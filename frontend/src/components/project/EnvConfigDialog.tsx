@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Save, ChevronDown, ChevronRight, Loader2, Key } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { api, type EnvConfigPayload, type LlmProvider, type ProviderMode } from "@/lib/api";
+import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode } from "@/lib/api";
 
 interface EnvConfigDialogProps {
   isOpen: boolean;
@@ -17,6 +17,10 @@ type EnvConfig = EnvConfigPayload & {
   OPENAI_API_KEY: string;
   OPENAI_BASE_URL: string;
   OPENAI_MODEL: string;
+  IMAGE_PROVIDER: ImageProvider;
+  OPENAI_IMAGE_API_KEY: string;
+  OPENAI_IMAGE_BASE_URL: string;
+  OPENAI_IMAGE_MODEL: string;
   DASHSCOPE_API_KEY: string;
   ALIBABA_CLOUD_ACCESS_KEY_ID: string;
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: string;
@@ -46,6 +50,10 @@ const DEFAULT_CONFIG: EnvConfig = {
   OPENAI_API_KEY: "",
   OPENAI_BASE_URL: "https://api.openai.com/v1",
   OPENAI_MODEL: "gpt-4o",
+  IMAGE_PROVIDER: "mulerouter",
+  OPENAI_IMAGE_API_KEY: "",
+  OPENAI_IMAGE_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_IMAGE_MODEL: "gpt-image-2",
   DASHSCOPE_API_KEY: "",
   ALIBABA_CLOUD_ACCESS_KEY_ID: "",
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: "",
@@ -71,6 +79,9 @@ const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvCo
   LLM_PROVIDER: normalizeLlmProvider(data?.LLM_PROVIDER ?? existing.LLM_PROVIDER),
   OPENAI_BASE_URL: data?.OPENAI_BASE_URL || existing.OPENAI_BASE_URL || "https://api.openai.com/v1",
   OPENAI_MODEL: data?.OPENAI_MODEL || existing.OPENAI_MODEL || "gpt-4o",
+  IMAGE_PROVIDER: data?.IMAGE_PROVIDER === "openai" ? "openai" : (existing.IMAGE_PROVIDER || "mulerouter"),
+  OPENAI_IMAGE_BASE_URL: data?.OPENAI_IMAGE_BASE_URL || existing.OPENAI_IMAGE_BASE_URL || "https://api.openai.com/v1",
+  OPENAI_IMAGE_MODEL: data?.OPENAI_IMAGE_MODEL || existing.OPENAI_IMAGE_MODEL || "gpt-image-2",
   KLING_PROVIDER_MODE: normalizeProviderMode(data?.KLING_PROVIDER_MODE ?? existing.KLING_PROVIDER_MODE),
   VIDU_PROVIDER_MODE: normalizeProviderMode(data?.VIDU_PROVIDER_MODE ?? existing.VIDU_PROVIDER_MODE),
   PIXVERSE_PROVIDER_MODE: normalizeProviderMode(data?.PIXVERSE_PROVIDER_MODE ?? existing.PIXVERSE_PROVIDER_MODE),
@@ -94,6 +105,9 @@ const getValidationErrors = (env: EnvConfig): string[] => {
   }
   if (env.VIDU_PROVIDER_MODE === "vendor" && !env.VIDU_API_KEY?.trim()) {
     errors.push("Vidu API Key (vendor mode)");
+  }
+  if (env.IMAGE_PROVIDER === "openai" && !env.OPENAI_IMAGE_API_KEY?.trim()) {
+    errors.push("OpenAI-compatible image API Key");
   }
 
   return errors;
@@ -311,6 +325,32 @@ export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }:
                   />
                 </div>
                 )}
+
+                <div className="space-y-4 pt-4 border-t border-glass-border">
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-2">图片生成接口</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => handleChange("IMAGE_PROVIDER", "mulerouter")} className={modeButtonClass(config.IMAGE_PROVIDER === "mulerouter")}>MuleRouter</button>
+                      <button type="button" onClick={() => handleChange("IMAGE_PROVIDER", "openai")} className={modeButtonClass(config.IMAGE_PROVIDER === "openai")}>OpenAI 兼容</button>
+                    </div>
+                  </div>
+                  {config.IMAGE_PROVIDER === "openai" && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">OPENAI_IMAGE_API_KEY <span className="text-red-500">*</span></label>
+                        <input type="password" value={config.OPENAI_IMAGE_API_KEY} onChange={(e) => handleChange("OPENAI_IMAGE_API_KEY", e.target.value)} placeholder="sk-..." className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">OPENAI_IMAGE_BASE_URL</label>
+                        <input type="url" value={config.OPENAI_IMAGE_BASE_URL} onChange={(e) => handleChange("OPENAI_IMAGE_BASE_URL", e.target.value)} placeholder="https://api.openai.com/v1" className={inputClass} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">OPENAI_IMAGE_MODEL</label>
+                        <input type="text" value={config.OPENAI_IMAGE_MODEL} onChange={(e) => handleChange("OPENAI_IMAGE_MODEL", e.target.value)} placeholder="gpt-image-2" className={inputClass} />
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <div className="bg-glass border border-glass-border rounded-lg p-4 space-y-4">
                   <div className="text-xs text-text-secondary">
