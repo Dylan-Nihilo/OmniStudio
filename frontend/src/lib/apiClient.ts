@@ -41,6 +41,8 @@ export const AUTH_RETURN_TO_KEY = "omni_studio.auth.returnTo";
 export const AUTH_EXPIRED_EVENT = "omni_studio:auth-expired";
 const CSRF_COOKIE_NAME = "omni_studio_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
+const ACTIVE_WORKSPACE_KEY = "omni_studio.activeWorkspaceId";
+export const CLIENT_INSTANCE_KEY = "omni_studio.clientInstanceId";
 const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
 
 export const isSafeReturnHash = (value: unknown): value is string =>
@@ -148,6 +150,26 @@ const attachCsrfHeader = (config: InternalAxiosRequestConfig): InternalAxiosRequ
   return config;
 };
 
+const attachWorkspaceHeader = (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
+  if (typeof window === "undefined") return config;
+  const workspaceId = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  if (!workspaceId) return config;
+  const headers = AxiosHeaders.from(config.headers);
+  headers.set("X-Workspace-ID", workspaceId);
+  config.headers = headers;
+  return config;
+};
+
+const attachClientInstanceHeader = (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
+  if (typeof window === "undefined") return config;
+  const clientInstanceId = window.sessionStorage.getItem(CLIENT_INSTANCE_KEY);
+  if (!clientInstanceId) return config;
+  const headers = AxiosHeaders.from(config.headers);
+  headers.set("X-Client-Instance-ID", clientInstanceId);
+  config.headers = headers;
+  return config;
+};
+
 const bareClient = axios.create({
   // In development, auth requests use the dedicated same-origin `/auth/*`
   // rewrite so the browser sends the refresh cookie scoped to Path=/auth.
@@ -169,6 +191,8 @@ export const apiClient = axios.create({
   timeout: 30_000,
 });
 apiClient.interceptors.request.use(attachCsrfHeader);
+apiClient.interceptors.request.use(attachWorkspaceHeader);
+apiClient.interceptors.request.use(attachClientInstanceHeader);
 
 type RetryableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 let refreshPromise: Promise<void> | null = null;
@@ -287,6 +311,11 @@ export const apiStreamRequest = async (url: string, init: RequestInit = {}): Pro
       const csrfToken = readCookie(CSRF_COOKIE_NAME);
       if (csrfToken) headers.set(CSRF_HEADER_NAME, csrfToken);
     }
+    const workspaceId =
+      typeof window === "undefined" ? null : window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+    if (workspaceId && !headers.has("X-Workspace-ID")) {
+      headers.set("X-Workspace-ID", workspaceId);
+    }
 
     return fetch(url, {
       ...init,
@@ -339,4 +368,3 @@ apiClient.interceptors.response.use(
     return apiClient(originalRequest);
   },
 );
-

@@ -47,11 +47,28 @@ class PlaygroundService:
     # Public API
     # ------------------------------------------------------------------
 
-    def create_generation(self, request: GenerateRequest) -> PlaygroundGeneration:
+    def cancel_generation(
+        self,
+        generation_id: str,
+        workspace_id: str | None = None,
+    ) -> PlaygroundGeneration | None:
+        """Cancel local state; an already-running provider call may continue remotely."""
+        return self.storage.cancel_generation(
+            generation_id,
+            workspace_id,
+            error="Canceled by user",
+        )
+
+    def create_generation(
+        self,
+        request: GenerateRequest,
+        workspace_id: str | None = None,
+    ) -> PlaygroundGeneration:
         """Create a :class:`PlaygroundGeneration` record with *status=pending*,
         persist it via storage, and return it."""
         gen = PlaygroundGeneration(
             id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
             mode=request.mode,
             model_id=request.model_id,
             prompt=request.prompt,
@@ -75,9 +92,12 @@ class PlaygroundService:
             logger.error("Generation %s not found", generation_id)
             return
 
-        # Mark processing
-        gen.status = "processing"
-        self.storage.update_generation(gen)
+        if gen.status in ("completed", "failed"):
+            return
+
+        # Mark processing only if cancellation has not won the race.
+        if not self.storage.start_generation(gen):
+            return
 
         try:
             mode = gen.mode
@@ -88,18 +108,22 @@ class PlaygroundService:
             else:
                 raise ValueError(f"Unsupported playground mode: {mode}")
 
-            gen.status = "completed"
+            if not self.storage.finish_generation(gen, "completed"):
+                return
         except Exception as exc:
             logger.exception("Generation %s failed", generation_id)
-            gen.status = "failed"
-            gen.error = str(exc)
+            self.storage.finish_generation(gen, "failed", str(exc))
 
-        self.storage.update_generation(gen)
-
-    def save_to_library(self, generation_id: str, output_id: str, category: str = "general") -> bool:
+    def save_to_library(
+        self,
+        generation_id: str,
+        output_id: str,
+        category: str = "general",
+        workspace_id: str | None = None,
+    ) -> bool:
         """Copy a generated output to ``output/assets/{category}/`` and flag
         :pyattr:`PlaygroundOutput.saved_to_library` = True."""
-        gen = self.storage.get_generation(generation_id)
+        gen = self.storage.get_generation(generation_id, workspace_id)
         if gen is None:
             logger.warning("save_to_library: generation %s not found", generation_id)
             return False
@@ -124,7 +148,8 @@ class PlaygroundService:
             logger.error("save_to_library: source file not found: %s", target_output.media_path)
             return False
 
-        dest_dir = os.path.join("output", "assets", category)
+        asset_type = self._category_to_asset_type(category)
+        dest_dir = os.path.join("output", "assets", workspace_id or "legacy", asset_type)
         os.makedirs(dest_dir, exist_ok=True)
 
         dest_path = os.path.join(dest_dir, os.path.basename(src_path))
@@ -135,7 +160,6 @@ class PlaygroundService:
         # global library asset record so the output is curatable through the
         # /library/assets CRUD. category -> asset_type mapping; anything
         # unknown (incl. the "general" default) falls back to "prop".
-        asset_type = self._category_to_asset_type(category)
         prompt_text = (gen.prompt or "").strip()
         asset_name = prompt_text[:40] or os.path.splitext(os.path.basename(dest_path))[0]
         try:
@@ -155,6 +179,7 @@ class PlaygroundService:
                     # Point the library record at the freshly-copied file.
                     "image_url": dest_path,
                 },
+                workspace_id,
             )
             logger.info(
                 "save_to_library: created global %s asset %s from output %s",
@@ -178,7 +203,8 @@ class PlaygroundService:
     # ------------------------------------------------------------------
 
     def _process_image_generation(self, gen: PlaygroundGeneration) -> None:
-        os.makedirs(IMAGE_OUTPUT_DIR, exist_ok=True)
+        output_dir = os.path.join(IMAGE_OUTPUT_DIR, gen.workspace_id or "legacy")
+        os.makedirs(output_dir, exist_ok=True)
 
         model_lower = gen.model_id.lower()
         failures = []
@@ -186,7 +212,7 @@ class PlaygroundService:
         for idx in range(gen.batch_size):
             ext = "png"
             out_filename = f"{gen.mode.value}_{gen.id}_{idx}.{ext}"
-            out_path = os.path.join(IMAGE_OUTPUT_DIR, out_filename)
+            out_path = os.path.join(output_dir, out_filename)
 
             try:
                 if model_lower.startswith("gpt-image"):
@@ -266,14 +292,15 @@ class PlaygroundService:
     # ------------------------------------------------------------------
 
     def _process_video_generation(self, gen: PlaygroundGeneration) -> None:
-        os.makedirs(VIDEO_OUTPUT_DIR, exist_ok=True)
+        output_dir = os.path.join(VIDEO_OUTPUT_DIR, gen.workspace_id or "legacy")
+        os.makedirs(output_dir, exist_ok=True)
 
         model_lower = gen.model_id.lower()
         failures = []
 
         for idx in range(gen.batch_size):
             out_filename = f"{gen.mode.value}_{gen.id}_{idx}.mp4"
-            out_path = os.path.join(VIDEO_OUTPUT_DIR, out_filename)
+            out_path = os.path.join(output_dir, out_filename)
 
             try:
                 if model_lower.startswith("seedance"):

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { Save, Loader2, ChevronDown, ChevronRight, FolderOpen, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { api, type EnvConfigPayload, type ProviderMode, API_URL } from "@/lib/api";
+import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
 import {
   DEFAULT_MODEL_SETTINGS,
@@ -33,6 +33,14 @@ import {
 const APP_VERSION = "v0.2.0";
 
 type EnvConfig = EnvConfigPayload & {
+  LLM_PROVIDER: LlmProvider;
+  OPENAI_API_KEY: string;
+  OPENAI_BASE_URL: string;
+  OPENAI_MODEL: string;
+  IMAGE_PROVIDER: ImageProvider;
+  OPENAI_IMAGE_API_KEY: string;
+  OPENAI_IMAGE_BASE_URL: string;
+  OPENAI_IMAGE_MODEL: string;
   DASHSCOPE_API_KEY: string;
   ALIBABA_CLOUD_ACCESS_KEY_ID: string;
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: string;
@@ -59,6 +67,14 @@ const ENDPOINT_PROVIDERS = [
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
+  LLM_PROVIDER: "dashscope",
+  OPENAI_API_KEY: "",
+  OPENAI_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_MODEL: "gpt-4o",
+  IMAGE_PROVIDER: "mulerouter",
+  OPENAI_IMAGE_API_KEY: "",
+  OPENAI_IMAGE_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_IMAGE_MODEL: "gpt-image-2",
   DASHSCOPE_API_KEY: "",
   ALIBABA_CLOUD_ACCESS_KEY_ID: "",
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: "",
@@ -77,10 +93,17 @@ const DEFAULT_CONFIG: EnvConfig = {
 };
 
 const normalizeProviderMode = (mode?: string): ProviderMode => (mode === "vendor" ? "vendor" : "dashscope");
+const normalizeLlmProvider = (provider?: string): LlmProvider => (provider === "openai" ? "openai" : "dashscope");
 
 const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvConfig => ({
   ...existing,
   ...data,
+  LLM_PROVIDER: normalizeLlmProvider(data?.LLM_PROVIDER ?? existing.LLM_PROVIDER),
+  OPENAI_BASE_URL: data?.OPENAI_BASE_URL || existing.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  OPENAI_MODEL: data?.OPENAI_MODEL || existing.OPENAI_MODEL || "gpt-4o",
+  IMAGE_PROVIDER: data?.IMAGE_PROVIDER === "openai" ? "openai" : (existing.IMAGE_PROVIDER || "mulerouter"),
+  OPENAI_IMAGE_BASE_URL: data?.OPENAI_IMAGE_BASE_URL || existing.OPENAI_IMAGE_BASE_URL || "https://api.openai.com/v1",
+  OPENAI_IMAGE_MODEL: data?.OPENAI_IMAGE_MODEL || existing.OPENAI_IMAGE_MODEL || "gpt-image-2",
   KLING_PROVIDER_MODE: normalizeProviderMode(data?.KLING_PROVIDER_MODE ?? existing.KLING_PROVIDER_MODE),
   VIDU_PROVIDER_MODE: normalizeProviderMode(data?.VIDU_PROVIDER_MODE ?? existing.VIDU_PROVIDER_MODE),
   PIXVERSE_PROVIDER_MODE: normalizeProviderMode(data?.PIXVERSE_PROVIDER_MODE ?? existing.PIXVERSE_PROVIDER_MODE),
@@ -89,13 +112,19 @@ const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvCo
 
 const getValidationErrors = (env: EnvConfig): string[] => {
   const errors: string[] = [];
-  if (!env.DASHSCOPE_API_KEY?.trim()) errors.push("DashScope API Key");
+  const activeLlmKey = env.LLM_PROVIDER === "openai" ? env.OPENAI_API_KEY : env.DASHSCOPE_API_KEY;
+  if (!activeLlmKey?.trim()) {
+    errors.push(env.LLM_PROVIDER === "openai" ? "OpenAI-compatible API Key" : "DashScope API Key");
+  }
   if (env.KLING_PROVIDER_MODE === "vendor") {
     if (!env.KLING_ACCESS_KEY?.trim()) errors.push("Kling Access Key (vendor mode)");
     if (!env.KLING_SECRET_KEY?.trim()) errors.push("Kling Secret Key (vendor mode)");
   }
   if (env.VIDU_PROVIDER_MODE === "vendor" && !env.VIDU_API_KEY?.trim()) {
     errors.push("Vidu API Key (vendor mode)");
+  }
+  if (env.IMAGE_PROVIDER === "openai" && !env.OPENAI_IMAGE_API_KEY?.trim()) {
+    errors.push("OpenAI-compatible image API Key");
   }
   return errors;
 };
@@ -677,6 +706,54 @@ export default function SettingsPage() {
         </div>
       ) : (
         <div className="space-y-1">
+          <FormRow label={t("llmProviderLabel")} hint={t("llmProviderHint")}>
+            <ModeSegment
+              value={config.LLM_PROVIDER}
+              onChange={(v) => handleChange("LLM_PROVIDER", normalizeLlmProvider(v))}
+              options={[
+                { id: "dashscope", label: "DashScope" },
+                { id: "openai", label: t("openaiCompatible") },
+              ]}
+            />
+          </FormRow>
+
+          {config.LLM_PROVIDER === "openai" ? (
+            <FormRow label={t("openaiKeyLabel")} hint={t("openaiKeyHint")}>
+              <FieldLabel>OPENAI_API_KEY *</FieldLabel>
+              <KeyField
+                value={config.OPENAI_API_KEY}
+                onChange={(v) => handleChange("OPENAI_API_KEY", v)}
+                placeholder="sk-..."
+                status={
+                  config.OPENAI_API_KEY?.trim()
+                    ? { kind: "ok", text: t("filled") }
+                    : { kind: "warn", text: t("notConfiguredUnavailable") }
+                }
+              />
+              <div className="grid gap-3 mt-3 sm:grid-cols-2">
+                <div>
+                  <FieldLabel>OPENAI_BASE_URL</FieldLabel>
+                  <input
+                    type="url"
+                    value={config.OPENAI_BASE_URL}
+                    onChange={(e) => handleChange("OPENAI_BASE_URL", e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                    className={settingsInputClass + " font-mono text-[0.71875rem]"}
+                  />
+                </div>
+                <div>
+                  <FieldLabel>OPENAI_MODEL</FieldLabel>
+                  <input
+                    type="text"
+                    value={config.OPENAI_MODEL}
+                    onChange={(e) => handleChange("OPENAI_MODEL", e.target.value)}
+                    placeholder="gpt-4o"
+                    className={settingsInputClass + " font-mono text-[0.71875rem]"}
+                  />
+                </div>
+              </div>
+            </FormRow>
+          ) : (
           <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>
             <FieldLabel>DASHSCOPE_API_KEY *</FieldLabel>
             <KeyField
@@ -689,6 +766,36 @@ export default function SettingsPage() {
                   : { kind: "warn", text: t("notConfiguredUnavailable") }
               }
             />
+          </FormRow>
+          )}
+
+          <FormRow label="图片生成接口" hint="选择 GPT 图片模型使用的服务；其他图片模型仍按模型目录走对应 provider。">
+            <ModeSegment
+              value={config.IMAGE_PROVIDER}
+              onChange={(v) => handleChange("IMAGE_PROVIDER", v as ImageProvider)}
+              options={[
+                { id: "mulerouter", label: "MuleRouter" },
+                { id: "openai", label: "OpenAI 兼容" },
+              ]}
+            />
+            {config.IMAGE_PROVIDER === "openai" && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <FieldLabel>OPENAI_IMAGE_API_KEY *</FieldLabel>
+                  <KeyField value={config.OPENAI_IMAGE_API_KEY} onChange={(v) => handleChange("OPENAI_IMAGE_API_KEY", v)} placeholder="sk-..." />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <FieldLabel>OPENAI_IMAGE_BASE_URL</FieldLabel>
+                    <input type="url" value={config.OPENAI_IMAGE_BASE_URL} onChange={(e) => handleChange("OPENAI_IMAGE_BASE_URL", e.target.value)} placeholder="https://api.openai.com/v1" className={settingsInputClass + " font-mono text-[0.71875rem]"} />
+                  </div>
+                  <div>
+                    <FieldLabel>OPENAI_IMAGE_MODEL</FieldLabel>
+                    <input type="text" value={config.OPENAI_IMAGE_MODEL} onChange={(e) => handleChange("OPENAI_IMAGE_MODEL", e.target.value)} placeholder="gpt-image-2" className={settingsInputClass + " font-mono text-[0.71875rem]"} />
+                  </div>
+                </div>
+              </div>
+            )}
           </FormRow>
 
           <FormRow label={t("klingLabel")} hint={t("klingHint")}>

@@ -9,14 +9,23 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine as sqlalchemy_create_engine, event, insert
+from sqlalchemy import create_engine as sqlalchemy_create_engine, event, insert, select
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from .schema import Base, SchemaMigration
+from .schema import Base, SchemaMigration, Workspace, WorkspaceMembership
 
-DEFAULT_DB_PATH = Path("output") / "omni_studio.db"
+
+def resolve_default_db_path(output_dir: Path = Path("output")) -> Path:
+    preferred_path = output_dir / "omni_studio.db"
+    legacy_path = output_dir / "lumenx.db"
+    # ponytail: Keep the legacy filename in place; use a versioned migration if
+    # the physical database file ever needs to be renamed.
+    return legacy_path if legacy_path.exists() and not preferred_path.exists() else preferred_path
+
+
+DEFAULT_DB_PATH = resolve_default_db_path()
 INITIAL_SCHEMA_VERSION = "w1.1"
 SCHEMA_VERSION = "w3.1-auth"
 SCHEMA_DESCRIPTION = "Omni Studio W3.1 authentication schema"
@@ -128,6 +137,27 @@ def _schema_version_rows(engine: Engine) -> set[str]:
         return set(connection.execute(SchemaMigration.__table__.select()).scalars().all())
 
 
+def _backfill_owner_memberships(engine: Engine) -> None:
+    """Idempotently mirror legacy ``owner_user_id`` rows into memberships."""
+    with engine.begin() as connection:
+        owners = connection.execute(
+            select(Workspace.id, Workspace.owner_user_id, Workspace.created_at).where(
+                Workspace.owner_user_id.is_not(None)
+            )
+        ).all()
+        for workspace_id, user_id, joined_at in owners:
+            connection.execute(
+                insert(WorkspaceMembership.__table__).prefix_with("OR IGNORE"),
+                {
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "role": "owner",
+                    "invited_by_user_id": None,
+                    "joined_at": joined_at,
+                },
+            )
+
+
 def init_schema(engine: Engine) -> None:
     """Create a fresh W3 schema or apply registered ordered migrations."""
     from sqlalchemy import inspect
@@ -136,6 +166,7 @@ def init_schema(engine: Engine) -> None:
     if not tables:
         Base.metadata.create_all(engine)
         _record_schema_version(engine)
+        _backfill_owner_memberships(engine)
         return
 
     versions = _schema_version_rows(engine)
@@ -144,6 +175,7 @@ def init_schema(engine: Engine) -> None:
         # W3 database. Column/constraint changes still require a versioned
         # migration and are validated below.
         Base.metadata.create_all(engine)
+        _backfill_owner_memberships(engine)
         from .migrations.w3_auth import validate_w3_schema
 
         validate_w3_schema(engine)
@@ -155,6 +187,7 @@ def init_schema(engine: Engine) -> None:
         raise RuntimeError(f"No migration registered for schema version {SCHEMA_VERSION!r}")
     migration(engine)
     Base.metadata.create_all(engine)
+    _backfill_owner_memberships(engine)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -174,6 +207,7 @@ session_factory = create_session_factory
 
 __all__ = [
     "DEFAULT_DB_PATH",
+    "resolve_default_db_path",
     "SCHEMA_VERSION",
     "INITIAL_SCHEMA_VERSION",
     "SCHEMA_DESCRIPTION",

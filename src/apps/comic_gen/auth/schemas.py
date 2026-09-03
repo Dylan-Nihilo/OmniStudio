@@ -58,6 +58,7 @@ class WorkspaceResponse(BaseModel):
     id: str
     name: str
     slug: str | None = None
+    role: str
 
 
 class SessionResponse(BaseModel):
@@ -130,6 +131,46 @@ class MeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user: UserResponse
     workspace: WorkspaceResponse
+    workspaces: list[WorkspaceResponse]
+
+
+class CreateWorkspaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+
+
+class CreateInvitationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=254)
+
+
+class InvitationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    workspace_id: str
+    email: str
+    token: str
+    expires_at: str
+
+
+class AcceptInvitationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=32, max_length=512)
+
+
+class InvitationRegistrationRequest(SetupRequest):
+    setup_token: None = None
+    token: str = Field(min_length=32, max_length=512)
+
+
+class WorkspaceMemberResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    username: str
+    email: str
+    display_name: str | None = None
+    role: str
+    joined_at: str
 
 
 class SetupStatusResponse(BaseModel):
@@ -189,9 +230,14 @@ class ErrorResponse(BaseModel):
 
 
 __all__ = [
+    "AcceptInvitationRequest",
     "ChangePasswordRequest",
     "ChangePasswordResponse",
+    "CreateInvitationRequest",
+    "CreateWorkspaceRequest",
     "ErrorResponse",
+    "InvitationRegistrationRequest",
+    "InvitationResponse",
     "LegacyClaimApplyRequest",
     "LegacyClaimResponse",
     "LoginRequest",
@@ -206,4 +252,5 @@ __all__ = [
     "SetupStatusResponse",
     "UserResponse",
     "WorkspaceResponse",
+    "WorkspaceMemberResponse",
 ]

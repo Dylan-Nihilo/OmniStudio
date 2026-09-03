@@ -3,6 +3,8 @@ import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
 export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
+export type LlmProvider = "dashscope" | "openai";
+export type ImageProvider = "mulerouter" | "openai";
 
 /**
  * PR-3g #3 · TTS voice metadata returned by GET /voices.
@@ -42,6 +44,14 @@ export interface CustomVoice {
 }
 
 export interface EnvConfigPayload {
+    LLM_PROVIDER?: LlmProvider;
+    OPENAI_API_KEY?: string;
+    OPENAI_BASE_URL?: string;
+    OPENAI_MODEL?: string;
+    IMAGE_PROVIDER?: ImageProvider;
+    OPENAI_IMAGE_API_KEY?: string;
+    OPENAI_IMAGE_BASE_URL?: string;
+    OPENAI_IMAGE_MODEL?: string;
     DASHSCOPE_API_KEY?: string;
     ALIBABA_CLOUD_ACCESS_KEY_ID?: string;
     ALIBABA_CLOUD_ACCESS_KEY_SECRET?: string;
@@ -261,7 +271,7 @@ export const api = {
     },
 
     getProjects: async (): Promise<any[]> => {
-        const res = await apiClient.get(`${API_URL}/projects/`);
+        const res = await apiClient.get(`${API_URL}/projects`);
         return asList<any>(res.data).map((value) => {
             const project = asObject(value);
             return { ...(project as any), originalText: project.original_text } as any;
@@ -297,8 +307,22 @@ export const api = {
 
     /** Persist `original_text` without LLM reparse. Used for textarea
      *  blur-saves so navigation/reload doesn't drop in-progress drafts. */
-    updateScriptText: async (scriptId: string, text: string) => {
-        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/text`, { text });
+    updateScriptText: async (
+        scriptId: string,
+        text: string,
+        expectedRevision: string,
+        leaseToken: string,
+        clientInstanceId: string,
+    ) => {
+        const res = await apiClient.put(
+            `${API_URL}/projects/${scriptId}/text`,
+            {
+                text,
+                expected_revision: expectedRevision,
+                client_instance_id: clientInstanceId,
+            },
+            { headers: { "X-Edit-Lease": leaseToken } },
+        );
         return { ...res.data, originalText: res.data.original_text };
     },
 
@@ -1610,6 +1634,9 @@ export const playgroundApi = {
 
   getGenerationStatus: (id: string) =>
     apiClient.get<{ id: string; status: string; outputs: any[]; error?: string }>(API_URL + "/playground/history/" + id + "/status").then(r => r.data),
+
+  cancelGeneration: (id: string) =>
+    apiClient.post<PlaygroundGenerationResponse>(API_URL + "/playground/history/" + id + "/cancel").then(r => r.data),
 
   deleteGeneration: (id: string) =>
     apiClient.delete(API_URL + "/playground/history/" + id).then(r => r.data),

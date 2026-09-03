@@ -67,9 +67,9 @@ function formatDuration(seconds: number): string {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-zinc-700 text-zinc-300',
-  confirmed: 'bg-blue-900/60 text-blue-300',
-  rendered: 'bg-emerald-900/60 text-emerald-300',
+  draft: 'bg-surface-inset text-text-secondary',
+  confirmed: 'bg-status-processing-bg text-status-processing-fg',
+  rendered: 'bg-status-completed-bg text-status-completed-fg',
 };
 
 export default function StoryboardView({ editor, onShotClick }: StoryboardViewProps) {
@@ -140,10 +140,10 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
 
   if (shots.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-zinc-500">
+      <div className="flex h-full flex-col items-center justify-center text-text-secondary">
         <Film size={48} className="mb-4 opacity-30" />
         <p className="text-sm">{t('views.storyboardEmpty')}</p>
-        <p className="mt-1 text-xs text-zinc-600">{t('views.storyboardEmptyHint')}</p>
+        <p className="mt-1 text-xs text-text-muted">{t('views.storyboardEmptyHint')}</p>
       </div>
     );
   }
@@ -177,11 +177,11 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
                     ? 'border-[var(--color-primary)] opacity-50'
                     : dragOverIndex === index
                     ? 'border-[var(--color-primary)]/50 bg-white/5'
-                    : 'border-white/10 hover:border-white/20 hover:bg-white/[0.03]'
-                } bg-zinc-900/60`}
+                    : 'border-glass-border hover:border-primary/40 hover:bg-hover-bg'
+                } bg-surface`}
               >
                 {/* Thumbnail placeholder */}
-                <div className="relative aspect-video w-full rounded-t-lg bg-zinc-800/80">
+                <div className="relative aspect-video w-full rounded-t-lg bg-surface-inset">
                   {shot.thumbnailUrl ? (
                     <img
                       src={shot.thumbnailUrl}
@@ -189,23 +189,23 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
                       className="h-full w-full rounded-t-lg object-cover"
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-zinc-600">
+                    <div className="flex h-full items-center justify-center text-text-muted">
                       <Film size={24} />
                     </div>
                   )}
                   {/* Shot number badge */}
-                  <div className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-zinc-200 backdrop-blur-sm">
+                  <div className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
                     #{shot.shotNumber}
                   </div>
                   {/* Drag handle */}
                   <div className="absolute right-2 top-2 rounded bg-black/50 p-0.5 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
-                    <GripVertical size={14} className="text-zinc-400" />
+                    <GripVertical size={14} className="text-white/80" />
                   </div>
                 </div>
 
                 {/* Card body */}
                 <div className="px-3 py-2.5">
-                  <p className="line-clamp-2 text-xs text-zinc-300">
+                  <p className="line-clamp-2 text-xs text-text-secondary">
                     {shot.description || t('views.noDescription')}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
@@ -214,7 +214,7 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
                     >
                       {t(`views.status${shot.status.charAt(0).toUpperCase() + shot.status.slice(1)}` as any)}
                     </span>
-                    <span className="flex items-center gap-0.5 text-[10px] text-zinc-500">
+                    <span className="flex items-center gap-0.5 text-[10px] text-text-muted">
                       <Clock size={10} />
                       {formatDuration(shot.duration)}
                     </span>
@@ -227,17 +227,17 @@ export default function StoryboardView({ editor, onShotClick }: StoryboardViewPr
       </div>
 
       {/* Bottom stats bar */}
-      <div className="flex shrink-0 items-center gap-4 border-t border-white/10 bg-zinc-900/80 px-6 py-2.5 text-xs text-zinc-400">
+      <div className="flex shrink-0 items-center gap-4 border-t border-glass-border bg-surface px-6 py-2.5 text-xs text-text-secondary">
         <span className="flex items-center gap-1">
           <Film size={12} />
           {t('views.totalShots', { count: stats.totalShots })}
         </span>
-        <span className="text-white/20">|</span>
+        <span className="text-text-muted">|</span>
         <span className="flex items-center gap-1">
           <Clock size={12} />
           {t('views.totalDuration', { time: formatDuration(stats.totalDuration) })}
         </span>
-        <span className="text-white/20">|</span>
+        <span className="text-text-muted">|</span>
         <span className="flex items-center gap-1">
           <CheckCircle2 size={12} />
           {t('views.completedShots', { count: stats.completedShots })}

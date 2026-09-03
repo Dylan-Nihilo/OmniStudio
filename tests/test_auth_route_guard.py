@@ -288,6 +288,25 @@ def test_test_auth_bypass_is_rejected_outside_test_environment(tmp_path):
         )
 
 
+def test_legacy_lumenx_auth_environment_remains_upgrade_compatible(tmp_path):
+    settings = AuthSettings.from_env(
+        environ={
+            "LUMENX_AUTH_SIGNING_SECRET": "l" * 32,
+            "LUMENX_SETUP_TOKEN": "s" * 32,
+            "LUMENX_PASSWORD_RESET_TOKEN": "r" * 32,
+            "LUMENX_AUTH_ALLOWED_ORIGINS": "http://studio.example:3000",
+            "LUMENX_AUTH_COOKIE_SECURE": "true",
+        },
+        config_path=tmp_path / "config.json",
+    )
+
+    assert settings.signing_secret == "l" * 32
+    assert settings.setup_token == "s" * 32
+    assert settings.password_reset_token == "r" * 32
+    assert settings.allowed_origins == ("http://studio.example:3000",)
+    assert settings.cookie_secure is True
+
+
 def test_test_auth_bypass_can_inject_identity_only_in_test_environment(tmp_path):
     from src.apps.comic_gen.api import app as full_app
 

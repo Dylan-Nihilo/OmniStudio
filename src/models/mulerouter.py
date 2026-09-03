@@ -21,6 +21,7 @@ import requests
 
 from .base import VideoGenModel
 from .image import ImageGenModel
+from ..utils.workspace_env import workspace_config_active, workspace_getenv
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ MULEROUTER_ONLY_MODELS = ("openai/gpt-image-2",)
 
 def _get_site() -> str:
     """Get the configured site. Default: mulerouter (more models available)."""
-    return (os.getenv("MULEROUTER_SITE") or "mulerouter").strip().lower()
+    return (workspace_getenv("MULEROUTER_SITE") or "mulerouter").strip().lower()
 
 
 def _get_base_url_for_model(model_prefix: str) -> str:
@@ -85,7 +86,7 @@ def _get_base_url_for_model(model_prefix: str) -> str:
         if model_prefix.startswith(prefix):
             return SITE_BASE_URLS["mulerouter"]
     site = _get_site()
-    custom = os.getenv("MULEROUTER_BASE_URL")
+    custom = workspace_getenv("MULEROUTER_BASE_URL")
     if custom:
         return custom.rstrip("/")
     return SITE_BASE_URLS.get(site, SITE_BASE_URLS["mulerouter"])
@@ -119,7 +120,9 @@ def _use_cli_backend() -> bool:
     CLI is used only when no API key is configured and mulerun is logged in.
     """
     global _cli_available_cache
-    if os.getenv("MULEROUTER_API_KEY"):
+    if workspace_getenv("MULEROUTER_API_KEY"):
+        return False
+    if workspace_config_active():
         return False
     if _cli_available_cache is None:
         _cli_available_cache = _is_mulerun_cli_available()
@@ -135,9 +138,11 @@ def _run_mulerun_studio(endpoint: str, args: List[str], timeout: int = MAX_WAIT)
     cmd = ["mulerun", "studio", "run", endpoint, "--json"] + args
 
     env = os.environ.copy()
-    token = os.getenv("MULERUN_TOKEN")
+    token = workspace_getenv("MULERUN_TOKEN")
     if token:
         env["MULERUN_TOKEN"] = token
+    else:
+        env.pop("MULERUN_TOKEN", None)
 
     logger.info(f"[MuleRun CLI] {' '.join(cmd[:6])}...")
 
@@ -193,10 +198,37 @@ def _resolve_local_image_path(img_url: Optional[str] = None, img_path: Optional[
 # ---------------------------------------------------------------------------
 
 def _get_api_key() -> str:
-    key = os.getenv("MULEROUTER_API_KEY", "")
+    key = workspace_getenv("MULEROUTER_API_KEY", "") or ""
     if not key:
         raise RuntimeError("MULEROUTER_API_KEY not set in environment")
     return key
+
+
+def _get_openai_image_config() -> Dict[str, str]:
+    """Return workspace-scoped OpenAI-compatible image settings."""
+    return {
+        "api_key": (workspace_getenv("OPENAI_IMAGE_API_KEY", "") or "").strip(),
+        "base_url": (workspace_getenv("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1").rstrip("/"),
+        "model": (workspace_getenv("OPENAI_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2").strip(),
+    }
+
+
+def _extract_openai_image_url(result: Dict[str, Any]) -> str:
+    """Extract a URL or data URI from an OpenAI-compatible image response."""
+    images = result.get("data") or result.get("images") or []
+    if images:
+        image = images[0]
+        if isinstance(image, str):
+            return image
+        if image.get("url"):
+            return image["url"]
+        if image.get("b64_json"):
+            return f"data:image/png;base64,{image['b64_json']}"
+    raise RuntimeError(f"OpenAI-compatible image API returned no image: {result}")
+
+
+def _openai_image_selected() -> bool:
+    return (workspace_getenv("IMAGE_PROVIDER", "mulerouter") or "").strip().lower() == "openai"
 
 
 def _auth_headers() -> Dict[str, str]:
@@ -503,9 +535,62 @@ class MuleRouterImageModel(ImageGenModel):
         super().__init__(config)
 
     def generate(self, prompt: str, output_path: str, **kwargs) -> Tuple[str, float]:
+        if _openai_image_selected():
+            return self._generate_via_openai_compatible(prompt, output_path, **kwargs)
         if _use_cli_backend():
             return self._generate_via_cli(prompt, output_path, **kwargs)
         return self._generate_via_http(prompt, output_path, **kwargs)
+
+    def _generate_via_openai_compatible(self, prompt: str, output_path: str, **kwargs) -> Tuple[str, float]:
+        """Generate/edit through a standard OpenAI images API."""
+        start_time = time.time()
+        config = _get_openai_image_config()
+        if not config["api_key"]:
+            raise RuntimeError("OPENAI_IMAGE_API_KEY is not configured for IMAGE_PROVIDER=openai")
+        headers = {"Authorization": f"Bearer {config['api_key']}"}
+        size = _normalize_gpt_image_size(kwargs.get("size", "1024x1024"))
+        ref_image_paths = list(kwargs.get("ref_image_paths") or [])
+        if kwargs.get("ref_image_path"):
+            ref_image_paths.insert(0, kwargs["ref_image_path"])
+
+        if ref_image_paths:
+            files = []
+            handles = []
+            try:
+                for path in ref_image_paths:
+                    handle = open(path, "rb")
+                    handles.append(handle)
+                    files.append(("image", (os.path.basename(path), handle, mimetypes.guess_type(path)[0] or "application/octet-stream")))
+                response = _request_with_retry(
+                    "POST",
+                    f"{config['base_url']}/images/edits",
+                    headers=headers,
+                    data={"model": config["model"], "prompt": prompt, "size": size},
+                    files=files,
+                    timeout=300,
+                )
+            finally:
+                for handle in handles:
+                    handle.close()
+        else:
+            response = _request_with_retry(
+                "POST",
+                f"{config['base_url']}/images/generations",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"model": config["model"], "prompt": prompt, "size": size, "n": kwargs.get("n", 1)},
+                timeout=300,
+            )
+
+        image_ref = _extract_openai_image_url(response.json())
+        if image_ref.startswith("data:"):
+            _, encoded = image_ref.split(",", 1)
+            with open(output_path, "wb") as output:
+                output.write(base64.b64decode(encoded))
+        else:
+            _download_file(image_ref, output_path)
+        generation_time = time.time() - start_time
+        logger.info(f"[OpenAI-compatible image] done in {generation_time:.1f}s -> {output_path}")
+        return output_path, generation_time
 
     def _generate_via_cli(self, prompt: str, output_path: str, **kwargs) -> Tuple[str, float]:
         """Generate image via mulerun studio run CLI."""

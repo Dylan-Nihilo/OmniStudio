@@ -6,11 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import { useProjectStore } from "@/store/projectStore";
 
-const { createFrame, createVideoTask, getProject, getTaskStatus } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, getProject, getTaskStatus, toastError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     getProject: vi.fn(),
     getTaskStatus: vi.fn(),
+    toastError: vi.fn(),
 }));
 
 vi.mock("next-intl", () => ({
@@ -30,7 +31,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/store/toastStore", () => ({
     toast: {
-        error: vi.fn(),
+        error: toastError,
         success: vi.fn(),
         warning: vi.fn(),
     },
@@ -162,5 +163,16 @@ describe("StoryboardR2V synthetic frame generation", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("shows a save error when adding a shot cannot be persisted", async () => {
+        createFrame.mockRejectedValueOnce(new Error("save failed"));
+
+        render(<StoryboardR2V />);
+        fireEvent.click(screen.getAllByRole("button", { name: "addShot" })[0]);
+
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalledWith("saveFailed", { body: "save failed" });
+        });
     });
 });

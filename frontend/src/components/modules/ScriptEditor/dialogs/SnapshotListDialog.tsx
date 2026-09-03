@@ -95,14 +95,14 @@ export default function SnapshotListDialog({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
         >
           <motion.div
-            className="relative w-full max-w-md rounded-xl border border-white/10 bg-zinc-900 shadow-2xl"
+            className="relative w-full max-w-md rounded-xl border border-glass-border bg-surface shadow-2xl"
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
@@ -110,15 +110,15 @@ export default function SnapshotListDialog({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+            <div className="flex items-center justify-between border-b border-glass-border px-5 py-4">
               <div className="flex items-center gap-2">
                 <Clock size={18} className="text-[var(--color-primary)]" />
-                <h2 className="text-base font-semibold text-zinc-100">{t('snapshots.title')}</h2>
+                <h2 className="text-base font-semibold text-foreground">{t('snapshots.title')}</h2>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded p-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              className="rounded p-1 text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground"
               >
                 <X size={18} />
               </button>
@@ -127,11 +127,11 @@ export default function SnapshotListDialog({
             {/* Content */}
             <div className="max-h-[400px] overflow-y-auto px-5 py-3">
               {loading ? (
-                <div className="flex items-center justify-center py-12 text-sm text-zinc-500">
+                <div className="flex items-center justify-center py-12 text-sm text-text-muted">
                   {t('dialogs.snapshots.loading')}
                 </div>
               ) : snapshots.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-sm text-zinc-500">
+                <div className="flex flex-col items-center justify-center py-12 text-sm text-text-muted">
                   <FileText size={32} className="mb-2 opacity-40" />
                   <span>{t('snapshots.empty')}</span>
                 </div>
@@ -154,10 +154,10 @@ export default function SnapshotListDialog({
                           )}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-zinc-200">
+                          <p className="text-sm font-medium text-foreground">
                             {formatTimestamp(snap.created_at)}
                           </p>
-                          <p className="text-xs text-zinc-500">
+                          <p className="text-xs text-text-muted">
                             {formatRelativeTime(snap.created_at, t)}
                           </p>
                         </div>
@@ -177,7 +177,7 @@ export default function SnapshotListDialog({
                           <button
                             type="button"
                             onClick={() => setConfirmingTimestamp(null)}
-                            className="rounded-md border border-white/10 px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-zinc-200"
+                            className="rounded-md border border-glass-border px-2 py-1 text-xs text-text-secondary transition-colors hover:text-foreground"
                           >
                             {t('dialogs.snapshots.cancel')}
                           </button>
@@ -186,7 +186,7 @@ export default function SnapshotListDialog({
                         <button
                           type="button"
                           onClick={() => setConfirmingTimestamp(snap.timestamp)}
-                          className="flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1 text-xs text-zinc-400 opacity-0 transition-all hover:border-white/20 hover:text-zinc-200 group-hover:opacity-100"
+                          className="flex items-center gap-1 rounded-md border border-glass-border px-2.5 py-1 text-xs text-text-secondary opacity-0 transition-all hover:border-primary/40 hover:text-foreground group-hover:opacity-100"
                         >
                           <RotateCcw size={12} />
                           <span>{t('dialogs.snapshots.restore')}</span>
@@ -200,7 +200,7 @@ export default function SnapshotListDialog({
 
             {/* Confirmation warning */}
             {confirmingTimestamp && (
-              <div className="border-t border-white/10 px-5 py-3">
+              <div className="border-t border-glass-border px-5 py-3">
                 <div className="flex items-start gap-2 rounded-md bg-amber-900/20 px-3 py-2 text-xs text-amber-300">
                   <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                   <span>{t('snapshots.confirmRestore')}</span>

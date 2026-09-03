@@ -835,7 +835,12 @@ def apply(
             init_schema(engine)
             with engine.begin() as connection:
                 bound_engine = cast(Engine, _TransactionBoundEngine(connection))
-                SQLiteRepository(bound_engine).save_bundle(result.scripts, result.series)
+                repository = SQLiteRepository(bound_engine)
+                repository.save_bundle(
+                    result.scripts,
+                    result.series,
+                    allow_stale_overwrite=True,
+                )
                 _write_audit(connection, report, status="completed")
         finally:
             engine.dispose()
@@ -898,5 +903,3 @@ __all__ = [
     "main",
     "preview",
 ]
-
-

@@ -22,6 +22,7 @@ from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
 from ...utils.provider_registry import resolve_provider_backend
 from ...utils.system_check import get_ffmpeg_path, get_ffprobe_path, get_ffmpeg_install_instructions
+from ...utils.workspace_env import workspace_getenv
 from ...storage import SQLiteRepository, create_engine, init_schema
 from ...storage.migration import (
     MIGRATION_NAME,
@@ -262,7 +263,7 @@ class ComicGenPipeline:
         self.asset_generation_tasks: Dict[str, Dict[str, Any]] = {}
         self.video_generation_tasks: Dict[str, Dict[str, Any]] = {}
         # Temporary cache for file import previews (import_id -> text)
-        self._import_cache: Dict[str, str] = {}
+        self._import_cache: Dict[str, tuple[str, str]] = {}
         # Cached model instances (lazily initialized)
         self._kling_model = None
         self._vidu_model = None
@@ -571,7 +572,7 @@ class ComicGenPipeline:
     def _save_data(self):
         """Save data with thread lock to prevent concurrent write issues."""
         with self._save_lock:
-            if self.storage_enabled:
+            if getattr(self, "storage_enabled", False):
                 # StorageError must reach the caller: a successful response must
                 # never hide a failed SQLite transaction.
                 self.repository.save_scripts(self.scripts)
@@ -1209,14 +1210,24 @@ class ComicGenPipeline:
         # Fall back to the project-independent global asset library
         # (lowest layer). Empty by default, so this is a no-op until
         # the global pool is populated.
+        workspace_id = (
+            self.repository.workspace_for_script(script.id)
+            if getattr(self, "storage_enabled", False)
+            else None
+        )
+        library = self.list_library_assets(workspace_id)
         if asset_type == "character":
-            gl_list = self.library_store.characters
+            gl_list = library.characters
         elif asset_type == "scene":
-            gl_list = self.library_store.scenes
+            gl_list = library.scenes
         else:  # prop
-            gl_list = self.library_store.props
+            gl_list = library.props
         glob = next((a for a in gl_list if a.id == asset_id), None)
         if glob is not None:
+            from .collaboration_context import WorkspacePermissionError, current_workspace_role
+
+            if current_workspace_role.get() == "member":
+                raise WorkspacePermissionError("Workspace Owner required for shared assets")
             return glob, "global"
         return None, None
 
@@ -1224,6 +1235,11 @@ class ComicGenPipeline:
         """Persist after mutating an asset; pick the right save path
         based on which container the asset lives in (episode vs series
         vs global library)."""
+        if source == "global":
+            from .collaboration_context import WorkspacePermissionError, current_workspace_role
+
+            if current_workspace_role.get() == "member":
+                raise WorkspacePermissionError("Workspace Owner required for shared assets")
         if source == "series":
             self._save_series_data()
         elif source == "global":
@@ -4203,11 +4219,25 @@ class ComicGenPipeline:
                 speaker = self._resolve_dialogue_speaker(script, frame)
 
                 if speaker:
+                    repository = getattr(self, "repository", None)
+                    custom = self.find_custom_voice(
+                        speaker.voice_id,
+                        repository.workspace_for_script(script_id)
+                        if speaker.voice_id and repository is not None
+                        else None,
+                    )
+                    voice_overrides = (
+                        {"model_override": custom.target_model, "family_override": custom.family}
+                        if custom
+                        else {}
+                    )
                     self.audio_generator.generate_dialogue(
-                        frame, speaker,
+                        frame,
+                        speaker,
                         speed=speaker.voice_speed,
                         pitch=speaker.voice_pitch,
-                        volume=speaker.voice_volume
+                        volume=speaker.voice_volume,
+                        **voice_overrides,
                     )
             
             # Generate SFX (Text-to-Audio)
@@ -4259,7 +4289,13 @@ class ComicGenPipeline:
                 model_override = None
                 family_override = None
                 if speaker.voice_id:
-                    custom = self.find_custom_voice(speaker.voice_id)
+                    repository = getattr(self, "repository", None)
+                    custom = self.find_custom_voice(
+                        speaker.voice_id,
+                        repository.workspace_for_script(script_id)
+                        if repository is not None
+                        else None,
+                    )
                     if custom:
                         model_override = custom.target_model
                         family_override = custom.family
@@ -4590,7 +4626,7 @@ class ComicGenPipeline:
     # ============================================================
 
     def _load_series_data(self) -> Dict[str, Series]:
-        if self.storage_enabled:
+        if getattr(self, "storage_enabled", False):
             loaded_series = self.repository.load_series()
             return {series.id: series for series in loaded_series.values()}
 
@@ -4606,7 +4642,7 @@ class ComicGenPipeline:
 
     def _save_series_data_unlocked(self):
         """Save series data without acquiring the lock (caller must hold self._save_lock)."""
-        if self.storage_enabled:
+        if getattr(self, "storage_enabled", False):
             self.repository.save_series(self.series_store)
             return
 
@@ -4651,6 +4687,23 @@ class ComicGenPipeline:
         with self._save_lock:
             self._save_library_data_unlocked()
 
+    def claim_unscoped_library_assets(self, workspace_id: str) -> int:
+        """Assign pre-Workspace library assets to the legacy default Workspace."""
+        with self._save_lock:
+            claimed = 0
+            for collection in (
+                self.library_store.characters,
+                self.library_store.scenes,
+                self.library_store.props,
+            ):
+                for asset in collection:
+                    if asset.workspace_id is None:
+                        asset.workspace_id = workspace_id
+                        claimed += 1
+            if claimed:
+                self._save_library_data_unlocked()
+            return claimed
+
     # ------------------------------------------------------------------
     # Global Asset Library — CRUD + feed channels (Omni Studio Core shared pool)
     # ------------------------------------------------------------------
@@ -4671,21 +4724,28 @@ class ComicGenPipeline:
             return self.library_store.props
         raise ValueError(f"Invalid asset type: {asset_type}")
 
-    def _find_library_asset(self, asset_type: str, asset_id: str):
+    def _find_library_asset(self, asset_type: str, asset_id: str, workspace_id: str | None = None):
         """Locate a global library asset by (type, id). Raises ValueError
         when the type is invalid or the id is absent."""
         target_list = self._library_list_for_type(asset_type)
-        asset = next((a for a in target_list if a.id == asset_id), None)
+        asset = next(
+            (a for a in target_list if a.id == asset_id and a.workspace_id == workspace_id),
+            None,
+        )
         if asset is None:
             raise ValueError(f"Asset {asset_id} of type {asset_type} not found in library")
         return asset
 
-    def list_library_assets(self) -> GlobalAssetLibrary:
+    def list_library_assets(self, workspace_id: str | None = None) -> GlobalAssetLibrary:
         """Return the global shared asset pool container (characters /
         scenes / props). Mirrors get_series for the library scope."""
-        return self.library_store
+        return GlobalAssetLibrary(
+            characters=[asset for asset in self.library_store.characters if asset.workspace_id == workspace_id],
+            scenes=[asset for asset in self.library_store.scenes if asset.workspace_id == workspace_id],
+            props=[asset for asset in self.library_store.props if asset.workspace_id == workspace_id],
+        )
 
-    def create_library_asset(self, asset_type: str, payload: Dict[str, Any]):
+    def create_library_asset(self, asset_type: str, payload: Dict[str, Any], workspace_id: str | None = None):
         """Create a new global library asset of `asset_type`
         ("character" | "scene" | "prop") from a plain payload dict, persist
         it, and return the created asset object.
@@ -4715,6 +4775,7 @@ class ComicGenPipeline:
                     ref_sheet.image_variants.append(variant)
                     ref_sheet.selected_image_id = variant.id
                 asset = Character(
+                    workspace_id=workspace_id,
                     id=f"char_{uuid.uuid4().hex[:12]}",
                     name=name,
                     description=description,
@@ -4724,6 +4785,7 @@ class ComicGenPipeline:
                 )
             elif asset_type == "scene":
                 asset = Scene(
+                    workspace_id=workspace_id,
                     id=f"scene_{uuid.uuid4().hex[:12]}",
                     name=name,
                     description=description,
@@ -4731,6 +4793,7 @@ class ComicGenPipeline:
                 )
             elif asset_type == "prop":
                 asset = Prop(
+                    workspace_id=workspace_id,
                     id=f"prop_{uuid.uuid4().hex[:12]}",
                     name=name,
                     description=description,
@@ -4742,13 +4805,13 @@ class ComicGenPipeline:
             self._save_library_data_unlocked()
             return asset
 
-    def update_library_asset(self, asset_type: str, asset_id: str, patch: Dict[str, Any]):
+    def update_library_asset(self, asset_type: str, asset_id: str, patch: Dict[str, Any], workspace_id: str | None = None):
         """Patch attributes of a global library asset and persist. Mirrors
         update_series_asset_attributes — only sets keys that exist on the
         asset, and never touches id/status (use create/delete to manage
         those)."""
         with self._save_lock:
-            asset = self._find_library_asset(asset_type, asset_id)
+            asset = self._find_library_asset(asset_type, asset_id, workspace_id)
             for key, value in (patch or {}).items():
                 if hasattr(asset, key) and key not in ("id", "status"):
                     setattr(asset, key, value)
@@ -4794,7 +4857,7 @@ class ComicGenPipeline:
             _scan("series", sid, series, getattr(series, "frames", None))
         return references
 
-    def delete_library_asset(self, asset_type: str, asset_id: str, force: bool = False) -> None:
+    def delete_library_asset(self, asset_type: str, asset_id: str, force: bool = False, workspace_id: str | None = None) -> None:
         """Hard-delete a global library asset.
 
         Design Q2 (reference integrity): unless ``force`` is True, scan all
@@ -4808,13 +4871,16 @@ class ComicGenPipeline:
         checked BEFORE the reference scan so a missing id still maps to 404."""
         with self._save_lock:
             target_list = self._library_list_for_type(asset_type)
-            if not any(a.id == asset_id for a in target_list):
+            if not any(a.id == asset_id and a.workspace_id == workspace_id for a in target_list):
                 raise ValueError(f"Asset {asset_id} of type {asset_type} not found in library")
             if not force:
                 refs = self._scan_library_asset_references(asset_type, asset_id)
                 if refs:
                     raise LibraryAssetInUseError(asset_type, asset_id, refs)
-            kept = [a for a in target_list if a.id != asset_id]
+            kept = [
+                a for a in target_list
+                if not (a.id == asset_id and a.workspace_id == workspace_id)
+            ]
             if asset_type == "character":
                 self.library_store.characters = kept
             elif asset_type == "scene":
@@ -4823,7 +4889,7 @@ class ComicGenPipeline:
                 self.library_store.props = kept
             self._save_library_data_unlocked()
 
-    def promote_asset_to_library(self, source_kind: str, source_id: str, asset_type: str, asset_id: str):
+    def promote_asset_to_library(self, source_kind: str, source_id: str, asset_type: str, asset_id: str, workspace_id: str | None = None):
         """Deep-copy an asset from a Project (episode) or Series into the
         global library with a fresh id, persist, and return the new asset.
 
@@ -4860,11 +4926,12 @@ class ComicGenPipeline:
 
             new_asset = copy.deepcopy(source_asset)
             new_asset.id = str(uuid.uuid4())
+            new_asset.workspace_id = workspace_id
             self._library_list_for_type(asset_type).append(new_asset)
             self._save_library_data_unlocked()
             return new_asset
 
-    def fork_library_asset_to_project(self, script_id: str, asset_type: str, library_asset_id: str):
+    def fork_library_asset_to_project(self, script_id: str, asset_type: str, library_asset_id: str, workspace_id: str | None = None):
         """Deep-copy a *global library* asset into a project's local asset list
         with a fresh id, persist the project, and return the new (now
         project-owned) asset.
@@ -4885,8 +4952,9 @@ class ComicGenPipeline:
             if not script:
                 raise ValueError(f"Project not found: {script_id}")
             # _find_library_asset raises ValueError when the id/type is absent.
-            source_asset = self._find_library_asset(asset_type, library_asset_id)
+            source_asset = self._find_library_asset(asset_type, library_asset_id, workspace_id)
             new_asset = copy.deepcopy(source_asset)
+            new_asset.workspace_id = None
             prefix = {"character": "char", "scene": "scene", "prop": "prop"}[asset_type]
             new_asset.id = f"{prefix}_{uuid.uuid4().hex[:12]}"
             if asset_type == "character":
@@ -5065,7 +5133,7 @@ class ComicGenPipeline:
             if not series:
                 raise ValueError(f"Series not found: {series_id}")
 
-            api_key = os.getenv("DASHSCOPE_API_KEY")
+            api_key = workspace_getenv("DASHSCOPE_API_KEY")
             if not api_key:
                 raise RuntimeError("DASHSCOPE_API_KEY not configured")
 
@@ -5140,11 +5208,22 @@ class ComicGenPipeline:
                 self._save_series_data_unlocked()
             return removed
 
-    def find_custom_voice(self, voice_id: str) -> Optional['CustomVoice']:
+    def find_custom_voice(
+        self,
+        voice_id: str,
+        workspace_id: str | None = None,
+    ) -> Optional['CustomVoice']:
         """Search all series for a custom voice by voice_id. Used by
         /voice/preview to resolve target_model for cloned/designed voices
         (which aren't in the static TTS_VOICE_REGISTRY)."""
+        repository = getattr(self, "repository", None)
         for series in self.series_store.values():
+            if (
+                workspace_id is not None
+                and repository is not None
+                and repository.workspace_for_series(series.id) != workspace_id
+            ):
+                continue
             for cv in (series.custom_voices or []):
                 if cv.id == voice_id:
                     return cv
@@ -5162,6 +5241,7 @@ class ComicGenPipeline:
         voice_prompt: str,
         preview_text: str,
         target_model: str = "cosyvoice-v3.5-plus",
+        workspace_id: str = "default",
     ) -> Dict[str, Any]:
         """Mint a new design voice via dashscope (preview returned inline).
 
@@ -5176,7 +5256,7 @@ class ComicGenPipeline:
         import requests
         import hashlib
 
-        api_key = os.getenv("DASHSCOPE_API_KEY")
+        api_key = workspace_getenv("DASHSCOPE_API_KEY")
         if not api_key:
             raise RuntimeError("DASHSCOPE_API_KEY not configured")
 
@@ -5224,7 +5304,7 @@ class ComicGenPipeline:
 
         voice_id_str = str(voice_id)
 
-        cache_dir = "output/cache/voice_design_preview"
+        cache_dir = os.path.join("output", "cache", "voice_design_preview", workspace_id)
         os.makedirs(cache_dir, exist_ok=True)
         cache_key = hashlib.md5(f"{voice_id_str}|{preview_text}".encode("utf-8")).hexdigest()
         cache_path = os.path.join(cache_dir, f"{cache_key}.mp3")
@@ -5251,7 +5331,7 @@ class ComicGenPipeline:
                 family_override="cosyvoice",
             )
 
-        preview_url = f"cache/voice_design_preview/{cache_key}.mp3"
+        preview_url = f"cache/voice_design_preview/{workspace_id}/{cache_key}.mp3"
         return {"voice_id": voice_id_str, "preview_url": preview_url, "target_model": target_model}
 
     def voice_design_save(
@@ -5344,6 +5424,12 @@ class ComicGenPipeline:
         is the lowest layer and applies to every project, with or without
         a parent series. When the global library is empty this behaves
         identically to the previous two-layer (Episode/Series) merge."""
+        workspace_id = (
+            self.repository.workspace_for_script(episode.id)
+            if getattr(self, "storage_enabled", False)
+            else None
+        )
+        library = self.list_library_assets(workspace_id)
         if not series:
             # Auto-lookup series if episode has series_id
             if episode.series_id:
@@ -5356,9 +5442,9 @@ class ComicGenPipeline:
             ep_scene_ids = {s.id for s in episode.scenes}
             ep_prop_ids = {p.id for p in episode.props}
             return {
-                "characters": list(episode.characters) + [c for c in self.library_store.characters if c.id not in ep_char_ids],
-                "scenes": list(episode.scenes) + [s for s in self.library_store.scenes if s.id not in ep_scene_ids],
-                "props": list(episode.props) + [p for p in self.library_store.props if p.id not in ep_prop_ids],
+                "characters": list(episode.characters) + [c for c in library.characters if c.id not in ep_char_ids],
+                "scenes": list(episode.scenes) + [s for s in library.scenes if s.id not in ep_scene_ids],
+                "props": list(episode.props) + [p for p in library.props if p.id not in ep_prop_ids],
             }
         # Build lookup by ID for episode-local assets
         ep_char_ids = {c.id for c in episode.characters}
@@ -5376,9 +5462,9 @@ class ComicGenPipeline:
         merged_scene_ids = {s.id for s in merged_scenes}
         merged_prop_ids = {p.id for p in merged_props}
 
-        merged_characters += [c for c in self.library_store.characters if c.id not in merged_char_ids]
-        merged_scenes += [s for s in self.library_store.scenes if s.id not in merged_scene_ids]
-        merged_props += [p for p in self.library_store.props if p.id not in merged_prop_ids]
+        merged_characters += [c for c in library.characters if c.id not in merged_char_ids]
+        merged_scenes += [s for s in library.scenes if s.id not in merged_scene_ids]
+        merged_props += [p for p in library.props if p.id not in merged_prop_ids]
 
         return {
             "characters": merged_characters,

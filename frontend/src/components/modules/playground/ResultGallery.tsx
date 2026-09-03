@@ -41,7 +41,7 @@ function formatSessionLabel(
 }
 
 export default function ResultGallery() {
-  const { history, startGeneration, updateGeneration, useResultAsReference } = usePlaygroundStore();
+  const { history, queue, startGeneration, updateGeneration, useResultAsReference } = usePlaygroundStore();
   const t = useTranslations('playground');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'gallery'>('grid');
@@ -197,12 +197,19 @@ export default function ResultGallery() {
 
   if (history.length === 0) {
     return (
-      <div className="flex flex-col flex-1 overflow-hidden min-w-0 items-center justify-center">
-        <Sparkles className="w-12 h-12 text-text-muted opacity-40 mb-4" />
-        <p className="font-display atelier-display text-base text-foreground mb-1">
-          {t('results.emptyTitle')}
-        </p>
-        <p className="text-xs text-text-muted">{t('results.emptyBody')}</p>
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+        {queue.length > 0 && (
+          <div className="flex shrink-0 justify-end border-b border-border-subtle px-7 py-4">
+            <QueuePanel />
+          </div>
+        )}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+          <Sparkles className="w-12 h-12 text-text-muted opacity-40 mb-4" />
+          <p className="font-display atelier-display text-base text-foreground mb-1">
+            {t('results.emptyTitle')}
+          </p>
+          <p className="text-xs text-text-muted">{t('results.emptyBody')}</p>
+        </div>
       </div>
     );
   }

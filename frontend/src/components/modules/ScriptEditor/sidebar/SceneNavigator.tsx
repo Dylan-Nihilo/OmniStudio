@@ -57,7 +57,7 @@ function SceneItem({
       {/* Color dot */}
       <button
         type="button"
-        className="shrink-0 w-3 h-3 rounded-full border border-white/20 transition-colors hover:border-white/40"
+        className="shrink-0 w-3 h-3 rounded-full border border-glass-border transition-colors hover:border-primary"
         style={{ backgroundColor: color || 'transparent' }}
         onClick={(e) => {
           e.stopPropagation();
@@ -74,7 +74,7 @@ function SceneItem({
             </span>
           )}
           {scene.intExt && (
-            <span className="text-[10px] font-medium uppercase px-1 py-0.5 rounded bg-zinc-700 text-zinc-300 shrink-0">
+            <span className="text-[10px] font-medium uppercase px-1 py-0.5 rounded bg-surface-inset text-text-secondary shrink-0">
               {scene.intExt}
             </span>
           )}
@@ -99,14 +99,14 @@ function SceneItem({
       {/* Color picker popup */}
       {showColors && (
         <div
-          className="absolute left-8 mt-1 z-50 p-1.5 bg-zinc-800 border border-white/10 rounded-lg shadow-xl grid grid-cols-4 gap-1"
+          className="absolute left-8 mt-1 z-50 p-1.5 bg-surface border border-glass-border rounded-lg shadow-xl grid grid-cols-4 gap-1"
           onClick={(e) => e.stopPropagation()}
         >
           {COLOR_OPTIONS.map((c) => (
             <button
               key={c}
               type="button"
-              className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform"
+              className="w-5 h-5 rounded-full border border-glass-border hover:scale-110 transition-transform"
               style={{ backgroundColor: c }}
               onClick={() => {
                 onColorChange(c);
@@ -116,7 +116,7 @@ function SceneItem({
           ))}
           <button
             type="button"
-            className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform bg-zinc-600 flex items-center justify-center text-[8px] text-zinc-300"
+            className="w-5 h-5 rounded-full border border-glass-border hover:scale-110 transition-transform bg-surface-inset flex items-center justify-center text-[8px] text-text-secondary"
             onClick={() => {
               onColorChange(null);
               setShowColors(false);
@@ -200,8 +200,8 @@ export default function SceneNavigator({ editor }: SceneNavigatorProps) {
   if (derivedScenes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 mb-2">
-          <Film size={16} className="text-zinc-500" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-inset mb-2">
+          <Film size={16} className="text-text-secondary" />
         </div>
         <p className="text-xs text-text-muted">{t('sidebar.noScenes')}</p>
       </div>

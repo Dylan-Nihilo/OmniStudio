@@ -401,6 +401,11 @@ class ScriptProcessor:
     def is_configured(self):
         return self.llm.is_configured
 
+    def _missing_llm_credential(self) -> str:
+        """Return the credential name relevant to the active LLM provider."""
+        provider = str(getattr(self.llm, "provider", "dashscope")).lower()
+        return "OPENAI_API_KEY" if provider == "openai" else "DASHSCOPE_API_KEY"
+
     def parse_novel(self, title: str, text: str, custom_extraction_prompt: str = "") -> Script:
         """
         Parses the raw novel text into a structured Script object using an LLM.
@@ -1222,8 +1227,8 @@ Return a JSON object with ALL fields below. null is acceptable for optional fiel
         if not self.is_configured:
             raise PolishError(
                 reason="is_configured_false",
-                message_zh="LLM 未配置（缺少 DASHSCOPE_API_KEY），请到设置中检查。",
-                message_en="LLM not configured (missing DASHSCOPE_API_KEY). Please check settings.",
+                message_zh=f"LLM 未配置（缺少 {self._missing_llm_credential()}），请到设置中检查。",
+                message_en=f"LLM not configured (missing {self._missing_llm_credential()}). Please check settings.",
             )
 
         has_images = bool(image_urls)
@@ -1363,8 +1368,8 @@ Return a JSON object with ALL fields below. null is acceptable for optional fiel
         if not self.is_configured:
             raise PolishError(
                 reason="is_configured_false",
-                message_zh="LLM 未配置（缺少 DASHSCOPE_API_KEY），请到设置中检查。",
-                message_en="LLM not configured (missing DASHSCOPE_API_KEY). Please check settings.",
+                message_zh=f"LLM 未配置（缺少 {self._missing_llm_credential()}），请到设置中检查。",
+                message_en=f"LLM not configured (missing {self._missing_llm_credential()}). Please check settings.",
             )
 
         has_images = bool(image_urls)

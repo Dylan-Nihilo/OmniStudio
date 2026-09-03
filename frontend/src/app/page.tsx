@@ -26,6 +26,7 @@ import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
+import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -34,6 +35,7 @@ const SettingsPage = dynamic(() => withChunkLoadRecovery(() => import("@/compone
 const AssetLibraryPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/library/AssetLibraryPage")), { ssr: false });
 const PlaygroundPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/playground/PlaygroundPage")), { ssr: false });
 const ScriptEditorShell = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/ScriptEditorShell")), { ssr: false });
+const StandaloneScriptEditor = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/StandaloneScriptEditor")), { ssr: false });
 
 // ── Create Series Dialog ──
 function CreateSeriesDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -456,7 +458,9 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
   ];
 
   return (
-    <ProjectClient id={episodeId} breadcrumbSegments={segments} />
+    <EpisodeEditLeaseGuard scriptId={episodeId}>
+      <ProjectClient id={episodeId} breadcrumbSegments={segments} />
+    </EpisodeEditLeaseGuard>
   );
 }
 
@@ -659,7 +663,11 @@ function AuthenticatedHome() {
 
   // 项目详情页 — 全屏，无 GlobalSidebar
   if (currentView === 'project' && projectId) {
-    return <ProjectClient id={projectId} />;
+    return (
+      <EpisodeEditLeaseGuard scriptId={projectId}>
+        <ProjectClient id={projectId} />
+      </EpisodeEditLeaseGuard>
+    );
   }
 
   // 系列集数编辑 — 全屏，BreadcrumbBar 内嵌在 ProjectClient
@@ -699,7 +707,7 @@ function AuthenticatedHome() {
       return <PlaygroundPage />;
     }
     if (currentView === 'studio/editor') {
-      return <ScriptEditorShell mode="full" />;
+      return <StandaloneScriptEditor />;
     }
     if (currentView === 'project-editor' && projectId) {
       return <ScriptEditorShell mode="embedded" projectId={projectId} />;

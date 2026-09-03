@@ -272,7 +272,7 @@ export default function NewLibraryAssetDialog({ onClose, onCreated }: NewLibrary
             </button>
             <button
               type="submit"
-              disabled={submitting || uploading}
+              disabled={submitting || uploading || !name.trim()}
               className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-accent text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {submitting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}

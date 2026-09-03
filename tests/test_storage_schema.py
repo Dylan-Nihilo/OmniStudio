@@ -42,11 +42,15 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "legacy_claim_batches",
         "users",
         "workspaces",
+        "workspace_memberships",
+        "workspace_invitations",
+        "workspace_provider_configs",
         "projects",
         "episodes",
         "scripts",
         "series",
         "sessions",
+        "script_edit_leases",
     }
 
     expected_indexes = {
@@ -59,6 +63,14 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_legacy_claim_source",
         },
         "workspaces": {"ix_workspaces_owner_user_id"},
+        "workspace_memberships": {
+            "ix_workspace_memberships_user",
+            "uq_workspace_memberships_owner",
+        },
+        "workspace_invitations": {
+            "ix_workspace_invitations_workspace",
+            "ix_workspace_invitations_email",
+        },
         "projects": {
             "ix_projects_workspace_updated",
             "ix_projects_legacy_series_id",
@@ -72,6 +84,10 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         },
         "scripts": {"ix_scripts_updated", "ix_scripts_original_text_prefix"},
         "sessions": {"ix_sessions_user_revoked", "ix_sessions_expires_at"},
+        "script_edit_leases": {
+            "ix_script_edit_leases_expiry",
+            "ix_script_edit_leases_holder",
+        },
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -83,11 +99,15 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "legacy_claim_batches",
         "users",
         "workspaces",
+        "workspace_memberships",
+        "workspace_invitations",
+        "workspace_provider_configs",
         "projects",
         "episodes",
         "scripts",
         "series",
         "sessions",
+        "script_edit_leases",
     }
 
 
@@ -279,4 +299,3 @@ def test_file_database_path_is_parameterized_and_isolated(tmp_path):
         engine.dispose()
 
     assert not (tmp_path / "output").exists()
-

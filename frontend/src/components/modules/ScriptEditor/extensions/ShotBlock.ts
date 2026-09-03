@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
+import { createUuid } from '@/lib/id'
 
 export type ShotType = 'WS' | 'MS' | 'CU' | 'ECU' | 'OTS' | 'POV' | 'custom'
 
@@ -170,7 +171,7 @@ export const ShotBlock = Node.create<ShotBlockOptions>({
         (attributes) =>
         ({ commands }) => {
           return commands.setNode(this.name, {
-            id: crypto.randomUUID(),
+            id: createUuid(),
             ...attributes,
           })
         },

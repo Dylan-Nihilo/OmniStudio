@@ -1,12 +1,10 @@
-# Minimal mechanical validation gate for merging into main.
+# Full-stack validation gate for merging into main and deploying production.
 #
-# Runs the Python test suite and the model catalog validation script on
-# every pull request targeting main (and on pushes to main as a post-merge
-# safety net). Local development flow is unchanged — this only enforces
-# the checks that CLAUDE.md already declares.
+# Runs the backend and frontend checks on every pull request targeting main
+# and on pushes to main. A successful push run unlocks the production deploy.
 #
-# To make this a hard gate, enable branch protection on main with
-# "backend-tests" as a required status check.
+# To make this a hard gate, require both "backend-tests" and
+# "frontend-tests" in the main branch protection rules.
 
 name: Backend CI
 
@@ -49,3 +47,34 @@ jobs:
 
       - name: Validate model catalog
         run: python scripts/validate_model_catalog.py
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests
+        run: npm run test:all
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Build production frontend
+        run: npm run build
+        env:
+          DOCKER_BUILD: "true"

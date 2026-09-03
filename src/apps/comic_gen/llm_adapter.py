@@ -12,11 +12,12 @@ Configuration via environment variables:
   OPENAI_BASE_URL=https://api.openai.com/v1
   OPENAI_MODEL=gpt-4o
 """
-import os
 import logging
+from threading import Lock
 from typing import Dict, List, Optional, Any
 
 from ...utils.endpoints import get_provider_base_url
+from ...utils.workspace_env import workspace_getenv
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +26,35 @@ class LLMAdapter:
     """Unified LLM call interface supporting DashScope and OpenAI-compatible APIs."""
 
     def __init__(self):
-        self.provider = os.getenv("LLM_PROVIDER", "dashscope").lower()
         self._client = None
+        self._client_fingerprint = None
+        self._client_lock = Lock()
         logger.info(f"LLM Adapter initialized with provider: {self.provider}")
+
+    @property
+    def provider(self) -> str:
+        return (workspace_getenv("LLM_PROVIDER", "dashscope") or "dashscope").lower()
 
     @property
     def is_configured(self) -> bool:
         if self.provider == "openai":
-            return bool(os.getenv("OPENAI_API_KEY"))
-        return bool(os.getenv("DASHSCOPE_API_KEY"))
+            return bool(workspace_getenv("OPENAI_API_KEY"))
+        return bool(workspace_getenv("DASHSCOPE_API_KEY"))
 
     def _get_client(self):
         """Get or create the OpenAI-compatible client (lazy, cached)."""
-        if self._client is None:
+        provider = self.provider
+        if provider == "openai":
+            api_key = workspace_getenv("OPENAI_API_KEY")
+            base_url = workspace_getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1"
+        else:
+            api_key = workspace_getenv("DASHSCOPE_API_KEY")
+            base_url = f"{get_provider_base_url('DASHSCOPE')}/compatible-mode/v1"
+        fingerprint = (provider, api_key, base_url)
+
+        with self._client_lock:
+            if self._client is not None and self._client_fingerprint == fingerprint:
+                return self._client
             try:
                 from openai import OpenAI
             except ImportError:
@@ -45,18 +62,9 @@ class LLMAdapter:
                     "openai package not installed. Run: pip install openai>=1.0.0"
                 )
 
-            if self.provider == "openai":
-                self._client = OpenAI(
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-                )
-            else:
-                # DashScope uses OpenAI-compatible endpoint
-                self._client = OpenAI(
-                    api_key=os.getenv("DASHSCOPE_API_KEY"),
-                    base_url=f"{get_provider_base_url('DASHSCOPE')}/compatible-mode/v1",
-                )
-        return self._client
+            self._client = OpenAI(api_key=api_key, base_url=base_url)
+            self._client_fingerprint = fingerprint
+            return self._client
 
     # DashScope qwen 系列：首选 qwen3.7-plus（最新），不可用时回退到 qwen3.6-plus，
     # 最终回退到 qwen-plus alias（始终指向最新稳定通用版）。
@@ -65,7 +73,7 @@ class LLMAdapter:
 
     def _get_default_model(self) -> str:
         if self.provider == "openai":
-            return os.getenv("OPENAI_MODEL", "gpt-4o")
+            return workspace_getenv("OPENAI_MODEL", "gpt-4o") or "gpt-4o"
         return self._DASHSCOPE_MODEL_FALLBACK_CHAIN[0]
 
     def chat(

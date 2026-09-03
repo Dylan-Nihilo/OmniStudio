@@ -158,4 +158,6 @@ export function useDerivation(editor: Editor | null) {
       }
     };
   }, [editor, runDerivation]);
+
+  return { runDerivation };
 }
