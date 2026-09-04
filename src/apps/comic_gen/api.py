@@ -69,6 +69,7 @@ from .collaboration_context import (
     WorkspacePermissionError,
     current_workspace_role,
 )
+from .audit import record_request_event
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
@@ -2027,6 +2028,13 @@ def update_env_config(config: EnvConfig, request: Request):
             removed_keys=keys_to_remove,
             now=time.time(),
         )
+        record_request_event(
+            request,
+            action="provider.config.update",
+            object_type="workspace",
+            object_id=str(context.workspace.id),
+            metadata={"changed_keys": sorted(config_dict.keys()), "removed_keys": sorted(keys_to_remove)},
+        )
         return {"status": "success", "message": "Configuration saved to Workspace"}
     except Exception as e:
         logger.exception("Failed to save environment configuration")
@@ -2120,7 +2128,7 @@ def get_project(script_id: str, request: Request):
 
 
 @app.delete("/projects/{script_id}")
-def delete_project(script_id: str):
+def delete_project(script_id: str, request: Request):
     """Deletes a project by ID. WARNING: This permanently removes the project from backend storage."""
     script = pipeline.get_script(script_id)
     if not script:
@@ -2128,6 +2136,12 @@ def delete_project(script_id: str):
     
     try:
         pipeline.delete_project(script_id)
+        record_request_event(
+            request,
+            action="project.delete",
+            object_type="project",
+            object_id=script_id,
+        )
         return {"status": "deleted", "id": script_id, "title": script.title}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

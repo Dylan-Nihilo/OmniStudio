@@ -28,7 +28,7 @@ from src.apps.comic_gen.models import Series as SeriesPayload
 
 from .errors import StorageConflictError, StorageError
 from .db import begin_immediate
-from .schema import Episode, Project, Script, ScriptEditLease, Series, User
+from .schema import AuditEvent, Episode, Project, Script, ScriptEditLease, Series, User
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,17 @@ class SQLiteRepository:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
         self._known_script_revisions: dict[str, str] = {}
+
+    def record_audit_event(self, **kwargs: Any):
+        """Persist a redacted audit event through the shared repository engine."""
+        from src.apps.comic_gen.audit import record
+
+        return record(engine=self.engine, **kwargs)
+
+    def list_audit_events(self, workspace_id: str, *, limit: int = 100):
+        from src.apps.comic_gen.audit import list_events
+
+        return list_events(engine=self.engine, workspace_id=workspace_id, limit=limit)
 
     # ------------------------------------------------------------------
     # Public read API
