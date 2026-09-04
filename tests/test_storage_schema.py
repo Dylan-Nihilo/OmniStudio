@@ -51,6 +51,10 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "series",
         "sessions",
         "script_edit_leases",
+        "audit_events",
+        "jobs",
+        "job_items",
+        "job_item_events",
     }
 
     expected_indexes = {
@@ -88,6 +92,16 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_script_edit_leases_expiry",
             "ix_script_edit_leases_holder",
         },
+        "audit_events": {
+            "ix_audit_events_workspace_created",
+            "ix_audit_events_object",
+        },
+        "jobs": {"ix_jobs_workspace_updated", "ix_jobs_project_episode"},
+        "job_items": {
+            "ix_job_items_job_status",
+            "ix_job_items_workspace_updated",
+        },
+        "job_item_events": {"ix_job_item_events_item_created"},
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -108,6 +122,10 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "series",
         "sessions",
         "script_edit_leases",
+        "audit_events",
+        "jobs",
+        "job_items",
+        "job_item_events",
     }
 
 
