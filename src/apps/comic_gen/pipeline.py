@@ -34,6 +34,38 @@ from ...storage.schema import MigrationRun
 
 logger = get_logger(__name__)
 
+def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
+    """Select an uploaded master in the same container all renderers read."""
+    from .models import AssetUnit, ImageAsset, ImageVariant
+
+    asset.image_url = image_url
+    if asset_type == "character":
+        asset.avatar_url = image_url
+    if not image_url:
+        return
+    if asset_type == "character":
+        if asset.reference_sheet is None:
+            asset.reference_sheet = AssetUnit()
+        unit = asset.reference_sheet
+        if not unit.image_variants and asset.full_body_asset:
+            unit.image_variants = list(asset.full_body_asset.variants)
+        variants = unit.image_variants
+    else:
+        if asset.image_asset is None:
+            asset.image_asset = ImageAsset()
+        unit = asset.image_asset
+        variants = unit.variants
+    variant = next((item for item in variants if item.url == image_url), None)
+    if variant is None:
+        variant = ImageVariant(id=str(uuid.uuid4()), url=image_url, source="uploaded", is_uploaded_source=True)
+        variants.append(variant)
+    if asset_type == "character":
+        unit.selected_image_id = variant.id
+        unit.image_updated_at = time.time()
+    else:
+        unit.selected_id = variant.id
+
+
 # --- Security helpers ---
 
 # Allowed pattern for IDs used in file paths (UUID hex + hyphens)
@@ -1321,12 +1353,7 @@ class ComicGenPipeline:
         if not target_asset:
             raise ValueError(f"Asset {asset_id} of type {asset_type} not found")
 
-        target_asset.image_url = image_url
-        # For characters, also update avatar if it's not set or if we want to sync them
-        # For now, let's assume the uploaded image is the main reference.
-        # If it's a character, we might want to set avatar_url to the same image for simplicity
-        if asset_type == "character":
-            target_asset.avatar_url = image_url
+        _set_asset_master_image(target_asset, asset_type, image_url)
 
         self._save_after_asset_mutation(source)
         return script
@@ -4814,7 +4841,10 @@ class ComicGenPipeline:
             asset = self._find_library_asset(asset_type, asset_id, workspace_id)
             for key, value in (patch or {}).items():
                 if hasattr(asset, key) and key not in ("id", "status"):
-                    setattr(asset, key, value)
+                    if key == "image_url" and value:
+                        _set_asset_master_image(asset, asset_type, value)
+                    else:
+                        setattr(asset, key, value)
             self._save_library_data_unlocked()
             return asset
 
@@ -5629,9 +5659,7 @@ class ComicGenPipeline:
         """Updates the image URL of a Series asset."""
         with self._save_lock:
             series, target_asset = self._find_series_asset(series_id, asset_id, asset_type)
-            target_asset.image_url = image_url
-            if asset_type == "character":
-                target_asset.avatar_url = image_url
+            _set_asset_master_image(target_asset, asset_type, image_url)
             self._save_series_data_unlocked()
             return series
 
