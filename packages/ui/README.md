@@ -35,7 +35,7 @@ import '@omnistudio/ui/styles.css';
 | SelectField | HeroUI Select / ListBox | 单选或多选、禁用选项、键盘操作、表单提交 |
 | Checkbox | HeroUI Checkbox | 选中、禁用、描述、校验 |
 | Tabs | HeroUI Tabs | 键盘切换、内容面板、溢出滚动 |
-| Dialog | HeroUI Modal | 受控或 trigger 打开、关闭、焦点限制与恢复 |
+| Dialog | HeroUI Modal | 受控或 trigger 打开、关闭、焦点限制与恢复；`isDismissable={false}` 锁定提交中的弹窗 |
 | StatusBadge | HeroUI Chip | 草稿、信息、警告、成功、错误；可读文字与状态点 |
 | NavigationMenu | HeroUI Pro Sidebar | 可复用上下文导航；当前项、路由回调、键盘操作 |
 | WorkflowSteps | HeroUI Pro Stepper | 受控步骤、方向和只读进度；不包含业务权限逻辑 |
@@ -52,7 +52,7 @@ import '@omnistudio/ui/styles.css';
 
 登录表单与首页操作、空状态、加载态已接入主应用。`AppShell` 使用共享页面淡入；其他业务页面继续分步迁移。组件目录的保存、导航与生成状态仅用于交互演示，不调用业务 API。
 
-主应用使用 `install-links=true` 安装本地包，避免组件预览的 React 实例进入主应用。修改共享源码后，重新安装主应用中的本地包再验证；全新 `npm ci` 会读取当前包源码。主应用的 `component-theme.css` 将共享组件 token 映射到现有六套主题。
+主应用使用 `install-links=true` 安装本地包，避免组件预览的 React 实例进入主应用。修改共享源码后更新包版本，并在 `frontend/` 运行 `npm install --install-links ../packages/ui`，随后重启 Next dev，确保安装内容与依赖缓存更新；全新 `npm ci` 会读取当前包源码。主应用的 `component-theme.css` 将共享组件 token 映射到现有六套主题。
 
 ## Loading 与 Motion 规范
 

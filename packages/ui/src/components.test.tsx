@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
-import { LoadingState, Skeleton, Button, Checkbox, PasswordField, TextField } from './index';
+import { Dialog, LoadingState, Skeleton, Button, Checkbox, PasswordField, TextField } from './index';
 
 afterEach(cleanup);
 
@@ -56,4 +56,15 @@ it('announces loading once while skeleton shapes stay decorative', () => {
   expect(screen.getAllByRole('status')).toHaveLength(1);
   expect(screen.getByRole('status').textContent).toBe('正在加载项目');
   expect(document.querySelectorAll('.omni-skeleton[aria-hidden="true"]')).toHaveLength(2);
+});
+
+it('keeps a controlled dialog open during submission and allows dismissal afterwards', () => {
+  const change = vi.fn();
+  const { rerender } = render(<Dialog isOpen onOpenChange={change} title="保存项目" closeLabel="关闭" isDismissable={false}><p>正在保存</p></Dialog>);
+  expect((screen.getByRole('button', { name: '关闭' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  expect(change).not.toHaveBeenCalled();
+  rerender(<Dialog isOpen onOpenChange={change} title="保存项目" closeLabel="关闭"><p>已保存</p></Dialog>);
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+  expect(change).toHaveBeenCalledWith(false);
 });
