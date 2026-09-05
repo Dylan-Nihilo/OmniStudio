@@ -140,6 +140,37 @@ def test_project_title_update_does_not_reparse_script(api_client):
     assert loaded.json()["title"] == "编辑后的标题"
 
 
+def test_episode_order_move_and_archive_api(api_client):
+    series = _create_series(api_client, "Episode 生命周期")
+    first = _create_project(api_client, "第一集")
+    second = _create_project(api_client, "第二集")
+    _add_episode(api_client, series["id"], first["id"], 1)
+    _add_episode(api_client, series["id"], second["id"], 2)
+
+    reordered = api_client.put(
+        f"/series/{series['id']}/episodes/order",
+        json={"episode_ids": [second["id"], first["id"]]},
+    )
+    assert reordered.status_code == 200, reordered.text
+    episodes = api_client.get(f"/series/{series['id']}/episodes").json()
+    assert [episode["id"] for episode in episodes] == [second["id"], first["id"]]
+    assert [episode["episode_number"] for episode in episodes] == [1, 2]
+
+    archived = api_client.post(f"/series/{series['id']}/episodes/{first['id']}/archive")
+    assert archived.status_code == 200, archived.text
+    assert api_client.get(f"/projects/{first['id']}").json()["archived"] is True
+    blocked = api_client.post(f"/series/{series['id']}/episodes/{second['id']}/archive")
+    assert blocked.status_code == 409, blocked.text
+
+    restored = api_client.post(f"/series/{series['id']}/episodes/{first['id']}/restore")
+    assert restored.status_code == 200, restored.text
+    moved = api_client.post(
+        f"/series/{series['id']}/episodes/{first['id']}/move",
+        json={"target_index": 1},
+    )
+    assert moved.status_code == 200, moved.text
+
+
 def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
     project = _create_project(api_client, "列表接口回归")
 

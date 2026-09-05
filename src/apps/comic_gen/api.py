@@ -1311,11 +1311,62 @@ class AddEpisodeRequest(BaseModel):
     episode_number: Optional[int] = None
 
 
+class EpisodeOrderRequest(BaseModel):
+    episode_ids: List[str]
+
+
+class EpisodeMoveRequest(BaseModel):
+    target_index: int = Field(ge=0)
+
+
 @app.post("/series/{series_id}/episodes")
 def add_episode_to_series(series_id: str, request: AddEpisodeRequest):
     """Add an existing project as an episode to a Series."""
     try:
         series = pipeline.add_episode_to_series(series_id, request.script_id, request.episode_number)
+        return signed_response(series)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.put("/series/{series_id}/episodes/order")
+def reorder_series_episodes(series_id: str, request: EpisodeOrderRequest):
+    """Persist the complete ordered Episode list for a Series."""
+    try:
+        series = pipeline.reorder_series_episodes(series_id, request.episode_ids)
+        return signed_response(series)
+    except ValueError as e:
+        status = 404 if str(e) == "Series not found" else 400
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/move")
+def move_series_episode(series_id: str, script_id: str, request: EpisodeMoveRequest):
+    """Move an Episode to a zero-based position, including from another Series."""
+    try:
+        series = pipeline.move_episode_to_series(series_id, script_id, request.target_index)
+        return signed_response(series)
+    except ValueError as e:
+        status = 404 if str(e) in {"Series not found", "Script not found"} else 400
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/archive")
+def archive_series_episode(series_id: str, script_id: str, request: Request):
+    try:
+        series = pipeline.set_episode_archived(series_id, script_id, True)
+        record_request_event(request, action="episode.archive", object_type="episode", object_id=script_id)
+        return signed_response(series)
+    except ValueError as e:
+        status = 409 if "last active" in str(e) else 404
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/restore")
+def restore_series_episode(series_id: str, script_id: str, request: Request):
+    try:
+        series = pipeline.set_episode_archived(series_id, script_id, False)
+        record_request_event(request, action="episode.restore", object_type="episode", object_id=script_id)
         return signed_response(series)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

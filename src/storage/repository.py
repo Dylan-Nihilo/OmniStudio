@@ -766,6 +766,28 @@ class SQLiteRepository:
         *,
         allow_stale_overwrite: bool = False,
     ) -> None:
+        # Episode numbers are unique within a project.  Reordering (1, 2 -> 2, 1)
+        # or inserting at position 1 would otherwise fail halfway through the
+        # UPDATE loop because SQLite checks the constraint per statement.
+        # Temporarily move every row in affected projects out of the way, then
+        # restore rows that were not part of this payload after the upserts.
+        prepared_ids = {script_id for script_id, _, _, _ in prepared}
+        project_ids = {payload.series_id or script_id for script_id, payload, _, _ in prepared}
+        staged_numbers: dict[str, int | None] = {}
+        for project_id in project_ids:
+            rows = connection.execute(
+                select(Episode.__table__.c.id, Episode.__table__.c.episode_number).where(
+                    Episode.__table__.c.project_id == project_id
+                )
+            ).mappings()
+            for offset, row in enumerate(rows, start=1):
+                staged_numbers[row["id"]] = row["episode_number"]
+                connection.execute(
+                    update(Episode.__table__)
+                    .where(Episode.__table__.c.id == row["id"])
+                    .values(episode_number=-offset)
+                )
+
         for script_id, payload, payload_json, payload_sha256 in prepared:
             series_id = payload.series_id
             project_id = series_id or script_id
@@ -838,6 +860,14 @@ class SQLiteRepository:
                 expected_revision=self._known_script_revisions.get(script_id),
                 allow_stale_overwrite=allow_stale_overwrite,
             )
+
+        for episode_id, episode_number in staged_numbers.items():
+            if episode_id not in prepared_ids:
+                connection.execute(
+                    update(Episode.__table__)
+                    .where(Episode.__table__.c.id == episode_id)
+                    .values(episode_number=episode_number)
+                )
 
     def _save_prepared_series(
         self,

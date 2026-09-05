@@ -12,6 +12,10 @@ import {
   MessageSquareCode,
   Download,
   Palette,
+  ChevronUp,
+  ChevronDown,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import clsx from "clsx";
 import type { Series, Project } from "@/store/projectStore";
@@ -45,6 +49,8 @@ interface SeriesSidebarProps {
   onNewEpisodeTitleChange: (val: string) => void;
   onAddEpisode: () => void;
   onAddEpisodeKeyDown: (e: React.KeyboardEvent) => void;
+  onMoveEpisode: (episodeId: string, direction: "up" | "down") => void;
+  onToggleEpisodeArchive: (episode: Project) => void;
   // Actions
   onOpenModelSettings: () => void;
   onOpenPromptConfig: () => void;
@@ -80,6 +86,8 @@ export default function SeriesSidebar({
   onNewEpisodeTitleChange,
   onAddEpisode,
   onAddEpisodeKeyDown,
+  onMoveEpisode,
+  onToggleEpisodeArchive,
   onOpenModelSettings,
   onOpenPromptConfig,
   onOpenImportAssets,
@@ -272,13 +280,10 @@ export default function SeriesSidebar({
               activeItem.episodeId === ep.id;
 
             return (
-              <button
+              <div
                 key={ep.id}
-                onClick={() =>
-                  onItemChange({ kind: "episode", episodeId: ep.id })
-                }
                 className={clsx(
-                  "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all duration-200 group relative overflow-hidden",
+                  "w-full flex items-center gap-1 rounded-lg transition-all duration-200 group relative overflow-hidden",
                   isActive
                     ? "bg-primary/10 text-foreground"
                     : "text-text-secondary hover:text-foreground hover:bg-hover-bg"
@@ -292,6 +297,12 @@ export default function SeriesSidebar({
                     animate={{ opacity: 1 }}
                   />
                 )}
+                <button
+                  type="button"
+                  onClick={() => onItemChange({ kind: "episode", episodeId: ep.id })}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2.5 text-left"
+                  title={ep.title}
+                >
                 <span
                   className={clsx(
                     "text-[0.625rem] font-mono font-bold px-1.5 py-0.5 rounded",
@@ -305,13 +316,28 @@ export default function SeriesSidebar({
                 <span className="text-sm font-medium flex-1 text-left truncate">
                   {ep.title}
                 </span>
+                {ep.archived && (
+                  <span className="shrink-0 rounded bg-surface-inset px-1 py-0.5 text-[0.5625rem] text-text-muted">已归档</span>
+                )}
                 <span className="text-[0.625rem] text-text-muted font-mono">
                   {ep.frames?.length || 0}
                 </span>
                 {isActive && (
                   <ChevronRight size={14} className="opacity-40" />
                 )}
-              </button>
+                </button>
+                <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <button type="button" onClick={() => onMoveEpisode(ep.id, "up")} aria-label="上移 Episode" title="上移 Episode" className="grid h-6 w-6 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground disabled:opacity-30" disabled={sortedEpisodes[0]?.id === ep.id}>
+                    <ChevronUp size={12} />
+                  </button>
+                  <button type="button" onClick={() => onMoveEpisode(ep.id, "down")} aria-label="下移 Episode" title="下移 Episode" className="grid h-6 w-6 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground disabled:opacity-30" disabled={sortedEpisodes[sortedEpisodes.length - 1]?.id === ep.id}>
+                    <ChevronDown size={12} />
+                  </button>
+                  <button type="button" onClick={() => onToggleEpisodeArchive(ep)} aria-label={ep.archived ? "恢复 Episode" : "归档 Episode"} title={ep.archived ? "恢复 Episode" : "归档 Episode"} className="grid h-6 w-6 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground">
+                    {ep.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                  </button>
+                </div>
+              </div>
             );
           })}
 

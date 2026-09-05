@@ -1445,6 +1445,22 @@ export const api = {
         const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes`, { script_id: scriptId, episode_number: episodeNumber });
         return response.data;
     },
+    reorderSeriesEpisodes: async (seriesId: string, episodeIds: string[]) => {
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}/episodes/order`, { episode_ids: episodeIds });
+        return response.data;
+    },
+    moveSeriesEpisode: async (seriesId: string, scriptId: string, targetIndex: number) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/move`, { target_index: targetIndex });
+        return response.data;
+    },
+    archiveSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/archive`);
+        return response.data;
+    },
+    restoreSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/restore`);
+        return response.data;
+    },
     removeEpisodeFromSeries: async (seriesId: string, scriptId: string) => {
         const response = await apiClient.delete(`${API_URL}/series/${seriesId}/episodes/${scriptId}`);
         return response.data;
