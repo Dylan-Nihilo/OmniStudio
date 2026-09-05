@@ -43,7 +43,21 @@ const libraryUploads = new Map();
 
 
 // Exposed only to the local launcher so a preview restart can retain review edits.
-export const previewState = { projects, series, documents };
+export const previewState = { projects, series, documents, library, libraryUploads };
+
+function replaceLibraryImage(asset, type, imageUrl) {
+  asset.image_url = imageUrl;
+  const character = type === "character";
+  const unit = character ? (asset.reference_sheet ||= { image_variants: [], selected_image_id: null }) : (asset.image_asset ||= { variants: [], selected_id: null });
+  const variants = character ? unit.image_variants : unit.variants;
+  let variant = variants.find(item => item.url === imageUrl);
+  if (!variant) {
+    variant = { id: `preview-variant-${randomUUID()}`, url: imageUrl, created_at: Date.now() / 1000, source: "uploaded", is_uploaded_source: true };
+    variants.push(variant);
+  }
+  if (character) { unit.selected_image_id = variant.id; asset.avatar_url = imageUrl; }
+  else unit.selected_id = variant.id;
+}
 
 export async function previewHandler(request, response) {
   response.setHeader("Cache-Control", "no-store");
@@ -90,6 +104,7 @@ export async function previewHandler(request, response) {
     const type = libraryTypes[body.asset_type];
     if (!type || typeof body.name !== "string" || !body.name.trim() || ["description", "image_url"].some(key => body[key] != null && typeof body[key] !== "string")) return invalid();
     const asset = { id: `preview-library-${randomUUID()}`, name: body.name.trim(), description: body.description || "", image_url: body.image_url || "", starred: false, locked: false };
+    if (body.asset_type === "character" && body.image_url) replaceLibraryImage(asset, "character", body.image_url);
     library[type].push(asset);
     return reply(200, asset);
   }
@@ -99,9 +114,10 @@ export async function previewHandler(request, response) {
     const asset = items.find(item => item.id === libraryMatch[2]);
     if (!asset) return missing();
     if (method === "PUT" || method === "PATCH") {
-      if (Object.keys(body).some(key => !["starred", "name", "description"].includes(key))) return reply(501, { detail: "Unsupported library preview edit" });
-      if (body.starred != null && typeof body.starred !== "boolean" || ["name", "description"].some(key => body[key] != null && typeof body[key] !== "string")) return invalid();
+      if (Object.keys(body).some(key => !["starred", "name", "description", "image_url"].includes(key))) return reply(501, { detail: "Unsupported library preview edit" });
+      if (body.starred != null && typeof body.starred !== "boolean" || ["name", "description", "image_url"].some(key => body[key] != null && typeof body[key] !== "string")) return invalid();
       Object.assign(asset, body);
+      if (body.image_url) replaceLibraryImage(asset, libraryMatch[1], body.image_url);
       return reply(200, asset);
     }
     if (method === "DELETE") { items.splice(items.indexOf(asset), 1); return reply(200, { success: true }); }

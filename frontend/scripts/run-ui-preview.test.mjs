@@ -98,6 +98,10 @@ test("library preview uploads, creates and stars isolated assets with validated 
     assert.equal((await request(route, "PUT", { starred: "yes" })).status, 422);
     assert.equal((await request(route, "PUT", { starred: true })).status, 200);
     assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.find(asset => asset.id === created.id).starred, true);
+    assert.equal((await request(route, "PUT", { image_url: image_url + "-replacement" })).status, 200);
+    const replaced = await (await request(route, "PUT", { image_url: image_url + "-replacement" })).json();
+    assert.equal(replaced.image_asset.variants.length, 1);
+    assert.equal(replaced.image_asset.variants.find(variant => variant.id === replaced.image_asset.selected_id).url, image_url + "-replacement");
     assert.equal((await request(route, "DELETE")).status, 200);
     assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.some(asset => asset.id === created.id), false);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
