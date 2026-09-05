@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
-import { Button, Checkbox, PasswordField, TextField } from './index';
+import { LoadingState, Skeleton, Button, Checkbox, PasswordField, TextField } from './index';
 
 afterEach(cleanup);
 
@@ -49,4 +49,11 @@ it('preserves checkbox values and prevents disabled password toggles', () => {
   expect(onChange).toHaveBeenCalledWith(true);
   fireEvent.click(screen.getByRole('button', { name: '显示密码' }));
   expect((screen.getByLabelText('密码') as HTMLInputElement).type).toBe('password');
+});
+
+it('announces loading once while skeleton shapes stay decorative', () => {
+  render(<><LoadingState label="正在加载项目" inline /><Skeleton /><Skeleton /></>);
+  expect(screen.getAllByRole('status')).toHaveLength(1);
+  expect(screen.getByRole('status').textContent).toBe('正在加载项目');
+  expect(document.querySelectorAll('.omni-skeleton[aria-hidden="true"]')).toHaveLength(2);
 });

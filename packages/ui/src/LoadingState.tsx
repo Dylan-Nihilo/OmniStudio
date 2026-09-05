@@ -10,6 +10,6 @@ export function LoadingState({ label, inline = false, className = '' }: { label:
   </div>;
 }
 
-export function Skeleton({ className = '', ...props }: ComponentProps<typeof HeroSkeleton>) {
+export function Skeleton({ className = '', ...props }: ComponentProps<typeof HeroSkeleton<'div'>>) {
   return <HeroSkeleton {...props} aria-hidden="true" className={`omni-skeleton ${className}`} />;
 }
