@@ -16,6 +16,14 @@ def check():
         page.goto(sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:3018/')
         page.wait_for_load_state('networkidle')
 
+        checkbox_control = page.locator('.omni-checkbox .checkbox__control').first
+        assert checkbox_control.evaluate('''el => {
+            const control = getComputedStyle(el);
+            const fill = getComputedStyle(el, '::before');
+            return fill.borderRadius === control.borderRadius &&
+                parseFloat(fill.top) === -parseFloat(control.borderTopWidth);
+        }'''), 'Checkbox fill must follow the outer radius and cover the border inset'
+
         password = page.get_by_label('密码', exact=True)
         password.fill('test-password')
         page.get_by_role('button', name='显示密码', exact=True).click()

@@ -80,6 +80,7 @@
   .omni-password > .omni-button { position: absolute; inset: 0 0 0 auto; width: 40px; }
   .omni-checkbox { font-size: 13px; color: var(--omni-body); }
   .omni-checkbox .checkbox__control { width: 16px; height: 16px; border-radius: 4px; }
+  .omni-checkbox .checkbox__control::before { inset: calc(-1 * var(--field-border-width)); border-radius: inherit; }
   .omni-select-popover { max-width: calc(100vw - 24px); border: 1px solid var(--border); border-radius: 12px; }
   .omni-tabs .tabs__tab { min-height: 40px; font-size: 14px; }
   .omni-tabs .tabs__panel { padding-top: 20px; }
