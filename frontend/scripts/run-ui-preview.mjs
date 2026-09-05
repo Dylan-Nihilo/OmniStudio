@@ -31,6 +31,19 @@ const series = [{ id: "ui-preview-series", title: "夜航信号", description: p
   workflow_mode: "r2v", content_mode: "scripted", characters: [], scenes: [], props: [], episode_ids: projects.slice(0, 2).map(p => p.id) }];
 projects.slice(0, 2).forEach((project, index) => Object.assign(project, { series_id: series[0].id, episode_number: index + 1 }));
 const documents = new Map();
+const library = { characters: [], scenes: [], props: [] };
+const libraryTypes = { character: "characters", scene: "scenes", prop: "props" };
+const libraryUploads = new Map();
+["玛拉 / 主形象定稿", "城市守夜人", "信号塔楼间", "雨后城市", "接收器 / 剧情道具", "夜航指针"].forEach((name, index) => {
+  const type = ["characters", "scenes", "props"][Math.floor(index / 2)];
+  const variants = [{ id: `preview-variant-${index}`, url: covers[index % covers.length], created_at: 1788500000 - index * 3600 }];
+  library[type].push({ id: `preview-library-${index}`, name, description: "夜航信号", starred: index === 0, locked: false,
+    image_url: variants[0].url, ...(type === "characters" ? { reference_sheet: { selected_image_id: variants[0].id, image_variants: variants } } : { image_asset: { selected_id: variants[0].id, variants } }) });
+});
+
+
+// Exposed only to the local launcher so a preview restart can retain review edits.
+export const previewState = { projects, series, documents };
 
 export async function previewHandler(request, response) {
   response.setHeader("Cache-Control", "no-store");
@@ -51,7 +64,16 @@ export async function previewHandler(request, response) {
         if (size > 11 * 1024 * 1024) return reply(413, { detail: "Preview request is too large" });
         chunks.push(chunk);
       }
-      const raw = Buffer.concat(chunks).toString();
+      const bytes = Buffer.concat(chunks);
+      if (pathname === "/library/assets/upload" && method === "POST") {
+        const form = await new Request("http://localhost/library/assets/upload", { method: "POST", headers: { "Content-Type": request.headers["content-type"] || "" }, body: bytes }).formData();
+        const file = form.get("file");
+        if (!file || typeof file === "string" || !["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"].includes(file.type) || file.size > 10 * 1024 * 1024) return reply(422, { detail: "Please upload an image up to 10 MB." });
+        const image_url = `library-preview/${randomUUID()}`;
+        libraryUploads.set(image_url, { bytes: Buffer.from(await file.arrayBuffer()), type: file.type });
+        return reply(200, { image_url });
+      }
+      const raw = bytes.toString();
       body = raw ? JSON.parse(raw) : {};
       if (!body || Array.isArray(body) || typeof body !== "object") throw new Error();
     } catch { return reply(400, { detail: "Expected a JSON object" }); }
@@ -64,6 +86,26 @@ export async function previewHandler(request, response) {
   const seriesMatch = pathname.match(/^\/series\/([^/]+)(?:\/(.*))?$/);
   const collection = seriesMatch && series.find(s => s.id === seriesMatch[1]);
   if (projectMatch && !project || seriesMatch && !collection) return missing();
+  if (pathname === "/library/assets" && method === "POST") {
+    const type = libraryTypes[body.asset_type];
+    if (!type || typeof body.name !== "string" || !body.name.trim() || ["description", "image_url"].some(key => body[key] != null && typeof body[key] !== "string")) return invalid();
+    const asset = { id: `preview-library-${randomUUID()}`, name: body.name.trim(), description: body.description || "", image_url: body.image_url || "", starred: false, locked: false };
+    library[type].push(asset);
+    return reply(200, asset);
+  }
+  const libraryMatch = pathname.match(/^\/library\/assets\/(character|scene|prop)\/([^/]+)$/);
+  if (libraryMatch && !reading) {
+    const items = library[libraryTypes[libraryMatch[1]]];
+    const asset = items.find(item => item.id === libraryMatch[2]);
+    if (!asset) return missing();
+    if (method === "PUT" || method === "PATCH") {
+      if (Object.keys(body).some(key => !["starred", "name", "description"].includes(key))) return reply(501, { detail: "Unsupported library preview edit" });
+      if (body.starred != null && typeof body.starred !== "boolean" || ["name", "description"].some(key => body[key] != null && typeof body[key] !== "string")) return invalid();
+      Object.assign(asset, body);
+      return reply(200, asset);
+    }
+    if (method === "DELETE") { items.splice(items.indexOf(asset), 1); return reply(200, { success: true }); }
+  }
   if (pathname === "/projects" && method === "POST") {
     if (typeof body.title !== "string" || !body.title.trim() || typeof body.text !== "string" ||
         !["r2v", "i2v_legacy"].includes(body.workflow_mode) || body.series_id && !series.some(s => s.id === body.series_id)) return invalid();
@@ -214,6 +256,8 @@ export async function previewHandler(request, response) {
   if (!reading) return reply(501, { detail: "此操作尚未接入本地演示。请在真实工作区执行；演示编辑仅保留到预览服务重启。" });
   if (pathname.startsWith("/files/")) {
     const file = pathname.slice("/files/".length);
+    const uploaded = libraryUploads.get(file);
+    if (uploaded) { response.writeHead(200, { "Content-Type": uploaded.type }); return response.end(uploaded.bytes); }
     if (!covers.includes(file)) return reply(404, { detail: "Preview asset not found" });
     response.writeHead(200, { "Content-Type": "image/png" });
     return response.end(readFileSync(path.join(frontend, "public", file)));
@@ -225,7 +269,7 @@ export async function previewHandler(request, response) {
     "/config/env": { DASHSCOPE_API_KEY: "ui-preview-placeholder" },
     "/projects": projects,
     "/series": series,
-    "/library/assets": { characters: [], scenes: [], props: [] },
+    "/library/assets": library,
     "/playground/history": [],
     "/playground/templates": [],
   };

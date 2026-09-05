@@ -76,3 +76,29 @@ test("preview supports isolated project/series/document edits and rejects unsupp
     finally { if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous; }
   } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
 });
+
+test("library preview uploads, creates and stars isolated assets with validated payloads", async () => {
+  const server = http.createServer(previewHandler).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const request = (url, method, body) => fetch(base + url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    const data = new FormData();
+    data.append("file", new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" }), "image.png");
+    const upload = await fetch(base + "/library/assets/upload", { method: "POST", body: data });
+    assert.equal(upload.status, 200);
+    const { image_url } = await upload.json();
+    assert.deepEqual(new Uint8Array(await (await fetch(base + "/files/" + image_url)).arrayBuffer()), new Uint8Array([137, 80, 78, 71]));
+    const invalidFile = new FormData();
+    invalidFile.append("file", new Blob(["bad"], { type: "text/html" }), "image.html");
+    assert.equal((await fetch(base + "/library/assets/upload", { method: "POST", body: invalidFile })).status, 422);
+    assert.equal((await request("/library/assets", "POST", { asset_type: "scene", name: "" })).status, 422);
+    const created = await (await request("/library/assets", "POST", { asset_type: "scene", name: "Uploaded scene", image_url })).json();
+    const route = "/library/assets/scene/" + created.id;
+    assert.equal((await request(route, "PUT", { starred: "yes" })).status, 422);
+    assert.equal((await request(route, "PUT", { starred: true })).status, 200);
+    assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.find(asset => asset.id === created.id).starred, true);
+    assert.equal((await request(route, "DELETE")).status, 200);
+    assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.some(asset => asset.id === created.id), false);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
