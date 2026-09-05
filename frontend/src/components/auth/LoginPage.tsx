@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, Eye, EyeOff, Loader2, LogIn } from "lucide-react";
+import { AlertCircle, ArrowUpRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { consumeReturnHash, getApiErrorCode, getApiErrorStatus } from "@/lib/apiClient";
 import { useAuthStore } from "@/store/authStore";
-import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import AuthThemeMenu from "./AuthThemeMenu";
+import Image from "next/image";
+import heroArt from "../../../public/auth/hero-night-signal.png";
+import brandMark from "../../../public/auth/omnistudio-mark.png";
+import styles from "./LoginPage.module.css";
 
 export default function LoginPage() {
   const t = useTranslations("auth");
@@ -61,34 +64,53 @@ export default function LoginPage() {
   };
 
   return (
-    <main data-testid="auth-surface" className="auth-surface">
-      <div className="auth-storyboard" />
-      <AuthThemeMenu />
-      <div className="auth-shell">
-        <section data-testid="auth-panel" className="auth-panel">
-          <div data-testid="auth-brand" className="auth-brand">
-            <OmniStudioBranding size="lg" variant="auth" />
-            <div aria-hidden="true" className="auth-brand-rule" />
-          </div>
-          <div className="mb-7">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">{t("loginTitle")}</h1>
-            <p className="mt-1.5 text-sm leading-6 text-text-secondary">{t("loginSubtitle")}</p>
-          </div>
+    <main data-testid="auth-surface" className={styles.page}>
+      <header className={styles.header}>
+        <div data-testid="auth-brand" className={styles.brand}>
+          <Image src={brandMark} alt="Omni Studio" width={30} height={30} />
+          <span>OMNI STUDIO</span>
+        </div>
+        <span className={styles.headerNote}>{t("panelEyebrow")}</span>
+        <AuthThemeMenu />
+      </header>
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium">{t("identifier")}</span>
-              <input className="auth-input" value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required autoFocus />
+      <div className={styles.layout}>
+        <aside className={styles.story} aria-label={t("heroEyebrow")}>
+          <div className={styles.frames} aria-hidden="true">
+            <div className={styles.mainFrame}>
+              <Image src={heroArt} alt="" fill priority sizes="(min-width: 960px) 58vw, 100vw" />
+            </div>
+            <div className={styles.detailFrame}>
+              <Image src={heroArt} alt="" fill sizes="(min-width: 960px) 24vw, 40vw" />
+            </div>
+            <span className={styles.frameLabel}>OMNI / MOTION COMICS</span>
+          </div>
+          <div className={styles.storyCopy}>
+            <p className={styles.eyebrow}>{t("heroEyebrow")}</p>
+            <h2><span>{t("heroTitleA")}</span><strong>{t("heroTitleB")}</strong></h2>
+            <p className={styles.storyNote}>{t("heroNote")}</p>
+          </div>
+        </aside>
+
+        <section data-testid="auth-panel" className={styles.panel} aria-labelledby="login-title">
+          <div className={styles.panelHeading}>
+            <span className={styles.chapter} aria-hidden="true">LET’S CREATE</span>
+            <h1 id="login-title">{t("loginTitle")}</h1>
+            <p>{t("loginSubtitle")}</p>
+          </div>
+          <form className={styles.form} onSubmit={handleSubmit} aria-busy={submitting}>
+            <label className={styles.field}>
+              <span>{t("identifier")}</span>
+              <input name="username" className="auth-input" value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required />
             </label>
 
-            <div className="block">
-              <label htmlFor="login-password" className="mb-1.5 block text-sm font-medium">
-                {t("password")}
-              </label>
-              <span className="relative block">
+            <div className={styles.field}>
+              <label htmlFor="login-password">{t("password")}</label>
+              <div className={styles.password}>
                 <input
                   id="login-password"
-                  className="auth-input pr-11"
+                  name="password"
+                  className="auth-input"
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -102,58 +124,48 @@ export default function LoginPage() {
                   onClick={() => setShowPassword((visible) => !visible)}
                   aria-label={t(showPassword ? "hidePassword" : "showPassword")}
                   aria-pressed={showPassword}
-                  title={t(showPassword ? "hidePassword" : "showPassword")}
-                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-text-secondary transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                  className={styles.reveal}
                 >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
-              </span>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between gap-4 pt-0.5 text-sm">
-              <label className="inline-flex cursor-pointer items-center gap-2 text-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(event) => setRememberMe(event.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                />
+            <div className={styles.options}>
+              <label className={styles.remember}>
+                <input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />
                 <span>{t("rememberMe")}</span>
               </label>
-              <button
-                type="button"
-                onClick={() => { window.location.hash = "#/reset-password"; }}
-                className="text-primary transition-colors hover:text-primary-hover"
-              >
+              <button type="button" className={styles.textButton} onClick={() => { window.location.hash = "#/reset-password"; }}>
                 {t("forgotPassword")}
               </button>
             </div>
 
             {error && (
-              <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
-                <AlertCircle className="mt-0.5 shrink-0" size={15} />
+              <div role="alert" className={styles.error}>
+                <AlertCircle size={17} aria-hidden="true" />
                 <span>{error}</span>
               </div>
             )}
 
-            <button type="submit" disabled={submitting} className="auth-submit">
-              {submitting ? <Loader2 className="animate-spin" size={16} /> : <LogIn size={16} />}
-              {submitting ? t("loggingIn") : t("login")}
+            <button type="submit" disabled={submitting} className={styles.submit}>
+              <span>{submitting ? t("loggingIn") : t("login")}</span>
+              {submitting ? <Loader2 className="animate-spin" size={19} /> : <ArrowUpRight size={21} />}
             </button>
 
-            <p className="pt-1 text-center text-sm text-text-secondary">
-              {t("noAccount")} {" "}
-              <button
-                type="button"
-                onClick={() => setError(t("contactAdminHint"))}
-                className="text-primary transition-colors hover:text-primary-hover"
-              >
+            <p className={styles.invite}>
+              {t("noAccount")}{" "}
+              <button type="button" onClick={() => setError(t("contactAdminHint"))} className={styles.textButton}>
                 {t("contactAdmin")}
               </button>
             </p>
           </form>
         </section>
       </div>
+      <footer className={styles.footer}>
+        <span>OMNI STUDIO</span>
+        <span>STORIES, RENDERED ALIVE.</span>
+      </footer>
     </main>
   );
 }
