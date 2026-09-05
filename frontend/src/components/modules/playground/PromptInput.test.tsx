@@ -13,29 +13,26 @@ vi.mock("next-intl", () => ({
 vi.mock("./PromptTemplateModal", () => ({ default: () => null }));
 vi.mock("./PromptHistoryDrawer", () => ({ default: () => null }));
 
-describe("PromptInput focus styling", () => {
+describe("PromptInput", () => {
   beforeEach(() => {
     usePlaygroundStore.setState({ prompt: "", negativePrompt: "" });
   });
 
-  it("removes the browser black outline from the prompt textarea", () => {
+  it("keeps the original prompt limit and writes edits to the generation draft", () => {
     render(<PromptInput />);
-
-    const prompt = document.querySelector('textarea[placeholder="prompt.placeholder"]');
-    expect(prompt).not.toBeNull();
-
-    expect(prompt).toHaveClass("focus:outline-none", "focus:ring-0");
-    expect(prompt).not.toHaveClass("outline-black");
+    const input = screen.getByRole("textbox", { name: "compose.promptLabel" });
+    expect(input).toHaveAttribute("maxlength", "2000");
+    fireEvent.change(input, { target: { value: "a".repeat(2001) } });
+    expect(usePlaygroundStore.getState().prompt).toHaveLength(2000);
   });
 
-  it("keeps the negative prompt textarea on the same themed focus treatment", () => {
+  it("keeps negative prompt edits while its advanced section is collapsed", () => {
     render(<PromptInput />);
-
-    fireEvent.click(screen.getByText("prompt.negativeLabel"));
-
-    expect(document.querySelector('textarea[placeholder="prompt.negativePlaceholder"]')).toHaveClass(
-      "focus:outline-none",
-      "focus:ring-0",
-    );
+    const summary = document.querySelector("summary")!;
+    fireEvent.click(summary);
+    const input = screen.getByLabelText("prompt.negativeLabel");
+    fireEvent.change(input, { target: { value: "blurry" } });
+    fireEvent.click(summary);
+    expect(usePlaygroundStore.getState().negativePrompt).toBe("blurry");
   });
 });
