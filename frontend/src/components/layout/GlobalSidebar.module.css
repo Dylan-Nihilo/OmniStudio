@@ -1,15 +1,16 @@
-.rail { position: relative; z-index: 40; display: flex; flex: 0 0 88px; flex-direction: column; height: 100%; background: var(--color-bg-inset); padding: 24px 12px; }
-.brand { display: grid; place-items: center; gap: 20px; min-height: 56px; margin-bottom: 40px; }
-.brand::after { content: ''; width: 26px; height: 2px; background: var(--color-primary); }
-.railNav { display: flex; flex: 1; flex-direction: column; gap: 20px; }
-.navButton { display: flex; width: 100%; min-height: 56px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 12px; color: var(--color-text-muted); font-size: 10px; }
-.navButton svg { width: 24px; height: 24px; }
+.rail { position: relative; z-index: 40; display: flex; flex: 0 0 224px; width: 224px; min-height: 0; flex-direction: column; height: 100%; border-right: 1px solid var(--color-border-default); background: var(--color-bg-inset); padding: 16px 12px 12px; }
+.brand { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 8px; margin-bottom: 12px; text-align: left; flex-shrink: 0; }
+.brand span { font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+.navigationBody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.railNav { display: flex; flex-direction: column; gap: 2px; }
+.navButton { display: flex; width: 100%; min-height: 40px; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; color: var(--color-text-secondary); font-size: 13px; text-align: left; }
+.navButton svg { width: 20px; height: 20px; }
 .navButton:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .navButton[aria-current] { background: var(--color-bg-surface); border-color: var(--color-border-default); color: var(--color-primary); }
-.rail button:focus-visible, .context button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.railBottom { display: grid; gap: 20px; }
-.context { position: relative; z-index: 40; display: flex; flex-direction: column; flex: 0 0 240px; min-height: 0; border-right: 1px solid var(--color-border-default); background: var(--color-bg-surface); }
-.account { flex-shrink: 0; margin: auto 24px 24px; border-top: 1px solid var(--color-border-default); padding-top: 20px; }
+.rail button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.railBottom { flex-shrink: 0; display: grid; gap: 8px; padding-top: 8px; }
+.context { min-height: 0; margin-top: 16px; border-top: 1px solid var(--color-border-default); }
+.account { flex-shrink: 0; margin: 0 4px; border-top: 1px solid var(--color-border-default); padding-top: 12px; }
 .accountButton { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; text-align: left; }
 .avatar { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px; background: var(--color-text-primary); color: var(--color-bg-base); font-size: 13px; font-weight: 600; }
 .identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
@@ -19,13 +20,13 @@
 .popover { left: 0; right: auto; width: 260px; max-width: calc(100vw - 32px); }
 .accountAction { display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
 .accountAction:hover { background: var(--color-bg-hover); }
-.rail .account { margin: 0; border: 0; padding: 0; }
-.rail .accountButton { justify-content: center; }
-.rail .identity, .rail .accountChevron { display: none; }
-@media (max-width: 1199px) and (min-width: 768px) { .context { flex-basis: 200px; } }
+
 @media (max-width: 767px) {
-  .rail { display: none; }
-  .context { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--color-border-default); }
+  .rail { flex: 0 0 auto; width: 100%; height: auto; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--color-border-default); }
+  .brand, .railNav, .railBottom > .navButton { display: none; }
+  .navigationBody { overflow: visible; min-width: 0; }
+  .context { margin: 0; border: 0; }
+  .railBottom { padding: 0; }
   .account { margin: 0; padding: 0; border: 0; }
   .accountButton { width: 44px; justify-content: center; }
   .identity, .accountChevron { display: none; }

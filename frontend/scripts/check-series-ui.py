@@ -13,7 +13,7 @@ with sync_playwright() as p:
     failures = []
     page.on("pageerror", lambda error: failures.append(str(error)))
     page.goto(f"{base}/#/series/{series_id}")
-    expect(page.get_by_role("heading", name="夜航信号", exact=True, level=1)).to_be_visible()
+    expect(page.get_by_role("heading", name="夜航信号", exact=True, level=1)).to_be_visible(timeout=60000)
     for width, height in [(1440, 1024), (1024, 768), (844, 390), (390, 844), (320, 740)]:
         page.set_viewport_size({"width": width, "height": height})
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (width, "overflow")

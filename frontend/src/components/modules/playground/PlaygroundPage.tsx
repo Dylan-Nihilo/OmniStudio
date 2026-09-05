@@ -199,14 +199,14 @@ export default function PlaygroundPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden text-foreground">
       {/* ═══ PAGE HEADER ═══ */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border-subtle px-7 py-5">
+      <header className="flex shrink-0 items-center justify-between border-b border-border-subtle px-4 md:px-8 py-4">
         <div className="flex flex-col gap-1">
           <span className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.2em] text-text-muted">
             FREEFORM STUDIO
             <span className="text-primary font-semibold"> · {t('header.eyebrowAccent')}</span>
           </span>
           <div className="flex items-baseline gap-[10px]">
-            <h1 className="font-display text-[1.625rem] md:text-[2.125rem] font-semibold tracking-tight text-foreground atelier-display">
+            <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight text-foreground atelier-display">
               {t('header.title')}
             </h1>
             <span className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-text-muted">

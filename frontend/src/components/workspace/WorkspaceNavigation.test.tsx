@@ -17,8 +17,13 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("link", { name: "assets" })).toHaveAttribute("href", "#/library");
   });
 
-  it("retains workspace and account actions in the context sidebar", () => {
+  it("keeps global, context and account actions inside one sidebar", () => {
     render(<GlobalSidebar activeTab="workspace" onTabChange={vi.fn()} context={<WorkspaceNavigation section="overview" />} />);
+    const sidebar = screen.getByRole("complementary");
+    expect(screen.getAllByRole("complementary")).toHaveLength(1);
+    expect(sidebar).toContainElement(screen.getByRole("navigation", { name: "mainNavAria" }));
+    expect(sidebar).toContainElement(screen.getByRole("link", { name: "overview" }));
+    expect(sidebar).toContainElement(screen.getByRole("button", { name: "artist" }));
     fireEvent.click(screen.getByRole("button", { name: "artist" }));
     expect(screen.getByRole("button", { name: "switchWorkspace" })).toBeVisible();
     expect(screen.getByRole("button", { name: "changePassword" })).toBeVisible();

@@ -1,8 +1,8 @@
 .page { display: flex; flex-direction: column; min-height: 0; flex: 1; background: var(--color-bg-base); color: var(--color-text-primary); }
-.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 30px 48px; flex-shrink: 0; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 32px; flex-shrink: 0; }
 .header > div:first-child { min-width: 0; }
 .header p { font-size: 10px; color: var(--color-text-muted); }
-.header h2 { margin-top: 10px; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
+.header h2 { margin-top: 6px; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
 .actions { display: flex; flex-shrink: 0; gap: 16px; }
 .panels { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; padding: 0 0 32px 24px; }
 .paper { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; border: 1px solid var(--color-border-default); border-radius: 16px; background: var(--color-bg-surface); }
@@ -36,5 +36,5 @@
 .outline h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .outline p { font-size: 13px; line-height: 1.7; color: var(--color-text-secondary); }
 .error { margin: 0; padding: 8px 18px; color: var(--color-danger); font-size: 12px; }
-@media (max-width: 1199px) { .header { padding: 24px; flex-wrap: wrap; gap: 16px; } .panels { grid-template-columns: minmax(0, 1fr) 280px; padding-left: 16px; } .editor textarea { padding-inline: 16px; } .gutter { width: 40px; } .rail { padding-inline: 8px; } .analysis { padding-inline: 8px; } }
+@media (max-width: 1199px) { .header { padding: 18px 24px; flex-wrap: wrap; gap: 16px; } .panels { grid-template-columns: minmax(0, 1fr) 280px; padding-left: 16px; } .editor textarea { padding-inline: 16px; } .gutter { width: 40px; } .rail { padding-inline: 8px; } .analysis { padding-inline: 8px; } }
 @media (max-width: 959px) { .page { overflow: auto; flex: 0 0 auto; min-height: 100%; } .panels { display: flex; flex-direction: column; gap: 16px; padding: 0 16px 24px; } .paper { min-height: 460px; height: 60vh; flex-shrink: 0; } .rail { overflow: visible; min-height: 300px; flex-shrink: 0; } .header { padding: 20px 16px; } .header h2 { font-size: 17px; } .actions { gap: 8px; } }

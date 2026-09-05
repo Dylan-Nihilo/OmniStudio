@@ -1,13 +1,13 @@
-.navigation { min-height: 0; overflow-y: auto; padding-top: 32px; }
-.heading { margin: 0 24px 8px; border-bottom: 1px solid var(--color-border-default); padding-bottom: 16px; }
-.heading p { color: var(--color-primary); font-size: 10px; font-weight: 500; }
-.heading h2 { margin-top: 12px; font-size: 24px; font-weight: 500; }
-.navigation a { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px 20px; border-left: 2px solid transparent; color: var(--color-text-secondary); font-size: 13px; white-space: nowrap; }
+.navigation { min-height: 0; overflow-y: auto; padding-top: 16px; }
+.heading { margin: 0 8px 8px; }
+.heading p { display: none; }
+.heading h2 { margin-top: 0; font-size: 13px; font-weight: 500; }
+.navigation a { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 8px 10px; border-left: 2px solid transparent; color: var(--color-text-secondary); font-size: 13px; white-space: nowrap; }
 .navigation a:hover { background: var(--color-bg-hover); }
 .navigation a[aria-current] { border-color: var(--color-primary); color: var(--color-primary); font-weight: 500; }
 .navigation a:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
-.shortcuts { margin-top: 36px; }
-.shortcuts p { margin: 0 24px 12px; padding-bottom: 20px; border-bottom: 1px solid var(--color-border-default); color: var(--color-text-muted); font-size: 10px; }
+.shortcuts { margin-top: 16px; }
+.shortcuts p { margin: 0 8px 6px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-default); color: var(--color-text-muted); font-size: 10px; }
 @media (max-width: 767px) {
   .navigation { flex: 1; min-width: 0; padding: 0; overflow-x: auto; }
   .heading, .shortcuts { display: none; }

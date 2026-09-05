@@ -62,7 +62,11 @@ with sync_playwright() as p:
     page.wait_for_function("getComputedStyle(document.body).margin === '0px'")
     page.screenshot(path=str(output / "desktop.png"), full_page=True)
     assert page.locator('[aria-busy]').evaluate("el => el.scrollHeight <= el.parentElement.clientHeight + 1"), "Desktop reference viewport should fit"
-    print("Initial workspace screenshot captured")
+    assert page.locator('[data-app-sidebar]').count() == 1
+    assert page.locator('[data-app-sidebar]').bounding_box()['width'] == 224
+    assert page.locator('[aria-busy] > header').bounding_box()['height'] <= 80
+    assert page.get_by_role("heading", name="夜航信号", exact=True).bounding_box()['y'] < 430
+    print("Initial workspace screenshot captured; single sidebar and compact header verified")
     for width, height in [(1440, 1024), (1366, 768), (1280, 720), (1024, 768), (768, 1024), (390, 844), (320, 568)]:
         page.set_viewport_size({"width": width, "height": height})
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (width, "horizontal overflow")

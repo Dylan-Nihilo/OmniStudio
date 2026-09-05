@@ -1155,15 +1155,15 @@ export default function SettingsPage() {
       <div className="atelier-page-grain" aria-hidden="true" />
 
       {/* Head: eyebrow(当前分类) + 「设置」标题 + 横向 Tab —— 取代竖向子栏 */}
-      <header className="flex-shrink-0 border-b border-glass-border px-4 md:px-7 pt-6 pb-4 relative z-10">
+      <header className="flex-shrink-0 border-b border-glass-border px-4 md:px-7 pt-4 pb-3 relative z-10">
         <div className="w-full">
         <div className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.2em] text-text-muted">
           SETTINGS · <span className="text-primary font-semibold">{CATEGORY_TITLE[active]}</span>
         </div>
-        <h1 className="font-display atelier-display text-[1.625rem] md:text-[2.125rem] font-semibold text-foreground mt-2 tracking-tight">
+        <h1 className="font-display atelier-display text-xl md:text-2xl font-semibold text-foreground mt-2 tracking-tight">
           {t("title")}
         </h1>
-        <nav className="flex flex-wrap gap-1 mt-5" role="tablist" aria-label={t("tabsAria")} onKeyDown={rovingKeyDown}>
+        <nav className="flex flex-wrap gap-1 mt-3" role="tablist" aria-label={t("tabsAria")} onKeyDown={rovingKeyDown}>
           {TABS.map((tab) => {
             const isActive = active === tab.id;
             return (
@@ -1189,7 +1189,7 @@ export default function SettingsPage() {
       </header>
 
       {/* Scroll area */}
-      <div className="flex-1 overflow-y-auto px-10 py-8 relative z-10">
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 relative z-10">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
           {!online && (
             <div

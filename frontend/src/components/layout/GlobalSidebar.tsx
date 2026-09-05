@@ -143,22 +143,23 @@ export default function GlobalSidebar({ activeTab, onTabChange, context }: Globa
 
   return (
     <>
-      <aside className={styles.rail} data-tauri-drag-region>
+      <aside className={styles.rail} data-tauri-drag-region data-app-sidebar>
         {isTauri() && <div className="tauri-titlebar-inset" />}
         <button type="button" onClick={() => handleNav("workspace", "#/workspace")} aria-label={t("workspaceAria")} className={styles.brand}>
-          <Image src={brandMark} alt="Omni Studio" width={24} height={24} />
+          <Image src={brandMark} alt="" width={24} height={24} /><span>Omni Studio</span>
         </button>
-        <nav className={styles.railNav} aria-label={t("mainNavAria")}>
+        <div className={styles.navigationBody}><nav className={styles.railNav} aria-label={t("mainNavAria")}>
           {GLOBAL_NAV_ITEMS.slice(0, 4).map((item) => (
             <NavButton key={item.id} active={activeTab === item.id} label={t(item.id)} icon={item.icon} onClick={() => handleNav(item.id, item.hash)} />
           ))}
         </nav>
+        {context && <div className={styles.context}>{context}</div>}
+        </div>
         <div className={styles.railBottom}>
           <NavButton active={activeTab === "settings"} label={t("settings")} icon={Settings} onClick={() => handleNav("settings", "#/settings")} />
-          {!context && account}
+          {account}
         </div>
       </aside>
-      {context && <aside className={styles.context}>{context}{account}</aside>}
       <ChangePasswordDialog isOpen={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
     </>
   );
