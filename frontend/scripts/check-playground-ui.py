@@ -45,7 +45,7 @@ with sync_playwright() as p:
     body=req.value.post_data_json
     assert body['prompt']=='月光下的海面' and body['negative_prompt']=='模糊' and body['batch_size']==4,body
     # Browser-local completed fixtures exercise dense content without creating jobs.
-    history = [{'id':'layout-example', 'mode':'t2i','model_id':'gpt-image-2','prompt':'月光下的海面','status':'completed','created_at':'2026-09-05T12:00:00Z','batch_size':4,'outputs':[{'id':str(i),'media_type':'image','media_path':'http://localhost:3020/auth/hero-night-signal.png'} for i in range(4)]}]
+    history = [{'id':'layout-example', 'mode':'t2i','model_id':'gpt-image-2','prompt':'月光下的海面','status':'completed','created_at':'2026-09-05T12:00:00Z','batch_size':4,'outputs':[{'id':str(i),'media_type':'image','media_path':'http://localhost:3020/auth/hero-night-signal.png?candidate='+str(i)} for i in range(4)]}]
     page.route('**/playground/history?*',lambda route:route.fulfill(json=history))
     page.reload()
     expect(page.get_by_role('heading',name='生成结果4',exact=True)).to_be_visible(timeout=60000)
@@ -55,6 +55,14 @@ with sync_playwright() as p:
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width
         page.screenshot(path=str(output / f'playground-results-{width}.png'))
     page.set_viewport_size({'width':1440,'height':1024})
+    page.get_by_role('button',name='候选 2',exact=True).click()
+    expect(page.get_by_role('button',name='候选 2',exact=True)).to_have_attribute('aria-pressed','true')
+    prompt.fill('继续写提示词')
+    prompt.press('Enter')
+    expect(prompt).to_be_focused()
+    page.get_by_role('button',name='使用所选候选作为参考',exact=True).click()
+    expect(page.get_by_role('button',name='图生图',exact=True)).to_have_attribute('aria-pressed','true')
+    expect(page.locator('[class*=PlaygroundPage_composer] img').first).to_have_attribute('src',re.compile('candidate=1'))
     page.unroute('**/playground/history?*')
     page.route('**/playground/history?*', lambda route:route.fulfill(status=500,json={'detail':'unavailable'}))
     page.reload()

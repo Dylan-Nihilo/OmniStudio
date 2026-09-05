@@ -12,6 +12,7 @@ import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundSt
 interface ResultCardProps {
   generation: PlaygroundGeneration;
   outputIndex?: number;
+  aspectRatio?: string;
   onGenerateVideo?: (imagePath: string) => void;
   onRetry?: (generation: PlaygroundGeneration) => void;
   onOpenDetail?: (generation: PlaygroundGeneration, outputId?: string) => void;
@@ -119,7 +120,7 @@ function FailedCard({ generation, onRetry, onDelete }: { generation: PlaygroundG
   );
 }
 
-function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail }: { generation: PlaygroundGeneration; outputIndex: number; onGenerateVideo?: (path: string) => void; onOpenDetail?: (generation: PlaygroundGeneration, outputId?: string) => void }) {
+function CompletedCard({ generation, outputIndex, aspectRatio, onGenerateVideo, onOpenDetail }: { generation: PlaygroundGeneration; outputIndex: number; aspectRatio: string; onGenerateVideo?: (path: string) => void; onOpenDetail?: (generation: PlaygroundGeneration, outputId?: string) => void }) {
   const { prompt, model_id, mode, outputs, created_at } = generation;
   const t = useTranslations('playground');
   const output = outputs[outputIndex];
@@ -187,16 +188,17 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
       onClick={() => onOpenDetail?.(generation, output.id)}
     >
       {/* Media area */}
-      <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio: '16/9' }}>
+      <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio }}>
         {mediaUrl ? (
           isVideo ? (
             <video
               data-testid="playground-result-video"
               src={mediaUrl}
               controls
+              onClick={event => event.stopPropagation()}
               preload="metadata"
               playsInline
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
           ) : imgError ? (
             <div className="w-full h-full bg-gradient-to-br from-elevated to-surface flex flex-col items-center justify-center gap-1.5">
@@ -244,8 +246,8 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
           </span>
         )}
 
-        {/* Bottom gradient toolbar — appears on hover */}
-        <div className="absolute bottom-0 left-0 right-0 z-[2] h-12 bg-gradient-to-t from-black/70 to-transparent flex items-end justify-end gap-1.5 px-3 pb-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      </div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5 px-3 pt-3">
           <button
             onClick={handleDownload}
             className="w-7 h-7 rounded-full bg-elevated backdrop-blur-sm flex items-center justify-center hover:bg-hover-bg transition"
@@ -284,7 +286,6 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
             <Bookmark className={`w-3.5 h-3.5 ${saved ? 'text-primary fill-current' : 'text-foreground'}`} />
           </button>
         </div>
-      </div>
 
       {/* Info area */}
       <div className="px-3 py-[10px]">
@@ -320,7 +321,7 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
   );
 }
 
-export default function ResultCard({ generation, outputIndex = 0, onGenerateVideo, onRetry, onOpenDetail, onDelete }: ResultCardProps) {
+export default function ResultCard({ generation, outputIndex = 0, aspectRatio = '16/9', onGenerateVideo, onRetry, onOpenDetail, onDelete }: ResultCardProps) {
   const { status, prompt, model_id, mode, created_at } = generation;
   const t = useTranslations('playground');
 
@@ -329,7 +330,7 @@ export default function ResultCard({ generation, outputIndex = 0, onGenerateVide
     return (
       <div className="rounded-[20px] border border-glass-border bg-glass atelier-asset-card overflow-hidden">
         {/* Media area */}
-        <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio: '16/9' }}>
+        <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio }}>
           <div className="absolute inset-0 flex items-center justify-center">
             <LoadingState inline label={status === 'pending' ? t('card.queued') : t('card.processing')} />
           </div>
@@ -357,5 +358,5 @@ export default function ResultCard({ generation, outputIndex = 0, onGenerateVide
   }
 
   // ─── COMPLETED STATE ────────────────────────────────────────────────────────
-  return <CompletedCard generation={generation} outputIndex={outputIndex} onGenerateVideo={onGenerateVideo} onOpenDetail={onOpenDetail} />;
+  return <CompletedCard generation={generation} outputIndex={outputIndex} aspectRatio={aspectRatio} onGenerateVideo={onGenerateVideo} onOpenDetail={onOpenDetail} />;
 }

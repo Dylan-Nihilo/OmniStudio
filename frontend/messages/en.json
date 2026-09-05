@@ -1979,7 +1979,10 @@
       "markHint": "Save: archive to your asset library (reusable across projects) · Featured: mark the best of this batch"
     },
     "gallery": {
-      "viewDetail": "Click to view details"
+      "viewDetail": "Click to view details",
+      "candidate": "Candidate {count}",
+      "taskHistory": "Task history",
+      "useCandidate": "Use selected candidate as reference"
     },
     "queue": {
       "label": "Queue",

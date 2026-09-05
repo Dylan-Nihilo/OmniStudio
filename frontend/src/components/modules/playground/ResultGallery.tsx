@@ -45,7 +45,7 @@ export default function ResultGallery() {
   const { history, queue, enqueueRequest, useResultAsReference } = usePlaygroundStore();
   const t = useTranslations('playground');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'gallery'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'gallery'>('gallery');
   const [detailGen, setDetailGen] = useState<PlaygroundGeneration | null>(null);
   const [detailOutputId, setDetailOutputId] = useState<string | undefined>(undefined);
 
@@ -199,6 +199,8 @@ export default function ResultGallery() {
             generations={dataItems}
             onOpenDetail={handleOpenDetail}
             onRetry={handleRetry}
+            onDelete={handleDelete}
+            onGenerateVideo={handleGenerateVideo}
           />
         </div>
       ) : (

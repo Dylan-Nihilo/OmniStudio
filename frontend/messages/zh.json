@@ -1979,7 +1979,10 @@
       "markHint": "收藏：存入资产库，可跨项目复用 · 精选：标记本批最好的一张"
     },
     "gallery": {
-      "viewDetail": "点击查看详情"
+      "viewDetail": "点击查看详情",
+      "candidate": "候选 {count}",
+      "taskHistory": "任务历史",
+      "useCandidate": "使用所选候选作为参考"
     },
     "queue": {
       "label": "队列",

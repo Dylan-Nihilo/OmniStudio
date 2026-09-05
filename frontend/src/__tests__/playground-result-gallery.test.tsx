@@ -52,6 +52,7 @@ describe("ResultGallery", () => {
   it("queues retries with the original generation inputs", () => {
     usePlaygroundStore.setState({ queue: [], history: [{ id: "failed", mode: "i2v", model_id: "video-model", prompt: "Camera moves", negative_prompt: "blur", input_media: ["frame.png"], parameters: { duration: 5 }, batch_size: 4, status: "failed", outputs: [], created_at: new Date().toISOString() }] });
     render(<ResultGallery />);
+    fireEvent.click(screen.getByRole("button", { name: "results.gridView" }));
     fireEvent.click(screen.getByRole("button", { name: "retry-result" }));
     expect(usePlaygroundStore.getState().queue).toEqual([expect.objectContaining({ mode: "i2v", modelId: "video-model", prompt: "Camera moves", negativePrompt: "blur", inputMedia: ["frame.png"], parameters: { duration: 5 }, batchSize: 4, status: "pending" })]);
   });
