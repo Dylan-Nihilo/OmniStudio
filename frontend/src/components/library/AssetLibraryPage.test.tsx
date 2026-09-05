@@ -1,6 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const updateLibraryAsset = vi.fn();
+const errorToast = vi.fn();
 const listSeries = vi.fn();
 const getProjects = vi.fn();
 const listLibraryAssets = vi.fn();
@@ -9,9 +11,12 @@ vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
 }));
 
+vi.mock("@/store/toastStore", () => ({ toast: { error: (...args: unknown[]) => errorToast(...args) } }));
+vi.mock("@/components/layout/AppShell", () => ({ default: ({ children, context }: any) => <>{context}{children}</> }));
 vi.mock("@/lib/api", () => ({
   API_URL: "http://localhost:17177",
   api: {
+    updateLibraryAsset: (...args: unknown[]) => updateLibraryAsset(...args),
     listSeries: (...args: unknown[]) => listSeries(...args),
     getProjects: (...args: unknown[]) => getProjects(...args),
     listLibraryAssets: (...args: unknown[]) => listLibraryAssets(...args),
@@ -52,6 +57,14 @@ describe("AssetLibraryPage", () => {
       "src",
       "/api-proxy/files/uploads/stage2.jpg",
     );
+  });
+
+  it("reports a failed star update and restores the previous value", async () => {
+    updateLibraryAsset.mockRejectedValueOnce(new Error("Star unavailable"));
+    render(<AssetLibraryPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "star" }));
+    await waitFor(() => expect(errorToast).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "star" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("routes the inspector hero image through the authenticated media proxy", () => {

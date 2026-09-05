@@ -1221,6 +1221,12 @@
     "saving": "Saving..."
   },
   "library": {
+    "retry": "Retry",
+    "refresh": "Refresh library",
+    "downloadFailed": "Download failed. Please retry.",
+    "headline": "Create once. Reuse throughout your story.",
+    "allSources": "All sources",
+    "starFailed": "Could not save the star. Please retry.",
     "title": "Asset Library",
     "characterLabel": "Characters",
     "sceneLabel": "Scenes",

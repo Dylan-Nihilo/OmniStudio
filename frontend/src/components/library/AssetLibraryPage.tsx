@@ -1,22 +1,23 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { Search, Star, ArrowDownUp, ChevronDown, Check, Plus } from "lucide-react";
+import { Search, Star, ArrowDownUp, Plus, LayoutGrid, Users, Mountain, Box, RefreshCw, Folder } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Series, Project, Character, Scene, Prop, ImageAsset } from "@/store/projectStore";
+import type { Character, Scene, Prop, ImageAsset } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { characterImageUrl, characterVariants } from "@/lib/characterImage";
-import { coverGradient, GRAIN_URL } from "@/lib/atelierCover";
-import { rovingKeyDown } from "@/lib/a11y";
+import { Button, IconButton, ActionMenu, SelectField, TextField, LoadingState, EmptyState } from "@omnistudio/ui";
+import AppShell from "@/components/layout/AppShell";
+import styles from "./AssetLibraryPage.module.css";
 import { getAssetUrl } from "@/lib/utils";
 import AssetInspector from "./AssetInspector";
 import NewLibraryAssetDialog from "./NewLibraryAssetDialog";
 
 type AssetTab = "characters" | "scenes" | "props";
 type TypeFilter = AssetTab | "all";
-type SortMode = "default" | "name" | "recent" | "usage";
-type ViewAxis = "type" | "source";
+type SortMode = "default" | "name" | "recent";
+type ViewAxis = "gallery" | "type" | "source";
 
 const SINGULAR: Record<AssetTab, string> = { characters: "character", scenes: "scene", props: "prop" };
 
@@ -171,18 +172,30 @@ export default function AssetLibraryPage() {
   const [activeType, setActiveType] = useState<TypeFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("default");
-  const [sortOpen, setSortOpen] = useState(false);
-  const [viewAxis, setViewAxis] = useState<ViewAxis>("type");
+  const [viewAxis, setViewAxis] = useState<ViewAxis>("gallery");
   const [starredOnly, setStarredOnly] = useState(false);
   const [selected, setSelected] = useState<{ sourceId: string; assetId: string; type: AssetTab } | null>(null);
   const [newAssetOpen, setNewAssetOpen] = useState(false);
 
+  const selectedTrigger = useRef<HTMLButtonElement | null>(null);
+  const closeInspector = () => {
+    setSelected(null);
+    requestAnimationFrame(() => selectedTrigger.current?.isConnected && selectedTrigger.current.focus());
+  };
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [starPending, setStarPending] = useState<Set<string>>(new Set());
+  const starRequests = useRef(new Set<string>());
+  const loadRequest = useRef(0);
   useEffect(() => {
-    loadAssets();
+    void loadAssets();
+    return () => { loadRequest.current += 1; };
   }, []);
 
   const loadAssets = async () => {
+    const request = ++loadRequest.current;
     setLoading(true);
+    setLoadFailed(false);
     try {
       const [seriesList, projects, globalPool] = await Promise.all([
         api.listSeries(),
@@ -218,12 +231,14 @@ export default function AssetLibraryPage() {
       };
       if (sourceHasAssets(globalSource)) result.push(globalSource);
 
-      setSources(result);
+      if (request === loadRequest.current) setSources(result);
     } catch (error) {
+      if (request !== loadRequest.current) return;
+      setLoadFailed(true);
       console.error("Failed to load asset library:", error);
       toast.error(t("loadFailed"), { body: t("loadFailedBody") });
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   };
 
@@ -258,20 +273,12 @@ export default function AssetLibraryPage() {
     props: t("propLabel"),
   };
 
-  // 排序选项（usage 禁用：需后端使用频次统计）+ 触发按钮当前态文案。
+  // Only expose sorting backed by available asset data.
   const sortOptions: { id: SortMode; label: string; disabled?: boolean }[] = [
     { id: "default", label: t("sortDefault") },
     { id: "name", label: t("sortName") },
     { id: "recent", label: t("sortRecent") },
-    { id: "usage", label: t("sortUsage"), disabled: true },
   ];
-  const sortLabelMap: Record<SortMode, string> = {
-    default: t("sortDefault"),
-    name: t("sortName"),
-    recent: t("sortRecent"),
-    usage: t("sortUsage"),
-  };
-
   // 渲染模型：两种轴。
   //  - "type"（默认）：按资产类型分 3 组（角色/场景/道具），每组含所有 source 的该类型资产，
   //    卡片副标题显示所属 source 名。
@@ -286,17 +293,22 @@ export default function AssetLibraryPage() {
     const sortItems = (items: RenderItem[]) => {
       if (sortMode === "name") items.sort((x, y) => x.asset.name.localeCompare(y.asset.name, "zh"));
       else if (sortMode === "recent") items.sort((x, y) => recencyOf(y.asset, y.type) - recencyOf(x.asset, x.type));
-      // "default" / "usage"（禁用）：保持插入顺序。
+      // Default preserves insertion order.
       return items;
     };
     const typeLabel = (ty: AssetTab) =>
       ty === "characters" ? t("characterLabel") : ty === "scenes" ? t("sceneLabel") : t("propLabel");
 
+    const filteredSources = sources.filter(source => sourceFilter === "all" || source.id === sourceFilter);
+    if (viewAxis === "gallery") {
+      const items = filteredSources.flatMap(src => scopedTypes.flatMap(type => src[type].filter(match).map(asset => ({ asset, type, src }))));
+      return items.length ? [{ key: "gallery", title: t("gallery"), meta: String(items.length), items: sortItems(items) }] : [];
+    }
     if (viewAxis === "type") {
       return scopedTypes
         .map((ty): RenderGroup => {
           const items: RenderItem[] = [];
-          for (const src of sources)
+          for (const src of filteredSources)
             for (const a of src[ty] as (Character | Scene | Prop)[]) if (match(a)) items.push({ asset: a, type: ty, src });
           sortItems(items);
           return { key: `type-${ty}`, title: typeLabel(ty), meta: String(items.length), items };
@@ -306,7 +318,7 @@ export default function AssetLibraryPage() {
 
     const kindLabel = (k: AssetSource["kind"]) =>
       k === "series" ? t("series") : k === "global" ? t("globalGroup") : t("project");
-    return sources
+    return filteredSources
       .map((src): RenderGroup => {
         const items: RenderItem[] = [];
         for (const ty of scopedTypes)
@@ -315,7 +327,7 @@ export default function AssetLibraryPage() {
         return { key: src.id, title: src.name, meta: `${kindLabel(src.kind)} · ${items.length}`, items };
       })
       .filter((grp) => grp.items.length > 0);
-  }, [sources, activeType, searchQuery, starredOnly, sortMode, viewAxis, t]);
+  }, [sources, activeType, searchQuery, starredOnly, sortMode, viewAxis, sourceFilter, t]);
 
   const visibleCount = groups.reduce((acc, g) => acc + g.items.length, 0);
 
@@ -331,10 +343,15 @@ export default function AssetLibraryPage() {
   }, [groups, selected]);
 
   const toggleStar = async (sourceId: string, assetId: string, type: AssetTab) => {
+    const requestKey = `${sourceId}/${type}/${assetId}`;
+    if (starRequests.current.has(requestKey)) return;
     const src = sources.find((s) => s.id === sourceId);
     if (!src) return;
     const cur = (src[type] as (Character | Scene | Prop)[]).find((a) => a.id === assetId);
-    const prevStarred = !!cur?.starred;
+    if (!cur) return;
+    starRequests.current.add(requestKey);
+    setStarPending(new Set(starRequests.current));
+    const prevStarred = !!cur.starred;
     const setStarredTo = (val: boolean) => (prev: AssetSource[]) =>
       prev.map((s) =>
         s.id !== sourceId
@@ -348,7 +365,11 @@ export default function AssetLibraryPage() {
       else await api.toggleAssetStarred(src.rawId, assetId, SINGULAR[type]);
     } catch (e) {
       console.error("toggle star failed", e);
-      setSources(setStarredTo(prevStarred)); // 失败:精确还原到原值（不靠再翻一次，避免并发下双翻 desync）
+      setSources(setStarredTo(prevStarred));
+      toast.error(t("starFailed"));
+    } finally {
+      starRequests.current.delete(requestKey);
+      setStarPending(new Set(starRequests.current));
     }
   };
 
@@ -359,361 +380,58 @@ export default function AssetLibraryPage() {
       ? (selectedSource[selected.type] as (Character | Scene | Prop)[]).find((a) => a.id === selected.assetId)
       : undefined;
 
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <header className="px-4 md:px-7 pt-4 pb-3 flex items-end gap-5">
-        <div className="flex-1 min-w-0">
-          <div className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.2em] text-text-muted">
-            ASSET LIBRARY · <span className="text-primary font-semibold">{t("gallery") || "画廊"}</span>
-          </div>
-          <h1 className="text-xl md:text-2xl font-display atelier-display font-semibold text-foreground leading-tight tracking-tight mt-1">
-            {t("title")}
-          </h1>
-        </div>
-        <div className="flex items-center gap-2.5 pb-1">
-          <span className="font-mono text-[0.6875rem] text-text-muted tracking-[0.1em] uppercase">
-            {t("assetCount", { count: visibleCount })}
-          </span>
-          <button
-            type="button"
-            onClick={() => setNewAssetOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-primary text-on-accent text-[0.875rem] font-semibold hover:bg-primary-hover transition-colors"
-          >
-            <Plus size={14} />
-            {t("newAsset")}
-          </button>
+  const navigation = <nav className={styles.navigation} aria-label={t("title")}>
+    <h2>{t("title")}</h2>
+    <div className={styles.typeLinks}>{typePills.map((pill, index) => {
+      const Icon = [LayoutGrid, Users, Mountain, Box][index];
+      return <Button key={pill.id} variant="quiet" aria-pressed={activeType === pill.id} onPress={() => setActiveType(pill.id)}><Icon size={16} />{pill.label}<span>{pill.count}</span></Button>;
+    })}</div>
+    <div className={styles.sources}><h3>{t("metaSource")}</h3>
+      <Button variant="quiet" aria-pressed={sourceFilter === "all"} onPress={() => setSourceFilter("all")}><Folder size={15} />{t("allSources")}</Button>
+      {sources.map(source => <Button key={source.id} variant="quiet" aria-pressed={sourceFilter === source.id} onPress={() => setSourceFilter(source.id)}><Folder size={15} /><span>{source.name}</span></Button>)}
+    </div>
+  </nav>;
+  const clearFilters = () => { setActiveType("all"); setSearchQuery(""); setStarredOnly(false); setSourceFilter("all"); };
+  return <AppShell activeTab="library" onTabChange={() => {}} context={navigation}>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div><p>{t("title")} / {t("assetCount", { count: visibleCount })}</p><h1>{t("headline")}</h1></div>
+        <div className={styles.headerActions}>
+          <IconButton aria-label={t("refresh")} onPress={() => void loadAssets()} isDisabled={loading}><RefreshCw size={18} /></IconButton>
+          <Button onPress={() => setNewAssetOpen(true)}><Plus size={16} />{t("newAsset")}</Button>
         </div>
       </header>
-
-      {/* Toolbar: 视图切换 + 类型 pills（带计数）+ ★ + 搜索 + 排序 */}
-      <div className="px-4 md:px-7 pb-2 flex flex-wrap items-center gap-3">
-        {/* 视图切换：按类型 ↔ 按项目 */}
-        <div
-          className="inline-flex p-[3px] rounded-full bg-surface-inset atelier-pill-tabs"
-          role="group"
-          aria-label={t("viewLabel")}
-        >
-          {([
-            { id: "type", label: t("viewByType") },
-            { id: "source", label: t("viewByProject") },
-          ] as { id: ViewAxis; label: string }[]).map((v) => {
-            const on = viewAxis === v.id;
-            return (
-              <button
-                key={v.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setViewAxis(v.id)}
-                className={`px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                  on ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-                }`}
-              >
-                {v.label}
-              </button>
-            );
-          })}
+      <div className={styles.body} data-inspecting={Boolean(selectedAsset)}>
+        <div className={styles.gallery}>
+          <div className={styles.toolbar}>
+            <TextField type="search" aria-label={t("searchPlaceholder")} label={t("searchPlaceholder")} value={searchQuery} onChange={setSearchQuery} placeholder={t("searchPlaceholder")} className={styles.search} />
+            <Button variant="quiet" aria-pressed={starredOnly} aria-label={t("starredOnlyAria")} onPress={() => setStarredOnly(value => !value)}><Star size={16} className={starredOnly ? "fill-current" : ""} />{counts.starred}</Button>
+            <ActionMenu label={t("sortLabel")} icon={<ArrowDownUp size={16} />} items={sortOptions.map(option => ({ id: option.id, label: option.label, onAction: () => setSortMode(option.id) }))} />
+            <SelectField label={t("viewLabel")} value={viewAxis} onChange={key => setViewAxis(String(key) as ViewAxis)} options={[{ id: "gallery", label: t("gallery") }, { id: "type", label: t("viewByType") }, { id: "source", label: t("viewByProject") }]} className={styles.view} />
+          </div>
+          {loadFailed && <div role="alert" className={styles.error}><span>{t("loadFailed")}</span><Button variant="quiet" onPress={() => void loadAssets()}>{t("retry")}</Button></div>}
+          {loading && <LoadingState label={tc("loading")} inline={sources.length > 0} />}
+          {!loading && !loadFailed && counts.all === 0 ? <EmptyState title={t("noAssets")} description={t("noAssetsHint")} action={<Button onPress={() => setNewAssetOpen(true)}>{t("newAsset")}</Button>} />
+            : !loading && sources.length > 0 && groups.length === 0 ? <EmptyState title={t("noMatchTitle")} description={tc("noMatchHint")} media={<Search size={32} />} action={<Button variant="secondary" onPress={clearFilters}>{tc("clearFilters")}</Button>} />
+            : groups.map(group => <section key={group.key} className={styles.group}>
+              <header><h2>{group.title}</h2><span>{group.meta}</span></header>
+              <div className={styles.grid}>{group.items.map(({ asset, type, src }) => {
+                const url = getAssetUrl(getImageUrl(asset, type));
+                const count = variantCount(asset, type);
+                const isSelected = selected?.sourceId === src.id && selected?.assetId === asset.id && selected?.type === type;
+                return <article key={`${src.id}/${type}/${asset.id}`} className={styles.card} data-selected={isSelected}>
+                  <button type="button" className={styles.openCard} onClick={event => { selectedTrigger.current = event.currentTarget; setSelected({ sourceId: src.id, assetId: asset.id, type }); }} aria-label={asset.name} aria-pressed={isSelected}>
+                    {url ? <img src={url} alt={asset.name} loading="lazy" /> : <div className={styles.noImage} aria-hidden="true"><Box size={28} /></div>}
+                    <strong>{asset.name}</strong><span>{TYPE_LABEL[type]} · {src.name}{count > 0 ? ` · ${t("variantCount", { count })}` : ""}</span>
+                  </button>
+                  <IconButton className={styles.star} aria-label={asset.starred ? t("unstar") : t("star")} aria-pressed={!!asset.starred} isDisabled={starPending.has(`${src.id}/${type}/${asset.id}`)} onPress={() => void toggleStar(src.id, asset.id, type)}><Star size={15} className={asset.starred ? "fill-current" : ""} /></IconButton>
+                </article>;
+              })}</div>
+            </section>)}
         </div>
-
-        <div className="inline-flex p-[3px] rounded-full bg-surface-inset atelier-pill-tabs" role="tablist" aria-label={t("assetTypeAria")} onKeyDown={rovingKeyDown}>
-          {typePills.map((pill) => {
-            const on = activeType === pill.id;
-            return (
-              <button
-                key={pill.id}
-                role="tab"
-                aria-selected={on}
-                tabIndex={on ? 0 : -1}
-                onClick={() => setActiveType(pill.id)}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                  on ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-                }`}
-              >
-                {pill.label}
-                <span className={`font-mono text-[0.59375rem] ${on ? "text-text-secondary" : "text-text-muted"}`}>{pill.count}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ★ 加星过滤 */}
-        <button
-          type="button"
-          aria-pressed={starredOnly}
-          aria-label={t("starredOnlyAria")}
-          onClick={() => setStarredOnly((v) => !v)}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[0.6875rem] font-semibold border transition-colors ${
-            starredOnly
-              ? "text-status-starred-fg bg-status-starred-bg border-status-starred-border"
-              : "text-text-muted border-glass-border hover:text-foreground"
-          }`}
-        >
-          <Star size={12} className={starredOnly ? "fill-current" : ""} />
-          {counts.starred}
-        </button>
-
-        <div className="relative flex-1 min-w-[200px] max-w-[340px] bg-surface-inset border border-glass-border rounded-full atelier-search-input">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t("searchPlaceholder")}
-            aria-label={t("searchPlaceholder")}
-            className="w-full bg-transparent border-0 rounded-full py-2 pl-9 pr-4 text-[0.8125rem] text-foreground placeholder-text-muted focus:outline-none"
-          />
-        </div>
-
-        {/* 排序下拉：默认 / 名称 / 最近（真实）/ 使用频次（禁用，需后端） */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setSortOpen((v) => !v)}
-            aria-haspopup="listbox"
-            aria-expanded={sortOpen}
-            aria-label={t("sortLabel")}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[0.6875rem] font-medium text-text-muted border border-glass-border hover:text-foreground transition-colors"
-          >
-            <ArrowDownUp size={12} />
-            {sortLabelMap[sortMode]}
-            <ChevronDown size={12} className={`transition-transform ${sortOpen ? "rotate-180" : ""}`} />
-          </button>
-          {sortOpen && (
-            <>
-              {/* 点外关闭遮罩 */}
-              <button
-                type="button"
-                aria-hidden="true"
-                tabIndex={-1}
-                onClick={() => setSortOpen(false)}
-                className="fixed inset-0 z-40 cursor-default"
-              />
-              <div
-                role="listbox"
-                aria-label={t("sortLabel")}
-                className="absolute right-0 top-full mt-1.5 z-50 min-w-[180px] glass-panel border border-glass-border rounded-xl p-1.5 shadow-xl"
-              >
-                {sortOptions.map((opt) => {
-                  const on = sortMode === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="option"
-                      aria-selected={on}
-                      disabled={opt.disabled}
-                      title={opt.disabled ? t("sortUsageHint") : undefined}
-                      onClick={() => {
-                        if (opt.disabled) return;
-                        setSortMode(opt.id);
-                        setSortOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between gap-3 px-3 py-1.5 rounded-lg text-[0.75rem] font-medium text-left transition-colors ${
-                        opt.disabled
-                          ? "text-text-muted opacity-60 cursor-not-allowed"
-                          : on
-                            ? "text-primary bg-surface-inset"
-                            : "text-text-secondary hover:text-foreground hover:bg-surface-inset"
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        {opt.label}
-                        {opt.disabled && (
-                          <span className="font-mono text-[0.53125rem] uppercase tracking-[0.06em] text-text-muted px-1.5 py-0.5 rounded-full bg-surface-inset border border-glass-border">
-                            {t("sortUsageHint")}
-                          </span>
-                        )}
-                      </span>
-                      {on && !opt.disabled && <Check size={13} />}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
+        {selected && selectedAsset && selectedSource && <AssetInspector key={`${selected.sourceId}/${selected.type}/${selected.assetId}`} asset={selectedAsset} type={selected.type} sourceName={selectedSource.name} sourceId={selected.sourceId} sourceKind={selectedSource.kind} starred={!!selectedAsset.starred} starPending={starPending.has(`${selected.sourceId}/${selected.type}/${selected.assetId}`)} onClose={closeInspector} onToggleStar={() => void toggleStar(selected.sourceId, selected.assetId, selected.type)} onPromoted={loadAssets} />}
       </div>
-
-      {/* Body: 网格（按系列分组）+ 右侧 inspector */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div className="flex-1 overflow-y-auto px-7 pb-10 pt-3">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="text-text-secondary text-[0.8125rem]">{tc("loading")}</div>
-            </div>
-          ) : counts.all === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="glass-panel atelier-card p-10 rounded-2xl border border-glass-border text-center max-w-[620px] w-full relative overflow-hidden">
-                <div className="relative z-[1] flex flex-col items-center gap-4">
-                  <div className="font-mono text-[0.625rem] uppercase tracking-[0.22em] text-text-muted">
-                    CAST · SCENES · PROPS
-                  </div>
-                  <p className="text-[2.125rem] font-display atelier-display font-medium italic leading-[1.25] tracking-tight text-foreground">
-                    {t("emptyQuote")}
-                  </p>
-                  <p className="text-[0.9375rem] text-text-secondary max-w-[440px]">{t("noAssetsHint")}</p>
-                </div>
-              </div>
-            </div>
-          ) : groups.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-              <Search size={48} className="mb-3 opacity-60" />
-              <p className="text-[0.9375rem] font-display atelier-display text-foreground">{t("noMatchTitle")}</p>
-              <p className="text-[0.75rem] text-text-muted mt-1">{tc("noMatchHint")}</p>
-              <button
-                type="button"
-                onClick={() => { setActiveType("all"); setSearchQuery(""); setStarredOnly(false); }}
-                className="mt-4 glass-button text-[0.8125rem] font-semibold"
-              >
-                {tc("clearFilters")}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {groups.map((grp) => (
-                <div key={grp.key}>
-                  {/* 分组标题 + 尾线 + 计数 */}
-                  <div className="flex items-baseline gap-3 mb-4">
-                    <span className="text-[1.5rem] font-display atelier-display font-semibold text-foreground tracking-tight">{grp.title}</span>
-                    <span className="font-mono text-[0.625rem] text-text-muted tracking-wide uppercase">{grp.meta}</span>
-                    <span className="atelier-group-line flex-1 h-px bg-border-subtle" />
-                  </div>
-
-                  {/* 卡片网格（库专用富卡片） */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {grp.items.map(({ asset, type, src }, i) => {
-                      const url = getAssetUrl(getImageUrl(asset, type)) || undefined;
-                      const vc = variantCount(asset, type);
-                      const isSel = selected?.sourceId === src.id && selected?.assetId === asset.id && selected?.type === type;
-                      const isStar = !!asset.starred;
-                      const isChar = type === "characters";
-                      return (
-                        <div
-                          key={`${type}-${asset.id}`}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setSelected({ sourceId: src.id, assetId: asset.id, type })}
-                          onKeyDown={(e) => {
-                            // 仅当卡片自身获得焦点时才响应；避免嵌套的 star <button> 在 Enter/Space 时双触发
-                            if (e.target !== e.currentTarget) return;
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              setSelected({ sourceId: src.id, assetId: asset.id, type });
-                            }
-                          }}
-                          aria-current={isSel ? "true" : undefined}
-                          className={`atelier-asset-card atelier-reveal group relative text-left rounded-xl overflow-hidden border transition-all cursor-pointer ${
-                            isSel ? "border-primary/60 ring-1 ring-primary/40" : "border-glass-border hover:-translate-y-1"
-                          }`}
-                          style={{ animationDelay: `${Math.min(i * 50, 250)}ms` }}
-                        >
-                          <div className={`${isChar ? "aspect-[4/3]" : "aspect-square"} bg-surface-inset overflow-hidden relative`}>
-                            {url ? (
-                              isChar ? (
-                                // 角色卡横竖混杂 → 磨砂铺底（模糊同图填满留白）+ object-contain 完整显示不裁切
-                                <>
-                                  <img
-                                    src={url}
-                                    alt=""
-                                    aria-hidden="true"
-                                    className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
-                                  />
-                                  <img
-                                    src={url}
-                                    alt={asset.name}
-                                    className="relative w-full h-full object-contain transition-transform group-hover:scale-105"
-                                  />
-                                </>
-                              ) : (
-                                <img src={url} alt={asset.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
-                              )
-                            ) : (
-                              // 无图：atelier 文字/渐变封面（取代发灰占位图标）— 确定性渐变 + 颗粒 + 首字母
-                              <div
-                                className="absolute inset-0 grid place-items-center overflow-hidden"
-                                style={{ background: coverGradient(asset.id || asset.name) }}
-                                aria-hidden="true"
-                              >
-                                <div
-                                  className="pointer-events-none absolute inset-0 mix-blend-overlay opacity-50"
-                                  style={{ backgroundImage: GRAIN_URL }}
-                                />
-                                <span className="relative font-display atelier-display font-semibold leading-none select-none text-foreground/90 text-[clamp(1.75rem,4.5vw,2.75rem)]">
-                                  {(Array.from(asset.name.trim())[0] || "?").toUpperCase()}
-                                </span>
-                              </div>
-                            )}
-                            {isStar && (
-                              <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_44px_-8px_var(--color-status-starred-bg)]" aria-hidden="true" />
-                            )}
-                            {/* top row: star chip + variant chip */}
-                            <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
-                              <button
-                                type="button"
-                                aria-label={isStar ? t("unstar") : t("star")}
-                                aria-pressed={isStar}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleStar(src.id, asset.id, type);
-                                }}
-                                onKeyDown={(e) => e.stopPropagation()}
-                                className={`w-7 h-7 rounded-full grid place-items-center backdrop-blur-md transition-colors cursor-pointer ${
-                                  isStar ? "text-status-starred-fg bg-status-starred-bg" : "text-white bg-black/45 hover:text-status-starred-fg"
-                                }`}
-                              >
-                                <Star size={13} className={isStar ? "fill-current" : ""} />
-                              </button>
-                              {vc > 0 && (
-                                <span className="px-2 py-[3px] rounded-full font-mono text-[0.5625rem] font-semibold text-white bg-black/55 backdrop-blur-md tracking-wide">
-                                  {t("variantCount", { count: vc })}
-                                </span>
-                              )}
-                            </div>
-                            {/* kind chip（仅「按项目」视图 + 「全部」类型下显示，告知卡片类型） */}
-                            {viewAxis === "source" && activeType === "all" && (
-                              <span className="absolute bottom-2 left-2 px-2 py-[3px] rounded-full font-mono text-[0.53125rem] font-semibold uppercase tracking-[0.06em] text-white bg-black/55 backdrop-blur-md">
-                                {TYPE_LABEL[type]}
-                              </span>
-                            )}
-                          </div>
-                          <div className="p-3">
-                            <div className="text-sm font-medium text-foreground truncate">{asset.name}</div>
-                            {viewAxis === "type" ? (
-                              <div className="text-[0.6875rem] text-text-muted truncate mt-0.5">{src.name}</div>
-                            ) : (
-                              asset.description && <div className="text-[0.6875rem] text-text-muted truncate mt-0.5">{asset.description}</div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 右侧 inspector（选中才出现） */}
-        {selected && selectedAsset && selectedSource && (
-          <AssetInspector
-            asset={selectedAsset}
-            type={selected.type}
-            sourceName={selectedSource.name}
-            sourceId={selected.sourceId}
-            sourceKind={selectedSource.kind}
-            starred={!!selectedAsset.starred}
-            onClose={() => setSelected(null)}
-            onToggleStar={() => toggleStar(selected.sourceId, selected.assetId, selected.type)}
-            onPromoted={loadAssets}
-          />
-        )}
-      </div>
-
-      {/* 新建全局资产弹窗（T6-entries） */}
-      {newAssetOpen && (
-        <NewLibraryAssetDialog onClose={() => setNewAssetOpen(false)} onCreated={loadAssets} />
-      )}
+      {newAssetOpen && <NewLibraryAssetDialog onClose={() => setNewAssetOpen(false)} onCreated={loadAssets} />}
     </div>
-  );
+  </AppShell>;
 }

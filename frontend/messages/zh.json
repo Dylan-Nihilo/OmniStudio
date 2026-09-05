@@ -1221,6 +1221,12 @@
     "saving": "保存中..."
   },
   "library": {
+    "retry": "重试",
+    "refresh": "刷新素材库",
+    "downloadFailed": "下载失败，请重试",
+    "headline": "一次建立，全流程复用。",
+    "allSources": "全部来源",
+    "starFailed": "星标保存失败，请重试",
     "title": "资产库",
     "characterLabel": "角色",
     "sceneLabel": "场景",

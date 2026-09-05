@@ -691,6 +691,10 @@ function AuthenticatedHome() {
     return <SeriesDetailPage key={seriesId} seriesId={seriesId} />;
   }
 
+  if (currentView === 'library') {
+    return <main className="h-[100dvh] w-full"><ModuleErrorBoundary moduleName="资产库"><AssetLibraryPage key={activeWorkspaceId} /></ModuleErrorBoundary></main>;
+  }
+
   // Filter standalone projects (not belonging to any series)
   const standaloneProjects = workspaceSection === "series" ? [] : projects.filter((p) => !p.series_id);
 
@@ -708,9 +712,6 @@ function AuthenticatedHome() {
 
   // Determine content based on activeTab
   const renderContent = () => {
-    if (currentView === 'library') {
-      return <AssetLibraryPage />;
-    }
     if (currentView === 'settings') {
       return <SettingsPage />;
     }
@@ -1103,7 +1104,7 @@ function AuthenticatedHome() {
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
         <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} context={activeTab === "workspace" ? <WorkspaceNavigation section={workspaceSection} /> : undefined}>
-          <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
+          <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>
         </AppShell>
