@@ -71,6 +71,8 @@ with sync_playwright() as p:
         page.set_viewport_size({"width": width, "height": height})
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (width, "horizontal overflow")
         assert page.locator('[aria-busy]').evaluate("el => el.scrollWidth <= el.clientWidth"), (width, "workspace content overflow")
+        if width >= 1200:
+            page.wait_for_function("document.querySelector('[aria-busy]').scrollHeight <= document.querySelector('[aria-busy]').parentElement.clientHeight + 1", timeout=5000)
         queue = page.get_by_text("渲染队列", exact=True)
         queue.scroll_into_view_if_needed()
         assert queue.evaluate("el => { const r=el.getBoundingClientRect(); const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2); return r.bottom<=innerHeight && (hit===el || el.contains(hit)); }"), (width, "queue obstructed")
