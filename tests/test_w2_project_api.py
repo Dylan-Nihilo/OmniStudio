@@ -140,6 +140,37 @@ def test_project_title_update_does_not_reparse_script(api_client):
     assert loaded.json()["title"] == "编辑后的标题"
 
 
+def test_standalone_to_series_preview_and_confirm_preserve_episode(api_client):
+    project = _create_project(api_client, "待转换项目")
+    project_id = project["id"]
+
+    preview = api_client.get(f"/projects/{project_id}/convert-to-series/preview")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["project_id"] == project_id
+    assert preview.json()["episode_count"] == 1
+    assert "video_tasks" in preview.json()["preserved_fields"]
+
+    confirmed = api_client.post(
+        f"/projects/{project_id}/convert-to-series",
+        json={"title": "转换后的系列", "description": "保留原生产数据"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    payload = confirmed.json()
+    assert payload["series"]["title"] == "转换后的系列"
+    assert payload["series"]["episode_ids"] == [project_id]
+    assert payload["episode"]["id"] == project_id
+    assert payload["episode"]["series_id"] == payload["series"]["id"]
+    assert payload["episode"]["episode_number"] == 1
+
+    assert api_module.pipeline.repository.project_exists(project_id) is False
+    series = api_client.get(f"/series/{payload['series']['id']}")
+    assert series.status_code == 200, series.text
+    assert [episode["id"] for episode in series.json()["episodes"]] == [project_id]
+
+    repeated = api_client.get(f"/projects/{project_id}/convert-to-series/preview")
+    assert repeated.status_code == 404
+
+
 def test_episode_order_move_and_archive_api(api_client):
     series = _create_series(api_client, "Episode 生命周期")
     first = _create_project(api_client, "第一集")

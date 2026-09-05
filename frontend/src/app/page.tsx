@@ -343,7 +343,7 @@ const WS_VIEW_KEY = "omni_studio_workspace_view";
 // deriveCover is imported from ProjectCard (single source of truth).
 
 // ── Project Row (Line B list-view item) ──
-function ProjectRow({ project, crumb, onArchive, onRestore, onRename }: { project: Project; crumb: string; onArchive: (project: Project) => void; onRestore: (project: Project) => void; onRename: (project: Project) => void }) {
+function ProjectRow({ project, crumb, onArchive, onRestore, onRename, onConvert }: { project: Project; crumb: string; onArchive: (project: Project) => void; onRestore: (project: Project) => void; onRename: (project: Project) => void; onConvert?: (project: Project) => void }) {
   const t = useTranslations("project");
   const cover = deriveCover(project);
   const status = deriveStatus(project);
@@ -428,6 +428,7 @@ function ProjectRow({ project, crumb, onArchive, onRestore, onRename }: { projec
         {menuOpen && (
           <div role="menu" aria-label={t("moreActions")} className="absolute right-0 bottom-full z-20 mb-2 w-36 overflow-hidden rounded-md border border-glass-border bg-surface/96 shadow-xl backdrop-blur-md">
             <button role="menuitem" onClick={() => { setMenuOpen(false); onRename(project); }} className="w-full px-3 py-2 text-left text-body-sm text-foreground hover:bg-hover-bg">重命名</button>
+            {!project.series_id && onConvert ? <button role="menuitem" onClick={() => { setMenuOpen(false); onConvert(project); }} className="w-full px-3 py-2 text-left text-body-sm text-foreground hover:bg-hover-bg">转为系列</button> : null}
             <button role="menuitem" onClick={() => { setMenuOpen(false); project.archived ? onRestore(project) : onArchive(project); }} className="w-full px-3 py-2 text-left text-body-sm text-foreground hover:bg-hover-bg">{project.archived ? "恢复项目" : "归档项目"}</button>
           </div>
         )}
@@ -530,6 +531,21 @@ function AuthenticatedHome() {
       updateProject(project.id, updated);
     } catch (error: any) {
       window.alert(error?.response?.data?.detail || "项目恢复失败");
+    }
+  };
+  const convertProject = async (project: Project) => {
+    try {
+      const preview = await api.previewProjectToSeries(project.id);
+      const title = window.prompt("系列标题", project.title)?.trim();
+      if (!title) return;
+      const ok = window.confirm(`将保留 ${preview.episode_count} 集、${preview.characters} 个角色、${preview.scenes} 个场景、${preview.shots} 个镜头和 ${preview.video_tasks} 个视频任务，并保留原 Episode ID。确认转换？`);
+      if (!ok) return;
+      const result = await api.convertProjectToSeries(project.id, title);
+      updateProject(project.id, result.episode);
+      await fetchSeriesList();
+      setProjects(await api.getProjects());
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || "项目转换失败");
     }
   };
 
@@ -1023,6 +1039,7 @@ function AuthenticatedHome() {
                               onArchive={archiveProject}
                               onRestore={restoreProject}
                               onRename={renameProject}
+                              onConvert={convertProject}
                             />
                           </div>
                         ))}
@@ -1046,7 +1063,7 @@ function AuthenticatedHome() {
                             className="atelier-reveal"
                             style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                           >
-                            <ProjectCard project={ep} onDelete={deleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} />
+                            <ProjectCard project={ep} onDelete={deleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                           </div>
                         ))}
                         {!wsFiltering && <NewProjectTile episode onClick={() => { setDialogSeries({ id: s.id, title: s.title }); setIsDialogOpen(true); }} />}
@@ -1080,7 +1097,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                          <ProjectRow project={p} crumb="" onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} />
+                          <ProjectRow project={p} crumb="" onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                         </div>
                       ))}
                       {!wsFiltering && (
@@ -1103,7 +1120,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                            <ProjectCard project={p} onDelete={deleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} />
+                            <ProjectCard project={p} onDelete={deleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                         </div>
                       ))}
                       {!wsFiltering && <NewProjectTile onClick={() => setIsDialogOpen(true)} />}

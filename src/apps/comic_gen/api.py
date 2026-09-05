@@ -958,6 +958,45 @@ class UpdateProjectRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
 
 
+class ConvertProjectToSeriesRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: str = Field("", max_length=2000)
+
+
+@app.get("/projects/{script_id}/convert-to-series/preview")
+def preview_project_to_series(script_id: str):
+    """Preview Standalone → Series impact without changing project data."""
+    try:
+        return signed_response(pipeline.preview_project_to_series(script_id))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/projects/{script_id}/convert-to-series")
+def convert_project_to_series(
+    script_id: str,
+    request: ConvertProjectToSeriesRequest,
+    http_request: Request,
+):
+    """Confirm Standalone → Series conversion while retaining the Script ID."""
+    try:
+        result = pipeline.convert_project_to_series(
+            script_id,
+            request.title,
+            request.description,
+        )
+        context = getattr(http_request.state, "auth_context", None)
+        if context is not None:
+            pipeline.repository.assign_workspace_for_series(result["series"].id, context.workspace.id)
+        return signed_response({
+            "series": result["series"].model_dump(),
+            "episode": result["episode"].model_dump(),
+            "preserved": result["preserved"],
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400 if "already" in str(e) else 404, detail=str(e))
+
+
 class ProjectArchiveResponse(BaseModel):
     id: str
     title: str

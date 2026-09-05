@@ -726,6 +726,43 @@ class SQLiteRepository:
         except Exception as exc:
             raise StorageError(f"Failed to delete series {series_id}; transaction rolled back: {exc}") from exc
 
+    def finalize_standalone_to_series(self, standalone_id: str, series_id: str) -> None:
+        """Retire the old standalone envelope after its Episode was reparented.
+
+        The Script/Episode payload is deliberately left intact.  The new Series
+        project inherits the old workspace owner before the obsolete standalone
+        Project row is removed, so a conversion cannot lose access ownership.
+        """
+        self._validate_id(standalone_id, "standalone_id")
+        self._validate_id(series_id, "series_id")
+        try:
+            with self.engine.begin() as connection:
+                old_workspace = connection.execute(
+                    select(Project.__table__.c.workspace_id).where(
+                        Project.__table__.c.id == standalone_id,
+                        Project.__table__.c.mode == "standalone",
+                    )
+                ).scalar_one_or_none()
+                if old_workspace is not None:
+                    connection.execute(
+                        update(Project.__table__)
+                        .where(
+                            Project.__table__.c.id == series_id,
+                            Project.__table__.c.workspace_id.is_(None),
+                        )
+                        .values(workspace_id=old_workspace)
+                    )
+                connection.execute(
+                    delete(Project.__table__).where(
+                        Project.__table__.c.id == standalone_id,
+                        Project.__table__.c.mode == "standalone",
+                    )
+                )
+        except Exception as exc:
+            raise StorageError(
+                f"Failed to finalize standalone conversion; transaction rolled back: {exc}"
+            ) from exc
+
     # ------------------------------------------------------------------
     # Preparation and transactional write helpers
     # ------------------------------------------------------------------

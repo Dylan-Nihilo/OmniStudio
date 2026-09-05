@@ -10,6 +10,7 @@ import uuid
 import subprocess
 import threading
 import platform
+import copy
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary
 from .llm import ScriptProcessor
@@ -5009,6 +5010,96 @@ class ComicGenPipeline:
             self.series_store[series.id] = series
             self._save_series_data_unlocked()
             return series
+
+    def preview_project_to_series(self, script_id: str) -> Dict[str, Any]:
+        """Return a deterministic conversion impact summary without mutations."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Project not found")
+        if script.series_id:
+            raise ValueError("Project is already an Episode in a Series")
+        return {
+            "project_id": script.id,
+            "title": script.title,
+            "episode_count": 1,
+            "characters": len(script.characters),
+            "scenes": len(script.scenes),
+            "props": len(script.props),
+            "shots": len(script.frames),
+            "video_tasks": len(script.video_tasks),
+            "preserved_fields": [
+                "episode_content",
+                "assets",
+                "art_direction",
+                "prompt_config",
+                "model_settings",
+                "storyboard_frames",
+                "video_tasks",
+                "audio_and_export_settings",
+            ],
+        }
+
+    def convert_project_to_series(
+        self,
+        script_id: str,
+        title: Optional[str] = None,
+        description: str = "",
+    ) -> Dict[str, Any]:
+        """Convert one Standalone Script into a Series with one Episode.
+
+        The original Script ID is retained.  Its production payload is not
+        copied or rebuilt, so frames, generated takes, audio, export settings,
+        local assets, styles and configuration remain byte-for-byte equivalent
+        apart from the Series relationship fields.
+        """
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Project not found")
+            if script.series_id:
+                raise ValueError("Project is already an Episode in a Series")
+            preserved = self.preview_project_to_series(script.id)
+            now = time.time()
+            series = Series(
+                id=str(uuid.uuid4()),
+                title=(title or script.title).strip() or script.title,
+                description=description,
+                characters=copy.deepcopy(script.characters),
+                scenes=copy.deepcopy(script.scenes),
+                props=copy.deepcopy(script.props),
+                art_direction=copy.deepcopy(script.art_direction),
+                prompt_config=copy.deepcopy(script.prompt_config),
+                model_settings=copy.deepcopy(script.model_settings),
+                workflow_mode=script.workflow_mode,
+                default_generation_mode=script.default_generation_mode,
+                content_mode="scripted",
+                episode_ids=[script.id],
+                created_at=now,
+                updated_at=now,
+            )
+            original_series_id = script.series_id
+            original_episode_number = script.episode_number
+            script.series_id = series.id
+            script.episode_number = 1
+            script.updated_at = now
+            self.series_store[series.id] = series
+            try:
+                if self.storage_enabled:
+                    self.repository.save_bundle({script.id: script}, {series.id: series})
+                    self.repository.finalize_standalone_to_series(script.id, series.id)
+                else:
+                    self._save_data()
+                    self._save_series_data_unlocked()
+            except Exception:
+                self.series_store.pop(series.id, None)
+                script.series_id = original_series_id
+                script.episode_number = original_episode_number
+                raise
+            return {
+                "series": series,
+                "episode": script,
+                "preserved": preserved,
+            }
 
     def get_series(self, series_id: str) -> Optional[Series]:
         return self.series_store.get(series_id)

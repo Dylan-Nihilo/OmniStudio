@@ -293,6 +293,29 @@ export const api = {
         return { ...res.data, originalText: res.data.original_text };
     },
 
+    previewProjectToSeries: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/convert-to-series/preview`);
+        return res.data as {
+            project_id: string;
+            title: string;
+            episode_count: number;
+            characters: number;
+            scenes: number;
+            props: number;
+            shots: number;
+            video_tasks: number;
+            preserved_fields: string[];
+        };
+    },
+
+    convertProjectToSeries: async (scriptId: string, title?: string, description?: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/convert-to-series`, {
+            title: title || undefined,
+            description: description || "",
+        });
+        return res.data;
+    },
+
     getProjectArchiveImpact: async (scriptId: string) => {
         const res = await apiClient.get(`${API_URL}/projects/${scriptId}/archive-impact`);
         return res.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };

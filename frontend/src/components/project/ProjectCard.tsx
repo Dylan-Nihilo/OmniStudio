@@ -16,6 +16,7 @@ interface ProjectCardProps {
     onArchive: (project: Project) => void;
     onRestore: (project: Project) => void;
     onRename: (project: Project) => void;
+    onConvert?: (project: Project) => void;
 }
 
 export type DerivedStatus = "completed" | "processing" | "pending";
@@ -55,7 +56,7 @@ export function deriveStatus(project: Project): DerivedStatus {
     return "pending";
 }
 
-export default function ProjectCard({ project, onDelete, onArchive, onRestore, onRename }: ProjectCardProps) {
+export default function ProjectCard({ project, onDelete, onArchive, onRestore, onRename, onConvert }: ProjectCardProps) {
     const t = useTranslations("project");
     const tCommon = useTranslations("common");
     const locale = useSettingsStore((s) => s.locale);
@@ -290,6 +291,12 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
                                 <Pencil size={14} aria-hidden="true" />
                                 重命名
                             </button>
+                            {!project.series_id && onConvert ? (
+                                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onConvert(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
+                                    <Film size={14} aria-hidden="true" />
+                                    转为系列
+                                </button>
+                            ) : null}
                             <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); project.archived ? onRestore(project) : onArchive(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
                                 {project.archived ? <ArchiveRestore size={14} aria-hidden="true" /> : <Archive size={14} aria-hidden="true" />}
                                 {project.archived ? "恢复项目" : "归档项目"}
