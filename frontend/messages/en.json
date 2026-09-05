@@ -421,6 +421,19 @@
     "workspaceAria": "Omni Studio · Workspace",
     "mainNavAria": "Main navigation"
   },
+  "pipelineChrome": {
+    "workspace": "STUDIO",
+    "workflow": "Production workflow",
+    "switchEpisode": "Switch episode",
+    "back": "Back to workspace",
+    "settings": "Project settings",
+    "modelSettings": "Generation settings",
+    "promptSettings": "Prompt configuration",
+    "loading": "Loading project…",
+    "loadFailed": "Could not load project",
+    "refreshFailed": "Refresh failed. Showing the previously loaded project.",
+    "retry": "Retry"
+  },
   "seriesOverview": {
     "retry": "Retry",
     "eyebrow": "STUDIO / SERIES",

@@ -573,7 +573,7 @@ function AuthenticatedHome() {
     const handleHashChange = () => {
       const hash = window.location.hash;
       // Match #/series/{id}/episode/{eid} first (more specific)
-      const seriesEpisodeMatch = hash.match(/^#\/series\/([^/]+)\/episode\/([^/]+)$/);
+      const seriesEpisodeMatch = hash.match(/^#\/series\/([^/#]+)\/episode\/([^/#]+)(?:#[^/]+)?$/);
       if (seriesEpisodeMatch) {
         setSeriesId(seriesEpisodeMatch[1]);
         setEpisodeId(seriesEpisodeMatch[2]);
@@ -608,7 +608,7 @@ function AuthenticatedHome() {
         return;
       }
       if (hash.startsWith('#/project/')) {
-        const id = hash.replace('#/project/', '');
+        const id = hash.replace('#/project/', '').split('#')[0];
         setProjectId(id);
         setSeriesId(null);
         setEpisodeId(null);

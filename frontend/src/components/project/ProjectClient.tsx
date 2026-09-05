@@ -1,16 +1,13 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Palette, Layout, Film, BookOpen, Users, Video, Settings, Key, MessageSquareCode, Clapperboard } from "lucide-react";
+import { Palette, Layout, Film, BookOpen, Users, Video, Clapperboard } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
 import { buildLocalizedPipelineSteps, resolveActivePipelineStep, type PipelineStepId } from "@/lib/pipelineSteps";
 import PipelineSidebar from "@/components/layout/PipelineSidebar";
 import EpisodeMiniList from "@/components/layout/EpisodeMiniList";
 import type { BreadcrumbSegment } from "@/components/layout/BreadcrumbBar";
-// PropertiesPanel removed in R2V v2 — chrome is owned per-step now.
-// ScriptProcessor right rail will become "Previously on..."; other steps
-// have their own SidePanelHeader-driven side columns.
 import ScriptProcessor from "@/components/modules/ScriptProcessor";
 import Cast from "@/components/modules/Cast";
 import VideoGenerator from "@/components/modules/VideoGenerator";
@@ -23,9 +20,11 @@ import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import PromptConfigModal from "@/components/project/PromptConfigModal";
 import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import EntityConfirmModal from "@/components/modules/EntityConfirmModal";
-import dynamic from "next/dynamic";
+import { ActionMenu, Button, EmptyState, LoadingState } from "@omnistudio/ui";
+import AppShell from "@/components/layout/AppShell";
+import styles from "./ProjectClient.module.css";
 
-const CreativeCanvas = dynamic(() => import("@/components/canvas/CreativeCanvas"), { ssr: false });
+
 
 const STEP_ICONS: Record<PipelineStepId, typeof BookOpen> = {
     script: BookOpen,
@@ -39,7 +38,11 @@ const STEP_ICONS: Record<PipelineStepId, typeof BookOpen> = {
 };
 
 export default function ProjectClient({ id, breadcrumbSegments }: { id: string; breadcrumbSegments?: BreadcrumbSegment[] }) {
-    const [activeStep, setActiveStep] = useState("script");
+    const [activeStep, setActiveStep] = useState(() => window.location.hash.split("#")[2] || "script");
+    const [loading, setLoading] = useState(true);
+    const [loadFailed, setLoadFailed] = useState(false);
+    const [reload, setReload] = useState(0);
+    const tChrome = useTranslations("pipelineChrome");
     const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
     const [envDialogOpen, setEnvDialogOpen] = useState(false);
     const [promptConfigOpen, setPromptConfigOpen] = useState(false);
@@ -67,7 +70,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
 
     const steps = useMemo(() => {
         // PR-3f routing: backend enum "r2v" → unified workbench (5 steps).
-        // Anything else (i2v_legacy, missing) → legacy 9-step path. Old
+        // Anything else (i2v_legacy, missing) → legacy six-step path. Old
         // projects without workflow_mode default to legacy for backward
         // compat (spec §3.2).
         const base = buildLocalizedPipelineSteps(
@@ -112,10 +115,13 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         return base.map(s => ({ ...s, ...statusFor(s.id) }));
     }, [currentProject, seriesContentMode, tp]);
 
+    useEffect(() => { setActiveStep(window.location.hash.split("#")[2] || "script"); }, [id]);
+
     useEffect(() => {
+        if (loading || currentProject?.id !== id) return;
         const resolved = resolveActivePipelineStep(activeStep, steps);
         if (resolved !== activeStep) setActiveStep(resolved);
-    }, [activeStep, steps]);
+    }, [activeStep, steps, loading, currentProject?.id, id]);
 
     const handleBackToHome = () => {
         window.location.hash = '';
@@ -138,82 +144,33 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
     }, [steps]);
 
     useEffect(() => {
-        selectProject(id);
-    }, [id, selectProject]);
+        let cancelled = false;
+        setLoading(true);
+        setLoadFailed(false);
+        selectProject(id).then(success => { if (!cancelled) { setLoadFailed(!success); setLoading(false); } });
+        return () => { cancelled = true; };
+    }, [id, selectProject, reload]);
 
-    if (!currentProject) {
-        return (
-            <div className="flex items-center justify-center h-screen bg-background">
-                <div className="text-center">
-                    <p className="text-text-secondary mb-4">{t("notFound")}</p>
-                    <button
-                        onClick={handleBackToHome}
-                        className="text-primary hover:underline"
-                    >
-                        {t("backToList")}
-                    </button>
-                </div>
-            </div>
-        );
+    if (loading) return <div className={styles.root}><LoadingState label={tChrome("loading")} /></div>;
+
+    if (!currentProject || currentProject.id !== id) {
+        return <div className={styles.root}><EmptyState title={tChrome("loadFailed")} action={<><Button onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button><Button variant="quiet" onPress={handleBackToHome}>{t("backToList")}</Button></>} /></div>;
     }
 
     const segments = breadcrumbSegments || [{ label: "Omni Studio", hash: "#/" }, { label: currentProject.title }];
 
-    const settingsActions = (
-        <>
-            <button
-                onClick={() => setEnvDialogOpen(true)}
-                className="p-2 hover:bg-hover-bg rounded-lg transition-colors group"
-                title={t("apiKeyConfig")}
-            >
-                <Key size={16} className="text-text-secondary group-hover:text-green-400 transition-colors" />
-            </button>
-            <button
-                onClick={() => setPromptConfigOpen(true)}
-                className="p-2 hover:bg-hover-bg rounded-lg transition-colors group"
-                title="Prompt Configuration"
-            >
-                <MessageSquareCode size={16} className="text-text-secondary group-hover:text-purple-400 transition-colors" />
-            </button>
-            <button
-                onClick={() => setModelSettingsOpen(true)}
-                className="p-2 hover:bg-hover-bg rounded-lg transition-colors group"
-                title="Model Settings"
-            >
-                <Settings size={16} className="text-text-secondary group-hover:text-foreground transition-colors" />
-            </button>
-        </>
-    );
+    const settingsActions = <ActionMenu label={tChrome("settings")} items={[
+        { id: "env", label: t("apiKeyConfig"), onAction: () => setEnvDialogOpen(true) },
+        { id: "prompt", label: tChrome("promptSettings"), onAction: () => setPromptConfigOpen(true) },
+        { id: "model", label: tChrome("modelSettings"), onAction: () => setModelSettingsOpen(true) },
+    ]} />;
+    const context = <PipelineSidebar activeStep={activeStep} onStepChange={setActiveStep} steps={steps}
+        projectLabel={currentProject.title} projectSubLabel={currentProject.episode_number ? `EP.${String(currentProject.episode_number).padStart(2, "0")}` : undefined}
+        breadcrumbSegments={segments} headerActions={settingsActions}
+        topSlot={currentProject.series_id ? <EpisodeMiniList seriesId={currentProject.series_id} currentProjectId={id} activeStep={activeStep} /> : undefined} />;
 
     return (
-        <main className="flex h-screen w-screen bg-background overflow-hidden relative">
-            {/* Background Canvas */}
-            <div className="absolute inset-0 z-0 pointer-events-auto">
-                <CreativeCanvas />
-            </div>
-
-            {/* Left Sidebar — unified PipelineSidebar with integrated breadcrumb */}
-            <div className="relative z-20 h-full flex flex-col overflow-hidden">
-                <PipelineSidebar
-                    activeStep={activeStep}
-                    onStepChange={setActiveStep}
-                    steps={steps}
-                    projectLabel={currentProject.title}
-                    projectSubLabel={currentProject.episode_number ? `EP.${String(currentProject.episode_number).padStart(2, "0")}` : undefined}
-                    breadcrumbSegments={segments}
-                    headerActions={settingsActions}
-                    topSlot={
-                        currentProject?.series_id ? (
-                            <EpisodeMiniList
-                                seriesId={currentProject.series_id}
-                                currentProjectId={id}
-                                activeStep={activeStep}
-                            />
-                        ) : null
-                    }
-                />
-            </div>
-
+        <main className={styles.root}>
             {/* Model Settings Modal */}
             <ModelSettingsModal
                 isOpen={modelSettingsOpen}
@@ -233,26 +190,19 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
                 isRequired={false}
             />
 
-            {/* Main Content Area — no z-index to avoid trapping fixed modals in a stacking context */}
-            <div className="flex-1 flex overflow-hidden relative">
-                <div className="flex-1 overflow-hidden relative">
-                    {/* Global Atelier atmosphere — shared across every step so the
-                        pipeline reads as one surface (bloom + grain, pointer-events
-                        none, content sits above on z-10). */}
-                    <div className="atelier-page-bloom" aria-hidden="true" />
-                    <div className="atelier-page-grain" aria-hidden="true" />
-                    <div className="relative z-10 h-full flex flex-col overflow-hidden">
-                        {activeStep === "script" && <ScriptProcessor />}
-                        {activeStep === "art_direction" && <ArtDirection />}
-                        {activeStep === "cast" && <Cast />}
-                        {activeStep === "assets" && <ConsistencyVault />}  {/* legacy i2v only */}
-                        {activeStep === "storyboard" && <StoryboardComposer />}
-                        {activeStep === "storyboard_r2v" && <StoryboardR2V />}
-                        {activeStep === "motion" && <VideoGenerator />}
-                        {activeStep === "assembly" && <VideoAssembly />}
-                    </div>
+            <AppShell activeTab="editor" onTabChange={() => {}} context={context} transitionKey={`${id}/${activeStep}`}>
+                <div className={styles.content}>
+                    {loadFailed && <div role="alert" className={styles.error}>{tChrome("refreshFailed")}<Button variant="quiet" onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button></div>}
+                    {activeStep === "script" && <ScriptProcessor />}
+                    {activeStep === "art_direction" && <ArtDirection />}
+                    {activeStep === "cast" && <Cast />}
+                    {activeStep === "assets" && <ConsistencyVault />}
+                    {activeStep === "storyboard" && <StoryboardComposer />}
+                    {activeStep === "storyboard_r2v" && <StoryboardR2V />}
+                    {activeStep === "motion" && <VideoGenerator />}
+                    {activeStep === "assembly" && <VideoAssembly />}
                 </div>
-            </div>
+            </AppShell>
 
             <EntityExtractionConfirm />
         </main>
@@ -262,6 +212,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
 function EntityExtractionConfirm() {
     const ts = useTranslations("script");
     const pendingExtraction = useProjectStore((s) => s.pendingExtraction);
+    const isAnalyzing = useProjectStore((s) => s.isAnalyzing);
     const currentProject = useProjectStore((s) => s.currentProject);
     const confirmExtraction = useProjectStore((s) => s.confirmExtraction);
     const discardExtraction = useProjectStore((s) => s.discardExtraction);
@@ -287,6 +238,7 @@ function EntityExtractionConfirm() {
     return (
         <EntityConfirmModal
             isOpen={!!pendingExtraction}
+            isPending={isAnalyzing}
             preview={pendingExtraction}
             currentCounts={{
                 characters: currentProject?.characters?.length ?? 0,

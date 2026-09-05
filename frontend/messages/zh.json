@@ -421,6 +421,19 @@
     "workspaceAria": "Omni Studio · 工作区",
     "mainNavAria": "主导航"
   },
+  "pipelineChrome": {
+    "workspace": "制作台",
+    "workflow": "制作流程",
+    "switchEpisode": "切换单集",
+    "back": "返回工作区",
+    "settings": "项目设置",
+    "modelSettings": "生成设置",
+    "promptSettings": "提示词配置",
+    "loading": "正在加载项目…",
+    "loadFailed": "项目加载失败",
+    "refreshFailed": "刷新失败，当前显示已加载的项目。",
+    "retry": "重试"
+  },
   "seriesOverview": {
     "retry": "重试",
     "eyebrow": "制作台 / 系列",
