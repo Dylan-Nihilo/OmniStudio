@@ -45,14 +45,13 @@ export function deriveCover(project: Project): string | undefined {
     return undefined;
 }
 
-// Status is absent on the data model, so derive a coarse lifecycle state:
-// a merged video => completed; rendered frames present => processing; else draft.
+// Existing media is a saved draft; only active generation marks a project busy.
 export function deriveStatus(project: Project): DerivedStatus {
-    if (project.merged_video_url) return "completed";
-    const frames = (project.frames || []) as Array<Record<string, any>>;
-    const rendered = frames.some((f) => f?.rendered_image_url || f?.image_url);
-    if (rendered) return "processing";
-    return "pending";
+    const activeVideo = project.video_tasks?.some((task) => task.status === "pending" || task.status === "processing");
+    const activeAsset = [...(project.frames || []), ...(project.characters || []), ...(project.scenes || []), ...(project.props || [])]
+        .some((asset) => asset.status === "processing");
+    if (activeVideo || activeAsset) return "processing";
+    return project.merged_video_url ? "completed" : "pending";
 }
 
 export default function ProjectCard({ project, onDelete, variant = "default" }: ProjectCardProps) {

@@ -652,7 +652,7 @@ function AuthenticatedHome() {
       }
       const section = hash.split("/")[2];
       setWorkspaceSection(section === "projects" || section === "series" || section === "drafts" ? section : "overview");
-      setWsStatus(section === "drafts" ? "processing" : "all");
+      setWsStatus(section === "drafts" ? "pending" : "all");
       // Default: workspace
       if (isWorkspaceRoute(hash)) {
         void syncAll();
