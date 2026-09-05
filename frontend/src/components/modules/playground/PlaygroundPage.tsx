@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
 import { Button, LoadingState } from '@omnistudio/ui';
@@ -10,7 +10,7 @@ import MediaInput from './MediaInput';
 import PromptInput from './PromptInput';
 import ParameterBar from './ParameterBar';
 import ResultGallery from './ResultGallery';
-import { usePlaygroundStore, type PlaygroundMode, type PlaygroundGeneration, type QueuedRequest } from './usePlaygroundStore';
+import { usePlaygroundStore, type PlaygroundMode, type QueuedRequest } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
 import { toast } from '@/store/toastStore';
 import { normalizeGeneration, normalizeTemplate } from './normalizers';
@@ -66,7 +66,8 @@ export default function PlaygroundPage() {
   const activeCount = usePlaygroundStore((s) => s.activeGenerationIds.length);
   const maxConcurrent = usePlaygroundStore((s) => s.maxConcurrent);
 
-  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const activeIds = usePlaygroundStore(s => s.activeGenerationIds);
+  const [pollingError, setPollingError] = useState(false);
 
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState(false);
@@ -98,43 +99,36 @@ export default function PlaygroundPage() {
     return () => { active = false; };
   }, [setTemplates]);
 
-  // ─── Cleanup poll timers ───────────────────────────────────────────────────
-
+  // One non-overlapping read loop per active job, including restored history.
   useEffect(() => {
-    return () => {
-      pollTimers.current.forEach((timer) => clearInterval(timer));
-      pollTimers.current.clear();
-    };
-  }, []);
-
-  // ─── Status poller ─────────────────────────────────────────────────────────
-
-  const startPolling = useCallback((generationId: string) => {
-    // Prevent duplicate timers
-    if (pollTimers.current.has(generationId)) return;
-
-    const timer = setInterval(async () => {
+    if (historyLoading) return;
+    let active = true;
+    const errors = new Set<string>();
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    setPollingError(false);
+    const isCurrent = (id: string) => active && usePlaygroundStore.getState().activeGenerationIds.includes(id);
+    const poll = async (id: string) => {
       try {
-        const statusResp = await playgroundApi.getGenerationStatus(generationId);
-        const isTerminal = statusResp.status === 'completed' || statusResp.status === 'failed';
-
-        // Fetch full generation data for complete update
-        const fullResp = await playgroundApi.getGeneration(generationId);
-        updateGeneration(normalizeGeneration(fullResp));
-
-        if (isTerminal) {
-          clearInterval(timer);
-          pollTimers.current.delete(generationId);
+        const response = await playgroundApi.getGeneration(id);
+        if (!isCurrent(id)) return;
+        updateGeneration(normalizeGeneration(response));
+        errors.delete(id);
+      } catch {
+        if (!isCurrent(id)) return;
+        errors.add(id);
+      } finally {
+        if (active) {
+          setPollingError(errors.size > 0);
+          if (isCurrent(id)) timers.set(id, setTimeout(() => void poll(id), POLL_INTERVAL));
         }
-      } catch (err) {
-        console.error('[Playground] Poll failed for', generationId, err);
-        clearInterval(timer);
-        pollTimers.current.delete(generationId);
       }
-    }, POLL_INTERVAL);
-
-    pollTimers.current.set(generationId, timer);
-  }, [updateGeneration]);
+    };
+    activeIds.forEach(id => timers.set(id, setTimeout(() => void poll(id), POLL_INTERVAL)));
+    return () => {
+      active = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [activeIds, historyLoading, updateGeneration]);
 
   // ─── Generate handler — enqueue a request; the dispatcher runs it ──────────
 
@@ -169,9 +163,6 @@ export default function PlaygroundPage() {
       const gen = normalizeGeneration(resp);
       startGeneration(gen);
       removeFromQueue(req.id);
-      if (gen.status !== 'completed' && gen.status !== 'failed') {
-        startPolling(gen.id);
-      }
     } catch (err) {
       console.error('[Playground] Dispatch failed:', err);
       toast.error(t('queue.dispatchFailed'), {
@@ -179,7 +170,7 @@ export default function PlaygroundPage() {
       });
       removeFromQueue(req.id);
     }
-  }, [startGeneration, removeFromQueue, startPolling]);
+  }, [startGeneration, removeFromQueue, t]);
 
   // Pump: dispatch pending requests up to the concurrency limit.
   const pump = useCallback(() => {
@@ -239,6 +230,7 @@ export default function PlaygroundPage() {
         </section>
         <section className={styles.results} aria-label={t('results.title')}>
           {historyLoading && <LoadingState label={t('results.loading')} inline={history.length > 0} />}
+          {pollingError && <p role="alert" className={styles.error}>{t('results.pollFailed')}</p>}
           {historyError && <div role="alert" className={styles.error}>{t('results.loadFailed')}<Button variant="quiet" onPress={() => setHistoryReload(value => value + 1)}>{t('card.retry')}</Button></div>}
           {((!historyLoading && !historyError) || history.length > 0) && <ResultGallery />}
         </section>

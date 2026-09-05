@@ -7,7 +7,6 @@ import { Button, IconButton } from '@omnistudio/ui';
 import styles from './PlaygroundPage.module.css';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
-import { normalizeGeneration } from './normalizers';
 import ResultCard from './ResultCard';
 import GalleryView from './GalleryView';
 import DetailPanel from './DetailPanel';
@@ -43,7 +42,7 @@ function formatSessionLabel(
 }
 
 export default function ResultGallery() {
-  const { history, queue, startGeneration, updateGeneration, useResultAsReference } = usePlaygroundStore();
+  const { history, queue, enqueueRequest, useResultAsReference } = usePlaygroundStore();
   const t = useTranslations('playground');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'gallery'>('grid');
@@ -55,46 +54,11 @@ export default function ResultGallery() {
     setDetailOutputId(outputId);
   }, []);
 
-  const handleRetry = useCallback(async (gen: PlaygroundGeneration) => {
-    try {
-      const resp = await playgroundApi.generate({
-        mode: gen.mode,
-        model_id: gen.model_id,
-        prompt: gen.prompt,
-        negative_prompt: gen.negative_prompt || undefined,
-        input_media: Array.isArray(gen.input_media) && gen.input_media.length > 0 ? gen.input_media : undefined,
-        parameters: gen.parameters && Object.keys(gen.parameters).length > 0 ? gen.parameters : undefined,
-        batch_size: gen.batch_size > 1 ? gen.batch_size : undefined,
-      });
-      const newGen = normalizeGeneration(resp);
-      startGeneration(newGen);
-      // Poll for status
-      const poll = setInterval(async () => {
-        try {
-          const s = await playgroundApi.getGenerationStatus(newGen.id);
-          if (s.status === 'completed' || s.status === 'failed') {
-            clearInterval(poll);
-            const full = await playgroundApi.getGeneration(newGen.id);
-            updateGeneration({
-              ...newGen,
-              status: full.status as PlaygroundGeneration['status'],
-              outputs: Array.isArray(full.outputs)
-                ? full.outputs.map((o, index) => normalizeGeneration({ ...full, outputs: [o] }).outputs[0] || {
-                    id: `output-${index}`,
-                    media_path: "",
-                    media_type: "image" as const,
-                    saved_to_library: false,
-                  })
-                : [],
-              error: full.error,
-            });
-          }
-        } catch { clearInterval(poll); }
-      }, 2000);
-    } catch (err) {
-      console.error('[Playground] Retry failed:', err);
-    }
-  }, [startGeneration, updateGeneration]);
+  const handleRetry = useCallback((gen: PlaygroundGeneration) => {
+    enqueueRequest({ mode: gen.mode, modelId: gen.model_id, prompt: gen.prompt,
+      negativePrompt: gen.negative_prompt, inputMedia: gen.input_media,
+      parameters: gen.parameters, batchSize: gen.batch_size });
+  }, [enqueueRequest]);
 
   const handleDelete = useCallback(async (gen: PlaygroundGeneration) => {
     try {

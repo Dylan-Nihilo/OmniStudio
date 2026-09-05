@@ -1862,7 +1862,8 @@
       "today": "Today",
       "yesterday": "Yesterday",
       "loading": "Loading generations…",
-      "loadFailed": "Could not load generations. Please retry."
+      "loadFailed": "Could not load generations. Please retry.",
+      "pollFailed": "Task status is temporarily unavailable. Retrying automatically."
     },
     "card": {
       "saveToLibrary": "Save to library",

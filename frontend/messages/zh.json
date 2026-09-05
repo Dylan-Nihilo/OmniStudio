@@ -1862,7 +1862,8 @@
       "today": "今天",
       "yesterday": "昨天",
       "loading": "正在加载生成记录…",
-      "loadFailed": "生成记录加载失败，请重试"
+      "loadFailed": "生成记录加载失败，请重试",
+      "pollFailed": "任务状态暂时无法更新，正在自动重试。"
     },
     "card": {
       "saveToLibrary": "保存到资产库",

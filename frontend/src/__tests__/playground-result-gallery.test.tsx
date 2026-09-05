@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ResultGallery from "@/components/modules/playground/ResultGallery";
@@ -22,7 +22,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("@/components/modules/playground/GalleryView", () => ({ default: () => null }));
 vi.mock("@/components/modules/playground/DetailPanel", () => ({ default: () => null }));
-vi.mock("@/components/modules/playground/ResultCard", () => ({ default: () => null }));
+vi.mock("@/components/modules/playground/ResultCard", () => ({ default: ({ generation, onRetry }: any) => <button onClick={() => onRetry(generation)}>retry-result</button> }));
 
 describe("ResultGallery", () => {
   beforeEach(() => {
@@ -49,4 +49,11 @@ describe("ResultGallery", () => {
     expect(screen.getByText("queue.label")).toBeInTheDocument();
     expect(screen.getByText("· 1")).toBeInTheDocument();
   });
+  it("queues retries with the original generation inputs", () => {
+    usePlaygroundStore.setState({ queue: [], history: [{ id: "failed", mode: "i2v", model_id: "video-model", prompt: "Camera moves", negative_prompt: "blur", input_media: ["frame.png"], parameters: { duration: 5 }, batch_size: 4, status: "failed", outputs: [], created_at: new Date().toISOString() }] });
+    render(<ResultGallery />);
+    fireEvent.click(screen.getByRole("button", { name: "retry-result" }));
+    expect(usePlaygroundStore.getState().queue).toEqual([expect.objectContaining({ mode: "i2v", modelId: "video-model", prompt: "Camera moves", negativePrompt: "blur", inputMedia: ["frame.png"], parameters: { duration: 5 }, batchSize: 4, status: "pending" })]);
+  });
+
 });

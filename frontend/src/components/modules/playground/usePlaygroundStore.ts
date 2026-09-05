@@ -332,45 +332,22 @@ export const usePlaygroundStore = create<PlaygroundState>((set, get) => ({
 
   // -- Generation lifecycle --------------------------------------------------
 
-  startGeneration: (gen) => {
-    const { activeGenerationIds, history } = get();
-    set({
-      activeGenerationIds: [...activeGenerationIds, gen.id],
-      history: [gen, ...history],
-      isGenerating: true,
-    });
-  },
+  startGeneration: (gen) => get().setHistory([gen, ...get().history.filter(item => item.id !== gen.id)]),
 
-  updateGeneration: (gen) => {
-    const { history, activeGenerationIds } = get();
-    const updatedHistory = history.map((h) => (h.id === gen.id ? gen : h));
-    const isTerminal = gen.status === 'completed' || gen.status === 'failed';
-    const updatedActive = isTerminal
-      ? activeGenerationIds.filter((id) => id !== gen.id)
-      : activeGenerationIds;
+  updateGeneration: (gen) => get().setHistory(get().history.map(item => item.id === gen.id ? gen : item)),
 
-    set({
-      history: updatedHistory,
-      activeGenerationIds: updatedActive,
-      isGenerating: updatedActive.length > 0,
-    });
-  },
-
-  removeGeneration: (id) => {
-    const { history, activeGenerationIds } = get();
-    const updatedActive = activeGenerationIds.filter((gid) => gid !== id);
-    set({
-      history: history.filter((h) => h.id !== id),
-      activeGenerationIds: updatedActive,
-      isGenerating: updatedActive.length > 0,
-    });
-  },
+  removeGeneration: (id) => get().setHistory(get().history.filter(item => item.id !== id)),
 
   // -- History ---------------------------------------------------------------
 
-  setHistory: (history) => set({ history }),
+  setHistory: (history) => {
+    const previous = get().activeGenerationIds;
+    const running = history.filter(item => item.status === 'pending' || item.status === 'processing').map(item => item.id);
+    const activeGenerationIds = running.length === previous.length && running.every((id, index) => id === previous[index]) ? previous : running;
+    set({ history, activeGenerationIds, isGenerating: activeGenerationIds.length > 0 });
+  },
 
-  appendToHistory: (gen) => set((s) => ({ history: [gen, ...s.history] })),
+  appendToHistory: (gen) => get().startGeneration(gen),
 
   // -- Templates -------------------------------------------------------------
 
