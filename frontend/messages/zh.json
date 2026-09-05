@@ -421,6 +421,15 @@
     "workspaceAria": "Omni Studio · 工作区",
     "mainNavAria": "主导航"
   },
+  "studioPage": {
+    "sequence": "镜头序列",
+    "shotCount": "{count} 个镜头",
+    "selectShot": "选择镜头 {number}",
+    "shotNumber": "镜头 {number}",
+    "untitledShot": "未填写描述",
+    "storyboard": "分镜",
+    "previewCut": "预览剪辑"
+  },
   "scriptPage": {
     "analysisHint": "点击「分析剧本」提取场景和角色。",
     "conflict": "剧本已在其他窗口更新。请保留当前文本，刷新项目后再保存。",
@@ -1544,6 +1553,14 @@
     "noRefVideosAvailable": "暂无参考视频，请先在素材步骤中生成动态参考。"
   },
   "storyboardR2V": {
+    "saveFailed": "保存失败，请重试",
+    "unknownError": "未知错误",
+    "saving": "保存中…",
+    "generationSettings": "生成设置",
+    "referenceImage": "参考图 {number}",
+    "promptLabel": "动作提示词",
+    "shotActions": "镜头操作",
+    "generationMode": "生成方式",
     "shots": "镜头",
     "shot": "镜头",
     "addShot": "添加镜头",

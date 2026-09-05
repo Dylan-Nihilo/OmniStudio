@@ -421,6 +421,15 @@
     "workspaceAria": "Omni Studio · Workspace",
     "mainNavAria": "Main navigation"
   },
+  "studioPage": {
+    "sequence": "Shot sequence",
+    "shotCount": "{count} shots",
+    "selectShot": "Select shot {number}",
+    "shotNumber": "Shot {number}",
+    "untitledShot": "No description yet",
+    "storyboard": "Storyboard",
+    "previewCut": "Preview edit"
+  },
   "scriptPage": {
     "analysisHint": "Analyze the script to extract scenes and characters.",
     "conflict": "This script changed in another window. Keep your text and reload the project before saving.",
@@ -1544,6 +1553,14 @@
     "noRefVideosAvailable": "No reference videos available. Generate Motion References in the Assets step first."
   },
   "storyboardR2V": {
+    "saveFailed": "Save failed. Please retry.",
+    "unknownError": "Unknown error",
+    "saving": "Saving…",
+    "generationSettings": "Generation settings",
+    "referenceImage": "Reference image {number}",
+    "promptLabel": "Action prompt",
+    "shotActions": "Shot actions",
+    "generationMode": "Generation mode",
     "genShots": "✨ Generate shots",
     "genInFlight": "Generating...",
     "emptyTitle": "No shots yet",

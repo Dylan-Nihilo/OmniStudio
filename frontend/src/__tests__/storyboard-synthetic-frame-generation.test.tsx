@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,12 +6,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import { useProjectStore } from "@/store/projectStore";
 
-const { createFrame, createVideoTask, getProject, getTaskStatus, toastError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     getProject: vi.fn(),
     getTaskStatus: vi.fn(),
     toastError: vi.fn(),
+    deleteFrame: vi.fn(),
+    reorderFrames: vi.fn(),
 }));
 
 vi.mock("next-intl", () => ({
@@ -26,7 +28,7 @@ vi.mock("@/lib/api", () => ({
         updateFrameWorkbench: vi.fn(),
         updateFrame: vi.fn(),
     },
-    crudApi: { createFrame },
+    crudApi: { createFrame, deleteFrame, reorderFrames },
 }));
 
 vi.mock("@/store/toastStore", () => ({
@@ -46,10 +48,18 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
     default: (props: {
         onUpdatePrompt: (value: string) => void;
         onGenerateBatch: (count: number) => void;
+        sequence?: React.ReactNode;
+        shot: { id: string };
+        onDelete: () => void;
+        onMoveDown: () => void;
     }) => (
         <div>
             <button onClick={() => props.onUpdatePrompt("A noir station [character1:Lin Xia]")}>set prompt</button>
             <button onClick={() => props.onGenerateBatch(1)}>generate video</button>
+            <button onClick={props.onDelete}>delete shot</button>
+            <button onClick={props.onMoveDown}>move down</button>
+            <output>{props.shot.id}</output>
+            {props.sequence}
         </div>
     ),
 }));
@@ -175,4 +185,20 @@ describe("StoryboardR2V synthetic frame generation", () => {
             expect(toastError).toHaveBeenCalledWith("saveFailed", { body: "save failed" });
         });
     });
+    it.each(["delete", "reorder"])("retains shot order and reports a failed %s", async (operation) => {
+        const frames = [
+            { id: "frame-1", action_description: "first shot" },
+            { id: "frame-2", action_description: "second shot" },
+        ];
+        useProjectStore.setState({ currentProject: { ...useProjectStore.getState().currentProject!, frames }, selectedFrameId: "frame-1" });
+        deleteFrame.mockRejectedValueOnce(new Error("delete failed"));
+        reorderFrames.mockRejectedValueOnce(new Error("reorder failed"));
+        render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: operation === "delete" ? "delete shot" : "move down" }));
+        await waitFor(() => expect(toastError).toHaveBeenCalledWith("saveFailed", { body: `${operation} failed` }));
+        expect(screen.getByText("frame-1", { selector: "output" })).toBeVisible();
+        expect(screen.getAllByRole("button", { name: "selectShot" }).map(node => node.textContent)).toEqual([expect.stringContaining("first shot"), expect.stringContaining("second shot")]);
+        expect(useProjectStore.getState().currentProject!.frames.map(frame => frame.id)).toEqual(["frame-1", "frame-2"]);
+    });
+
 });

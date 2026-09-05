@@ -1,0 +1,21 @@
+.page { display: flex; flex: 1; height: 100%; min-height: 0; position: relative; background: var(--color-bg-base); color: var(--color-text-primary); }
+.main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 32px; flex-shrink: 0; }
+.header > div:first-child { min-width: 0; }
+.header p { font-size: 10px; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.header h2 { margin-top: 6px; font-size: 19px; font-weight: 600; }
+.headerActions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.workbench { display: flex; flex: 1; min-height: 0; padding-bottom: 24px; }
+.selectedShot { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.sequence { margin-top: 36px; }
+.sequence header, .sequence footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--color-border-default); padding-bottom: 16px; font-size: 11px; color: var(--color-text-muted); }
+.sequence footer { border: 0; border-top: 1px solid var(--color-border-default); padding: 16px 0; }
+.strip { display: flex; gap: 16px; overflow-x: auto; padding: 24px 0; }
+.thumbnail { display: flex; flex: 0 0 150px; height: auto; min-width: 0; flex-direction: column; align-items: stretch; gap: 10px; padding: 0 0 10px; white-space: normal; text-align: left; border-radius: 0; border-bottom: 2px solid transparent; }
+.thumbnail[aria-pressed="true"] { border-color: var(--color-primary); color: var(--color-primary); }
+.thumbnail img, .noImage { width: 150px; height: 90px; object-fit: cover; border-radius: 12px; }
+.noImage { display: grid; place-items: center; background: var(--color-bg-inset); color: var(--color-text-muted); }
+.thumbnail > span:not(.noImage) { font-size: 10px; color: var(--color-text-muted); }
+.thumbnail strong { font-size: 12px; font-weight: 400; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+@media (max-width: 1199px) { .header { padding: 18px 24px; flex-wrap: wrap; } .headerActions { gap: 8px; } }
+@media (max-width: 959px) { .page { overflow: auto; } .header { padding: 20px 16px; } .headerActions { width: 100%; } }

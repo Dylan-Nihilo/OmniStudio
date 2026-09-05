@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { motion } from "framer-motion";
-import { Plus, Loader2, Sparkles, PanelBottomOpen, PanelBottomClose } from "lucide-react";
-import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
+import { Button, EmptyState, LoadingState } from "@omnistudio/ui";
+import styles from "./StoryboardR2V.module.css";
+import { Plus, Film } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
 import { api, crudApi, type VideoTask, type RefineSSEEvent } from "@/lib/api";
@@ -17,7 +17,6 @@ import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
 import DialogueAudioRow from "./storyboard-r2v/DialogueAudioRow";
 import StoryboardGenerateDialog from "./storyboard-r2v/StoryboardGenerateDialog";
 import { toast } from "@/store/toastStore";
-import { Wand2 } from "lucide-react";
 import AssetDrawer from "./storyboard-r2v/AssetDrawer";
 import { type VideoConfig, DEFAULT_VIDEO_CONFIG } from "./storyboard-r2v/VideoConfigModal";
 import {
@@ -41,7 +40,9 @@ export default function StoryboardR2V() {
     const currentProject = useProjectStore((state) => state.currentProject);
     const updateProject = useProjectStore((state) => state.updateProject);
     const t = useTranslations("storyboardR2V");
-    const tStep = useTranslations("stepHeader");
+    const tStudio = useTranslations("studioPage");
+    const selectedFrameId = useProjectStore(state => state.selectedFrameId);
+    const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
 
     // Derive shots from project frames. Workbench state (T2I 抽卡
     // history, last-active tab, batch count) now comes from backend-
@@ -56,6 +57,10 @@ export default function StoryboardR2V() {
         }
         return [migrateShotNode({ id: `shot_${Date.now()}`, prompt: "", tabMode: "direct_r2v" })];
     });
+
+    const structurePendingRef = useRef(false);
+    const [structurePending, setStructurePending] = useState(false);
+    const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
 
     // Global video config (with localStorage persistence for model selection)
     const [videoConfig, setVideoConfig] = useState<VideoConfig>(() => {
@@ -187,52 +192,6 @@ export default function StoryboardR2V() {
         return out;
     });
 
-    // Issue 16 — per-shot expand state (P plan). Default: all collapsed
-    // (browse mode). Set persists per project to localStorage so coming back
-    // to the project restores the user's last working layout.
-    const expandStorageKey = currentProject ? `storyboard-r2v-expanded-${currentProject.id}` : null;
-    const [expandedShots, setExpandedShots] = useState<Set<string>>(() => {
-        if (typeof window === "undefined" || !expandStorageKey) return new Set();
-        try {
-            const raw = window.localStorage.getItem(expandStorageKey);
-            if (raw) {
-                const arr = JSON.parse(raw);
-                if (Array.isArray(arr)) return new Set(arr.filter(x => typeof x === "string"));
-            }
-        } catch { /* corrupt localStorage value — ignore */ }
-        return new Set();
-    });
-    // Persist on change.
-    useEffect(() => {
-        if (typeof window === "undefined" || !expandStorageKey) return;
-        try {
-            window.localStorage.setItem(expandStorageKey, JSON.stringify(Array.from(expandedShots)));
-        } catch { /* quota exceeded — ignore */ }
-    }, [expandedShots, expandStorageKey]);
-
-    const toggleShotExpanded = useCallback((shotId: string) => {
-        setExpandedShots(prev => {
-            const next = new Set(prev);
-            if (next.has(shotId)) next.delete(shotId);
-            else next.add(shotId);
-            return next;
-        });
-    }, []);
-    const expandAllShots = useCallback(() => {
-        const ids = shots.map(s => s.id);
-        // Force every inner section open — overrides each shot's sticky
-        // preference. Section keys must match what ParamsSection /
-        // CandidatesSection register inside their SectionShells.
-        overridePanelSectionState(ids, ["params", "candidates"], true);
-        setExpandedShots(new Set(ids));
-    }, [shots]);
-    const collapseAllShots = useCallback(() => {
-        // Don't reset section preferences here — sticky memory should
-        // survive a global collapse so re-expanding a shot returns to
-        // the user's chosen drawer state.
-        setExpandedShots(new Set());
-    }, []);
-
     // Debounced backend writer for workbench state. Coalesces rapid
     // changes (e.g. user clicking through T2I thumbs) into one PATCH
     // per shot per second. Per-shot map ensures one shot's pending
@@ -347,16 +306,7 @@ export default function StoryboardR2V() {
     const scenes = currentProject?.scenes || [];
     const props = currentProject?.props || [];
 
-    // ────────────────────────────────────────────────────────────────────
-    // Shot mutations — Optimistic UI + 异步同步后端 + store 更新
-    //   Pattern: 立即改本地 state（无闪烁），后台 fire-and-forget call
-    //   到 backend，成功后 swap synthetic id with real id（addShot/duplicate）
-    //   并 updateProject(store) 让 currentProject.frames 保持权威。
-    //   失败仅 log warn，不回滚（避免 UI 闪烁；用户可重试）。
-    //   切 step tab → unmount 时 useEffect cleanup 已经 flush pending
-    //   debounce writes，所以打字到一半切走也不丢字。
-    // ────────────────────────────────────────────────────────────────────
-
+    // New shots keep a local draft until materialized; deletion and ordering await confirmation.
     // Add a new shot after the given index
     const addShot = useCallback(async (afterIndex: number) => {
         const synthId = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -373,13 +323,8 @@ export default function StoryboardR2V() {
             updated.splice(afterIndex + 1, 0, newShot);
             return updated;
         });
-        // Issue 16 — newly-created shots default to expanded so the user
-        // can immediately operate on them. Existing shots keep their state.
-        setExpandedShots(prev => {
-            const next = new Set(prev);
-            next.add(synthId);
-            return next;
-        });
+        setSelectedFrameId(synthId);
+
         if (!currentProject?.id) return;
         try {
             const resp = await crudApi.createFrame(currentProject.id, {
@@ -391,13 +336,8 @@ export default function StoryboardR2V() {
             const realFrame = frames?.[Math.min(afterIndex + 1, frames.length - 1)];
             if (realFrame?.id) {
                 setShots(prev => prev.map(s => s.id === synthId ? { ...s, id: realFrame.id } : s));
-                setExpandedShots(prev => {
-                    if (!prev.has(synthId)) return prev;
-                    const next = new Set(prev);
-                    next.delete(synthId);
-                    next.add(realFrame.id);
-                    return next;
-                });
+                if (useProjectStore.getState().selectedFrameId === synthId) setSelectedFrameId(realFrame.id);
+
             }
             if (frames) updateProject(currentProject.id, { frames });
         } catch (err) {
@@ -559,50 +499,70 @@ export default function StoryboardR2V() {
         }
     }, [currentProject, updateProject]);
 
-    // Delete a shot
+    // Keep the current order visible until the backend confirms the mutation.
     const deleteShot = useCallback(async (index: number) => {
         const target = shots[index];
-        if (!target) return;
-        setShots(prev => prev.filter((_, i) => i !== index));
-        setExpandedShots(prev => {
-            if (!prev.has(target.id)) return prev;
-            const next = new Set(prev);
-            next.delete(target.id);
-            return next;
-        });
-        if (!currentProject?.id) return;
-        // Synthetic id never reached backend → nothing to delete remotely.
-        if (target.id.startsWith("shot_")) return;
+        if (!target || structurePendingRef.current) return;
+        const projectId = currentProject?.id;
+        structurePendingRef.current = true;
+        setStructurePending(true);
         try {
-            const resp = await crudApi.deleteFrame(currentProject.id, target.id);
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            if (frames) updateProject(currentProject.id, { frames });
+            if (projectId && !target.id.startsWith("shot_")) {
+                const resp = await crudApi.deleteFrame(projectId, target.id);
+                if (Array.isArray(resp?.frames)) updateProject(projectId, { frames: resp.frames });
+            }
+            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            for (const pending of [promptPendingRef.current, fieldPendingRef.current, workbenchPendingRef.current]) {
+                const entry = pending.get(target.id);
+                if (entry) window.clearTimeout(entry.timer);
+                pending.delete(target.id);
+            }
+            setShots(prev => prev.filter(shot => shot.id !== target.id));
+            if (useProjectStore.getState().selectedFrameId === target.id) {
+                setSelectedFrameId(shots[index + 1]?.id ?? shots[index - 1]?.id ?? null);
+            }
         } catch (err) {
             debugLog.warn("Studio", "deleteShot backend persist failed", err);
+            toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
+        } finally {
+            structurePendingRef.current = false;
+            setStructurePending(false);
         }
-    }, [shots, currentProject, updateProject]);
+    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId]);
 
-    // Move shot up/down
     const moveShot = useCallback(async (index: number, direction: "up" | "down") => {
         const targetIndex = direction === "up" ? index - 1 : index + 1;
-        if (targetIndex < 0 || targetIndex >= shots.length) return;
-        const updated = [...shots];
-        [updated[index], updated[targetIndex]] = [updated[targetIndex], updated[index]];
-        setShots(updated);
-        if (!currentProject?.id) return;
-        const ids = updated.map(s => s.id);
-        // Reorder requires every id to be backed on backend — if any
-        // are still synthetic (createFrame in-flight), defer; the next
-        // move after createFrame settles will reconcile.
-        if (ids.some(id => id.startsWith("shot_"))) return;
+        if (targetIndex < 0 || targetIndex >= shots.length || structurePendingRef.current) return;
+        const ids = shots.map(shot => shot.id);
+        if (ids.some(id => id.startsWith("shot_"))) {
+            toast.error(t("saveFailed"));
+            return;
+        }
+        [ids[index], ids[targetIndex]] = [ids[targetIndex], ids[index]];
+        const projectId = currentProject?.id;
+        structurePendingRef.current = true;
+        setStructurePending(true);
         try {
-            const resp = await crudApi.reorderFrames(currentProject.id, ids);
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            if (frames) updateProject(currentProject.id, { frames });
+            if (projectId) {
+                const resp = await crudApi.reorderFrames(projectId, ids);
+                if (Array.isArray(resp?.frames)) updateProject(projectId, { frames: resp.frames });
+            }
+            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            setShots(prev => {
+                const next = [...prev];
+                const from = next.findIndex(shot => shot.id === shots[index].id);
+                const to = next.findIndex(shot => shot.id === shots[targetIndex].id);
+                if (from >= 0 && to >= 0) [next[from], next[to]] = [next[to], next[from]];
+                return next;
+            });
         } catch (err) {
             debugLog.warn("Studio", "moveShot backend persist failed", err);
+            toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
+        } finally {
+            structurePendingRef.current = false;
+            setStructurePending(false);
         }
-    }, [shots, currentProject, updateProject]);
+    }, [shots, currentProject?.id, t, updateProject]);
 
     // Duplicate a shot
     const duplicateShot = useCallback(async (index: number) => {
@@ -626,11 +586,8 @@ export default function StoryboardR2V() {
             updated.splice(index + 1, 0, newShot);
             return updated;
         });
-        setExpandedShots(prev => {
-            const next = new Set(prev);
-            next.add(synthId);
-            return next;
-        });
+
+        setSelectedFrameId(synthId);
         if (!currentProject?.id) return;
         // Source itself isn't on backend yet — best-effort: skip remote
         // copy, the next workbench/prompt write will materialize it.
@@ -641,13 +598,8 @@ export default function StoryboardR2V() {
             const realFrame = frames?.[index + 1];
             if (realFrame?.id) {
                 setShots(prev => prev.map(s => s.id === synthId ? { ...s, id: realFrame.id } : s));
-                setExpandedShots(prev => {
-                    if (!prev.has(synthId)) return prev;
-                    const next = new Set(prev);
-                    next.delete(synthId);
-                    next.add(realFrame.id);
-                    return next;
-                });
+                if (useProjectStore.getState().selectedFrameId === synthId) setSelectedFrameId(realFrame.id);
+
             }
             if (frames) updateProject(currentProject.id, { frames });
         } catch (err) {
@@ -851,16 +803,11 @@ export default function StoryboardR2V() {
         const newFrame = frames[Math.min(index, frames.length - 1)];
         if (!newFrame?.id) throw new Error("Frame creation returned no persisted frame");
 
-        setShots(prev => prev.map((candidate, candidateIndex) =>
-            candidateIndex === index ? { ...candidate, id: newFrame.id } : candidate,
+        setShots(prev => prev.map(candidate =>
+            candidate.id === shot.id ? { ...candidate, id: newFrame.id } : candidate,
         ));
-        setExpandedShots(prev => {
-            if (!prev.has(shot.id)) return prev;
-            const next = new Set(prev);
-            next.delete(shot.id);
-            next.add(newFrame.id);
-            return next;
-        });
+        if (useProjectStore.getState().selectedFrameId === shot.id) setSelectedFrameId(newFrame.id);
+
         updateProject(projectId, { frames });
         return newFrame.id;
     }, [currentProject?.id, updateProject]);
@@ -1711,17 +1658,11 @@ export default function StoryboardR2V() {
         });
     }, []);
 
-    // Queue's jump-to-shot: scroll the shot's wrapper into view AND
-    // expand the shot panel + its sections (otherwise jumping to a
-    // collapsed shot lands the user on a 1-line strip and they have
-    // to expand manually).
+    // Select the queued shot and reveal its settings and candidates.
     const handleJumpToShot = useCallback((frameId: string) => {
-        setExpandedShots(prev => {
-            if (prev.has(frameId)) return prev;
-            const next = new Set(prev);
-            next.add(frameId);
-            return next;
-        });
+        setSelectedFrameId(frameId);
+        setQueueOpen(false);
+
         // Force inner sections open too — feels right when arriving from
         // a queue task: you want to see Params + Candidates for that shot.
         overridePanelSectionState([frameId], ["params", "candidates"], true);
@@ -1745,89 +1686,17 @@ export default function StoryboardR2V() {
     );
 
     return (
-        // Layout v4: outer horizontal split. Custom page header belongs
-        // to main column (not page-wide), so the right TaskQueuePanel can
-        // be a true floor-to-ceiling sidebar with its own SidePanelHeader.
-        <div className="h-full flex overflow-hidden relative">
-        {/* Main column — pushed (compressed) when the queue panel opens
-            so the queue doesn't overlay content. Bloom/grain now global in
-            ProjectClient so the whole pipeline shares one atmosphere. */}
-        <div className="relative z-10 flex-1 flex flex-col overflow-hidden min-w-0">
-            {/* Unified page header (shared StepPageHeader) */}
-            <StepPageHeader
-                stepNumber={4}
-                englishName="STORYBOARD R2V"
-                title={tStep("storyboardTitle")}
-                subtitle={tStep("storyboardSubtitle")}
-                pills={(
-                    <>
-                        {currentProject?.art_direction?.style_config?.name ? (
-                            <StepPill label={t("artStyleLabel")} value={currentProject.art_direction.style_config.name} />
-                        ) : null}
-                        <StepPill label={t("currentModel")} value={currentModelName} />
-                    </>
-                )}
-                trailing={(
-                    <>
-                        <TaskQueueButton
-                            inFlightCount={inFlightTaskCount}
-                            open={queueOpen}
-                            onToggle={() => setQueueOpen(v => !v)}
-                        />
-                        <button
-                            type="button"
-                            onClick={() => setGenDialogOpen(true)}
-                            disabled={generating}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 font-sans text-[0.8125rem] font-semibold text-on-accent shadow-[var(--btn-pri-glow),inset_0_1.5px_0_rgba(255,255,255,0.14)] transition-all duration-fast ease-out-quart hover:bg-primary-hover disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            {generating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                            <span>{generating ? t("genInFlight") : t("genShots")}</span>
-                        </button>
-                    </>
-                )}
-            />
-            {/* Top Toolbar — mock-aligned: count on the left, expand/collapse pills on the right */}
-            <div className="flex flex-wrap items-center gap-3 px-4 py-3 shrink-0 sm:px-6">
-                <div className="flex items-center gap-3">
-                    <span className="font-mono text-[11px] tracking-[0.04em] text-text-secondary">
-                        <span className="text-foreground font-medium">{shots.length}</span>
-                        <span className="ml-1.5 uppercase">{shots.length === 1 ? t("shot") : t("shots")}</span>
-                        {totalInFlight > 0 ? <span className="ml-2 text-status-processing-fg">· {totalInFlight} {t("inFlightShort")}</span> : null}
-                    </span>
-                    <motion.button
-                        whileHover={{ scale: 1.04 }}
-                        whileTap={{ scale: 0.96 }}
-                        onClick={() => addShot(shots.length - 1)}
-                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                    >
-                        <Plus size={13} strokeWidth={2} />
-                        {t("addShot")}
-                    </motion.button>
+        <div className={styles.page}>
+        <div className={styles.main}>
+            <header className={styles.header}>
+                <div><p>{currentProject?.title} / {tStudio("storyboard")}</p><h2>{selectedShot ? tStudio("shotNumber", { number: shots.indexOf(selectedShot) + 1 }) : tStudio("storyboard")}</h2></div>
+                <div className={styles.headerActions}>
+                    {structurePending && <LoadingState inline label={t("saving")} />}
+                    <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
+                    <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
+                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating}>{generating ? t("genInFlight") : t("genShots")}</Button>
                 </div>
-                {shots.length > 1 ? (
-                    <div className="ml-auto flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={expandAllShots}
-                            title={t("expandAll")}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-glass-border bg-transparent px-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            <PanelBottomOpen size={12} strokeWidth={1.8} />
-                            {t("expandAll")}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={collapseAllShots}
-                            title={t("collapseAll")}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-glass-border bg-transparent px-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            <PanelBottomClose size={12} strokeWidth={1.8} />
-                            {t("collapseAll")}
-                        </button>
-                    </div>
-                ) : null}
-            </div>
-
+            </header>
             <GenerationBanner
                 state={bannerState}
                 phase1Captions={PHASE1_CAPTIONS}
@@ -1837,57 +1706,16 @@ export default function StoryboardR2V() {
                 onGenerateDialogue={handleBatchDialogue}
             />
 
-            <div className="flex-1 overflow-y-auto px-5 pt-1.5 pb-10 space-y-5 sm:px-7">
-                {shots.length === 0 && (
-                    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center px-6">
-                        <div className="rounded-2xl border border-glass-border bg-glass p-8 max-w-lg">
-                            <div className="mx-auto w-12 h-12 grid place-items-center rounded-full bg-primary/10 border border-primary/30 mb-4">
-                                <Wand2 size={20} className="text-primary" />
-                            </div>
-                            <h3 className="text-display font-medium text-foreground">{t("emptyTitle")}</h3>
-                            <p className="text-body-sm text-text-secondary mt-1.5 max-w-md mx-auto leading-relaxed">
-                                {t("emptyBody")}
-                            </p>
-                            <div className="mt-5 flex items-center justify-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setGenDialogOpen(true)}
-                                    disabled={generating}
-                                    className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md bg-primary text-white border border-primary/65 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 transition-colors text-[0.8125rem] font-semibold"
-                                >
-                                    {generating ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
-                                    {generating ? t("genInFlight") : t("emptyCTA")}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => addShot(-1)}
-                                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
-                                >
-                                    <Plus size={12} />
-                                    {t("emptyManualAdd")}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+            <div className={styles.workbench}>
+                {!shots.length && <EmptyState title={t("emptyTitle")} description={t("emptyBody")} action={<><Button onPress={() => setGenDialogOpen(true)} isPending={generating}>{t("emptyCTA")}</Button><Button variant="quiet" onPress={() => addShot(-1)}>{t("emptyManualAdd")}</Button></>} />}
                 {shots.map((shot, index) => {
+                    if (shot.id !== selectedShot?.id) return null;
                     const shotTasks = tasksForShot(shot);
-                    const shotInFlight = shotTasks.filter(
-                        (t) => t.status === "pending" || t.status === "processing",
-                    ).length;
+                    const shotInFlight = shotTasks.filter(task => task.status === "pending" || task.status === "processing").length;
                     const paramsState = paramsStateForShot(shot);
                     const isI2vTab = shot.tabMode === "t2i_i2v";
-                    const modelList = shot.tabMode === "direct_r2v" ? VIDEO_R2V_MODELS : VIDEO_I2V_MODELS;
-                    return (
-                    /* Plain div (was motion.div) — staggered enter
-                       animation re-fired every time the user switched
-                       step tabs and came back, causing a noticeable
-                       全 list opacity flicker. ShotCard hover micro-
-                       motion is kept inside the card itself. */
-                    <div
-                        key={shot.id}
-                        ref={(el) => { shotWrapperRefs.current.set(shot.id, el); }}
-                    >
+                    const modelList = isI2vTab ? VIDEO_I2V_MODELS : VIDEO_R2V_MODELS;
+                    return <div key="selected-shot" className={styles.selectedShot} ref={el => { shotWrapperRefs.current.set(shot.id, el); }}>
                         <ShotCard
                             shot={shot}
                             index={index}
@@ -1900,6 +1728,7 @@ export default function StoryboardR2V() {
                             durationEditorConfig={durationEditorCfg}
                             onGenerateT2I={() => generateT2I(index)}
                             onGenerateVideo={() => generateVideo(index)}
+                            structurePending={structurePending}
                             onDelete={() => deleteShot(index)}
                             onMoveUp={() => moveShot(index, "up")}
                             onMoveDown={() => moveShot(index, "down")}
@@ -1930,8 +1759,6 @@ export default function StoryboardR2V() {
                                     }
                                     : undefined
                             }
-                            expanded={expandedShots.has(shot.id)}
-                            onToggleExpanded={() => toggleShotExpanded(shot.id)}
                             /* PR-3c · 闭环生成: ShotCard 内全宽生成行 + count selector.
                                canGenerate: direct_r2v 需 prompt; t2i_i2v 还需 first frame. */
                             generateCount={paramsState.count}
@@ -1963,11 +1790,19 @@ export default function StoryboardR2V() {
                                     debugLog.error("Studio", "update dialogue failed", e);
                                 }
                             }}
-                        />
-                        {/* PR-3j · Frame-level dialogue audio row. Only renders
-                            when the frame has dialogue text; resolves the
-                            bound character's voice_id and tracks stale state. */}
-                        {(() => {
+                            referenceImages={parseAssetTags(shot.prompt)}
+                            sequence={<section className={styles.sequence} aria-label={tStudio("sequence")}>
+                                <header><span>{tStudio("sequence")}</span><span>{tStudio("shotCount", { count: shots.length })}</span></header>
+                                <div className={styles.strip}>
+                                    {shots.map((item, i) => <Button key={item.id} variant="quiet" className={styles.thumbnail} aria-pressed={item.id === shot.id} aria-label={tStudio("selectShot", { number: i + 1 })} onPress={() => setSelectedFrameId(item.id)}>
+                                        {item.imageUrl || item.t2iImageUrl ? <img src={getAssetUrl(item.imageUrl || item.t2iImageUrl!)} alt="" /> : <span className={styles.noImage}><Film size={22} /></span>}
+                                        <span>{tStudio("shotNumber", { number: i + 1 })}{item.duration ? ` · ${item.duration}s` : ""}</span>
+                                        <strong>{item.visualDescription || item.prompt || tStudio("untitledShot")}</strong>
+                                    </Button>)}
+                                </div>
+                                <footer><Button variant="quiet" isDisabled={structurePending} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
+                            </section>}
+                            audio={(() => {
                             const frame = currentProject?.frames?.find((f: any) => f.id === shot.id);
                             if (!frame) return null;
                             const dialogueText = frame?.dialogue_structured?.line || frame?.dialogue;
@@ -1978,7 +1813,7 @@ export default function StoryboardR2V() {
                             const speaker = charId ? characters.find((c: any) => c.id === charId) : null;
                             return (
                                 <div className="mx-5 mb-4">
-                                    <DialogueAudioRow
+                                    <DialogueAudioRow key={frame.id}
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
                                         dialogue={dialogueText}
@@ -2051,19 +1886,9 @@ export default function StoryboardR2V() {
                                 </div>
                             );
                         })()}
-                        {/* Attached workbench: t2i_i2v 模式下渲染顺序为
-                            Step 1 (T2ISubsection) → Step 2 (ParamsSection)
-                            → CandidatesSection；direct_r2v 模式无 T2I 区，
-                            ParamsSection → CandidatesSection。
-                            Spec: docs/design/r2v-workflow-v3-unified.md §4.3.2
-                            (PR-3a · Option A 最小修复)
-                            v1 不加 explicit section header / first-frame
-                            thumbnail in Step 2 — 看用户反馈再升级 v2. */}
-                        {expandedShots.has(shot.id) ? (
-                        <div className="mx-5 mb-[18px] motion-safe:animate-[shotPanelIn_220ms_cubic-bezier(0.22,1,0.36,1)_both]">
-                            {isI2vTab ? (
+                            configuration={<>                            {isI2vTab ? (
                                 <div>
-                                    <T2ISubsection
+                                    <T2ISubsection key={shot.id}
                                         imageUrls={shot.t2iImageUrls ?? []}
                                         selectedIndex={shot.t2iSelectedIndex ?? 0}
                                         storyboardFrameUrl={shot.imageUrl || undefined}
@@ -2180,18 +2005,18 @@ export default function StoryboardR2V() {
                                 t2i_i2v mode, and is the only section above
                                 candidates in direct_r2v mode. */}
                             <div className={isI2vTab ? "border-t border-glass-border" : ""}>
-                                <ParamsSection
+                                <ParamsSection key={shot.id}
                                     shotId={shot.id}
                                     modelList={modelList}
-                                    title={isI2vTab ? "I2V Params" : "R2V Params"}
+                                    title={t("generationSettings")}
                                     params={paramsState}
                                     onChange={(next) => handleShotParamsChange(shot, next)}
                                     inFlightCount={shotInFlight}
                                     errorMessage={shotErrors[shot.id] ?? null}
                                 />
                             </div>
-                            <div className="border-t border-glass-border">
-                                <CandidatesSection
+</>}
+                            candidates={                                <CandidatesSection key={shot.id}
                                     shotId={shot.id}
                                     tasks={shotTasks}
                                     activeModel={paramsState.model}
@@ -2208,27 +2033,10 @@ export default function StoryboardR2V() {
                                     onReuseBatchParams={handleReuseBatchParams}
                                     onOpenCompare={() => setCompareModalOpen(true)}
                                     resolveUrl={resolveAssetUrl}
-                                />
-                            </div>
-                        </div>
-                        ) : null}
-                    </div>
-                    );
+                                />}
+                        />
+                    </div>;
                 })}
-
-                {/* Add shot at end */}
-                <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(shots.length * 0.03, 0.3) }}
-                    whileHover={{ scale: 1.005 }}
-                    whileTap={{ scale: 0.995 }}
-                    onClick={() => addShot(shots.length - 1)}
-                    className="w-full py-3.5 border border-dashed border-glass-border hover:border-primary/40 rounded-xl text-text-secondary hover:text-primary text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 bg-glass hover:bg-hover-bg"
-                >
-                    <Plus size={16} strokeWidth={1.5} />
-                    {t("addShot")}
-                </motion.button>
             </div>
 
             {/* Asset Drawer (fixed overlay) */}
@@ -2272,7 +2080,7 @@ export default function StoryboardR2V() {
             onConfirm={handleSmartGenerate}
             onJumpToScript={() => {
                 setGenDialogOpen(false);
-                window.dispatchEvent(new CustomEvent("navigateStep", { detail: "script" }));
+                document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "script" }));
             }}
         />
         </div>
