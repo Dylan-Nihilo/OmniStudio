@@ -84,6 +84,59 @@ export async function previewHandler(request, response) {
     documents.delete(project.id);
     return reply(200, { success: true });
   }
+  if (project && projectMatch[2]?.startsWith("frames") && !reading) {
+    const route = projectMatch[2];
+    const match = route.match(/^frames\/([^/]+)(?:\/(workbench))?$/);
+    const frameId = route === "frames/update" || route === "frames/copy" ? body.frame_id : match?.[1];
+    const frame = project.frames.find(item => item.id === frameId);
+    const saveFrames = () => {
+      project.frames.forEach((item, index) => { item.frame_index = index; });
+      project.updated_at = Math.max(stamp(), project.updated_at + 0.001);
+      return reply(200, project);
+    };
+    if (route === "frames" && method === "POST") {
+      if (typeof body.action_description !== "string" || typeof body.scene_id !== "string" ||
+          body.insert_at != null && (!Number.isInteger(body.insert_at) || body.insert_at < 0 || body.insert_at > project.frames.length)) return invalid();
+      const created = { id: `frame-${randomUUID()}`, action_description: body.action_description, scene_id: body.scene_id };
+      project.frames.splice(body.insert_at ?? project.frames.length, 0, created);
+      return saveFrames();
+    }
+    if (route === "frames/reorder" && method === "PUT") {
+      if (!Array.isArray(body.frame_ids) || body.frame_ids.length !== project.frames.length ||
+          new Set(body.frame_ids).size !== project.frames.length || body.frame_ids.some(id => !project.frames.some(item => item.id === id))) return invalid();
+      project.frames = body.frame_ids.map(id => project.frames.find(item => item.id === id));
+      return saveFrames();
+    }
+    if (["frames/copy", "frames/update"].includes(route) || match && (method === "DELETE" || match[2] === "workbench")) {
+      if (!frame) return missing();
+      if (route === "frames/copy" && method === "POST") {
+        if (body.insert_at != null && (!Number.isInteger(body.insert_at) || body.insert_at < 0 || body.insert_at > project.frames.length)) return invalid();
+        const copy = { ...frame, id: `frame-${randomUUID()}`, selected_video_id: null, final_take_id: null, t2i_image_urls: [] };
+        project.frames.splice(body.insert_at ?? project.frames.indexOf(frame) + 1, 0, copy);
+        return saveFrames();
+      }
+      if (route === "frames/update" && method === "POST") {
+        const textFields = ["image_prompt", "action_description", "dialogue", "camera_angle", "scene_id", "shot_size", "camera_movement_description", "transition_hint"];
+        if (textFields.some(key => body[key] != null && typeof body[key] !== "string") ||
+            body.duration != null && (!Number.isFinite(body.duration) || body.duration <= 0) ||
+            body.character_ids != null && (!Array.isArray(body.character_ids) || body.character_ids.some(id => typeof id !== "string"))) return invalid();
+        for (const key of [...textFields, "duration", "character_ids"]) if (body[key] != null) frame[key] = body[key];
+        return saveFrames();
+      }
+      if (match?.[2] === "workbench" && method === "PATCH") {
+        if (body.workbench_tab_mode != null && !["direct_r2v", "t2i_i2v"].includes(body.workbench_tab_mode) ||
+            body.workbench_generate_count != null && (!Number.isInteger(body.workbench_generate_count) || body.workbench_generate_count < 1 || body.workbench_generate_count > 6) ||
+            body.t2i_image_urls != null && (!Array.isArray(body.t2i_image_urls) || body.t2i_image_urls.some(url => typeof url !== "string")) ||
+            body.t2i_selected_index != null && (!Number.isInteger(body.t2i_selected_index) || body.t2i_selected_index < 0)) return invalid();
+        for (const key of ["workbench_tab_mode", "workbench_generate_count", "t2i_image_urls", "t2i_selected_index"]) if (body[key] != null) frame[key] = body[key];
+        return saveFrames();
+      }
+      if (!match?.[2] && method === "DELETE") {
+        project.frames.splice(project.frames.indexOf(frame), 1);
+        return saveFrames();
+      }
+    }
+  }
   if (projectMatch?.[2] === "edit-lease" && ["POST", "PATCH", "DELETE"].includes(method)) {
     if (typeof body.client_instance_id !== "string" || !body.client_instance_id) return invalid();
     // ponytail: demo leases allow both comparison tabs; real collaboration uses the backend lease service.
