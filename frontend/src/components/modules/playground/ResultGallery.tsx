@@ -3,6 +3,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { Sparkles, Grid3x3, GalleryHorizontal } from 'lucide-react';
+import { Button, IconButton } from '@omnistudio/ui';
+import styles from './PlaygroundPage.module.css';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
 import { normalizeGeneration } from './normalizers';
@@ -216,67 +218,15 @@ export default function ResultGallery() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-      {/* Header */}
-      <div className="px-7 py-4 flex items-center justify-between border-b border-border-subtle shrink-0">
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-text-muted">
-            RESULTS
-          </span>
-          <div className="flex items-center gap-2">
-            <span className="text-[2.125rem] leading-[1.1] font-semibold tracking-[-0.02em] text-foreground font-display atelier-display">
-              {t('results.title')}
-            </span>
-            <span className="font-mono text-[0.625rem] bg-elevated text-text-secondary rounded px-[6px] py-[1px]">
-              {filtered.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0)}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-[2px] bg-surface-inset rounded-full p-1 atelier-pill-tabs">
-            {filters.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setActiveFilter(f.key)}
-                className={`rounded-full px-4 py-2 text-[0.8125rem] font-medium text-center transition-all cursor-pointer ${
-                  activeFilter === f.key
-                    ? 'bg-surface text-foreground atelier-pill-tab-active'
-                    : 'text-text-muted hover:text-foreground hover:bg-hover-bg'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-[2px] bg-surface-inset rounded-full p-1 atelier-pill-tabs">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`rounded-full p-2 transition-all cursor-pointer ${
-                viewMode === 'grid'
-                  ? 'bg-surface text-foreground atelier-pill-tab-active'
-                  : 'text-text-muted hover:text-foreground hover:bg-hover-bg'
-              }`}
-              title={t('results.gridView')}
-            >
-              <Grid3x3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('gallery')}
-              className={`rounded-full p-2 transition-all cursor-pointer ${
-                viewMode === 'gallery'
-                  ? 'bg-surface text-foreground atelier-pill-tab-active'
-                  : 'text-text-muted hover:text-foreground hover:bg-hover-bg'
-              }`}
-              title={t('results.galleryView')}
-            >
-              <GalleryHorizontal className="w-4 h-4" />
-            </button>
-          </div>
-
+      <header className={styles.resultToolbar}>
+        <h2>{t('results.title')}<span>{filtered.reduce((n, g) => n + g.outputs.length, 0)}</span></h2>
+        <div className={styles.resultActions}>
+          <div className={styles.filters}>{filters.map(f => <Button key={f.key} variant="quiet" aria-pressed={activeFilter === f.key} onPress={() => setActiveFilter(f.key)}>{f.label}</Button>)}</div>
+          <IconButton variant="quiet" aria-label={t('results.gridView')} aria-pressed={viewMode === 'grid'} onPress={() => setViewMode('grid')}><Grid3x3 size={16} /></IconButton>
+          <IconButton variant="quiet" aria-label={t('results.galleryView')} aria-pressed={viewMode === 'gallery'} onPress={() => setViewMode('gallery')}><GalleryHorizontal size={16} /></IconButton>
           <QueuePanel />
         </div>
-      </div>
+      </header>
 
       {/* Content area */}
       {viewMode === 'gallery' ? (
@@ -288,8 +238,8 @@ export default function ResultGallery() {
           />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4 content-start">
+        <div className="flex-1 overflow-y-auto py-5">
+          <div className={styles.resultGrid}>
             {gridItems.map((it) => {
               if (it.kind === 'divider') {
                 return (
