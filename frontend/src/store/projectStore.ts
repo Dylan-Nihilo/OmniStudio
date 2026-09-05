@@ -324,7 +324,7 @@ interface ProjectStore {
     analyzeProject: (script: string) => Promise<void>;
     analyzeArtStyle: (scriptId: string, text: string) => Promise<void>;
     loadProjects: () => void;
-    selectProject: (id: string) => Promise<void>;
+    selectProject: (id: string) => Promise<boolean>;
     updateProject: (id: string, data: Partial<Project>) => void;
     deleteProject: (id: string) => Promise<void>;
     clearCurrentProject: () => void;
@@ -421,6 +421,8 @@ async function injectDefaultsIntoProject(projectId: string): Promise<Project | n
     if (!applied) return null;
     return api.getProject(projectId);
 }
+
+let selectionRequest = 0;
 
 export const useProjectStore = create<ProjectStore>()(
     persist(
@@ -523,15 +525,14 @@ export const useProjectStore = create<ProjectStore>()(
             },
 
             selectProject: async (id: string) => {
-                // First, try to set from local cache for immediate feedback
+                const request = ++selectionRequest;
                 const cachedProject = get().projects.find((p) => p.id === id);
-                if (cachedProject) {
-                    set({ currentProject: cachedProject });
-                }
+                set({ currentProject: cachedProject ?? null });
 
                 // Then fetch latest data from backend
                 try {
                     const latestProject = await api.getProject(id);
+                    if (request !== selectionRequest) return false;
 
                     // Update both currentProject and projects array with latest data
                     set((state) => ({
@@ -553,9 +554,11 @@ export const useProjectStore = create<ProjectStore>()(
                         set({ currentSeries: null });
                     }
                 } catch (error) {
-                    console.error('Failed to fetch latest project data:', error);
-                    // Keep using cached version if fetch fails
+                    if (request === selectionRequest) console.error('Failed to fetch latest project data:', error);
+                    // Keep the matching cached project if the refresh fails.
+                    return false;
                 }
+                return true;
             },
 
             updateProject: (id: string, data: Partial<Project>) => {

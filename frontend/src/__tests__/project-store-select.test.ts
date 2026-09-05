@@ -48,4 +48,18 @@ describe("projectStore.selectProject", () => {
         });
         expect(fetchSeries).toHaveBeenCalledWith("series-new");
     });
+    it("clears an unrelated project and ignores a late selection response", async () => {
+        const { useProjectStore } = await import("@/store/projectStore");
+        let finishOld!: (project: unknown) => void;
+        getProject.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+            .mockResolvedValueOnce({ id: "new", title: "New", frames: [] });
+        useProjectStore.setState({ projects: [], currentProject: { id: "unrelated" } as never });
+        const oldRequest = useProjectStore.getState().selectProject("old");
+        expect(useProjectStore.getState().currentProject).toBeNull();
+        await useProjectStore.getState().selectProject("new");
+        finishOld({ id: "old", title: "Old", frames: [] });
+        await oldRequest;
+        expect(useProjectStore.getState().currentProject?.id).toBe("new");
+    });
+
 });
