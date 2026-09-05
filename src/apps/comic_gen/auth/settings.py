@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -56,6 +57,7 @@ class AuthSettings:
         path = Path(
             config_path or _auth_env(env, "OMNI_STUDIO_CONFIG_PATH", "~/.omni-studio/config.json")
         ).expanduser()
+        migrate_config_file(path)
         stored = _read_config(path)
         secret = _auth_env(env, "OMNI_STUDIO_AUTH_SIGNING_SECRET") or _stored_secret(stored)
         if not secret:
@@ -140,6 +142,49 @@ def _stored_secret(config: dict) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class ConfigMigrationResult:
+    migrated: bool
+    backup_path: str | None = None
+    from_version: int | None = None
+    to_version: int | None = None
+
+
+def migrate_config_file(path: str | Path) -> ConfigMigrationResult:
+    """Upgrade the legacy flat auth secret format with a rollback backup."""
+    config_path = Path(path).expanduser()
+    if not config_path.is_file():
+        return ConfigMigrationResult(False)
+    config = _read_config(config_path)
+    legacy_secret = config.get("auth_signing_secret")
+    version = int(config.get("config_version", 1) or 1)
+    if version >= 2 or not isinstance(legacy_secret, str) or not legacy_secret:
+        return ConfigMigrationResult(False)
+
+    backup_path = config_path.with_suffix(config_path.suffix + ".v1.bak")
+    if not backup_path.exists():
+        shutil.copy2(config_path, backup_path)
+    updated = dict(config)
+    updated.pop("auth_signing_secret", None)
+    auth = dict(updated.get("auth") or {})
+    auth["signing_secret"] = legacy_secret
+    updated["auth"] = auth
+    updated["config_version"] = 2
+    history = list(updated.get("migration_history") or [])
+    history.append(
+        {
+            "from_version": version,
+            "to_version": 2,
+            "backup_path": str(backup_path),
+        }
+    )
+    updated["migration_history"] = history
+    temp = config_path.with_suffix(config_path.suffix + ".tmp")
+    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.replace(config_path)
+    return ConfigMigrationResult(True, str(backup_path), version, 2)
+
+
 def _write_secret(path: Path, config: dict, secret: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     updated = dict(config)
@@ -203,4 +248,4 @@ def _bool_env(env: Mapping[str, str], key: str, default: bool) -> bool:
     raise ValueError(f"{key} must be a boolean")
 
 
-__all__ = ["AuthSettings"]
+__all__ = ["AuthSettings", "ConfigMigrationResult", "migrate_config_file"]

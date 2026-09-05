@@ -74,4 +74,43 @@ def get_optional_current_user(request: Request, service: Annotated[AuthService, 
     return get_current_user(request, service)
 
 
-__all__ = ["ACCESS_COOKIE_NAME", "REFRESH_COOKIE_NAME", "get_auth_service", "get_current_user", "get_optional_current_user"]
+def require_workspace_access(
+    request: Request,
+    workspace_id: str | None = None,
+    *,
+    minimum_role: str = "member",
+) -> AuthContext:
+    """Resolve a requested Workspace and enforce its minimum membership role.
+
+    Middleware normally populates ``request.state.auth_context``.  The helper is
+    also safe for direct route use and test fixtures that provide that context.
+    """
+    if minimum_role not in {"member", "owner"}:
+        raise ValueError("minimum_role must be 'member' or 'owner'")
+    context = getattr(getattr(request, "state", None), "auth_context", None)
+    if context is None:
+        service = getattr(getattr(request, "app", None), "state", None)
+        service = getattr(service, "auth_service", None)
+        if service is None:
+            raise AuthError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+        context = get_current_user(request, service)
+    if workspace_id and workspace_id != context.workspace.id:
+        service = getattr(getattr(request, "app", None), "state", None)
+        service = getattr(service, "auth_service", None)
+        if service is None:
+            raise AuthError("AUTH_WORKSPACE_NOT_FOUND", "Workspace 不存在", status_code=404)
+        context = service.resolve_workspace(context, workspace_id)
+    role = getattr(getattr(context, "membership", None), "role", "owner")
+    if minimum_role == "owner" and role != "owner":
+        raise AuthError("AUTH_OWNER_REQUIRED", "只有 Workspace Owner 可以执行此操作", status_code=403)
+    return context
+
+
+__all__ = [
+    "ACCESS_COOKIE_NAME",
+    "REFRESH_COOKIE_NAME",
+    "get_auth_service",
+    "get_current_user",
+    "get_optional_current_user",
+    "require_workspace_access",
+]

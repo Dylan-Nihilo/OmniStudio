@@ -285,6 +285,35 @@ class Session(Base):
     )
 
 
+class AuditEvent(Base):
+    """Workspace-scoped, append-only security and lifecycle audit record."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    actor_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    object_type: Mapped[str] = mapped_column(Text, nullable=False)
+    object_id: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(metadata_json)", name="ck_audit_events_metadata_json"),
+        Index("ix_audit_events_workspace_created", "workspace_id", "created_at"),
+        Index("ix_audit_events_object", "object_type", "object_id", "created_at"),
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -435,6 +464,101 @@ class ScriptEditLease(Base):
     )
 
 
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    episode_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("episodes.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(metadata_json)", name="ck_jobs_metadata_json"),
+        Index("ix_jobs_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_jobs_project_episode", "project_id", "episode_id", "updated_at"),
+    )
+
+
+class JobItem(Base):
+    __tablename__ = "job_items"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    progress: Mapped[float] = mapped_column(REAL, nullable=False, server_default="0")
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_of: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    media_refs_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    started_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    finished_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'succeeded', 'failed', 'canceled', 'skipped')",
+            name="ck_job_items_status",
+        ),
+        CheckConstraint("progress >= 0 AND progress <= 1", name="ck_job_items_progress"),
+        CheckConstraint("json_valid(payload_json)", name="ck_job_items_payload_json"),
+        CheckConstraint("json_valid(media_refs_json)", name="ck_job_items_media_refs_json"),
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_job_items_workspace_idempotency"),
+        Index("ix_job_items_job_status", "job_id", "status"),
+        Index("ix_job_items_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
+class JobItemEvent(Base):
+    __tablename__ = "job_item_events"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    item_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("job_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    to_status: Mapped[str] = mapped_column(Text, nullable=False)
+    progress: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        Index("ix_job_item_events_item_created", "item_id", "created_at"),
+    )
+
+
 # Explicit DESC expressions preserve the ordering specified by the SQLite DDL.
 Index(
     "ix_migration_runs_source",
@@ -461,9 +585,13 @@ __all__ = [
     "WorkspaceInvitation",
     "WorkspaceProviderConfig",
     "Session",
+    "AuditEvent",
     "Project",
     "Series",
     "Episode",
     "Script",
     "ScriptEditLease",
+    "Job",
+    "JobItem",
+    "JobItemEvent",
 ]

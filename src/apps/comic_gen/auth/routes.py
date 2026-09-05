@@ -41,6 +41,7 @@ from .schemas import (
 from .service import AuthContext, AuthError, AuthResult, AuthService
 from .tokens import decode_access_token, decode_refresh_token
 from ....storage.legacy_claim import LegacyClaimError, LegacyClaimService
+from ..audit import record_request_event
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 CSRF_COOKIE_NAME = "omni_studio_csrf"
@@ -224,6 +225,13 @@ def setup(request: Request, payload: SetupRequest, response: Response, service: 
         require_csrf(request, service, session_id=sid)
     result = service.setup_user(payload.username, str(payload.email), payload.password, payload.setup_token, display_name=payload.display_name, request=request, user_agent=request.headers.get("user-agent"))
     _set_auth_cookies(response, result, service)
+    request.state.auth_context = AuthContext(
+        user=result.user,
+        workspace=result.workspace,
+        session=result.session,
+        membership=service.repository.get_membership(result.workspace.id, result.user.id),
+    )
+    record_request_event(request, action="auth.setup", object_type="user", object_id=str(result.user.id))
     response.headers["Cache-Control"] = "no-store"
     return _auth_response(SetupResponse, result)
 
@@ -314,6 +322,13 @@ def login(request: Request, payload: LoginRequest, response: Response, service: 
         require_csrf(request, service, session_id=sid)
     result = service.login(payload.identifier, payload.password, request=request, user_agent=request.headers.get("user-agent"))
     _set_auth_cookies(response, result, service)
+    request.state.auth_context = AuthContext(
+        user=result.user,
+        workspace=result.workspace,
+        session=result.session,
+        membership=service.repository.get_membership(result.workspace.id, result.user.id),
+    )
+    record_request_event(request, action="auth.login", object_type="user", object_id=str(result.user.id))
     response.headers["Cache-Control"] = "no-store"
     return _auth_response(LoginResponse, result)
 
@@ -482,7 +497,33 @@ def logout(request: Request, response: Response, service: Annotated[AuthService,
             refresh_token, service, token_type="refresh"
         )
         if session_id:
+            # The current context may be absent because logout intentionally
+            # accepts an expired access token, so preserve only safe identity.
+            context = getattr(request.state, "auth_context", None)
+            if context is None:
+                try:
+                    token = access or refresh_token
+                    claims = decode_access_token(
+                        token,
+                        service.settings.signing_secret,
+                        issuer=service.settings.issuer,
+                        audience=service.settings.audience,
+                    ) if access else decode_refresh_token(
+                        token,
+                        service.settings.signing_secret,
+                        issuer=service.settings.issuer,
+                        audience=service.settings.audience,
+                    )
+                    context = service.get_current_user(
+                        user_id=str(claims["sub"]),
+                        session_id=session_id,
+                    )
+                    request.state.auth_context = context
+                except Exception:
+                    context = None
             service.logout(session_id)
+            if context is not None:
+                record_request_event(request, action="auth.logout", object_type="session", object_id=session_id)
     _clear_auth_cookies(response, service)
     response.headers["Cache-Control"] = "no-store"
     response.status_code = 204
