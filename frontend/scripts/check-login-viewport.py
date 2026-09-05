@@ -12,6 +12,8 @@ sizes = [(1920, 1080), (1440, 900), (1366, 768), (1280, 720), (1024, 600),
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page(reduced_motion="reduce")
+    page.route("**/auth/setup-status", lambda route: route.fulfill(json={"initialized": True, "setup_allowed": False}))
+    page.route("**/auth/me", lambda route: route.fulfill(status=401, json={"error": {"code": "AUTH_REQUIRED"}}))
     page.goto(url, wait_until="load")
     expect(page.get_by_test_id("auth-panel")).to_be_visible()
     for locale in ("zh", "en"):
@@ -47,10 +49,11 @@ with sync_playwright() as p:
                 # Bounding boxes alone miss overlays; hit-test every form control.
                 for control in page.locator('form input, form button').all():
                     assert control.evaluate("""el => {
-                        const r = el.getBoundingClientRect();
+                        const target = el.matches('input[type="checkbox"]') ? el.closest('label') : el;
+                        const r = target.getBoundingClientRect();
                         const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
                         return r.top >= 0 && r.bottom <= innerHeight - 8 &&
-                            (hit === el || el.contains(hit));
+                            (hit === target || target.contains(hit));
                     }"""), (label, control.get_attribute("name") or control.inner_text())
                 if locale == "zh" and width in (1366, 390, 320, 844):
                     page.screenshot(path=str(output / f"{width}x{height}{'-error' if error else ''}.png"))

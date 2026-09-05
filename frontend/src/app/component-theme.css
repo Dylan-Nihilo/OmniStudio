@@ -1,0 +1,34 @@
+/* Bridge the shared component tokens to the application's existing themes. */
+@layer base {
+  .omni-ui {
+    --background: var(--color-bg-base);
+    --foreground: var(--color-text-primary);
+    --surface: var(--color-bg-surface);
+    --surface-foreground: var(--color-text-primary);
+    --surface-secondary: var(--color-bg-inset);
+    --surface-tertiary: var(--color-bg-hover);
+    --overlay: var(--color-bg-elevated);
+    --overlay-foreground: var(--color-text-primary);
+    --muted: var(--color-text-muted);
+    --omni-body: var(--color-text-secondary);
+    --default: var(--color-bg-inset);
+    --default-foreground: var(--color-text-primary);
+    --accent: var(--color-primary);
+    --accent-hover: var(--color-primary-hover);
+    --accent-foreground: var(--color-on-accent);
+    --border: var(--color-border-default);
+    --separator: var(--color-border-default);
+    --focus: var(--color-primary);
+    --link: var(--color-primary-hover);
+    --field-background: var(--color-bg-input);
+    --field-foreground: var(--color-text-primary);
+    --field-placeholder: var(--color-text-muted);
+    --field-border: var(--color-border-default);
+    --success: var(--color-status-completed-fg);
+    --warning: var(--color-status-processing-fg);
+    --danger: var(--color-status-failed-fg);
+    --omni-info: var(--color-status-pending-fg);
+    --backdrop: var(--color-overlay);
+    font-family: var(--font-inter), sans-serif;
+  }
+}

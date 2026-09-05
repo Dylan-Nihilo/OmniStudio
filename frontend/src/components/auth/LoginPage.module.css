@@ -81,14 +81,11 @@
 .panelHeading p { margin-top: 10px; font-size: 13px; line-height: 1.7; color: var(--color-text-secondary); }
 .form { display: grid; gap: clamp(12px, 2dvh, 24px); margin-top: clamp(16px, 3dvh, 32px); }
 .field { display: grid; gap: 9px; font-size: 12px; font-weight: 500; }
-.field :global(.auth-input) { min-height: 48px; font-size: 16px; font-weight: 400; }
-.password { position: relative; }
-.password input { padding-right: 48px; }
-.reveal { position: absolute; right: 0; top: 0; width: 48px; height: 48px; display: grid; place-items: center; border-radius: 12px; color: var(--color-text-secondary); }
+.field :global(.input) { min-height: 48px; font-size: 16px; font-weight: 400; }
 .options { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: -8px; font-size: 12px; }
 .remember { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; color: var(--color-text-secondary); }
-.remember input { width: 16px; height: 16px; accent-color: var(--color-primary); }
-.textButton { min-height: 44px; color: var(--color-text-primary); text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--line); }
+.remember :global(.checkbox__content) { gap: 8px; }
+.textButton { height: auto; padding: 0; min-height: 44px; color: var(--color-text-primary); text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--line); }
 .textButton:hover { text-decoration-color: currentColor; }
 .page button:focus-visible, .remember input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; }
 .submit { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 12px 18px; border-radius: 8px; color: white; background: #1d3a5f; font-size: 14px; font-weight: 700; transition: background 160ms ease, transform 160ms ease; }

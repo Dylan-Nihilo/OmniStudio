@@ -149,13 +149,13 @@ export default function ResetPasswordPage() {
                 </div>
 
                 {error && (
-                  <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
+                  <div role="alert" className="flex items-start gap-2 rounded-lg border border-status-failed-border bg-status-failed-bg px-3 py-2.5 text-sm text-status-failed-fg">
                     <AlertCircle className="mt-0.5 shrink-0" size={15} />
                     <span>{error}</span>
                   </div>
                 )}
 
-                <button type="submit" disabled={submitting} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary via-indigo-500 to-pink-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60">
+                <button type="submit" disabled={submitting} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white shadow-[var(--btn-pri-glow)] transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60">
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <KeyRound size={16} />}
                   {submitting ? t("resettingPassword") : t("resetPasswordAction")}
                 </button>

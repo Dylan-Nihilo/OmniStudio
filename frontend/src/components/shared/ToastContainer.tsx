@@ -12,7 +12,7 @@ import { useToastStore, type Toast, type ToastKind } from "@/store/toastStore";
 export const getWarningToastClasses = () =>
     "border-status-processing-border bg-elevated text-foreground";
 
-const KIND_STYLES: Record<ToastKind, { ring: string; bg: string; icon: JSX.Element; iconClass: string; titleClass?: string }> = {
+const KIND_STYLES: Record<ToastKind, { ring: string; bg: string; icon: React.ReactElement; iconClass: string; titleClass?: string }> = {
     info: {
         ring: "border-primary/40",
         bg: "bg-primary/10",

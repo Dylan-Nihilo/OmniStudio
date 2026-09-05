@@ -90,7 +90,7 @@ export default function ChangePasswordDialog({ isOpen, onClose }: ChangePassword
           <p className="text-xs text-text-muted">{t("passwordRequirements")}</p>
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-status-failed-border bg-status-failed-bg px-3 py-2.5 text-sm text-status-failed-fg">
               <AlertCircle className="mt-0.5 shrink-0" size={15} />
               <span>{error}</span>
             </div>

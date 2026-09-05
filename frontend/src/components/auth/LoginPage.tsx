@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, ArrowUpRight, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowUpRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { consumeReturnHash, getApiErrorCode, getApiErrorStatus } from "@/lib/apiClient";
 import { useAuthStore } from "@/store/authStore";
+import { Button, Checkbox, TextField, PasswordField } from "@omnistudio/ui";
 import AuthThemeMenu from "./AuthThemeMenu";
 import Image from "next/image";
 import heroArt from "../../../public/auth/hero-night-signal.png";
@@ -16,7 +17,6 @@ export default function LoginPage() {
   const login = useAuthStore((state) => state.login);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +35,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -99,46 +100,14 @@ export default function LoginPage() {
             <p>{t("loginSubtitle")}</p>
           </div>
           <form className={styles.form} onSubmit={handleSubmit} aria-busy={submitting}>
-            <label className={styles.field}>
-              <span>{t("identifier")}</span>
-              <input name="username" className="auth-input" value={identifier} onChange={(event) => setIdentifier(event.target.value)} autoComplete="username" required />
-            </label>
-
-            <div className={styles.field}>
-              <label htmlFor="login-password">{t("password")}</label>
-              <div className={styles.password}>
-                <input
-                  id="login-password"
-                  name="password"
-                  className="auth-input"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                  minLength={8}
-                  maxLength={128}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  aria-label={t(showPassword ? "hidePassword" : "showPassword")}
-                  aria-pressed={showPassword}
-                  className={styles.reveal}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
+            <TextField className={styles.field} label={t("identifier")} name="username" value={identifier} onChange={setIdentifier} autoComplete="username" isRequired />
+            <PasswordField className={styles.field} label={t("password")} name="password" value={password} onChange={setPassword} autoComplete="current-password" isRequired minLength={8} maxLength={128} showPasswordLabel={t("showPassword")} hidePasswordLabel={t("hidePassword")} />
 
             <div className={styles.options}>
-              <label className={styles.remember}>
-                <input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />
-                <span>{t("rememberMe")}</span>
-              </label>
-              <button type="button" className={styles.textButton} onClick={() => { window.location.hash = "#/reset-password"; }}>
+              <Checkbox className={styles.remember} isSelected={rememberMe} onChange={setRememberMe}>{t("rememberMe")}</Checkbox>
+              <Button type="button" variant="quiet" className={styles.textButton} onPress={() => { window.location.hash = "#/reset-password"; }}>
                 {t("forgotPassword")}
-              </button>
+              </Button>
             </div>
 
             {error && (
@@ -148,16 +117,16 @@ export default function LoginPage() {
               </div>
             )}
 
-            <button type="submit" disabled={submitting} className={styles.submit}>
+            <Button type="submit" isPending={submitting} className={styles.submit}>
               <span>{submitting ? t("loggingIn") : t("login")}</span>
-              {submitting ? <Loader2 className="animate-spin" size={19} /> : <ArrowUpRight size={21} />}
-            </button>
+              {!submitting && <ArrowUpRight size={21} />}
+            </Button>
 
             <p className={styles.invite}>
               {t("noAccount")}{" "}
-              <button type="button" onClick={() => setError(t("contactAdminHint"))} className={styles.textButton}>
+              <Button type="button" variant="quiet" onPress={() => setError(t("contactAdminHint"))} className={styles.textButton}>
                 {t("contactAdmin")}
-              </button>
+              </Button>
             </p>
           </form>
         </section>

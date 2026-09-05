@@ -54,3 +54,7 @@
 @media (max-width: 1199px) { .page { padding: 28px; } .header { align-items: flex-start; flex-direction: column; gap: 20px; padding-bottom: 24px; } .intro h1 { font-size: 30px; } .production { grid-template-columns: minmax(0, 1fr); gap: 24px; } .hero { min-height: 250px; } .progress dl { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; } .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 767px) { .page { padding: 24px 20px; } .intro h1 { font-size: 28px; } .subtitle { font-size: 13px; } .actions { width: 100%; gap: 8px; } .actions .primary { margin-left: auto; } .hero { min-height: 250px; } .heroCopy { left: 20px; bottom: 22px; } .heroCopy h3 { font-size: 26px; } .heroArrow { right: 18px; bottom: 22px; } .progress dl { column-gap: 20px; } .progressRow { font-size: 11px; gap: 6px; } .progressRow dt { gap: 6px; } .cards { grid-template-columns: minmax(0, 1fr); gap: 26px; } .recent { margin-top: 28px; } .queue > div { gap: 10px; } .empty { min-height: 350px; padding: 32px 0; } }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
+
+.loading { padding-top: 26px; }
+.loading > :first-child { margin-bottom: 20px; }
+.skeletonRows { display: grid; align-content: start; gap: 24px; }

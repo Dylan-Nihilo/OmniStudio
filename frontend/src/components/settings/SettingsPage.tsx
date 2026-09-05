@@ -149,6 +149,7 @@ function loadFromLS<T>(key: string, fallback: T): T {
 // `name` / `desc` hold i18n keys (relative to the `settings` namespace) so the
 // module-scope list can be resolved with t(...) at render time.
 const THEME_OPTIONS: { id: ThemePreset; name: string; desc: string; base: string; primary: string; accent: string }[] = [
+  { id: "v3-paper",      name: "themeV3Paper",      desc: "themeV3PaperDesc",      base: "#ffffff", primary: "#1d3a5f", accent: "#152c47" },
   { id: "atelier-dark",  name: "themeAtelierDark",  desc: "themeAtelierDarkDesc",  base: "#0c0b0e", primary: "#34d8c4", accent: "#ffa94d" },
   { id: "bridge-dark",   name: "themeBridgeDark",   desc: "themeBridgeDarkDesc",   base: "#0a0a0d", primary: "#646cff", accent: "#ffa94d" },
   { id: "brand-dark",    name: "themeBrandDark",    desc: "themeBrandDarkDesc",    base: "#050508", primary: "#646cff", accent: "#ff0080" },

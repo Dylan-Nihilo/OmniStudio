@@ -1088,7 +1088,7 @@ function AuthenticatedHome() {
 
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
-        <AppShell activeTab={activeTab} onTabChange={handleTabChange} context={activeTab === "workspace" ? <WorkspaceNavigation section={workspaceSection} /> : undefined}>
+        <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} context={activeTab === "workspace" ? <WorkspaceNavigation section={workspaceSection} /> : undefined}>
           <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>

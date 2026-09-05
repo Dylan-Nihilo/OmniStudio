@@ -8,6 +8,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useOnline } from "@/lib/useOnline";
 import { productionProgress, projectHref, recentProjects } from "@/lib/workspaceOverview";
+import { Button, IconButton, LoadingState, Skeleton, EmptyState } from "@omnistudio/ui";
 import ProjectCard, { deriveCover } from "@/components/project/ProjectCard";
 import styles from "./WorkspaceOverview.module.css";
 
@@ -53,14 +54,18 @@ export default function WorkspaceOverview({ projects, series, loading, error, on
           <p className={styles.subtitle}>{t("subtitle")}</p>
         </div>
         <div className={styles.actions}>
-          <button className={styles.iconButton} onClick={onRefresh} disabled={loading || !online} aria-label={t("refresh")} title={t("refresh")}><RefreshCw size={18} className={loading ? styles.spinning : ""} /></button>
+          <IconButton className={styles.iconButton} onPress={onRefresh} isPending={loading} isDisabled={!online} aria-label={t("refresh")}>{!loading && <RefreshCw size={18} />}</IconButton>
           <a className={styles.iconButton} href="#/workspace/projects" aria-label={t("search")} title={t("search")}><Search size={20} /></a>
-          <button className={styles.primary} onClick={onCreate} disabled={!online}><Plus size={18} />{t("newProject")}</button>
+          <Button onPress={onCreate} isDisabled={!online}><Plus size={18} />{t("newProject")}</Button>
         </div>
       </header>
 
-      {error && <div className={styles.error} role="alert"><span>{t("loadFailed")}</span><button onClick={onRefresh} disabled={loading || !online}>{t("retry")}</button></div>}
-      {loading && !featured ? <div className={styles.empty} role="status"><RefreshCw size={24} className={styles.spinning} /><p>{t("loading")}</p></div> : featured && progress ? <>
+      {error && <div className={styles.error} role="alert"><span>{t("loadFailed")}</span><Button variant="quiet" onPress={onRefresh} isPending={loading} isDisabled={!online}>{t("retry")}</Button></div>}
+      {loading && !featured ? <div className={styles.loading}>
+        <LoadingState label={t("loading")} inline />
+        <div className={styles.production}><Skeleton className={styles.hero} /><div className={styles.skeletonRows}>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} style={{ height: 48 }} />)}</div></div>
+        <div className={styles.cards}>{Array.from({ length: 3 }, (_, i) => <Skeleton key={i} style={{ aspectRatio: '16 / 9', borderRadius: 16 }} />)}</div>
+      </div> : featured && progress ? <>
         <section className={styles.continue} aria-labelledby="continue-title">
           <h2 id="continue-title" className={styles.sectionLabel}>{t("continue")}</h2>
           <div className={styles.production}>
@@ -85,10 +90,9 @@ export default function WorkspaceOverview({ projects, series, loading, error, on
           <div className={styles.sectionHeader}><h2 id="recent-title">{t("recent")}</h2><a className={styles.textLink} href="#/workspace/projects">{t("viewAll")}<ArrowUpRight size={14} /></a></div>
           <div className={styles.cards}>{(ordered.length > 1 ? ordered.slice(1, 4) : ordered).map((project) => <ProjectCard key={project.id} project={project} variant="editorial" onDelete={onDelete} />)}</div>
         </section>
-      </> : !error && <section className={styles.empty}>
-        <Film size={32} aria-hidden="true" /><h2>{t("emptyTitle")}</h2><p>{t("emptyBody")}</p>
-        <div className={styles.emptyActions}><button className={styles.primary} onClick={onCreate} disabled={!online}><Plus size={18} />{t("newProject")}</button><button className={styles.secondary} onClick={onCreateSeries} disabled={!online}><Layers size={18} />{t("newSeries")}</button><button className={styles.secondary} onClick={onImport} disabled={!online}><FileUp size={18} />{t("import")}</button></div>
-      </section>}
+      </> : !error && <EmptyState className={styles.empty} title={t("emptyTitle")} description={t("emptyBody")} media={<Film size={32} aria-hidden="true" />} action={
+        <div className={styles.emptyActions}><Button onPress={onCreate} isDisabled={!online}><Plus size={18} />{t("newProject")}</Button><Button variant="secondary" onPress={onCreateSeries} isDisabled={!online}><Layers size={18} />{t("newSeries")}</Button><Button variant="secondary" onPress={onImport} isDisabled={!online}><FileUp size={18} />{t("import")}</Button></div>
+      } />}
       <footer className={styles.queue}>
         <div><span className={styles.queueLabel}><span className={queued ? styles.activeDot : styles.dot} />{t("queue")}</span><p role="status">{loading && !featured ? t("loading") : error ? t("queueUnavailable") : queued ? t("queued", { count: queued }) : t("queueEmpty")}</p></div>
         {queuedProjects[0] && <a className={styles.iconButton} href={projectHref(queuedProjects[0])} aria-label={t("viewQueue")} title={t("viewQueue")}><ArrowUpRight size={20} /></a>}

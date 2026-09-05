@@ -69,7 +69,9 @@ describe("LoginPage", () => {
     fireEvent.change(screen.getByLabelText("password"), { target: { value: "example-password" } });
     fireEvent.click(screen.getByLabelText("rememberMe"));
     fireEvent.click(screen.getByRole("button", { name: "login" }));
-    expect(screen.getByRole("button", { name: "loggingIn" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "loggingIn" })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("button", { name: "loggingIn" }));
+    fireEvent.submit(screen.getByLabelText("password").closest("form")!);
     expect(login).toHaveBeenCalledExactlyOnceWith({ identifier: "artist@example.com", password: "example-password" });
     await act(async () => finish());
     expect(window.location.hash).toBe("#/series");

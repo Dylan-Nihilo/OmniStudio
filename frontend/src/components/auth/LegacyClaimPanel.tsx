@@ -171,7 +171,7 @@ export default function LegacyClaimPanel() {
                 </div>
 
                 {status.diagnostics.length > 0 ? (
-                  <div role="alert" className="mt-4 space-y-1 rounded-lg border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-sm text-amber-100">
+                  <div role="alert" className="mt-4 space-y-1 rounded-lg border border-status-processing-border bg-status-processing-bg px-4 py-3 text-sm text-status-processing-fg">
                     {status.diagnostics.slice(0, 4).map((item, index) => (
                       <p key={`${item.type}-${index}`}>{item.message || item.type}</p>
                     ))}
@@ -181,7 +181,7 @@ export default function LegacyClaimPanel() {
             ) : null}
 
             {error ? (
-              <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
+              <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-status-failed-border bg-status-failed-bg px-3 py-2.5 text-sm text-status-failed-fg">
                 <AlertCircle className="mt-0.5 shrink-0" size={15} />
                 <span>{error}</span>
               </div>

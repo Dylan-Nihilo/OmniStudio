@@ -1,6 +1,6 @@
 # Omni Studio UI
 
-Figma V3 的 React 组件封装与独立预览。依赖 React 19、Tailwind 4、HeroUI OSS 3.2.4 和 HeroUI Pro 1.0.0-beta.6。当前 `frontend/` 使用 React 18 / Tailwind 3，尚未接入此包。
+Figma V3 的 React 组件封装与独立预览。依赖 React 19、Tailwind 4、HeroUI OSS 3.2.4 和 HeroUI Pro 1.0.0-beta.6。`frontend/` 已通过 Next.js 15 / React 19 / Tailwind 4 接入此包，原版对照 worktree 保留 React 18 / Tailwind 3。
 
 ## 预览与验证
 
@@ -50,7 +50,9 @@ import '@omnistudio/ui/styles.css';
 - [输入框 236:15](https://www.figma.com/design/EswE4t5D0wAEyjpwbXiQyN/MANGIX?node-id=236-15)：40px 高、12px 圆角、12px 标签、6px 间距。
 - 主流程实例的纯白 / 冷灰 / 藏青覆盖基础规范页残留的陶土色 token。封装新增的空状态、弹窗、流程步骤遵循同一主题，但尚未逐一对应 Figma 中的独立组件变体。
 
-尚未还原完整页面、迁移现有登录页或升级主应用。预览的保存、导航与生成状态仅用于组件交互演示，不调用业务 API。
+登录表单与首页操作、空状态、加载态已接入主应用。`AppShell` 使用共享页面淡入；其他业务页面继续分步迁移。组件目录的保存、导航与生成状态仅用于交互演示，不调用业务 API。
+
+主应用使用 `install-links=true` 安装本地包，避免组件预览的 React 实例进入主应用。修改共享源码后，重新安装主应用中的本地包再验证；全新 `npm ci` 会读取当前包源码。主应用的 `component-theme.css` 将共享组件 token 映射到现有六套主题。
 
 ## Loading 与 Motion 规范
 
