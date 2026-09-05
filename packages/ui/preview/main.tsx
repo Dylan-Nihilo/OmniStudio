@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowRight, Image, Layers, LayoutGrid, MoreHorizontal, Plus, Users } from 'lucide-react';
-import { LoadingState, Skeleton, PageTransition, Button, Checkbox, Dialog, EmptyState, IconButton, NavigationMenu, PasswordField, SelectField, StatusBadge, Tabs, TextAreaField, TextField, WorkflowSteps, type SelectFieldProps } from '../src';
+import { ActionMenu, LoadingState, Skeleton, PageTransition, Button, Checkbox, Dialog, EmptyState, IconButton, NavigationMenu, PasswordField, SelectField, StatusBadge, Tabs, TextAreaField, TextField, WorkflowSteps, type SelectFieldProps } from '../src';
 import '../src/styles.css';
 import './preview.css';
 
@@ -23,7 +23,7 @@ function Preview() {
       <div className="intro"><p className="eyebrow">COMPONENT LIBRARY</p><h1>创作，从细节开始。</h1><p>浏览组件状态，试用表单、选择与对话框。</p></div>
       <nav aria-label="组件分类" className="preview-nav"><a href="#01">操作</a><a href="#02">表单</a><a href="#03">选择与状态</a><a href="#04">内容切换</a><a href="#05">对话框</a></nav>
       <Section id="01" title="操作按钮">
-        <div className="sample-row"><Button onPress={() => setDialogOpen(true)}><Plus size={16} />新建项目</Button><Button variant="secondary" onPress={() => setSaved(true)}>保存草稿</Button><Button variant="quiet" onPress={() => document.getElementById('02')?.scrollIntoView()}>继续编辑<ArrowRight size={16} /></Button><Button variant="danger" isDisabled>删除项目</Button><IconButton aria-label="项目操作" onPress={() => setDialogOpen(true)}><MoreHorizontal size={16} /></IconButton></div>
+        <div className="sample-row"><Button onPress={() => setDialogOpen(true)}><Plus size={16} />新建项目</Button><Button variant="secondary" onPress={() => setSaved(true)}>保存草稿</Button><Button variant="quiet" onPress={() => document.getElementById('02')?.scrollIntoView()}>继续编辑<ArrowRight size={16} /></Button><Button variant="danger" isDisabled>删除项目</Button><ActionMenu label="项目操作" icon={<MoreHorizontal size={16} />} items={[{ id: "edit", label: "编辑项目", onAction: () => setDialogOpen(true) }, { id: "save", label: "保存草稿", onAction: () => setSaved(true) }]} /></div>
         <div className="sample-row"><Button isPending>生成中</Button><Button isDisabled>生成视频</Button><Button size="sm" variant="secondary">小尺寸</Button><Button size="lg" variant="secondary">大尺寸</Button></div>
         <p role="status" className="sample-message">{saved ? '草稿已保存（预览）' : '\u00a0'}</p>
       </Section>

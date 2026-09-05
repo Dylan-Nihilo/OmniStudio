@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
-import { Dialog, LoadingState, Skeleton, Button, Checkbox, PasswordField, TextField } from './index';
+import { ActionMenu, Dialog, LoadingState, Skeleton, Button, Checkbox, PasswordField, TextField } from './index';
 
 afterEach(cleanup);
 
@@ -67,4 +67,18 @@ it('keeps a controlled dialog open during submission and allows dismissal afterw
   rerender(<Dialog isOpen onOpenChange={change} title="保存项目" closeLabel="关闭"><p>已保存</p></Dialog>);
   fireEvent.click(screen.getByRole('button', { name: '关闭' }));
   expect(change).toHaveBeenCalledWith(false);
+});
+
+it('action menus preserve labels, disabled actions and Escape dismissal', async () => {
+  const action = vi.fn();
+  render(<ActionMenu label="创建" items={[{ id: 'series', label: '系列', onAction: action }, { id: 'import', label: '导入', isDisabled: true, onAction: action }]} />);
+  fireEvent.click(screen.getByRole('button', { name: '创建' }));
+  const item = await screen.findByRole('menuitem', { name: '系列' });
+  expect(screen.getByRole('menuitem', { name: '导入' }).getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(item);
+  expect(action).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: '创建' }));
+  const menu = await screen.findByRole('menu');
+  fireEvent.keyDown(menu, { key: 'Escape' });
+  expect(screen.queryByRole('menu')).toBeNull();
 });

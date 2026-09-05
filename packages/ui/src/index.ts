@@ -10,3 +10,4 @@ export { NavigationMenu, type NavigationMenuProps } from './NavigationMenu';
 export { WorkflowSteps, type WorkflowStepsProps } from './WorkflowSteps';
 export { LoadingState, Skeleton } from './LoadingState';
 export { PageTransition } from './PageTransition';
+export { ActionMenu, type ActionMenuProps } from './ActionMenu';

@@ -35,6 +35,7 @@ import '@omnistudio/ui/styles.css';
 | SelectField | HeroUI Select / ListBox | 单选或多选、禁用选项、键盘操作、表单提交 |
 | Checkbox | HeroUI Checkbox | 选中、禁用、描述、校验 |
 | Tabs | HeroUI Tabs | 键盘切换、内容面板、溢出滚动 |
+| ActionMenu | HeroUI Dropdown | 带名称的操作菜单、禁用项、键盘导航、Escape 关闭与焦点恢复 |
 | Dialog | HeroUI Modal | 受控或 trigger 打开、关闭、焦点限制与恢复；`isDismissable={false}` 锁定提交中的弹窗 |
 | StatusBadge | HeroUI Chip | 草稿、信息、警告、成功、错误；可读文字与状态点 |
 | NavigationMenu | HeroUI Pro Sidebar | 可复用上下文导航；当前项、路由回调、键盘操作 |
