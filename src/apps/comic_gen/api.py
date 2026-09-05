@@ -954,6 +954,30 @@ class ReparseProjectRequest(BaseModel):
     text: str
 
 
+class UpdateProjectRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+
+
+class ProjectArchiveResponse(BaseModel):
+    id: str
+    title: str
+    archived: bool
+    archived_at: Optional[float]
+    impact: dict[str, int]
+    message: str
+
+
+def _project_archive_impact(script) -> dict[str, int]:
+    return {
+        "episodes": 1,
+        "characters": len(script.characters),
+        "scenes": len(script.scenes),
+        "props": len(script.props),
+        "shots": len(script.frames),
+        "video_tasks": len(script.video_tasks),
+    }
+
+
 class UpdateScriptTextRequest(BaseModel):
     text: str
     expected_revision: str
@@ -2040,6 +2064,20 @@ def update_env_config(config: EnvConfig, request: Request):
         logger.exception("Failed to save environment configuration")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/projects/{script_id}/archive-impact", response_model=ProjectArchiveResponse)
+def project_archive_impact(script_id: str):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    state = "已归档" if script.archived else "归档后可随时恢复"
+    return {
+        "id": script.id,
+        "title": script.title,
+        "archived": script.archived,
+        "archived_at": script.archived_at,
+        "impact": _project_archive_impact(script),
+        "message": f"{state}；不会删除脚本、素材、分镜、视频任务或导出引用。",
+    }
 
 
 @app.get("/projects/{script_id}")
@@ -2124,6 +2162,39 @@ def get_project(script_id: str, request: Request):
                 d["source"] = "global"
                 payload["props"].append(d)
     return signed_response(payload)
+
+
+@app.patch("/projects/{script_id}")
+def update_project(script_id: str, payload: UpdateProjectRequest, request: Request):
+    """Update project metadata without changing its production content."""
+    if payload.title is None:
+        raise HTTPException(status_code=400, detail="No project fields to update")
+    try:
+        script = pipeline.update_project_title(script_id, payload.title)
+        record_request_event(request, action="project.update", object_type="project", object_id=script_id, metadata={"fields": ["title"]})
+        return signed_response(script)
+    except ValueError as exc:
+        raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/archive", response_model=ProjectArchiveResponse)
+def archive_project(script_id: str, request: Request):
+    try:
+        script = pipeline.set_project_archived(script_id, True)
+        record_request_event(request, action="project.archive", object_type="project", object_id=script_id)
+        return {"id": script.id, "title": script.title, "archived": True, "archived_at": script.archived_at, "impact": _project_archive_impact(script), "message": "项目已归档，可随时恢复；生产数据未删除。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
+@app.post("/projects/{script_id}/restore", response_model=ProjectArchiveResponse)
+def restore_project(script_id: str, request: Request):
+    try:
+        script = pipeline.set_project_archived(script_id, False)
+        record_request_event(request, action="project.restore", object_type="project", object_id=script_id)
+        return {"id": script.id, "title": script.title, "archived": False, "archived_at": None, "impact": _project_archive_impact(script), "message": "项目已恢复，生产数据保持不变。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
 
 
 

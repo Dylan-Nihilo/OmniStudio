@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import { Play, Trash2, Film, Clock, MoreVertical, ExternalLink, Star } from "lucide-react";
+import { Play, Trash2, Film, Clock, MoreVertical, ExternalLink, Star, Archive, ArchiveRestore, Pencil } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Project } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -13,6 +13,9 @@ import { api } from "@/lib/api";
 interface ProjectCardProps {
     project: Project;
     onDelete: (id: string) => void;
+    onArchive: (project: Project) => void;
+    onRestore: (project: Project) => void;
+    onRename: (project: Project) => void;
 }
 
 export type DerivedStatus = "completed" | "processing" | "pending";
@@ -52,7 +55,7 @@ export function deriveStatus(project: Project): DerivedStatus {
     return "pending";
 }
 
-export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
+export default function ProjectCard({ project, onDelete, onArchive, onRestore, onRename }: ProjectCardProps) {
     const t = useTranslations("project");
     const tCommon = useTranslations("common");
     const locale = useSettingsStore((s) => s.locale);
@@ -121,7 +124,7 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
         }
     };
 
-    const badge = {
+    const badge = project.archived ? { label: "已归档", cls: "text-text-secondary bg-surface-inset border-glass-border" } : {
         completed: { label: t("statusCompleted"), cls: "text-status-completed-fg bg-status-completed-bg border-status-completed-border" },
         processing: { label: t("statusProcessing"), cls: "text-status-processing-fg bg-status-processing-bg border-status-processing-border" },
         pending: { label: t("statusDraft"), cls: "text-status-pending-fg bg-status-pending-bg border-status-pending-border" },
@@ -282,6 +285,14 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
                             >
                                 <ExternalLink size={14} aria-hidden="true" />
                                 {tCommon("open")}
+                            </button>
+                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRename(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
+                                <Pencil size={14} aria-hidden="true" />
+                                重命名
+                            </button>
+                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); project.archived ? onRestore(project) : onArchive(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
+                                {project.archived ? <ArchiveRestore size={14} aria-hidden="true" /> : <Archive size={14} aria-hidden="true" />}
+                                {project.archived ? "恢复项目" : "归档项目"}
                             </button>
                             <button
                                 type="button"

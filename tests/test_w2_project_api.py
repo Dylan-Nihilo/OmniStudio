@@ -102,6 +102,44 @@ def _add_episode(client, series_id: str, script_id: str, episode_number: int) ->
     assert response.status_code == 200, response.text
 
 
+def test_project_archive_restore_and_impact_preserve_production_data(api_client):
+    project = _create_project(api_client, "项目生命周期")
+    project_id = project["id"]
+
+    impact = api_client.get(f"/projects/{project_id}/archive-impact")
+    assert impact.status_code == 200, impact.text
+    assert impact.json()["archived"] is False
+    assert impact.json()["impact"]["episodes"] == 1
+    assert "不会删除" in impact.json()["message"]
+
+    archived = api_client.post(f"/projects/{project_id}/archive")
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["archived"] is True
+    assert archived.json()["impact"] == impact.json()["impact"]
+
+    persisted = api_client.get(f"/projects/{project_id}")
+    assert persisted.status_code == 200, persisted.text
+    assert persisted.json()["archived"] is True
+
+    restored = api_client.post(f"/projects/{project_id}/restore")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["archived"] is False
+    assert restored.json()["archived_at"] is None
+
+
+def test_project_title_update_does_not_reparse_script(api_client):
+    project = _create_project(api_client, "原始标题")
+    response = api_client.patch(
+        f"/projects/{project['id']}",
+        json={"title": "编辑后的标题"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "编辑后的标题"
+    loaded = api_client.get(f"/projects/{project['id']}")
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json()["title"] == "编辑后的标题"
+
+
 def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
     project = _create_project(api_client, "列表接口回归")
 

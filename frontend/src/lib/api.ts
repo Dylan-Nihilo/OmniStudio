@@ -288,6 +288,26 @@ export const api = {
         return res.data;
     },
 
+    updateProject: async (scriptId: string, data: { title: string }) => {
+        const res = await apiClient.patch(`${API_URL}/projects/${scriptId}`, data);
+        return { ...res.data, originalText: res.data.original_text };
+    },
+
+    getProjectArchiveImpact: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/archive-impact`);
+        return res.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+
+    archiveProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/archive`);
+        return res.data;
+    },
+
+    restoreProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/restore`);
+        return res.data;
+    },
+
     /** Toggle the user-starred (featured) flag on a project. Returns the
      *  updated Script. No request body — the backend flips the current flag. */
     toggleProjectStarred: async (scriptId: string) => {

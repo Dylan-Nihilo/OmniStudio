@@ -1294,6 +1294,32 @@ class ComicGenPipeline:
             self._save_data()
             return script
 
+    def update_project_title(self, script_id: str, title: str) -> Script:
+        """Rename a project without reparsing its script or touching assets."""
+        normalized = title.strip()
+        if not normalized:
+            raise ValueError("Project title cannot be empty")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            script.title = normalized
+            script.updated_at = time.time()
+            self._save_data()
+            return script
+
+    def set_project_archived(self, script_id: str, archived: bool) -> Script:
+        """Archive or restore a project while preserving every production artifact."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            script.archived = archived
+            script.archived_at = time.time() if archived else None
+            script.updated_at = time.time()
+            self._save_data()
+            return script
+
     def toggle_frame_lock(self, script_id: str, frame_id: str) -> Script:
         """Toggle the locked status of a frame."""
         script = self.scripts.get(script_id)

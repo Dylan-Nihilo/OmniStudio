@@ -583,6 +583,11 @@ class Script(BaseModel):
     series_id: Optional[str] = Field(None, description="ID of the parent Series, None for standalone projects")
     episode_number: Optional[int] = Field(None, description="Episode number within the Series")
 
+    # Project lifecycle. Archiving is reversible and intentionally keeps all
+    # production data, while permanent deletion remains a separate action.
+    archived: bool = Field(False, description="Whether the project is archived")
+    archived_at: Optional[float] = Field(None, description="Archive timestamp")
+
     # R2V v2 Phase 3 — "Previously on..." panel cache.
     # Generated AI summary of the PREVIOUS episode's script (qwen3.6-plus),
     # invalidated when the previous episode's original_text changes
