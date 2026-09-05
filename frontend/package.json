@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node ./scripts/run-next-dev.mjs",
+    "dev:preview": "node ./scripts/run-ui-preview.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
