@@ -502,6 +502,7 @@
     "list": "列表",
     "searchPlaceholder": "搜索项目 / 系列…",
     "fromScript": "从脚本开始",
+    "toastDeleteFailed": "删除失败，项目已保留，请重试。",
     "toastEpisodesLoadFailed": "剧集加载失败",
     "toastProjectsSyncFailed": "项目同步失败",
     "filterAll": "全部",

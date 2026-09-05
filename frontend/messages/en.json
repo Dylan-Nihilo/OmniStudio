@@ -502,6 +502,7 @@
     "list": "List",
     "searchPlaceholder": "Search projects / series…",
     "fromScript": "Start from a script",
+    "toastDeleteFailed": "Could not delete the project. Your project was kept. Please try again.",
     "toastEpisodesLoadFailed": "Failed to load episodes",
     "toastProjectsSyncFailed": "Failed to sync projects",
     "filterAll": "All",

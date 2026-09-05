@@ -571,22 +571,11 @@ export const useProjectStore = create<ProjectStore>()(
             },
 
             deleteProject: async (id: string) => {
-                try {
-                    // Delete from backend first
-                    await api.deleteProject(id);
-                    // Then remove from local state
-                    set((state) => ({
-                        projects: state.projects.filter((p) => p.id !== id),
-                        currentProject: state.currentProject?.id === id ? null : state.currentProject
-                    }));
-                } catch (error) {
-                    console.error('Failed to delete project from backend:', error);
-                    // Still remove from local state for UX, but warn user
-                    set((state) => ({
-                        projects: state.projects.filter((p) => p.id !== id),
-                        currentProject: state.currentProject?.id === id ? null : state.currentProject
-                    }));
-                }
+                await api.deleteProject(id);
+                set((state) => ({
+                    projects: state.projects.filter((p) => p.id !== id),
+                    currentProject: state.currentProject?.id === id ? null : state.currentProject,
+                }));
             },
 
             isAnalyzingArtStyle: false,

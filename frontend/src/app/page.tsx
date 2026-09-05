@@ -498,6 +498,17 @@ function AuthenticatedHome() {
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
 
+  const handleDeleteProject = async (id: string) => {
+    try {
+      await deleteProject(id);
+      setSeriesEpisodes((groups) => Object.fromEntries(
+        Object.entries(groups).map(([seriesId, episodes]) => [seriesId, episodes.filter((episode) => episode.id !== id)]),
+      ));
+    } catch {
+      toast.error(t("toastDeleteFailed"));
+    }
+  };
+
   // Hydrate the persisted gallery/list view preference (client-only to avoid
   // an SSR/CSR mismatch — default stays "gallery" on first paint).
   useEffect(() => {
@@ -717,7 +728,7 @@ function AuthenticatedHome() {
         loading={isSyncing || episodesLoading} error={syncError || episodesError}
         onRefresh={syncAll} onCreate={() => setIsDialogOpen(true)}
         onCreateSeries={() => setIsSeriesDialogOpen(true)} onImport={() => setIsImportDialogOpen(true)}
-        onDelete={async (id) => { await deleteProject(id); await syncAll(); }} />;
+        onDelete={handleDeleteProject} />;
     }
     const wsStatusCounts: Record<"all" | DerivedStatus, number> = {
       all: wsAllProjects.length,
@@ -1000,7 +1011,7 @@ function AuthenticatedHome() {
                             className="atelier-reveal"
                             style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                           >
-                            <ProjectCard project={ep} onDelete={deleteProject} />
+                            <ProjectCard project={ep} onDelete={handleDeleteProject} />
                           </div>
                         ))}
                         {!wsFiltering && <NewProjectTile episode onClick={() => { setDialogSeries({ id: s.id, title: s.title }); setIsDialogOpen(true); }} />}
@@ -1057,7 +1068,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                          <ProjectCard project={p} onDelete={deleteProject} />
+                          <ProjectCard project={p} onDelete={handleDeleteProject} />
                         </div>
                       ))}
                       {!wsFiltering && <NewProjectTile onClick={() => setIsDialogOpen(true)} />}
