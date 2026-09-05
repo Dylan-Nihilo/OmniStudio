@@ -39,7 +39,10 @@ def respond(route):
             route.fulfill(status=500, json={"detail": "Preview failure"})
             return
         data = [] if empty else projects
-    elif path == "/series": data = [] if empty or state["mode"] != "series" else [{"id": "series", "title": "测试系列", "episode_ids": ["episode"], "characters": [], "scenes": [], "props": []}]
+    elif path == "/series": data = [] if empty or state["mode"] not in ("series", "series_error") else [{"id": "series", "title": "测试系列", "episode_ids": ["episode"], "characters": [], "scenes": [], "props": []}]
+    elif path == "/series/series/episodes" and state["mode"] == "series_error":
+        route.fulfill(status=500, json={"detail": "Episode refresh failed"})
+        return
     elif path == "/series/series/episodes": data = [{**projects[0], "id": "episode", "title": "系列剧集", "series_id": "series", "updated_at": 1900000000}]
     else: data = []
     route.fulfill(json=data)
@@ -98,6 +101,13 @@ with sync_playwright() as p:
     state["mode"] = "series"
     page.get_by_role("button", name="刷新工作区", exact=True).click()
     expect(page.get_by_role("heading", name="系列剧集", exact=True)).to_be_visible()
+    state["mode"] = "series_error"
+    page.get_by_role("button", name="刷新工作区", exact=True).click()
+    expect(page.get_by_text("部分项目未能加载，请重试。")).to_be_visible()
+    expect(page.get_by_role("heading", name="系列剧集", exact=True)).to_be_visible()
+    state["mode"] = "series"
+    page.get_by_role("button", name="重试", exact=True).click()
+    expect(page.get_by_text("部分项目未能加载，请重试。")).not_to_be_visible()
     page.get_by_role("button", name="Dylan", exact=True).click()
     page.get_by_role("combobox", name="当前 Workspace").select_option("empty")
     page.keyboard.press("Escape")

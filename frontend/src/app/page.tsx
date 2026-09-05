@@ -489,6 +489,7 @@ function AuthenticatedHome() {
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [episodeId, setEpisodeId] = useState<string | null>(null);
   const [seriesEpisodes, setSeriesEpisodes] = useState<Record<string, Project[]>>({});
+  const episodesWorkspace = useRef(activeWorkspaceId);
   const [episodesLoading, setEpisodesLoading] = useState(false);
   const [episodesError, setEpisodesError] = useState(false);
   const projects = useProjectStore((state) => state.projects);
@@ -523,7 +524,8 @@ function AuthenticatedHome() {
   // Ignore responses from a previous workspace or superseded series list.
   useEffect(() => {
     let cancelled = false;
-    setSeriesEpisodes({});
+    if (episodesWorkspace.current !== activeWorkspaceId || !seriesList.length) setSeriesEpisodes({});
+    episodesWorkspace.current = activeWorkspaceId;
     setEpisodesError(false);
     setEpisodesLoading(seriesList.length > 0);
     if (seriesList.length) {
