@@ -1,4 +1,4 @@
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { renderWithIntl } from '@/test/renderWithIntl';
 
@@ -91,7 +91,7 @@ describe('ImportFileDialog', () => {
 
         it('shows step indicator with 3 steps', () => {
             renderDialog();
-            expect(screen.getByText('上传文件')).toBeInTheDocument();
+            expect(within(screen.getByRole('list', { name: '导入文件创建系列' })).getByText('上传文件')).toBeInTheDocument();
             expect(screen.getByText('预览分集')).toBeInTheDocument();
             expect(screen.getByText('完成')).toBeInTheDocument();
         });
@@ -305,11 +305,7 @@ describe('ImportFileDialog', () => {
             const onClose = vi.fn();
             renderDialog({ onClose });
 
-            // Click the X button in the header
-            const closeButtons = screen.getAllByRole('button');
-            // The close button contains the X icon
-            const closeBtn = closeButtons.find(btn => btn.querySelector('[data-testid="icon-x"]'));
-            fireEvent.click(closeBtn!);
+            fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 
             expect(onClose).toHaveBeenCalled();
         });
@@ -323,4 +319,15 @@ describe('ImportFileDialog', () => {
             expect(onClose).toHaveBeenCalled();
         });
     });
+});
+
+it('keeps the dialog open while analysis is pending', () => {
+    mockImportFilePreview.mockReturnValue(new Promise(() => {}));
+    const close = vi.fn();
+    renderDialog({ onClose: close });
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [createMockFile()] } });
+    fireEvent.click(screen.getByRole('button', { name: '开始分析' }));
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.getByRole('button', { name: '取消' })).toBeDisabled();
+    expect(close).not.toHaveBeenCalled();
 });
