@@ -1,456 +1,136 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import dynamic from "next/dynamic";
-import { motion, AnimatePresence } from "framer-motion";
-import { Image as ImageIcon, Play, ChevronRight } from "lucide-react";
-import { api } from "@/lib/api";
-import type { Series, Character, Scene, Prop, Project } from "@/store/projectStore";
-import AssetCard from "@/components/common/AssetCard";
+import { ChevronRight, Film, Image as ImageIcon, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
-import SeriesSidebar, { type SidebarItem } from "./SeriesSidebar";
+import { Button, Dialog, EmptyState, LoadingState, NavigationMenu, PageTransition, StatusBadge, TextAreaField, TextField } from "@omnistudio/ui";
+import { api } from "@/lib/api";
+import { productionProgress } from "@/lib/workspaceOverview";
+import type { Series, Project } from "@/store/projectStore";
+import AssetCard from "@/components/common/AssetCard";
+import AppShell from "@/components/layout/AppShell";
+import { deriveCover, deriveStatus } from "@/components/project/ProjectCard";
+import { useOnline } from "@/lib/useOnline";
+import styles from "./SeriesDetailPage.module.css";
 
 const SeriesModelSettingsModal = dynamic(() => import("./SeriesModelSettingsModal"), { ssr: false });
 const SeriesPromptConfigModal = dynamic(() => import("./SeriesPromptConfigModal"), { ssr: false });
 const ImportAssetsDialog = dynamic(() => import("./ImportAssetsDialog"), { ssr: false });
 const SeriesArtDirectionPanel = dynamic(() => import("./SeriesArtDirectionPanel"), { ssr: false });
+type Section = "episodes" | "characters" | "scenes" | "props" | "art_direction";
 
-interface SeriesDetailPageProps {
-  seriesId: string;
-}
-
-type AssetTab = "characters" | "scenes" | "props";
-
-export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
-  const [series, setSeries] = useState<Series | null>(null);
-  const [episodes, setEpisodes] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeItem, setActiveItem] = useState<SidebarItem>({ kind: "asset", tab: "characters" });
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [showAddEpisode, setShowAddEpisode] = useState(false);
-  const [newEpisodeTitle, setNewEpisodeTitle] = useState("");
-  const [isCreatingEpisode, setIsCreatingEpisode] = useState(false);
-  const [showModelSettings, setShowModelSettings] = useState(false);
-  const [showPromptConfig, setShowPromptConfig] = useState(false);
-  const [showImportAssets, setShowImportAssets] = useState(false);
-
-  const t = useTranslations("series");
+export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
+  const t = useTranslations("seriesOverview");
+  const ts = useTranslations("series");
   const tc = useTranslations("common");
-
-  const ASSET_LABELS: Record<AssetTab, string> = {
-    characters: t("characterLabel"),
-    scenes: t("sceneLabel"),
-    props: t("propLabel"),
-  };
+  const online = useOnline();
+  const [series, setSeries] = useState<Series | null>(null);
+  const [seriesList, setSeriesList] = useState<Series[]>([]);
+  const [episodes, setEpisodes] = useState<Project[]>([]);
+  const [section, setSection] = useState<Section>("episodes");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [dialog, setDialog] = useState<"edit" | "episode" | null>(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [settings, setSettings] = useState<"model" | "prompt" | "import" | null>(null);
+  const formId = useId();
+  const refresh = () => setReload(value => value + 1);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [seriesData, episodesData] = await Promise.all([
-          api.getSeries(seriesId),
-          api.getSeriesEpisodes(seriesId),
-        ]);
-        setSeries(seriesData);
-        setEpisodes(episodesData);
-        setEditTitle(seriesData.title);
-      } catch (error) {
-        console.error("Failed to fetch series data:", error);
-      } finally {
-        setLoading(false);
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
+    Promise.all([api.getSeries(seriesId), api.getSeriesEpisodes(seriesId)])
+      .then(([data, items]) => { if (!cancelled) { setSeries(data); setEpisodes(items); } })
+      .catch(() => { if (!cancelled) setLoadError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    api.listSeries().then(items => { if (!cancelled) setSeriesList(items); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [seriesId, reload]);
+
+  const openDialog = (value: "edit" | "episode") => {
+    setTitle(value === "edit" ? series?.title || "" : "");
+    setDescription(series?.description || "");
+    setSaveError(false);
+    setDialog(value);
+  };
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!series || !title.trim() || saving) return;
+    setSaving(true);
+    setSaveError(false);
+    try {
+      if (dialog === "edit") {
+        await api.updateSeries(seriesId, { title: title.trim(), description: description.trim() });
+        setSeries({ ...series, title: title.trim(), description: description.trim() });
+        setSeriesList(items => items.map(item => item.id === seriesId ? { ...item, title: title.trim() } : item));
+      } else {
+        const nextNumber = Math.max(0, ...episodes.map(episode => episode.episode_number || 0)) + 1;
+        const episode = await api.createEpisodeForSeries(seriesId, title.trim(), nextNumber, series.workflow_mode || "i2v_legacy");
+        setEpisodes(items => [...items, episode]);
+        setSeries({ ...series, episode_ids: [...series.episode_ids, episode.id] });
       }
-    };
-    fetchData();
-  }, [seriesId]);
-
-  const handleBackToHome = () => {
-    window.location.hash = "";
+      setDialog(null);
+    } catch { setSaveError(true); }
+    finally { setSaving(false); }
   };
 
-  const handleTitleSave = async () => {
-    if (!editTitle.trim() || !series) return;
-    try {
-      await api.updateSeries(seriesId, { title: editTitle.trim() });
-      setSeries({ ...series, title: editTitle.trim() });
-    } catch (error) {
-      console.error("Failed to update series title:", error);
-      setEditTitle(series.title);
-    }
-    setIsEditingTitle(false);
-  };
+  const ordered = [...episodes].sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
+  const cover = ordered.map(deriveCover).find(Boolean);
+  const shotCount = episodes.reduce((sum, episode) => sum + (episode.frames || []).length, 0);
+  const videoCount = episodes.reduce((sum, episode) => sum + productionProgress(episode).videos, 0);
+  const allSeries = series ? [series, ...seriesList.filter(item => item.id !== series.id)] : seriesList;
+  const sections: Section[] = ["episodes", "characters", "scenes", "props", "art_direction"];
+  const assets = series && (section === "characters" || section === "scenes" || section === "props") ? series[section] || [] : null;
+  const context = <div className={styles.context}>
+    <div className={styles.contextHeading}><p>{t("eyebrow")}</p><h2>{t("title")}</h2></div>
+    <NavigationMenu aria-label={t("mySeries")} currentId={seriesId} className={styles.seriesNav} items={allSeries.map(item => ({
+      id: item.id, href: `#/series/${item.id}`, label: item.title,
+      icon: item.id === seriesId && cover ? <img src={cover} alt="" /> : <Film size={22} />,
+    }))} />
+    <Button variant="quiet" className={styles.newSeries} onPress={() => { window.location.hash = "#/new-series"; }} isDisabled={!online}><Plus size={16} />{t("newSeries")}</Button>
+  </div>;
 
-  const handleTitleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleTitleSave();
-    if (e.key === "Escape") {
-      setEditTitle(series?.title || "");
-      setIsEditingTitle(false);
-    }
-  };
-
-  const handleAddEpisode = async () => {
-    if (!newEpisodeTitle.trim()) return;
-    setIsCreatingEpisode(true);
-    try {
-      const nextEpNum = episodes.length + 1;
-      const workflowMode = series?.workflow_mode || "i2v_legacy";
-      await api.createEpisodeForSeries(seriesId, newEpisodeTitle.trim(), nextEpNum, workflowMode);
-      const updatedEpisodes = await api.getSeriesEpisodes(seriesId);
-      setEpisodes(updatedEpisodes);
-      setNewEpisodeTitle("");
-      setShowAddEpisode(false);
-    } catch (error) {
-      console.error("Failed to add episode:", error);
-    } finally {
-      setIsCreatingEpisode(false);
-    }
-  };
-
-  const handleAddEpisodeKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleAddEpisode();
-    if (e.key === "Escape") setShowAddEpisode(false);
-  };
-
-  const handleOpenEpisode = (episodeId: string) => {
-    window.location.hash = `#/series/${seriesId}/episode/${episodeId}`;
-  };
-
-  const refreshSeriesData = async () => {
-    try {
-      const [seriesData, episodesData] = await Promise.all([
-        api.getSeries(seriesId),
-        api.getSeriesEpisodes(seriesId),
-      ]);
-      setSeries(seriesData);
-      setEpisodes(episodesData);
-    } catch (error) {
-      console.error("Failed to refresh series data:", error);
-    }
-  };
-
-  // ── Loading ──
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <div className="text-text-secondary">{tc("loading")}</div>
-      </div>
-    );
-  }
-
-  // ── Error ──
-  if (!series) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <div className="text-center">
-          <p className="text-text-secondary mb-4">{t("notFound")}</p>
-          <a href="#/" className="text-primary hover:underline">{t("backToHome")}</a>
+  return <main className={styles.root}>
+    <AppShell activeTab="editor" onTabChange={() => {}} context={context} transitionKey={seriesId}>
+      {loading && !series ? <LoadingState label={tc("loading")} /> : !series ? <EmptyState title={t("loadFailed")} description={ts("notFound")} action={<><Button onPress={refresh} isDisabled={!online}>{t("retry")}</Button><a href="#/workspace">{ts("backToHome")}</a></>} /> : <div className={styles.page} aria-busy={loading}>
+        {loadError && <div className={styles.error} role="alert">{t("loadFailed")}<Button variant="quiet" onPress={refresh} isDisabled={!online}>{t("retry")}</Button></div>}
+        <header className={styles.hero}>
+          {cover && <img className={styles.heroImage} src={cover} alt="" />}
+          <div className={styles.heroCopy}><p>{t("title")} / {series.workflow_mode === "i2v_legacy" ? "I2V" : "R2V"}</p><h1>{series.title}</h1>{series.description && <p className={styles.description}>{series.description}</p>}<span>{t("episodeCount", { count: episodes.length })}</span></div>
+          <Button variant="secondary" className={styles.editButton} onPress={() => openDialog("edit")} isDisabled={!online}>{t("editSeries")}</Button>
+        </header>
+        <div className={styles.body}>
+          <div className={styles.sectionHeader}><div><h2>{t(section)}</h2><p>{t("summary", { episodes: episodes.length, shots: shotCount, videos: videoCount })}</p></div><Button onPress={() => openDialog("episode")} isDisabled={!online || loading || loadError}><Plus size={16} />{t("newEpisode")}</Button></div>
+          <nav className={styles.tools} aria-label={t("seriesTools")}>
+            {sections.map(item => <Button key={item} variant="quiet" aria-pressed={section === item} onPress={() => setSection(item)}>{t(item)}</Button>)}
+            <details><summary>{t("moreSettings")}</summary><div className={styles.settingsMenu}><Button variant="quiet" onPress={() => setSettings("model")}>{ts("genSettings")}</Button><Button variant="quiet" onPress={() => setSettings("prompt")}>{ts("promptConfig")}</Button><Button variant="quiet" onPress={() => setSettings("import")}>{ts("importAssets")}</Button></div></details>
+          </nav>
+          <PageTransition transitionKey={section}>
+            {section === "episodes" ? ordered.length ? <ol className={styles.episodes}>{ordered.map(episode => {
+              const thumbnail = deriveCover(episode);
+              const status = deriveStatus(episode);
+              const progress = productionProgress(episode);
+              return <li key={episode.id}><a className={styles.episode} href={`#/series/${seriesId}/episode/${episode.id}`}>
+                <div className={styles.thumbnail}>{thumbnail ? <img src={thumbnail} alt="" loading="lazy" /> : <Film size={28} />}</div>
+                <div className={styles.episodeCopy}><p>{t("episode", { number: episode.episode_number || 0 })}</p><h3>{episode.title}</h3><span>{episode.originalText || (episode as Project & { original_text?: string }).original_text || t("emptyScript")}</span></div>
+                <div className={styles.episodeMeta}><span>{t("shotProgress", { ready: progress.images, total: progress.total })}</span><StatusBadge tone={status === "completed" ? "success" : status === "processing" ? "info" : "neutral"}>{t(status)}</StatusBadge></div><ChevronRight size={18} />
+              </a></li>;
+            })}</ol> : <EmptyState title={ts("noEpisodes")} description={t("emptyEpisodes")} media={<Film size={30} />} /> : section === "art_direction" ? <SeriesArtDirectionPanel seriesId={seriesId} onSaved={refresh} /> : assets?.length ? <><p className={styles.assetHint}>{ts("sharedAssetsEditHint")}</p><div className={styles.assets}>{assets.map(asset => <AssetCard key={asset.id} asset={asset} type={section as "characters" | "scenes" | "props"} />)}</div></> : <EmptyState title={ts("noAssets", { label: t(section) })} description={ts("assetsSharedHint")} media={<ImageIcon size={28} />} />}
+          </PageTransition>
         </div>
-      </div>
-    );
-  }
-
-  // ── Derive content ──
-  const getAssets = (tab: AssetTab): (Character | Scene | Prop)[] => {
-    if (tab === "characters") return series.characters || [];
-    if (tab === "scenes") return series.scenes || [];
-    return series.props || [];
-  };
-
-  const selectedEpisode =
-    activeItem.kind === "episode"
-      ? episodes.find((ep) => ep.id === activeItem.episodeId)
-      : null;
-
-  return (
-    <main className="flex h-screen w-screen bg-background overflow-hidden">
-      {/* ── Sidebar ── */}
-      <SeriesSidebar
-        series={series}
-        episodes={episodes}
-        activeItem={activeItem}
-        onItemChange={setActiveItem}
-        onBack={handleBackToHome}
-        isEditingTitle={isEditingTitle}
-        editTitle={editTitle}
-        onEditTitleChange={setEditTitle}
-        onTitleDoubleClick={() => setIsEditingTitle(true)}
-        onTitleSave={handleTitleSave}
-        onTitleKeyDown={handleTitleKeyDown}
-        showAddEpisode={showAddEpisode}
-        newEpisodeTitle={newEpisodeTitle}
-        isCreatingEpisode={isCreatingEpisode}
-        onShowAddEpisode={setShowAddEpisode}
-        onNewEpisodeTitleChange={setNewEpisodeTitle}
-        onAddEpisode={handleAddEpisode}
-        onAddEpisodeKeyDown={handleAddEpisodeKeyDown}
-        onOpenModelSettings={() => setShowModelSettings(true)}
-        onOpenPromptConfig={() => setShowPromptConfig(true)}
-        onOpenImportAssets={() => setShowImportAssets(true)}
-      />
-
-      {/* ── Content Area ── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <AnimatePresence mode="wait">
-          {activeItem.kind === "art_direction" ? (
-            <SeriesArtDirectionPanel
-              key="art-direction"
-              seriesId={seriesId}
-              onSaved={refreshSeriesData}
-            />
-          ) : activeItem.kind === "asset" ? (
-            <AssetContentPanel
-              key={`asset-${activeItem.tab}`}
-              tab={activeItem.tab}
-              assets={getAssets(activeItem.tab)}
-              label={ASSET_LABELS[activeItem.tab]}
-            />
-          ) : selectedEpisode ? (
-            <EpisodeContentPanel
-              key={`episode-${selectedEpisode.id}`}
-              episode={selectedEpisode}
-              seriesId={seriesId}
-              onOpenEditor={() => handleOpenEpisode(selectedEpisode.id)}
-            />
-          ) : null}
-        </AnimatePresence>
-      </div>
-
-      {/* ── Modals ── */}
-      <SeriesModelSettingsModal
-        isOpen={showModelSettings}
-        onClose={() => setShowModelSettings(false)}
-        seriesId={seriesId}
-        onSaved={refreshSeriesData}
-      />
-      <SeriesPromptConfigModal
-        isOpen={showPromptConfig}
-        onClose={() => setShowPromptConfig(false)}
-        seriesId={seriesId}
-        onSaved={refreshSeriesData}
-      />
-      <ImportAssetsDialog
-        isOpen={showImportAssets}
-        onClose={() => setShowImportAssets(false)}
-        seriesId={seriesId}
-        onImported={refreshSeriesData}
-      />
-    </main>
-  );
-}
-
-// ── Shared animation config ──
-
-const contentTransition = {
-  duration: 0.25,
-  ease: [0.25, 1, 0.5, 1] as const, // ease-out-quart
-};
-
-// ── Asset Content Panel ──
-
-function AssetContentPanel({
-  tab,
-  assets,
-  label,
-}: {
-  tab: AssetTab;
-  assets: (Character | Scene | Prop)[];
-  label: string;
-}) {
-  const t = useTranslations("series");
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: 24 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -16 }}
-      transition={contentTransition}
-      className="flex-1 flex flex-col overflow-hidden"
-    >
-      {/* Header */}
-      <div className="px-8 pt-6 pb-4">
-        <h2 className="text-xl font-display font-bold text-foreground">
-          {label}
-          <span className="text-sm font-normal text-text-secondary ml-2">
-            {t("itemCount", { count: assets.length })}
-          </span>
-        </h2>
-        <p className="text-xs text-text-muted mt-1">
-          {t("sharedAssetsEditHint")}
-        </p>
-      </div>
-
-      {/* Grid */}
-      <div className="flex-1 overflow-y-auto px-8 pb-8">
-        {assets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-text-secondary">
-            <motion.div
-              animate={{ y: [0, -6, 0] }}
-              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-              className="w-16 h-16 rounded-2xl bg-glass border border-glass-border flex items-center justify-center mb-4"
-            >
-              <ImageIcon size={28} className="text-text-muted" />
-            </motion.div>
-            <p className="text-sm font-medium">{t("noAssets", { label })}</p>
-            <p className="text-xs text-text-muted mt-1">{t("assetsSharedHint")}</p>
-          </div>
-        ) : (
-          <motion.div
-            className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: { transition: { staggerChildren: 0.04 } },
-            }}
-          >
-            {assets.map((asset) => (
-              <motion.div
-                key={asset.id}
-                variants={{
-                  hidden: { opacity: 0, y: 16, scale: 0.97 },
-                  visible: {
-                    opacity: 1,
-                    y: 0,
-                    scale: 1,
-                    transition: { duration: 0.3, ease: [0.25, 1, 0.5, 1] },
-                  },
-                }}
-              >
-                <AssetCard asset={asset} type={tab} />
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Episode Content Panel ──
-
-function EpisodeContentPanel({
-  episode,
-  seriesId,
-  onOpenEditor,
-}: {
-  episode: Project;
-  seriesId: string;
-  onOpenEditor: () => void;
-}) {
-  const t = useTranslations("series");
-
-  const frames = episode.frames || [];
-  const characters = episode.characters || [];
-  const scenes = episode.scenes || [];
-  const originalText = episode.originalText || "";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: 24 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -16 }}
-      transition={contentTransition}
-      className="flex-1 flex flex-col overflow-hidden"
-    >
-      {/* Header */}
-      <div className="px-8 pt-6 pb-4 flex items-start justify-between border-b border-glass-border">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="text-xs bg-primary/20 text-primary px-2.5 py-1 rounded-lg font-mono font-bold">
-              EP{episode.episode_number || "?"}
-            </span>
-            <h2 className="text-xl font-display font-bold text-foreground">
-              {episode.title}
-            </h2>
-          </div>
-          <p className="text-xs text-text-secondary">
-            {episode.workflow_mode === "r2v" ? "R2V" : "I2V Legacy"} · {t("frameCount", { count: frames.length })}
-          </p>
-        </div>
-        <motion.button
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={onOpenEditor}
-          className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-primary/20 hover:shadow-primary/30"
-        >
-          <Play size={14} />
-          {t("enterEditor")}
-          <ChevronRight size={14} />
-        </motion.button>
-      </div>
-
-      {/* Episode Overview */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
-        {/* Script Summary */}
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">{t("scriptSummary")}</h3>
-          {originalText ? (
-            <p className="text-xs text-text-secondary leading-relaxed line-clamp-4 bg-surface rounded-lg p-3 border border-glass-border">
-              {originalText.slice(0, 300)}{originalText.length > 300 ? "..." : ""}
-            </p>
-          ) : (
-            <p className="text-xs text-text-muted italic">{t("noScript")}</p>
-          )}
-        </div>
-
-        {/* Storyboard Overview */}
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">{t("storyboardOverview")}</h3>
-          {frames.length === 0 ? (
-            <div className="flex items-center gap-3 bg-surface rounded-lg p-4 border border-glass-border">
-              <div className="w-10 h-10 rounded-lg bg-glass border border-glass-border flex items-center justify-center">
-                <Play size={16} className="text-text-muted" />
-              </div>
-              <div>
-                <p className="text-xs font-medium text-text-secondary">{t("noFrames")}</p>
-                <p className="text-[0.6875rem] text-text-muted">{t("startCreating")}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-4 lg:grid-cols-6 gap-2">
-              {frames.slice(0, 12).map((frame, i) => (
-                <div
-                  key={frame.id}
-                  className="aspect-video bg-surface rounded-lg border border-glass-border overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
-                  onClick={onOpenEditor}
-                >
-                  {frame.rendered_image_url ? (
-                    <img
-                      src={frame.rendered_image_url}
-                      alt={`#${i + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[0.625rem] text-text-muted font-mono">
-                      #{i + 1}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {frames.length > 12 && (
-                <div className="aspect-video bg-surface rounded-lg border border-glass-border flex items-center justify-center text-xs text-text-muted">
-                  +{frames.length - 12}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Characters & Scenes count */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-surface rounded-lg p-3 border border-glass-border text-center">
-            <p className="text-lg font-bold text-foreground">{characters.length}</p>
-            <p className="text-[0.6875rem] text-text-muted">{t("characters")}</p>
-          </div>
-          <div className="bg-surface rounded-lg p-3 border border-glass-border text-center">
-            <p className="text-lg font-bold text-foreground">{scenes.length}</p>
-            <p className="text-[0.6875rem] text-text-muted">{t("scenes")}</p>
-          </div>
-          <div className="bg-surface rounded-lg p-3 border border-glass-border text-center">
-            <p className="text-lg font-bold text-foreground">{frames.length}</p>
-            <p className="text-[0.6875rem] text-text-muted">{t("storyboardFrames")}</p>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
+      </div>}
+    </AppShell>
+    <Dialog isOpen={dialog !== null} onOpenChange={open => { if (!open && !saving) setDialog(null); }} isDismissable={!saving} title={t(dialog === "edit" ? "editSeries" : "newEpisode")} closeLabel={tc("close")} footer={<><Button variant="secondary" onPress={() => setDialog(null)} isDisabled={saving}>{tc("cancel")}</Button><Button type="submit" form={formId} isPending={saving} isDisabled={!online || !title.trim()}>{tc("save")}</Button></>}>
+      <form id={formId} className={styles.form} onSubmit={save}><TextField autoFocus label={t("name")} value={title} onChange={setTitle} isRequired isDisabled={saving} />{dialog === "edit" && <TextAreaField label={t("description")} value={description} onChange={setDescription} isDisabled={saving} rows={3} />}{saveError && <p role="alert" className={styles.error}>{t("saveFailed")}</p>}</form>
+    </Dialog>
+    <SeriesModelSettingsModal isOpen={settings === "model"} onClose={() => setSettings(null)} seriesId={seriesId} onSaved={refresh} />
+    <SeriesPromptConfigModal isOpen={settings === "prompt"} onClose={() => setSettings(null)} seriesId={seriesId} onSaved={refresh} />
+    <ImportAssetsDialog isOpen={settings === "import"} onClose={() => setSettings(null)} seriesId={seriesId} onImported={refresh} />
+  </main>;
 }

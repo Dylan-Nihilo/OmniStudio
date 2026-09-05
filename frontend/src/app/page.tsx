@@ -638,13 +638,14 @@ function AuthenticatedHome() {
         return;
       }
       // Menu action: open new project dialog then land on workspace
-      if (hash === '#/new-project') {
+      if (hash === '#/new-project' || hash === '#/new-series') {
         setCurrentView('home');
         setActiveTab('workspace');
         setProjectId(null);
         setSeriesId(null);
         setEpisodeId(null);
-        setIsDialogOpen(true);
+        if (hash === '#/new-series') { setIsSeriesDialogOpen(true); setWorkspaceSection('series'); }
+        else setIsDialogOpen(true);
         void syncAll();
         // Clean URL without triggering another hashchange
         history.replaceState(null, '', '#/');
@@ -685,7 +686,7 @@ function AuthenticatedHome() {
 
   // 系列详情页 — 全屏，自带 BreadcrumbBar
   if (currentView === 'series' && seriesId) {
-    return <SeriesDetailPage seriesId={seriesId} />;
+    return <SeriesDetailPage key={seriesId} seriesId={seriesId} />;
   }
 
   // Filter standalone projects (not belonging to any series)
