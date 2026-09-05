@@ -1,7 +1,7 @@
 .navigation { min-height: 0; overflow-y: auto; padding-top: 32px; }
-.heading { margin: 0 24px 22px; border-bottom: 1px solid var(--color-border-default); padding-bottom: 16px; }
+.heading { margin: 0 24px 8px; border-bottom: 1px solid var(--color-border-default); padding-bottom: 16px; }
 .heading p { color: var(--color-primary); font-size: 10px; font-weight: 500; }
-.heading h2 { margin-top: 18px; font-size: 24px; font-weight: 500; }
+.heading h2 { margin-top: 12px; font-size: 24px; font-weight: 500; }
 .navigation a { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px 20px; border-left: 2px solid transparent; color: var(--color-text-secondary); font-size: 13px; white-space: nowrap; }
 .navigation a:hover { background: var(--color-bg-hover); }
 .navigation a[aria-current] { border-color: var(--color-primary); color: var(--color-primary); font-weight: 500; }
