@@ -446,7 +446,7 @@ export const useProjectStore = create<ProjectStore>()(
                         projects: state.projects.map((p) =>
                             p.id === project.id ? { ...project, updatedAt: new Date().toISOString() } : p
                         ),
-                        currentProject: { ...project, updatedAt: new Date().toISOString() },
+                        currentProject: state.currentProject?.id === project.id ? { ...project, updatedAt: new Date().toISOString() } : state.currentProject,
                         pendingExtraction: null,
                         pendingExtractionScript: null,
                         isAnalyzing: false,
@@ -527,7 +527,7 @@ export const useProjectStore = create<ProjectStore>()(
             selectProject: async (id: string) => {
                 const request = ++selectionRequest;
                 const cachedProject = get().projects.find((p) => p.id === id);
-                set({ currentProject: cachedProject ?? null });
+                set(state => ({ currentProject: cachedProject ?? null, ...(state.currentProject?.id !== id ? { pendingExtraction: null, pendingExtractionScript: null } : {}) }));
 
                 // Then fetch latest data from backend
                 try {
