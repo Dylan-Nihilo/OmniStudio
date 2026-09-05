@@ -23,9 +23,7 @@
 .sectionHeader p { margin-top: 8px; font-size: 14px; color: var(--color-text-secondary); }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--color-border-default); }
 .tools button[aria-pressed=true] { color: var(--color-primary); background: var(--color-bg-inset); }
-.tools details { position: relative; margin-left: auto; font-size: 13px; }
-.tools summary { cursor: pointer; padding: 10px; }
-.settingsMenu { position: absolute; z-index: 10; right: 0; display: grid; min-width: 180px; padding: 8px; border: 1px solid var(--color-border-default); border-radius: 8px; background: var(--color-bg-surface); box-shadow: 0 12px 28px #0f172a1a; }
+.moreSettings { margin-left: auto; }
 .episodes { list-style: none; padding: 0; }
 .episodes li { border-bottom: 1px solid var(--color-border-default); }
 .episode { display: grid; grid-template-columns: 190px minmax(0, 1fr) auto 18px; gap: 24px; align-items: center; padding: 22px 0; min-width: 0; }

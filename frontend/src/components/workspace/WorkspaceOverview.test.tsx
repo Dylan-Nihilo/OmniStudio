@@ -8,7 +8,7 @@ vi.mock("@/store/authStore", () => ({ useAuthStore: (select: (state: unknown) =>
 vi.mock("@/store/settingsStore", () => ({ useSettingsStore: (select: (state: unknown) => unknown) => select({ locale: "zh" }) }));
 const actions = { onRefresh: vi.fn(), onCreate: vi.fn(), onCreateSeries: vi.fn(), onImport: vi.fn(), onDelete: vi.fn() };
 
-it("shows real progress and routes, preserves creation actions and distinguishes failed loading from an empty workspace", () => {
+it("shows real progress and routes, preserves creation actions and distinguishes failed loading from an empty workspace", async () => {
   const { rerender } = render(<WorkspaceOverview {...actions} projects={[]} series={[]} loading={false} error={false} />);
   fireEvent.click(screen.getByRole("button", { name: "newSeries" }));
   expect(actions.onCreateSeries).toHaveBeenCalledOnce();
@@ -25,7 +25,10 @@ it("shows real progress and routes, preserves creation actions and distinguishes
   expect(screen.getByRole("link", { name: "viewQueue" })).toHaveAttribute("href", "#/series/series/episode/episode");
   expect(screen.getByText('queued:{"count":1}')).toBeVisible();
   expect(screen.getByText("notStarted")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "moreActions" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "moreActions" })[0]);
+  fireEvent.click(await screen.findByRole("menuitem", { name: "newSeries" }));
+  expect(actions.onCreateSeries).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getAllByRole("button", { name: "moreActions" })[1]);
   expect(screen.getByRole("menuitem", { name: "delete" })).toBeVisible();
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();

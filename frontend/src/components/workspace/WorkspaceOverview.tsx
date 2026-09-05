@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, AudioLines, FileText, Film, ImageIcon, Plus, RefreshCw, Search, Layers, FileUp } from "lucide-react";
+import { ArrowUpRight, AudioLines, FileText, Film, ImageIcon, Plus, RefreshCw, Search, Layers, FileUp, MoreHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { Project, Series } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useOnline } from "@/lib/useOnline";
 import { productionProgress, projectHref, recentProjects } from "@/lib/workspaceOverview";
-import { Button, IconButton, LoadingState, Skeleton, EmptyState } from "@omnistudio/ui";
+import { ActionMenu, Button, IconButton, LoadingState, Skeleton, EmptyState } from "@omnistudio/ui";
 import ProjectCard, { deriveCover } from "@/components/project/ProjectCard";
 import styles from "./WorkspaceOverview.module.css";
 
@@ -57,6 +57,10 @@ export default function WorkspaceOverview({ projects, series, loading, error, on
           <IconButton className={styles.iconButton} onPress={onRefresh} isPending={loading} isDisabled={!online} aria-label={t("refresh")}>{!loading && <RefreshCw size={18} />}</IconButton>
           <a className={styles.iconButton} href="#/workspace/projects" aria-label={t("search")} title={t("search")}><Search size={20} /></a>
           <Button onPress={onCreate} isDisabled={!online}><Plus size={18} />{t("newProject")}</Button>
+          {featured && <ActionMenu label={t("moreActions")} icon={<MoreHorizontal size={18} />} items={[
+            { id: "series", label: t("newSeries"), icon: <Layers size={16} />, isDisabled: !online, onAction: onCreateSeries },
+            { id: "import", label: t("import"), icon: <FileUp size={16} />, isDisabled: !online, onAction: onImport },
+          ]} />}
         </div>
       </header>
 

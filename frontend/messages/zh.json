@@ -451,6 +451,7 @@
     "saveFailed": "保存失败，内容已保留，请重试。"
   },
   "workspaceOverview": {
+    "moreActions": "更多创建方式",
     "title": "工作区",
     "eyebrow": "OMNISTUDIO / 工作区",
     "overview": "总览",

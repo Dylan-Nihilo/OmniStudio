@@ -95,6 +95,12 @@ with sync_playwright() as p:
             }"""), (width, height, name, "dialog footer obstructed")
     page.keyboard.press("Escape")
     expect(page.get_by_role("button", name="创建新项目", exact=True)).to_be_focused()
+    for action in ("创建系列", "导入文件"):
+        page.get_by_role("button", name="更多创建方式", exact=True).click()
+        page.get_by_role("menuitem", name=action, exact=True).click()
+        expect(page.get_by_role("dialog")).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(page.get_by_role("dialog")).not_to_be_visible()
     page.get_by_role("link", name="搜索项目", exact=True).click()
     expect(page.get_by_role("searchbox", name="搜索项目 / 系列…")).to_be_visible()
     page.goto(url, wait_until="load")

@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight, Film, Image as ImageIcon, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { Button, Dialog, EmptyState, LoadingState, NavigationMenu, PageTransition, StatusBadge, TextAreaField, TextField } from "@omnistudio/ui";
+import { ActionMenu, Button, Dialog, EmptyState, LoadingState, NavigationMenu, PageTransition, StatusBadge, TextAreaField, TextField } from "@omnistudio/ui";
 import { api } from "@/lib/api";
 import { productionProgress } from "@/lib/workspaceOverview";
 import type { Series, Project } from "@/store/projectStore";
@@ -109,7 +109,11 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
           <div className={styles.sectionHeader}><div><h2>{t(section)}</h2><p>{t("summary", { episodes: episodes.length, shots: shotCount, videos: videoCount })}</p></div><Button onPress={() => openDialog("episode")} isDisabled={!online || loading || loadError}><Plus size={16} />{t("newEpisode")}</Button></div>
           <nav className={styles.tools} aria-label={t("seriesTools")}>
             {sections.map(item => <Button key={item} variant="quiet" aria-pressed={section === item} onPress={() => setSection(item)}>{t(item)}</Button>)}
-            <details><summary>{t("moreSettings")}</summary><div className={styles.settingsMenu}><Button variant="quiet" onPress={() => setSettings("model")}>{ts("genSettings")}</Button><Button variant="quiet" onPress={() => setSettings("prompt")}>{ts("promptConfig")}</Button><Button variant="quiet" onPress={() => setSettings("import")}>{ts("importAssets")}</Button></div></details>
+            <ActionMenu label={t("moreSettings")} className={styles.moreSettings} items={[
+              { id: "model", label: ts("genSettings"), isDisabled: !online, onAction: () => setSettings("model") },
+              { id: "prompt", label: ts("promptConfig"), isDisabled: !online, onAction: () => setSettings("prompt") },
+              { id: "import", label: ts("importAssets"), isDisabled: !online, onAction: () => setSettings("import") },
+            ]} />
           </nav>
           <PageTransition transitionKey={section}>
             {section === "episodes" ? ordered.length ? <ol className={styles.episodes}>{ordered.map(episode => {

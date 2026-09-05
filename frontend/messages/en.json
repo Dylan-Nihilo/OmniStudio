@@ -451,6 +451,7 @@
     "saveFailed": "Could not save. Your changes are retained; please retry."
   },
   "workspaceOverview": {
+    "moreActions": "More ways to create",
     "title": "Workspace",
     "eyebrow": "OMNISTUDIO / WORKSPACE",
     "overview": "Overview",
