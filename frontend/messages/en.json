@@ -421,6 +421,17 @@
     "workspaceAria": "Omni Studio · Workspace",
     "mainNavAria": "Main navigation"
   },
+  "workspaceOverview": {
+    "title": "Workspace",
+    "eyebrow": "OMNISTUDIO / WORKSPACE",
+    "overview": "Overview",
+    "projects": "All projects",
+    "series": "Series",
+    "assets": "Asset library",
+    "shortcuts": "Shortcuts",
+    "scripts": "Recent scripts",
+    "drafts": "Render drafts"
+  },
   "workspace": {
     "title": "My Workspace",
     "empty": "No projects yet",

@@ -1,0 +1,33 @@
+.rail { position: relative; z-index: 40; display: flex; flex: 0 0 88px; flex-direction: column; height: 100%; background: var(--color-bg-inset); padding: 24px 12px; }
+.brand { display: grid; place-items: center; gap: 20px; min-height: 56px; margin-bottom: 40px; }
+.brand::after { content: ''; width: 26px; height: 2px; background: var(--color-primary); }
+.railNav { display: flex; flex: 1; flex-direction: column; gap: 20px; }
+.navButton { display: flex; width: 100%; min-height: 56px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 12px; color: var(--color-text-muted); font-size: 10px; }
+.navButton svg { width: 24px; height: 24px; }
+.navButton:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.navButton[aria-current] { background: var(--color-bg-surface); border-color: var(--color-border-default); color: var(--color-primary); }
+.rail button:focus-visible, .context button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.railBottom { display: grid; gap: 20px; }
+.context { position: relative; z-index: 40; display: flex; flex-direction: column; flex: 0 0 240px; min-height: 0; border-right: 1px solid var(--color-border-default); background: var(--color-bg-surface); }
+.account { flex-shrink: 0; margin: auto 24px 24px; border-top: 1px solid var(--color-border-default); padding-top: 20px; }
+.accountButton { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; text-align: left; }
+.avatar { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px; background: var(--color-text-primary); color: var(--color-bg-base); font-size: 13px; font-weight: 600; }
+.identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.identity strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.identity > span { color: var(--color-text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accountChevron { flex-shrink: 0; color: var(--color-text-muted); }
+.popover { left: 0; right: auto; width: 260px; max-width: calc(100vw - 32px); }
+.accountAction { display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.accountAction:hover { background: var(--color-bg-hover); }
+.rail .account { margin: 0; border: 0; padding: 0; }
+.rail .accountButton { justify-content: center; }
+.rail .identity, .rail .accountChevron { display: none; }
+@media (max-width: 1199px) and (min-width: 768px) { .context { flex-basis: 200px; } }
+@media (max-width: 767px) {
+  .rail { display: none; }
+  .context { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--color-border-default); }
+  .account { margin: 0; padding: 0; border: 0; }
+  .accountButton { width: 44px; justify-content: center; }
+  .identity, .accountChevron { display: none; }
+  .popover { top: calc(100% + 8px); bottom: auto; left: auto; right: 0; }
+}

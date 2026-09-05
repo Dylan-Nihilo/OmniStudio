@@ -15,6 +15,7 @@ import CreateProjectDialog from "@/components/project/CreateProjectDialog";
 import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import CreativeCanvas from "@/components/canvas/CreativeCanvas";
 import AppShell from "@/components/layout/AppShell";
+import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 import ModuleErrorBoundary from "@/components/layout/ModuleErrorBoundary";
 import type { GlobalTab } from "@/components/layout/GlobalSidebar";
 import dynamic from "next/dynamic";
@@ -474,6 +475,7 @@ function AuthenticatedHome() {
   const [showCreateDropdown, setShowCreateDropdown] = useState(false);
   const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
+  const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
   const [wsSearch, setWsSearch] = useState("");
   const online = useOnline();
   const [wsStatus, setWsStatus] = useState<DerivedStatus | "all">("all");
@@ -645,6 +647,9 @@ function AuthenticatedHome() {
         history.replaceState(null, '', '#/');
         return;
       }
+      const section = hash.split("/")[2];
+      setWorkspaceSection(section === "projects" || section === "series" || section === "drafts" ? section : "overview");
+      setWsStatus(section === "drafts" ? "processing" : "all");
       // Default: workspace
       if (isWorkspaceRoute(hash)) {
         void syncAll();
@@ -1084,7 +1089,7 @@ function AuthenticatedHome() {
 
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 flex-1 overflow-hidden">
-        <AppShell activeTab={activeTab} onTabChange={handleTabChange}>
+        <AppShell activeTab={activeTab} onTabChange={handleTabChange} context={activeTab === "workspace" ? <WorkspaceNavigation section={workspaceSection} /> : undefined}>
           <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>

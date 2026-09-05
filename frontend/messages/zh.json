@@ -421,6 +421,17 @@
     "workspaceAria": "Omni Studio · 工作区",
     "mainNavAria": "主导航"
   },
+  "workspaceOverview": {
+    "title": "工作区",
+    "eyebrow": "OMNISTUDIO / 工作区",
+    "overview": "总览",
+    "projects": "全部项目",
+    "series": "系列",
+    "assets": "素材库",
+    "shortcuts": "快捷入口",
+    "scripts": "最近剧本",
+    "drafts": "渲染草稿"
+  },
   "workspace": {
     "title": "我的工作区",
     "empty": "还没有项目",

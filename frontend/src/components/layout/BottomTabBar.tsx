@@ -19,6 +19,7 @@ export default function BottomTabBar({
   const t = useTranslations("nav");
   return (
     <nav
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       className="md:hidden flex-shrink-0 flex items-stretch border-t border-glass-border bg-surface/80 backdrop-blur-xl"
       aria-label={t("mainNavAria")}
     >
@@ -34,7 +35,7 @@ export default function BottomTabBar({
             }}
             aria-current={active ? "page" : undefined}
             className={clsx(
-              "flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-colors",
+              "flex-1 flex flex-col items-center justify-center gap-1 min-h-[56px] py-2 transition-colors",
               active ? "text-primary" : "text-text-muted hover:text-foreground"
             )}
           >
