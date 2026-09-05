@@ -79,6 +79,7 @@ describe("PlaygroundPage", () => {
     usePlaygroundStore.setState({ prompt: "A cinematic portrait" });
 
     render(<PlaygroundPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "compose.generate" })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "compose.generate" }));
 
     await waitFor(() => {
@@ -88,6 +89,22 @@ describe("PlaygroundPage", () => {
         ]),
       );
     });
+  });
+
+  it("shows history loading and allows retry after a failed read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let rejectRead!: (error: Error) => void;
+    getHistory.mockImplementationOnce(() => new Promise((_, reject) => { rejectRead = reject; }));
+    usePlaygroundStore.setState({ prompt: "A cinematic portrait" });
+    render(<PlaygroundPage />);
+    expect(screen.getByRole("status")).toHaveTextContent("results.loading");
+    expect(screen.getByRole("button", { name: "compose.generate" })).toBeDisabled();
+    rejectRead(new Error("offline"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("results.loadFailed"));
+    fireEvent.click(screen.getByRole("button", { name: "card.retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(getHistory).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "compose.generate" })).not.toBeDisabled();
   });
 
 });

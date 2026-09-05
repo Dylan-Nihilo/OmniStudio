@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { LoadingState } from '@omnistudio/ui';
+import { useReducedMotion } from 'framer-motion';
 import { Video, AlertCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { getAssetUrl } from '@/lib/utils';
@@ -43,6 +45,7 @@ export default function GalleryView({
   onRetry,
 }: GalleryViewProps) {
   const t = useTranslations('playground');
+  const reduceMotion = useReducedMotion();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const thumbnailStripRef = useRef<HTMLDivElement>(null);
 
@@ -78,9 +81,9 @@ export default function GalleryView({
     if (!strip) return;
     const thumb = strip.children[selectedIndex] as HTMLElement | undefined;
     if (thumb) {
-      thumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      thumb.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest', inline: 'center' });
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, reduceMotion]);
 
   const handleClick = useCallback(() => {
     if (generations[selectedIndex]) {
@@ -91,7 +94,7 @@ export default function GalleryView({
   if (generations.length === 0) {
     return (
       <div className="flex flex-col h-full items-center justify-center">
-        <p className="text-sm text-text-muted">No results to display</p>
+        <p className="text-sm text-text-muted">{t('results.emptyTitle')}</p>
       </div>
     );
   }
@@ -117,20 +120,20 @@ export default function GalleryView({
               key={current.id}
               src={mediaUrl}
               controls
-              className="max-w-full max-h-full object-contain rounded-lg cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all duration-200"
+              className="max-w-full max-h-full object-contain rounded-lg cursor-pointer hover:ring-2 hover:ring-primary/30 motion-safe:transition-all motion-safe:duration-200"
             />
           ) : (
             <img
               key={current.id}
               src={mediaUrl}
               alt={current.prompt}
-              className="max-w-full max-h-full object-contain rounded-lg cursor-pointer hover:scale-[1.01] hover:ring-2 hover:ring-primary/30 transition-all duration-200"
+              className="max-w-full max-h-full object-contain rounded-lg cursor-pointer motion-safe:hover:scale-[1.01] hover:ring-2 hover:ring-primary/30 motion-safe:transition-all motion-safe:duration-200"
             />
           )
         ) : current.status === 'failed' ? (
           <div className="flex flex-col items-center gap-3 text-status-failed-fg">
             <AlertCircle className="w-10 h-10" />
-            <p className="font-mono text-xs">Generation failed</p>
+            <p className="font-mono text-xs">{t('card.failed')}</p>
             {current.error && (
               <p className="text-[0.625rem] text-text-muted max-w-xs text-center line-clamp-3">
                 {current.error}
@@ -141,17 +144,12 @@ export default function GalleryView({
                 onClick={() => onRetry(current)}
                 className="mt-2 px-3 py-1.5 rounded text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 transition-colors"
               >
-                Retry
+                {t('card.retry')}
               </button>
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 text-text-muted">
-            <div className="w-8 h-8 border-2 border-glass-border border-t-primary rounded-full animate-spin" />
-            <p className="font-mono text-xs">
-              {current.status === 'pending' ? 'Queued...' : 'Generating...'}
-            </p>
-          </div>
+          <LoadingState label={current.status === 'pending' ? t('card.queued') : t('card.processing')} />
         )}
       </div>
 
@@ -198,6 +196,8 @@ export default function GalleryView({
 
             return (
               <button
+                aria-label={gen.prompt || gen.model_id}
+                aria-pressed={isSelected}
                 key={gen.id}
                 onClick={() => setSelectedIndex(idx)}
                 className={`w-14 h-14 rounded-md overflow-hidden border-2 cursor-pointer shrink-0 transition-colors ${
@@ -222,7 +222,7 @@ export default function GalleryView({
                   />
                 ) : (
                   <div className="w-full h-full bg-glass flex items-center justify-center">
-                    <div className="w-3 h-3 border border-glass-border border-t-primary rounded-full animate-spin" />
+                    <div className="w-3 h-3 border border-glass-border border-t-primary rounded-full motion-safe:animate-spin" />
                   </div>
                 )}
               </button>

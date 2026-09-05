@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
-import { Button } from '@omnistudio/ui';
+import { Button, LoadingState } from '@omnistudio/ui';
 import styles from './PlaygroundPage.module.css';
 import ModelSelector from './ModelSelector';
 import MediaInput from './MediaInput';
@@ -68,22 +68,35 @@ export default function PlaygroundPage() {
 
   const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
+  const [historyReload, setHistoryReload] = useState(0);
+
   // ─── Fetch initial data on mount ───────────────────────────────────────────
 
   useEffect(() => {
-    playgroundApi.getHistory().then((items) => {
-      setHistory(Array.isArray(items) ? items.map(normalizeGeneration) : []);
-    }).catch((err) => {
-      console.error('[Playground] Failed to fetch history:', err);
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError(false);
+    playgroundApi.getHistory().then(items => {
+      if (active) setHistory(Array.isArray(items) ? items.map(normalizeGeneration) : []);
+    }).catch(() => {
+      if (active) setHistoryError(true);
+    }).finally(() => {
+      if (active) setHistoryLoading(false);
     });
+    return () => { active = false; };
+  }, [historyReload, setHistory]);
 
-    playgroundApi.getTemplates().then((items) => {
-      setTemplates(Array.isArray(items) ? items.map(normalizeTemplate) : []);
-    }).catch((err) => {
+  useEffect(() => {
+    let active = true;
+    playgroundApi.getTemplates().then(items => {
+      if (active) setTemplates(Array.isArray(items) ? items.map(normalizeTemplate) : []);
+    }).catch(err => {
       console.error('[Playground] Failed to fetch templates:', err);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { active = false; };
+  }, [setTemplates]);
 
   // ─── Cleanup poll timers ───────────────────────────────────────────────────
 
@@ -185,14 +198,14 @@ export default function PlaygroundPage() {
 
   // Run the pump whenever the queue, in-flight count, or concurrency changes.
   useEffect(() => {
-    pump();
-  }, [queue, activeCount, maxConcurrent, pump]);
+    if (!historyLoading) pump();
+  }, [queue, activeCount, maxConcurrent, pump, historyLoading]);
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
   const resultCount = history.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0);
   const showMediaInput = MODES_WITH_MEDIA.includes(mode) || MODES_WITH_OPTIONAL_MEDIA.includes(mode);
-  const canGenerate = prompt.trim().length > 0
+  const canGenerate = !historyLoading && prompt.trim().length > 0
     && (!MODES_WITH_MEDIA.includes(mode) || inputMedia.length > 0);
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -224,7 +237,11 @@ export default function PlaygroundPage() {
             </Button>
           </footer>
         </section>
-        <section className={styles.results} aria-label={t('results.title')}><ResultGallery /></section>
+        <section className={styles.results} aria-label={t('results.title')}>
+          {historyLoading && <LoadingState label={t('results.loading')} inline={history.length > 0} />}
+          {historyError && <div role="alert" className={styles.error}>{t('results.loadFailed')}<Button variant="quiet" onPress={() => setHistoryReload(value => value + 1)}>{t('card.retry')}</Button></div>}
+          {((!historyLoading && !historyError) || history.length > 0) && <ResultGallery />}
+        </section>
       </div>
     </div>
   );

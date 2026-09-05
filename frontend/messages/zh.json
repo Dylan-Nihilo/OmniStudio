@@ -1860,7 +1860,9 @@
       "gridView": "网格视图",
       "galleryView": "画廊视图",
       "today": "今天",
-      "yesterday": "昨天"
+      "yesterday": "昨天",
+      "loading": "正在加载生成记录…",
+      "loadFailed": "生成记录加载失败，请重试"
     },
     "card": {
       "saveToLibrary": "保存到资产库",

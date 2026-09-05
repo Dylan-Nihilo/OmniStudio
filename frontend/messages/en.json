@@ -1860,7 +1860,9 @@
       "gridView": "Grid view",
       "galleryView": "Gallery view",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "loading": "Loading generations…",
+      "loadFailed": "Could not load generations. Please retry."
     },
     "card": {
       "saveToLibrary": "Save to library",

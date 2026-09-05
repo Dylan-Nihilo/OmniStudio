@@ -54,6 +54,20 @@ with sync_playwright() as p:
         page.get_by_role('heading',name='生成结果4',exact=True).scroll_into_view_if_needed()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width
         page.screenshot(path=str(output / f'playground-results-{width}.png'))
+    page.set_viewport_size({'width':1440,'height':1024})
+    page.unroute('**/playground/history?*')
+    page.route('**/playground/history?*', lambda route:route.fulfill(status=500,json={'detail':'unavailable'}))
+    page.reload()
+    expect(page.get_by_role('alert').filter(has_text='生成记录加载失败')).to_be_visible(timeout=60000)
+    expect(page.get_by_text('暂无生成结果',exact=True)).not_to_be_visible()
+    page.unroute('**/playground/history?*')
+    history[0]['status']='processing'
+    history[0]['outputs']=[]
+    page.route('**/playground/history?*',lambda route:route.fulfill(json=history))
+    page.get_by_role('button',name='重试',exact=True).click()
+    status=page.get_by_role('status').filter(has_text='生成中')
+    expect(status).to_be_visible()
+    page.screenshot(path=str(output / 'playground-processing.png'))
     assert not errors, errors
     browser.close()
 print('Playground: responsive layout, unobscured generation, modes, and request payload verified.')

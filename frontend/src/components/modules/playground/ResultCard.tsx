@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Download, Video, Copy, Check, Replace, Crown, Bookmark } from 'lucide-react';
+import { LoadingState } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { playgroundApi } from '@/lib/api';
 import { apiStreamRequest } from '@/lib/apiClient';
@@ -36,13 +37,6 @@ function formatTime(dateStr: string): string {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
-}
-
-function getElapsedProgress(createdAt: string): number {
-  const elapsed = Date.now() - new Date(createdAt).getTime();
-  // Estimate ~60s for generation, cap at 90%
-  const progress = Math.min(elapsed / 60000, 0.9);
-  return progress * 100;
 }
 
 function FailedCard({ generation, onRetry, onDelete }: { generation: PlaygroundGeneration; onRetry?: (g: PlaygroundGeneration) => void; onDelete?: (g: PlaygroundGeneration) => void }) {
@@ -336,32 +330,8 @@ export default function ResultCard({ generation, outputIndex = 0, onGenerateVide
       <div className="rounded-[20px] border border-glass-border bg-glass atelier-asset-card overflow-hidden">
         {/* Media area */}
         <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio: '16/9' }}>
-          {/* Skeleton shimmer */}
-          <div className="absolute inset-0 overflow-hidden">
-            <div
-              className="absolute inset-0 animate-shimmer"
-              style={{
-                background:
-                  'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%)',
-                backgroundSize: '200% 100%',
-              }}
-            />
-          </div>
-
-          {/* Centered spinner + text */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <div className="w-6 h-6 border-2 border-glass-border border-t-primary rounded-full animate-spin" />
-            <span className="font-mono text-[0.625rem] text-text-muted uppercase">
-              {status === 'pending' ? t('card.queued') : t('card.processing')}
-            </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-glass">
-            <div
-              className="h-full bg-primary transition-all duration-1000 ease-out"
-              style={{ width: `${getElapsedProgress(created_at)}%` }}
-            />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <LoadingState inline label={status === 'pending' ? t('card.queued') : t('card.processing')} />
           </div>
         </div>
 
