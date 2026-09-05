@@ -51,3 +51,12 @@ import '@omnistudio/ui/styles.css';
 - 主流程实例的纯白 / 冷灰 / 藏青覆盖基础规范页残留的陶土色 token。封装新增的空状态、弹窗、流程步骤遵循同一主题，但尚未逐一对应 Figma 中的独立组件变体。
 
 尚未还原完整页面、迁移现有登录页或升级主应用。预览的保存、导航与生成状态仅用于组件交互演示，不调用业务 API。
+
+## Loading 与 Motion 规范
+
+- `Button isPending` 用于提交中的单一操作，保留按钮文字与占位，阻止重复提交。
+- `LoadingState` 用于没有可保留内容的初次加载；`inline` 用于局部状态。文字由调用方提供，通过一个 `role=status` 宣告。
+- `Skeleton` 由业务页面按真实内容布局组合，避免加载前后跳动；骨架本身不进入无障碍阅读顺序。
+- `PageTransition transitionKey={route}` 在路由内容进入时淡入 180ms，不延迟数据请求，不替代业务状态管理。
+- 控件反馈统一为 150ms；遵循系统 `prefers-reduced-motion` 与应用 `.no-motion` 设置。关闭动效时保留加载文字。
+- 错误状态提供真实错误说明与重试入口；后台刷新保留已有内容，不清空成全屏 loading。

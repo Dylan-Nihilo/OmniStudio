@@ -109,3 +109,21 @@
     .omni-workflow-steps.stepper--horizontal > li { min-width: 64px; }
   }
 }
+
+@layer components {
+  .omni-ui {
+    --omni-motion-fast: 150ms;
+    --omni-motion-enter: 180ms;
+    --omni-motion-ease: cubic-bezier(.22, 1, .36, 1);
+  }
+  .omni-loading { display: flex; min-height: 240px; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--muted); font-size: 13px; }
+  .omni-loading--inline { min-height: 0; flex-direction: row; gap: 8px; }
+  .omni-skeleton { background: var(--surface-secondary); }
+  .omni-page-transition { height: 100%; min-height: 0; animation: omni-page-enter var(--omni-motion-enter, 180ms) var(--omni-motion-ease, ease-out); }
+  @keyframes omni-page-enter { from { opacity: 0; } to { opacity: 1; } }
+  .omni-button { transition-duration: var(--omni-motion-fast); }
+  .no-motion .omni-page-transition, .no-motion .omni-loading .spinner, .no-motion .omni-skeleton, .no-motion .omni-skeleton::before { animation: none !important; transition: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    .omni-page-transition, .omni-loading .spinner, .omni-skeleton, .omni-skeleton::before { animation: none !important; transition: none !important; }
+  }
+}

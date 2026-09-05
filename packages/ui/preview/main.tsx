@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowRight, Image, Layers, LayoutGrid, MoreHorizontal, Plus, Users } from 'lucide-react';
-import { Button, Checkbox, Dialog, EmptyState, IconButton, NavigationMenu, PasswordField, SelectField, StatusBadge, Tabs, TextAreaField, TextField, WorkflowSteps, type SelectFieldProps } from '../src';
+import { LoadingState, Skeleton, PageTransition, Button, Checkbox, Dialog, EmptyState, IconButton, NavigationMenu, PasswordField, SelectField, StatusBadge, Tabs, TextAreaField, TextField, WorkflowSteps, type SelectFieldProps } from '../src';
 import '../src/styles.css';
 import './preview.css';
 
@@ -16,6 +16,7 @@ function Preview() {
   const [model, setModel] = useState<SelectFieldProps['value']>('wan');
   const [section, setSection] = useState('overview');
   const [step, setStep] = useState(1);
+  const [transition, setTransition] = useState(0);
   return (
     <main className="preview-shell">
       <header className="preview-header"><a href="#" className="wordmark">OMNISTUDIO <span>/ UI</span></a><span className="edition">V3 · 组件预览</span></header>
@@ -47,6 +48,12 @@ function Preview() {
         <div className="workflow-sample"><WorkflowSteps aria-label="制作流程" currentStep={step} onStepChange={setStep} steps={[{id:'script',title:'剧本'},{id:'storyboard',title:'分镜'},{id:'assets',title:'素材'},{id:'export',title:'导出'}]} /></div>
       </Section>
       <Section id="07" title="空状态"><EmptyState title="还没有项目" description="创建第一个项目，开始讲述你的故事。" action={<Button onPress={() => setDialogOpen(true)}><Plus size={16} />新建项目</Button>} /></Section>
+      <Section id="08" title="加载与页面切换">
+        <LoadingState label="正在加载项目…" inline />
+        <div aria-busy="true" aria-label="项目加载中" className="field-grid"><Skeleton style={{ height: 120, borderRadius: 12 }} /><div><Skeleton style={{ height: 20, marginBottom: 12 }} /><Skeleton style={{ height: 20, width: '70%' }} /></div></div>
+        <Button variant="secondary" onPress={() => setTransition(value => value + 1)}>重新播放页面过渡</Button>
+        <PageTransition transitionKey={String(transition)}><p>继续创作 · 项目已就绪</p></PageTransition>
+      </Section>
       <Dialog title="编辑项目信息" closeLabel="关闭对话框" isOpen={dialogOpen} onOpenChange={setDialogOpen} footer={<><Button slot="close" variant="secondary">取消</Button><Button onPress={() => { setSaved(true); setDialogOpen(false); }}>保存</Button></>}><TextField label="项目名称" value={title} onChange={setTitle} /><TextAreaField label="故事梗概" placeholder="讲述你的故事……" /></Dialog>
       <footer className="preview-footer">OMNISTUDIO <span>Render Noise into Narrative</span></footer>
     </main>
