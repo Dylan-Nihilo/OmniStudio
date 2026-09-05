@@ -25,6 +25,12 @@ with sync_playwright() as p:
             if width < 768:
                 expect(page.locator('nav[aria-label="资产库"] h2')).not_to_be_visible()
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width
+            if width == 320:
+                page.get_by_role('button',name=re.compile('来源')).click()
+                page.get_by_role('option',name='全局 / 共享',exact=True).click()
+                expect(card).to_be_visible()
+                page.get_by_role('button',name=re.compile('来源')).click()
+                page.get_by_role('option',name='全部来源',exact=True).click()
             card.click()
             panel = page.get_by_role('complementary',name='资产详情',exact=True)
             expect(panel).to_be_visible()
@@ -42,7 +48,7 @@ with sync_playwright() as p:
         page.get_by_role('button',name=re.compile('^场景')).click()
         expect(card).not_to_be_visible()
         expect(page.get_by_role('button',name='信号塔楼间',exact=True)).to_be_visible()
-        page.get_by_role('button',name=re.compile(r'^全部\s*6$')).click()
+        page.get_by_role('button',name=re.compile(r'^全部\s*\d+$')).click()
         search = page.get_by_label('搜索资产...',exact=True)
         search.fill('不会匹配的素材')
         expect(page.get_by_text('没有匹配的资产',exact=True)).to_be_visible()
@@ -94,11 +100,28 @@ with sync_playwright() as p:
         assert created.value.status == 200
         expect(dialog).not_to_be_visible()
         expect(page.get_by_role('button',name=name,exact=True)).to_be_visible()
+        page.get_by_role('button',name=name,exact=True).click()
+        panel = page.get_by_role('complementary',name='资产详情',exact=True)
+        previous_image = panel.get_by_role('img',name=name,exact=True).get_attribute('src')
+        replacement = str(root / 'frontend/public/assets/styles/japanese_anime__warm_hand_drawn_anime__forest_creature_valley_v2__landscape.png')
+        update_route = '**/library/assets/character/' + asset['id']
+        page.route(update_route,lambda route:route.fulfill(status=500,json={'detail':'替换保存失败'}))
+        panel.locator('input[type=file]').set_input_files(replacement)
+        expect(panel.get_by_role('alert')).to_be_visible()
+        expect(panel.get_by_role('img',name=name,exact=True)).to_have_attribute('src',previous_image)
+        page.unroute(update_route)
+        with page.expect_response(lambda r:r.url.endswith('/library/assets/character/' + asset['id']) and r.request.method=='PUT') as replaced:
+            panel.locator('input[type=file]').set_input_files(replacement)
+        assert replaced.value.status == 200
+        expect(panel.get_by_role('img',name=name,exact=True)).not_to_have_attribute('src',previous_image)
+        new_image = panel.get_by_role('img',name=name,exact=True).get_attribute('src')
+        assert len(replaced.value.json()['reference_sheet']['image_variants']) == 2
         original = browser.new_page()
         original.goto('http://localhost:3022/#/library')
         expect(original.get_by_role('img',name=name,exact=True)).to_be_visible(timeout=60000)
+        expect(original.get_by_role('img',name=name,exact=True)).to_have_attribute('src',new_image)
         assert not errors, errors
-        print('PASS: five viewports, detail close/focus, type/search filtering, retained data after refresh/star failure, download, upload/create failure retention, modal focus and mobile footer, shared original/new asset.')
+        print('PASS: five viewports, detail close/focus, type/search filtering, retained data after refresh/star failure, download, upload/create failure retention, modal focus and mobile footer, replacement failure retention and refreshed master shared with original, mobile source filter.')
     finally:
         if asset:
             page.request.delete(base + '/api-proxy/library/assets/character/' + asset['id'])

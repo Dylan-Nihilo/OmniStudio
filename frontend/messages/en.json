@@ -1221,6 +1221,10 @@
     "saving": "Saving..."
   },
   "library": {
+    "replaceImage": "Replace image",
+    "replacing": "Replacing…",
+    "replaceSuccess": "Image replaced",
+    "replaceFailed": "Could not replace the image. Please retry.",
     "retry": "Retry",
     "refresh": "Refresh library",
     "downloadFailed": "Download failed. Please retry.",

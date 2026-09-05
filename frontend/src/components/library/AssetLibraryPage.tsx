@@ -406,6 +406,7 @@ export default function AssetLibraryPage() {
           <div className={styles.toolbar}>
             <TextField type="search" aria-label={t("searchPlaceholder")} label={t("searchPlaceholder")} value={searchQuery} onChange={setSearchQuery} placeholder={t("searchPlaceholder")} className={styles.search} />
             <Button variant="quiet" aria-pressed={starredOnly} aria-label={t("starredOnlyAria")} onPress={() => setStarredOnly(value => !value)}><Star size={16} className={starredOnly ? "fill-current" : ""} />{counts.starred}</Button>
+            <SelectField label={t("metaSource")} value={sourceFilter} onChange={key => setSourceFilter(String(key))} options={[{ id: "all", label: t("allSources") }, ...sources.map(source => ({ id: source.id, label: source.name }))]} className={styles.mobileSource} />
             <ActionMenu label={t("sortLabel")} icon={<ArrowDownUp size={16} />} items={sortOptions.map(option => ({ id: option.id, label: option.label, onAction: () => setSortMode(option.id) }))} />
             <SelectField label={t("viewLabel")} value={viewAxis} onChange={key => setViewAxis(String(key) as ViewAxis)} options={[{ id: "gallery", label: t("gallery") }, { id: "type", label: t("viewByType") }, { id: "source", label: t("viewByProject") }]} className={styles.view} />
           </div>
@@ -429,7 +430,7 @@ export default function AssetLibraryPage() {
               })}</div>
             </section>)}
         </div>
-        {selected && selectedAsset && selectedSource && <AssetInspector key={`${selected.sourceId}/${selected.type}/${selected.assetId}`} asset={selectedAsset} type={selected.type} sourceName={selectedSource.name} sourceId={selected.sourceId} sourceKind={selectedSource.kind} starred={!!selectedAsset.starred} starPending={starPending.has(`${selected.sourceId}/${selected.type}/${selected.assetId}`)} onClose={closeInspector} onToggleStar={() => void toggleStar(selected.sourceId, selected.assetId, selected.type)} onPromoted={loadAssets} />}
+        {selected && selectedAsset && selectedSource && <AssetInspector key={`${selected.sourceId}/${selected.type}/${selected.assetId}`} asset={selectedAsset} type={selected.type} sourceName={selectedSource.name} sourceId={selected.sourceId} sourceKind={selectedSource.kind} starred={!!selectedAsset.starred} starPending={starPending.has(`${selected.sourceId}/${selected.type}/${selected.assetId}`)} onClose={closeInspector} onToggleStar={() => void toggleStar(selected.sourceId, selected.assetId, selected.type)} onPromoted={loadAssets} onAssetUpdated={updated => setSources(previous => previous.map(source => source.id === selected.sourceId ? { ...source, [selected.type]: source[selected.type].map(asset => asset.id === updated.id ? normalizeAsset(updated, selected.type, 0) : asset) } : source))} />}
       </div>
       {newAssetOpen && <NewLibraryAssetDialog onClose={() => setNewAssetOpen(false)} onCreated={loadAssets} />}
     </div>

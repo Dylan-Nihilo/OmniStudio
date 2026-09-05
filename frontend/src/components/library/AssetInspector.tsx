@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment, type ChangeEvent } from "react";
 import { useTranslations } from "next-intl";
-import { X, Star, Download, Sparkles, Globe } from "lucide-react";
+import { X, Star, Download, Sparkles, Globe, Upload } from "lucide-react";
 import type { Character, Scene, Prop, ImageAsset, ImageVariant } from "@/store/projectStore";
 import { characterImageAsset } from "@/lib/characterImage";
 import { api } from "@/lib/api";
@@ -39,6 +39,7 @@ interface AssetInspectorProps {
   onToggleStar: () => void;
   /** 提升到全局成功后回调（父层刷新库以显示新入池资产）。可选。 */
   onPromoted?: () => void;
+  onAssetUpdated?: (asset: Character | Scene | Prop) => void;
 }
 
 /** Character 走 characterImageAsset（reference_sheet→full_body，归一化成 ImageAsset 形状）；scene/prop 用 image_asset。 */
@@ -96,6 +97,7 @@ export default function AssetInspector({
   onClose,
   onToggleStar,
   onPromoted,
+  onAssetUpdated,
 }: AssetInspectorProps) {
   const t = useTranslations("library");
   const TYPE_LABEL: Record<AssetTab, string> = {
@@ -126,6 +128,9 @@ export default function AssetInspector({
   const [generating, setGenerating] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [replaceError, setReplaceError] = useState("");
+  const replaceInput = useRef<HTMLInputElement>(null);
 
   // 切换选中资产时重置本地高亮的变体 + 丢弃上一个资产本地追加的变体。
   useEffect(() => {
@@ -150,7 +155,7 @@ export default function AssetInspector({
   const asideRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
-    onCloseRef.current = onClose;
+    onCloseRef.current = () => { if (!replacing) onClose(); };
   });
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -204,6 +209,34 @@ export default function AssetInspector({
       toast.error(t("downloadFailed"));
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleReplace = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || replacing) return;
+    setReplacing(true);
+    setReplaceError("");
+    try {
+      const { image_url } = await api.uploadLibraryImage(file);
+      const kind = SINGULAR_TYPE[type];
+      const rawId = sourceId.replace(/^(project|series)-/, "");
+      const result = sourceKind === "global"
+        ? await api.updateLibraryAsset(kind, asset.id, { image_url })
+        : sourceKind === "series"
+          ? await api.updateSeriesAssetImage(rawId, asset.id, kind, image_url)
+          : await api.updateAssetImage(rawId, asset.id, kind, image_url);
+      const updated = sourceKind === "global" ? result : result?.[type]?.find((item: Character | Scene | Prop) => item.id === asset.id);
+      if (!updated) throw new Error(t("replaceFailed"));
+      onAssetUpdated?.(updated);
+      toast.success(t("replaceSuccess"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("replaceFailed");
+      if (aliveRef.current) setReplaceError(message);
+      toast.error(t("replaceFailed"), { body: message });
+    } finally {
+      if (aliveRef.current) setReplacing(false);
     }
   };
 
@@ -298,7 +331,7 @@ export default function AssetInspector({
 
   return <aside ref={asideRef} tabIndex={-1} className={styles.inspector} aria-label={t("inspectorAria")}>
     <header className={styles.inspectorHeader}><div><p>{t("inspectorAria")}</p><h2>{asset.name}</h2></div>
-      <IconButton aria-label={t("closeInspector")} onPress={onClose}><X size={18} /></IconButton>
+      <IconButton aria-label={t("closeInspector")} isDisabled={replacing} onPress={onClose}><X size={18} /></IconButton>
     </header>
     {heroUrl && <img src={heroUrl} alt={asset.name} className={styles.hero} />}
     <div className={styles.details}>
@@ -309,6 +342,9 @@ export default function AssetInspector({
       {asset.description && <section><h3>{t("descLabel")}</h3><p className={styles.prompt}>{asset.description}</p></section>}
       {prompt && <section><h3>{t("promptSection")}</h3><p className={styles.prompt}>{prompt}</p></section>}
       <div className={styles.actions}>
+        <input ref={replaceInput} type="file" accept="image/*" aria-label={t("replaceImage")} className="hidden" disabled={replacing} onChange={handleReplace} />
+        <Button variant="secondary" isPending={replacing} onPress={() => replaceInput.current?.click()}><Upload size={15} />{replacing ? t("replacing") : t("replaceImage")}</Button>
+        {replaceError && <p role="alert" className="text-sm text-status-failed-fg">{replaceError}</p>}
         <Button variant="secondary" aria-pressed={starred} isDisabled={starPending} onPress={onToggleStar}><Star size={15} className={starred ? "fill-current" : ""} />{starred ? t("unstar") : t("star")}</Button>
         {sourceKind === "project" ? <Button isPending={generating} onPress={() => void handleGenerateVariants()}><Sparkles size={15} />{generating ? t("generating") : t("generateMoreVariants")}</Button>
           : <p className={styles.prompt}>{t("genInEpisodeTooltip")}</p>}

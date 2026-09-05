@@ -635,6 +635,13 @@ export const api = {
         return res.data;
     },
 
+    updateSeriesAssetImage: async (seriesId: string, assetId: string, assetType: string, imageUrl: string) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/update_image`, {
+            asset_id: assetId, asset_type: assetType, image_url: imageUrl,
+        });
+        return res.data;
+    },
+
     selectAssetVariant: async (scriptId: string, assetId: string, assetType: string, variantId: string, generationType?: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/variant/select`, {
             asset_id: assetId,
