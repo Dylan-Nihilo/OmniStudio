@@ -77,8 +77,21 @@ with sync_playwright() as p:
         page.keyboard.press("Escape")
     page.set_viewport_size({"width": 1440, "height": 1024})
     page.get_by_role("button", name="创建新项目", exact=True).click()
-    expect(page.get_by_role("dialog")).to_be_visible()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_role("textbox", name="项目标题")).to_be_focused()
+    for _ in range(15):
+        page.keyboard.press("Tab")
+        assert dialog.evaluate("el => el.contains(document.activeElement)"), "Dialog focus escaped"
+    for width, height in [(320, 568), (390, 844), (844, 390), (1440, 1024)]:
+        page.set_viewport_size({"width": width, "height": height})
+        for name in ("取消", "创建项目"):
+            assert dialog.get_by_role("button", name=name, exact=True).evaluate("""el => {
+                const r=el.getBoundingClientRect(), hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                return r.bottom <= innerHeight - 8 && r.left >= 0 && r.right <= innerWidth && (hit===el || el.contains(hit) || (el.disabled && hit?.contains(el)));
+            }"""), (width, height, name, "dialog footer obstructed")
     page.keyboard.press("Escape")
+    expect(page.get_by_role("button", name="创建新项目", exact=True)).to_be_focused()
     page.get_by_role("link", name="搜索项目", exact=True).click()
     expect(page.get_by_role("searchbox", name="搜索项目 / 系列…")).to_be_visible()
     page.goto(url, wait_until="load")
