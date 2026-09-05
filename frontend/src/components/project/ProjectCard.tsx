@@ -2,17 +2,20 @@
 
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import { Play, Trash2, Film, Clock, MoreVertical, ExternalLink, Star } from "lucide-react";
+import { Play, Trash2, Film, Clock, MoreVertical, Ellipsis, ExternalLink, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Project } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getAssetUrl } from "@/lib/utils";
 import { coverGradient, GRAIN_URL } from "@/lib/atelierCover";
 import { api } from "@/lib/api";
+import { projectHref } from "@/lib/workspaceOverview";
+import styles from "./ProjectCard.module.css";
 
 interface ProjectCardProps {
     project: Project;
     onDelete: (id: string) => void;
+    variant?: "default" | "editorial";
 }
 
 export type DerivedStatus = "completed" | "processing" | "pending";
@@ -52,7 +55,7 @@ export function deriveStatus(project: Project): DerivedStatus {
     return "pending";
 }
 
-export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
+export default function ProjectCard({ project, onDelete, variant = "default" }: ProjectCardProps) {
     const t = useTranslations("project");
     const tCommon = useTranslations("common");
     const locale = useSettingsStore((s) => s.locale);
@@ -109,9 +112,7 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
         // Series episodes open through the series → episode route so the
         // series/episode breadcrumb context is preserved; standalone
         // projects fall back to the flat project route.
-        window.location.hash = project.series_id
-            ? `#/series/${project.series_id}/episode/${project.id}`
-            : `#/project/${project.id}`;
+        window.location.hash = projectHref(project);
     };
 
     const handleDelete = (e: React.MouseEvent) => {
@@ -136,6 +137,76 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
     const dateStr = Number.isFinite(dateMs)
         ? new Date(dateMs).toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US")
         : "";
+
+    const actions = (
+        <div className="relative" ref={menuWrapRef} onClick={(e) => e.stopPropagation()}>
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpen((v) => !v);
+                        }}
+                        className={`w-8 h-8 rounded-lg grid place-items-center transition-colors ${menuOpen ? "text-foreground bg-hover-bg" : "text-text-muted hover:text-foreground hover:bg-hover-bg"}`}
+                        aria-label={t("moreActions")}
+                        aria-haspopup="menu"
+                        aria-expanded={menuOpen}
+                    >
+                        {variant === "editorial" ? <Ellipsis size={18} /> : <MoreVertical size={15} />}
+                    </button>
+                    {menuOpen ? (
+                        <div
+                            role="menu"
+                            aria-label={t("moreActions")}
+                            className="absolute right-0 bottom-full z-20 mb-2 w-40 overflow-hidden rounded-md border border-glass-border bg-surface/96 shadow-[0_8px_28px_-6px_rgba(0,0,0,0.7)] backdrop-blur-md"
+                        >
+                            <button
+                                type="button"
+                                role="menuitem"
+                                ref={firstItemRef}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMenuOpen(false);
+                                    handleOpen();
+                                }}
+                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary focus-visible:outline-none focus-visible:bg-primary/12"
+                            >
+                                <ExternalLink size={14} aria-hidden="true" />
+                                {tCommon("open")}
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMenuOpen(false);
+                                    handleDelete(e);
+                                }}
+                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:bg-red-500/10 focus-visible:text-red-400"
+                            >
+                                <Trash2 size={14} aria-hidden="true" />
+                                {tCommon("delete")}
+                            </button>
+                        </div>
+                    ) : null}
+                </div>
+    );
+
+    if (variant === "editorial") {
+        return (
+            <article className={styles.card}>
+                <a href={projectHref(project)} className={styles.cover} aria-label={project.title}>
+                    {cover && !coverError ? <img src={cover} alt="" onError={() => setCoverError(true)} /> : <Film size={32} aria-hidden="true" />}
+                </a>
+                <div className={styles.caption}>
+                    <div className={styles.description}>
+                        <h3><a href={projectHref(project)} title={project.title}>{project.title}</a></h3>
+                        <p>{badge.label} · {t("shotCount", { count: frameCount })}{dateStr ? ` · ${dateStr}` : ""}</p>
+                    </div>
+                    {actions}
+                </div>
+            </article>
+        );
+    }
 
     return (
         <motion.article
@@ -249,56 +320,7 @@ export default function ProjectCard({ project, onDelete }: ProjectCardProps) {
                         </span>
                     </div>
                 </div>
-                <div className="relative" ref={menuWrapRef} onClick={(e) => e.stopPropagation()}>
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setMenuOpen((v) => !v);
-                        }}
-                        className={`w-8 h-8 rounded-lg grid place-items-center transition-colors ${menuOpen ? "text-foreground bg-hover-bg" : "text-text-muted hover:text-foreground hover:bg-hover-bg"}`}
-                        aria-label={t("moreActions")}
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpen}
-                    >
-                        <MoreVertical size={15} />
-                    </button>
-                    {menuOpen ? (
-                        <div
-                            role="menu"
-                            aria-label={t("moreActions")}
-                            className="absolute right-0 bottom-full z-20 mb-2 w-40 overflow-hidden rounded-md border border-glass-border bg-surface/96 shadow-[0_8px_28px_-6px_rgba(0,0,0,0.7)] backdrop-blur-md"
-                        >
-                            <button
-                                type="button"
-                                role="menuitem"
-                                ref={firstItemRef}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuOpen(false);
-                                    handleOpen();
-                                }}
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary focus-visible:outline-none focus-visible:bg-primary/12"
-                            >
-                                <ExternalLink size={14} aria-hidden="true" />
-                                {tCommon("open")}
-                            </button>
-                            <button
-                                type="button"
-                                role="menuitem"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuOpen(false);
-                                    handleDelete(e);
-                                }}
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:bg-red-500/10 focus-visible:text-red-400"
-                            >
-                                <Trash2 size={14} aria-hidden="true" />
-                                {tCommon("delete")}
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
+                {actions}
             </div>
         </motion.article>
     );

@@ -15,6 +15,8 @@ import CreateProjectDialog from "@/components/project/CreateProjectDialog";
 import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import CreativeCanvas from "@/components/canvas/CreativeCanvas";
 import AppShell from "@/components/layout/AppShell";
+import WorkspaceOverview from "@/components/workspace/WorkspaceOverview";
+import { useAuthStore } from "@/store/authStore";
 import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 import ModuleErrorBoundary from "@/components/layout/ModuleErrorBoundary";
 import type { GlobalTab } from "@/components/layout/GlobalSidebar";
@@ -471,7 +473,10 @@ function AuthenticatedHome() {
   const [dialogSeries, setDialogSeries] = useState<{ id: string; title: string } | null>(null);
   const [isSeriesDialogOpen, setIsSeriesDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(true);
+  const [syncError, setSyncError] = useState(false);
+  const syncRequest = useRef(0);
+  const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
   const [showCreateDropdown, setShowCreateDropdown] = useState(false);
   const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
@@ -484,11 +489,11 @@ function AuthenticatedHome() {
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [episodeId, setEpisodeId] = useState<string | null>(null);
   const [seriesEpisodes, setSeriesEpisodes] = useState<Record<string, Project[]>>({});
-  const [, setEpisodesLoading] = useState(false);
+  const [episodesLoading, setEpisodesLoading] = useState(false);
+  const [episodesError, setEpisodesError] = useState(false);
   const projects = useProjectStore((state) => state.projects);
   const seriesList = useProjectStore((state) => state.seriesList);
   const deleteProject = useProjectStore((state) => state.deleteProject);
-  const setProjects = useProjectStore((state) => state.setProjects);
   const fetchSeriesList = useProjectStore((state) => state.fetchSeriesList);
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
@@ -504,55 +509,42 @@ function AuthenticatedHome() {
     }
   }, []);
 
-  // Load episodes for all series when seriesList changes
+  // Ignore responses from a previous workspace or superseded series list.
   useEffect(() => {
-    if (seriesList.length === 0) return;
-    loadAllSeriesEpisodes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesList]);
-
-  const loadAllSeriesEpisodes = async () => {
-    setEpisodesLoading(true);
-    try {
-      const results = await Promise.all(
-        seriesList.map(async (s) => {
-          const eps = await api.getSeriesEpisodes(s.id);
-          return [s.id, eps] as const;
+    let cancelled = false;
+    setSeriesEpisodes({});
+    setEpisodesError(false);
+    setEpisodesLoading(seriesList.length > 0);
+    if (seriesList.length) {
+      Promise.all(seriesList.map(async (series) => [series.id, await api.getSeriesEpisodes(series.id)] as const))
+        .then((entries) => { if (!cancelled) setSeriesEpisodes(Object.fromEntries(entries)); })
+        .catch((error) => {
+          if (cancelled || isAuthenticationRecoveryError(error)) return;
+          setEpisodesError(true);
+          toast.error(t("toastEpisodesLoadFailed"));
         })
-      );
-      const map: Record<string, Project[]> = {};
-      for (const [id, eps] of results) {
-        map[id] = eps;
-      }
-      setSeriesEpisodes(map);
-    } catch (error) {
-      console.error("Failed to load series episodes:", error);
-      toast.error(t("toastEpisodesLoadFailed"), {
-        body: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setEpisodesLoading(false);
+        .finally(() => { if (!cancelled) setEpisodesLoading(false); });
     }
-  };
-
-  const syncProjects = async () => {
-    setIsSyncing(true);
-    try {
-      const backendProjects = await api.getProjects();
-      setProjects(backendProjects ?? []);
-    } catch (error) {
-      console.error("Failed to sync projects from backend:", error);
-      if (isAuthenticationRecoveryError(error)) return;
-      toast.error(t("toastProjectsSyncFailed"), {
-        body: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
+    return () => { cancelled = true; };
+  }, [seriesList, activeWorkspaceId, t]);
 
   const syncAll = async () => {
-    await Promise.all([syncProjects(), fetchSeriesList()]);
+    const request = ++syncRequest.current;
+    const workspaceId = useAuthStore.getState().activeWorkspace?.id;
+    const isCurrent = () => request === syncRequest.current && workspaceId === useAuthStore.getState().activeWorkspace?.id;
+    setIsSyncing(true);
+    setSyncError(false);
+    try {
+      const [backendProjects, backendSeries] = await Promise.all([api.getProjects(), api.listSeries()]);
+      if (isCurrent()) useProjectStore.setState({ projects: backendProjects ?? [], seriesList: backendSeries ?? [] });
+    } catch (error) {
+      if (isCurrent() && !isAuthenticationRecoveryError(error)) {
+        setSyncError(true);
+        toast.error(t("toastProjectsSyncFailed"));
+      }
+    } finally {
+      if (isCurrent()) setIsSyncing(false);
+    }
   };
 
   // Close dropdown when clicking outside
@@ -686,7 +678,7 @@ function AuthenticatedHome() {
   }
 
   // Filter standalone projects (not belonging to any series)
-  const standaloneProjects = projects.filter((p) => !p.series_id);
+  const standaloneProjects = workspaceSection === "series" ? [] : projects.filter((p) => !p.series_id);
 
   const totalCount = seriesList.length + standaloneProjects.length;
 
@@ -719,7 +711,14 @@ function AuthenticatedHome() {
     }
 
     // Workspace view — Line B skeleton
-    const wsAllProjects: Project[] = [...Object.values(seriesEpisodes).flat(), ...standaloneProjects];
+    const wsAllProjects: Project[] = [...seriesList.flatMap((series) => seriesEpisodes[series.id] || []), ...standaloneProjects];
+    if (workspaceSection === "overview") {
+      return <WorkspaceOverview projects={wsAllProjects} series={seriesList}
+        loading={isSyncing || episodesLoading} error={syncError || episodesError}
+        onRefresh={syncAll} onCreate={() => setIsDialogOpen(true)}
+        onCreateSeries={() => setIsSeriesDialogOpen(true)} onImport={() => setIsImportDialogOpen(true)}
+        onDelete={async (id) => { await deleteProject(id); await syncAll(); }} />;
+    }
     const wsStatusCounts: Record<"all" | DerivedStatus, number> = {
       all: wsAllProjects.length,
       completed: 0,
@@ -1075,7 +1074,7 @@ function AuthenticatedHome() {
   };
 
   return (
-    <main className="relative h-screen w-screen bg-background flex flex-col">
+    <main className="relative h-[100dvh] w-full bg-background flex flex-col">
       {/* Background Canvas */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <CreativeCanvas />
@@ -1088,7 +1087,7 @@ function AuthenticatedHome() {
       <div className="atelier-page-grain" aria-hidden="true" />
 
       {/* AppShell with GlobalSidebar + content */}
-      <div className="relative z-10 flex-1 overflow-hidden">
+      <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
         <AppShell activeTab={activeTab} onTabChange={handleTabChange} context={activeTab === "workspace" ? <WorkspaceNavigation section={workspaceSection} /> : undefined}>
           <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
             {renderContent()}

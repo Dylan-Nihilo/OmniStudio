@@ -1,0 +1,56 @@
+.page { display: flex; flex-direction: column; min-height: 100%; padding: 38px 48px 28px; color: var(--color-text-primary); background: var(--color-bg-base); }
+.header { display: flex; align-items: center; gap: 24px; padding-bottom: 36px; border-bottom: 1px solid var(--color-border-default); }
+.intro { flex: 1; min-width: 0; }
+.eyebrow { color: var(--color-text-muted); font-size: 11px; letter-spacing: .08em; }
+.intro h1 { margin: 16px 0 10px; font-size: 34px; font-weight: 600; line-height: 1.25; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.subtitle { color: var(--color-text-secondary); font-size: 15px; line-height: 24px; }
+.actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.iconButton { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 8px; color: var(--color-text-secondary); }
+.iconButton:hover { background: var(--color-bg-hover); }
+.primary, .secondary { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 40px; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 500; }
+.primary { color: var(--color-on-accent, #fff); background: var(--color-primary); }
+.primary:hover { filter: brightness(.9); }
+.secondary { border: 1px solid var(--color-border-default); }
+.page button:disabled { opacity: .5; cursor: not-allowed; }
+.page button:focus-visible, .page a:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; }
+.continue { margin-top: 25px; }
+.sectionLabel { margin-bottom: 18px; color: var(--color-text-muted); font-size: 12px; font-weight: 500; letter-spacing: .06em; }
+.production { display: grid; grid-template-columns: 2fr 1fr; gap: 40px; }
+.hero { position: relative; display: block; min-width: 0; min-height: 300px; aspect-ratio: 2 / 1; overflow: hidden; border-radius: 16px; background: #172d44; color: #fff; }
+.hero > img { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
+.scrim { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 20%, rgb(5 12 21 / .86) 100%); }
+.heroCopy { position: absolute; left: 28px; right: 64px; bottom: 27px; }
+.heroCopy p { font-size: 11px; line-height: 18px; color: #e1e5eb; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.heroCopy h3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 10px 0 13px; font-size: 30px; font-weight: 600; line-height: 1.25; letter-spacing: -.025em; }
+.heroCopy > span { color: #d5dce6; font-size: 11px; }
+.heroArrow { position: absolute; right: 24px; bottom: 28px; display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #ffffff70; border-radius: 50%; }
+.progress { min-width: 0; padding-top: 2px; }
+.progress > h2 { margin-bottom: 16px; font-size: 14px; font-weight: 600; }
+.progressRow { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; min-height: 60px; border-bottom: 1px solid var(--color-border-default); font-size: 12px; }
+.progressRow dt { display: flex; align-items: center; gap: 12px; color: var(--color-text-secondary); }
+.progressRow dd { color: var(--color-text-muted); }
+.progress > a { margin-top: 19px; }
+.textLink { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: 11px; }
+.textLink:hover { color: var(--color-primary); }
+.recent { margin-top: 38px; }
+.sectionHeader { display: flex; align-items: center; justify-content: space-between; padding-bottom: 17px; border-bottom: 1px solid var(--color-border-default); }
+.sectionHeader h2 { font-size: 14px; font-weight: 600; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 27px; margin-bottom: 38px; }
+.queue { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 20px; border-top: 1px solid var(--color-border-default); }
+.queue > div { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+.queueLabel { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; }
+.queue p { color: var(--color-text-muted); font-size: 11px; }
+.dot, .activeDot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-text-muted); }
+.activeDot { background: var(--color-primary); }
+.empty { display: flex; flex: 1; min-height: 400px; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 48px 16px; text-align: center; color: var(--color-text-muted); }
+.empty h2 { color: var(--color-text-primary); font-size: 24px; font-weight: 600; }
+.empty p { max-width: 420px; font-size: 14px; line-height: 1.8; }
+.emptyActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
+.error { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding: 14px; border: 1px solid var(--color-border-default); border-radius: 8px; font-size: 13px; }
+.error button { flex-shrink: 0; text-decoration: underline; }
+.spinning { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (min-width: 1200px) and (max-height: 900px) { .page { padding-top: 26px; } .header { padding-bottom: 24px; } .hero { min-height: 260px; } .progressRow { min-height: 48px; } .recent { margin-top: 26px; } .cards { margin-top: 20px; margin-bottom: 26px; } }
+@media (max-width: 1199px) { .page { padding: 28px; } .header { align-items: flex-start; flex-direction: column; gap: 20px; padding-bottom: 24px; } .intro h1 { font-size: 30px; } .production { grid-template-columns: minmax(0, 1fr); gap: 24px; } .hero { min-height: 250px; } .progress dl { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; } .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767px) { .page { padding: 24px 20px; } .intro h1 { font-size: 28px; } .subtitle { font-size: 13px; } .actions { width: 100%; gap: 8px; } .actions .primary { margin-left: auto; } .hero { min-height: 250px; } .heroCopy { left: 20px; bottom: 22px; } .heroCopy h3 { font-size: 26px; } .heroArrow { right: 18px; bottom: 22px; } .progress dl { column-gap: 20px; } .progressRow { font-size: 11px; gap: 6px; } .progressRow dt { gap: 6px; } .cards { grid-template-columns: minmax(0, 1fr); gap: 26px; } .recent { margin-top: 28px; } .queue > div { gap: 10px; } .empty { min-height: 350px; padding: 32px 0; } }
+@media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
