@@ -90,6 +90,20 @@ export async function previewHandler(request, response) {
     return reply(200, { script_id: project.id, holder_user_id: user.id, holder_display_name: user.display_name,
       client_instance_id: body.client_instance_id, expires_at: stamp() + 90, revision: String(project.updated_at), token: "ui-preview-only" });
   }
+  if (projectMatch?.[2] === "text" && method === "PUT") {
+    if (typeof body.text !== "string" || typeof body.expected_revision !== "string" ||
+        typeof body.client_instance_id !== "string" || !body.client_instance_id) return invalid();
+    const revision = String(project.updated_at);
+    if (request.headers["x-edit-lease"] !== "ui-preview-only") return reply(423, {
+      error: { code: "EDIT_LEASE_INVALID", message: "编辑权限已失效" }, current_revision: revision,
+    });
+    if (body.expected_revision !== revision) return reply(409, {
+      error: { code: "EDIT_REVISION_CONFLICT", message: "内容已被其他编辑更新" }, current_revision: revision,
+    });
+    project.original_text = body.text;
+    project.updated_at = Math.max(stamp(), project.updated_at + 0.001);
+    return reply(200, { ...project, _revision: String(project.updated_at) });
+  }
   if (projectMatch?.[2] === "document" && (reading || method === "POST")) {
     if (method === "POST") {
       if (body.content?.type !== "doc" || !Array.isArray(body.content.content)) return invalid();
@@ -100,7 +114,15 @@ export async function previewHandler(request, response) {
       content: documents.get(project.id) || { type: "doc", content: [{ type: "paragraph", content: project.original_text ? [{ type: "text", text: project.original_text }] : [] }] } });
   }
   if (projectMatch?.[2] === "document/snapshots" && reading) return reply(200, []);
-  if (projectMatch?.[2] === "previous_episode" && reading) return reply(200, { has_previous: false });
+  if (projectMatch?.[2] === "previous_episode" && reading) {
+    const parent = series.find(item => item.id === project.series_id);
+    const index = parent?.episode_ids.indexOf(project.id) ?? -1;
+    const previous = index > 0 ? projects.find(item => item.id === parent.episode_ids[index - 1]) : null;
+    return reply(200, { has_previous: !!previous?.original_text?.trim(), previous_episode_id: previous?.id ?? null,
+      previous_episode_title: previous?.title ?? null, raw_snippet: previous?.original_text?.slice(-800) ?? "",
+      ai_summary: null, ai_summary_stale: false });
+  }
+  if (projectMatch?.[2] === "next_hook" && reading) return reply(200, { has_text: !!project.original_text?.trim(), hook: null, stale: false });
   if (pathname === "/series" && method === "POST") {
     if (typeof body.title !== "string" || !body.title.trim() || body.description != null && typeof body.description !== "string") return invalid();
     const created = { id: `ui-preview-${randomUUID()}`, title: body.title.trim(), description: body.description || "", workflow_mode: body.workflow_mode || "r2v", content_mode: body.content_mode || "scripted", characters: [], scenes: [], props: [], episode_ids: [], created_at: stamp(), updated_at: stamp() };
