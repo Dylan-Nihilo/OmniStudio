@@ -156,6 +156,52 @@ class TestWanxProviderMediaIntegration:
         assert captured["create_payload"]["input"]["img_url"] == "oss://dashscope-temp/image-001"
         assert captured["create_headers"]["X-DashScope-OssResourceResolve"] == "enable"
 
+    def test_wan27_i2v_uses_first_frame_media_payload(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+        _install_fake_uploader(monkeypatch, configured=False)
+
+        captured = {}
+        _install_fake_requests(monkeypatch, captured)
+        monkeypatch.setattr(
+            "src.models.wanx.WanxModel._create_dashscope_temp_url",
+            lambda self, local_path, model_name: "oss://dashscope-temp/wan27-first-frame.png",
+        )
+
+        img_path = _write_output_file("uploads/wan27_i2v_local.png", base64.b64decode(PNG_1X1_BASE64))
+
+        model = WanxModel({"params": {}})
+        model.generate(
+            prompt="demo",
+            output_path="output/video/wan27_i2v_local.mp4",
+            img_path=img_path,
+            model_name="wan2.7-i2v",
+            resolution="720p",
+            duration=5,
+            prompt_extend=True,
+            watermark=False,
+        )
+
+        assert captured["create_payload"] == {
+            "model": "wan2.7-i2v",
+            "input": {
+                "prompt": "demo",
+                "media": [
+                    {
+                        "type": "first_frame",
+                        "url": "oss://dashscope-temp/wan27-first-frame.png",
+                    }
+                ],
+            },
+            "parameters": {
+                "duration": 5,
+                "prompt_extend": True,
+                "watermark": False,
+                "resolution": "720P",
+            },
+        }
+        assert "img_url" not in captured["create_payload"]["input"]
+        assert captured["create_headers"]["X-DashScope-OssResourceResolve"] == "enable"
+
     def test_i2v_local_audio_without_oss_uses_temp_url_and_header(self, monkeypatch):
         monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
         _install_fake_uploader(monkeypatch, configured=False)

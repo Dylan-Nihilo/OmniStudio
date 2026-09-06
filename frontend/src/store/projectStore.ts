@@ -300,6 +300,8 @@ export interface Project {
     episode_number?: number;
     /** T13 — user-starred (featured) flag; drives the amber-halation card. */
     starred?: boolean;
+    archived?: boolean;
+    archived_at?: number | null;
 }
 
 interface ProjectStore {

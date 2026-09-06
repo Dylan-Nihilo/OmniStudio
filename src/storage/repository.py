@@ -726,6 +726,43 @@ class SQLiteRepository:
         except Exception as exc:
             raise StorageError(f"Failed to delete series {series_id}; transaction rolled back: {exc}") from exc
 
+    def finalize_standalone_to_series(self, standalone_id: str, series_id: str) -> None:
+        """Retire the old standalone envelope after its Episode was reparented.
+
+        The Script/Episode payload is deliberately left intact.  The new Series
+        project inherits the old workspace owner before the obsolete standalone
+        Project row is removed, so a conversion cannot lose access ownership.
+        """
+        self._validate_id(standalone_id, "standalone_id")
+        self._validate_id(series_id, "series_id")
+        try:
+            with self.engine.begin() as connection:
+                old_workspace = connection.execute(
+                    select(Project.__table__.c.workspace_id).where(
+                        Project.__table__.c.id == standalone_id,
+                        Project.__table__.c.mode == "standalone",
+                    )
+                ).scalar_one_or_none()
+                if old_workspace is not None:
+                    connection.execute(
+                        update(Project.__table__)
+                        .where(
+                            Project.__table__.c.id == series_id,
+                            Project.__table__.c.workspace_id.is_(None),
+                        )
+                        .values(workspace_id=old_workspace)
+                    )
+                connection.execute(
+                    delete(Project.__table__).where(
+                        Project.__table__.c.id == standalone_id,
+                        Project.__table__.c.mode == "standalone",
+                    )
+                )
+        except Exception as exc:
+            raise StorageError(
+                f"Failed to finalize standalone conversion; transaction rolled back: {exc}"
+            ) from exc
+
     # ------------------------------------------------------------------
     # Preparation and transactional write helpers
     # ------------------------------------------------------------------
@@ -766,6 +803,28 @@ class SQLiteRepository:
         *,
         allow_stale_overwrite: bool = False,
     ) -> None:
+        # Episode numbers are unique within a project.  Reordering (1, 2 -> 2, 1)
+        # or inserting at position 1 would otherwise fail halfway through the
+        # UPDATE loop because SQLite checks the constraint per statement.
+        # Temporarily move every row in affected projects out of the way, then
+        # restore rows that were not part of this payload after the upserts.
+        prepared_ids = {script_id for script_id, _, _, _ in prepared}
+        project_ids = {payload.series_id or script_id for script_id, payload, _, _ in prepared}
+        staged_numbers: dict[str, int | None] = {}
+        for project_id in project_ids:
+            rows = connection.execute(
+                select(Episode.__table__.c.id, Episode.__table__.c.episode_number).where(
+                    Episode.__table__.c.project_id == project_id
+                )
+            ).mappings()
+            for offset, row in enumerate(rows, start=1):
+                staged_numbers[row["id"]] = row["episode_number"]
+                connection.execute(
+                    update(Episode.__table__)
+                    .where(Episode.__table__.c.id == row["id"])
+                    .values(episode_number=-offset)
+                )
+
         for script_id, payload, payload_json, payload_sha256 in prepared:
             series_id = payload.series_id
             project_id = series_id or script_id
@@ -838,6 +897,14 @@ class SQLiteRepository:
                 expected_revision=self._known_script_revisions.get(script_id),
                 allow_stale_overwrite=allow_stale_overwrite,
             )
+
+        for episode_id, episode_number in staged_numbers.items():
+            if episode_id not in prepared_ids:
+                connection.execute(
+                    update(Episode.__table__)
+                    .where(Episode.__table__.c.id == episode_id)
+                    .values(episode_number=episode_number)
+                )
 
     def _save_prepared_series(
         self,

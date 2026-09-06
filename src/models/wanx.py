@@ -326,7 +326,7 @@ class WanxModel(VideoGenModel):
                     prompt=prompt,
                     img_url=img_url,
                     model_name=final_model_name,
-                    resolution=resolution if not is_wan27_i2v else None,
+                    resolution=resolution,
                     ratio=ratio if is_wan27_i2v else None,
                     duration=duration,
                     prompt_extend=prompt_extend,
@@ -617,20 +617,36 @@ class WanxModel(VideoGenModel):
         if extra_headers:
             headers.update(dict(extra_headers))
         
-        payload = {
-            "model": model_name,  # Use passed model name (wan2.5-i2v, wan2.6-i2v, or wan2.7-i2v)
-            "input": {
-                "prompt": prompt,
-                "img_url": img_url
-            },
-            "parameters": {
-                "duration": duration,
-                "prompt_extend": prompt_extend,
-                "watermark": watermark,
-                "audio": True,  # Auto-generate audio
-                "shot_type": shot_type  # single or multi (only works when prompt_extend=True)
+        if model_name == "wan2.7-i2v":
+            # Wan 2.7 replaced the legacy img_url input with the media list
+            # used by the newer reference-to-video API.
+            payload = {
+                "model": model_name,
+                "input": {
+                    "prompt": prompt,
+                    "media": [{"type": "first_frame", "url": img_url}],
+                },
+                "parameters": {
+                    "duration": duration,
+                    "prompt_extend": prompt_extend,
+                    "watermark": watermark,
+                },
             }
-        }
+        else:
+            payload = {
+                "model": model_name,  # Wan 2.5/2.6 legacy I2V input contract
+                "input": {
+                    "prompt": prompt,
+                    "img_url": img_url
+                },
+                "parameters": {
+                    "duration": duration,
+                    "prompt_extend": prompt_extend,
+                    "watermark": watermark,
+                    "audio": True,  # Auto-generate audio
+                    "shot_type": shot_type  # single or multi (only works when prompt_extend=True)
+                }
+            }
 
         # Wan2.7 uses ratio; older models use resolution
         if ratio:
@@ -643,7 +659,8 @@ class WanxModel(VideoGenModel):
             payload["input"]["negative_prompt"] = negative_prompt
         if audio_url:
             payload["input"]["audio_url"] = audio_url
-            del payload["parameters"]["audio"]  # audio_url takes precedence
+            if "audio" in payload["parameters"]:
+                del payload["parameters"]["audio"]  # audio_url takes precedence
         if seed:
             payload["parameters"]["seed"] = seed
         

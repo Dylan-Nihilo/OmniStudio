@@ -405,6 +405,49 @@ export const api = {
         return res.data;
     },
 
+    updateProject: async (scriptId: string, data: { title: string }) => {
+        const res = await apiClient.patch(`${API_URL}/projects/${scriptId}`, data);
+        return { ...res.data, originalText: res.data.original_text };
+    },
+
+    previewProjectToSeries: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/convert-to-series/preview`);
+        return res.data as {
+            project_id: string;
+            title: string;
+            episode_count: number;
+            characters: number;
+            scenes: number;
+            props: number;
+            shots: number;
+            video_tasks: number;
+            preserved_fields: string[];
+        };
+    },
+
+    convertProjectToSeries: async (scriptId: string, title?: string, description?: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/convert-to-series`, {
+            title: title || undefined,
+            description: description || "",
+        });
+        return res.data;
+    },
+
+    getProjectArchiveImpact: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/archive-impact`);
+        return res.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+
+    archiveProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/archive`);
+        return res.data;
+    },
+
+    restoreProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/restore`);
+        return res.data;
+    },
+
     /** Toggle the user-starred (featured) flag on a project. Returns the
      *  updated Script. No request body — the backend flips the current flag. */
     toggleProjectStarred: async (scriptId: string) => {
@@ -1540,6 +1583,22 @@ export const api = {
     },
     addEpisodeToSeries: async (seriesId: string, scriptId: string, episodeNumber?: number) => {
         const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes`, { script_id: scriptId, episode_number: episodeNumber });
+        return response.data;
+    },
+    reorderSeriesEpisodes: async (seriesId: string, episodeIds: string[]) => {
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}/episodes/order`, { episode_ids: episodeIds });
+        return response.data;
+    },
+    moveSeriesEpisode: async (seriesId: string, scriptId: string, targetIndex: number) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/move`, { target_index: targetIndex });
+        return response.data;
+    },
+    archiveSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/archive`);
+        return response.data;
+    },
+    restoreSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/restore`);
         return response.data;
     },
     removeEpisodeFromSeries: async (seriesId: string, scriptId: string) => {

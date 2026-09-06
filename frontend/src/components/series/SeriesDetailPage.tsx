@@ -111,6 +111,34 @@ export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
     if (e.key === "Escape") setShowAddEpisode(false);
   };
 
+  const handleMoveEpisode = async (episodeId: string, direction: "up" | "down") => {
+    const ordered = [...episodes].sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0));
+    const currentIndex = ordered.findIndex((episode) => episode.id === episodeId);
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    [ordered[currentIndex], ordered[targetIndex]] = [ordered[targetIndex], ordered[currentIndex]];
+    try {
+      await api.reorderSeriesEpisodes(seriesId, ordered.map((episode) => episode.id));
+      await refreshSeriesData();
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || "Episode 排序失败");
+    }
+  };
+
+  const handleToggleEpisodeArchive = async (episode: Project) => {
+    if (!episode.archived && !window.confirm(`归档「${episode.title}」？归档不会删除脚本、素材或分镜。`)) return;
+    try {
+      if (episode.archived) {
+        await api.restoreSeriesEpisode(seriesId, episode.id);
+      } else {
+        await api.archiveSeriesEpisode(seriesId, episode.id);
+      }
+      await refreshSeriesData();
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || "Episode 状态更新失败");
+    }
+  };
+
   const handleOpenEpisode = (episodeId: string) => {
     window.location.hash = `#/series/${seriesId}/episode/${episodeId}`;
   };
@@ -183,6 +211,8 @@ export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
         onNewEpisodeTitleChange={setNewEpisodeTitle}
         onAddEpisode={handleAddEpisode}
         onAddEpisodeKeyDown={handleAddEpisodeKeyDown}
+        onMoveEpisode={handleMoveEpisode}
+        onToggleEpisodeArchive={handleToggleEpisodeArchive}
         onOpenModelSettings={() => setShowModelSettings(true)}
         onOpenPromptConfig={() => setShowPromptConfig(true)}
         onOpenImportAssets={() => setShowImportAssets(true)}

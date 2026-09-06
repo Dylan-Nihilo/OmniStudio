@@ -10,6 +10,7 @@ import uuid
 import subprocess
 import threading
 import platform
+import copy
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary
 from .llm import ScriptProcessor
@@ -1291,6 +1292,32 @@ class ComicGenPipeline:
             if not script:
                 raise ValueError("Script not found")
             script.starred = not script.starred
+            self._save_data()
+            return script
+
+    def update_project_title(self, script_id: str, title: str) -> Script:
+        """Rename a project without reparsing its script or touching assets."""
+        normalized = title.strip()
+        if not normalized:
+            raise ValueError("Project title cannot be empty")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            script.title = normalized
+            script.updated_at = time.time()
+            self._save_data()
+            return script
+
+    def set_project_archived(self, script_id: str, archived: bool) -> Script:
+        """Archive or restore a project while preserving every production artifact."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            script.archived = archived
+            script.archived_at = time.time() if archived else None
+            script.updated_at = time.time()
             self._save_data()
             return script
 
@@ -4984,6 +5011,96 @@ class ComicGenPipeline:
             self._save_series_data_unlocked()
             return series
 
+    def preview_project_to_series(self, script_id: str) -> Dict[str, Any]:
+        """Return a deterministic conversion impact summary without mutations."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Project not found")
+        if script.series_id:
+            raise ValueError("Project is already an Episode in a Series")
+        return {
+            "project_id": script.id,
+            "title": script.title,
+            "episode_count": 1,
+            "characters": len(script.characters),
+            "scenes": len(script.scenes),
+            "props": len(script.props),
+            "shots": len(script.frames),
+            "video_tasks": len(script.video_tasks),
+            "preserved_fields": [
+                "episode_content",
+                "assets",
+                "art_direction",
+                "prompt_config",
+                "model_settings",
+                "storyboard_frames",
+                "video_tasks",
+                "audio_and_export_settings",
+            ],
+        }
+
+    def convert_project_to_series(
+        self,
+        script_id: str,
+        title: Optional[str] = None,
+        description: str = "",
+    ) -> Dict[str, Any]:
+        """Convert one Standalone Script into a Series with one Episode.
+
+        The original Script ID is retained.  Its production payload is not
+        copied or rebuilt, so frames, generated takes, audio, export settings,
+        local assets, styles and configuration remain byte-for-byte equivalent
+        apart from the Series relationship fields.
+        """
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Project not found")
+            if script.series_id:
+                raise ValueError("Project is already an Episode in a Series")
+            preserved = self.preview_project_to_series(script.id)
+            now = time.time()
+            series = Series(
+                id=str(uuid.uuid4()),
+                title=(title or script.title).strip() or script.title,
+                description=description,
+                characters=copy.deepcopy(script.characters),
+                scenes=copy.deepcopy(script.scenes),
+                props=copy.deepcopy(script.props),
+                art_direction=copy.deepcopy(script.art_direction),
+                prompt_config=copy.deepcopy(script.prompt_config),
+                model_settings=copy.deepcopy(script.model_settings),
+                workflow_mode=script.workflow_mode,
+                default_generation_mode=script.default_generation_mode,
+                content_mode="scripted",
+                episode_ids=[script.id],
+                created_at=now,
+                updated_at=now,
+            )
+            original_series_id = script.series_id
+            original_episode_number = script.episode_number
+            script.series_id = series.id
+            script.episode_number = 1
+            script.updated_at = now
+            self.series_store[series.id] = series
+            try:
+                if self.storage_enabled:
+                    self.repository.save_bundle({script.id: script}, {series.id: series})
+                    self.repository.finalize_standalone_to_series(script.id, series.id)
+                else:
+                    self._save_data()
+                    self._save_series_data_unlocked()
+            except Exception:
+                self.series_store.pop(series.id, None)
+                script.series_id = original_series_id
+                script.episode_number = original_episode_number
+                raise
+            return {
+                "series": series,
+                "episode": script,
+                "preserved": preserved,
+            }
+
     def get_series(self, series_id: str) -> Optional[Series]:
         return self.series_store.get(series_id)
 
@@ -5070,13 +5187,119 @@ class ComicGenPipeline:
                 if old_series and script_id in old_series.episode_ids:
                     old_series.episode_ids.remove(script_id)
                     affected_series[old_series.id] = old_series
-            if script_id not in series.episode_ids:
-                series.episode_ids.append(script_id)
+            if script_id in series.episode_ids:
+                series.episode_ids.remove(script_id)
+            insert_at = len(series.episode_ids)
+            requested_number = int(episode_number) if episode_number is not None else None
+            if episode_number is not None:
+                insert_at = max(0, min(requested_number - 1, len(series.episode_ids)))
+            series.episode_ids.insert(insert_at, script_id)
             script.series_id = series_id
-            script.episode_number = episode_number or len(series.episode_ids)
+            self._renumber_series_episodes(series)
+            series.updated_at = time.time()
+            for affected in affected_series.values():
+                self._renumber_series_episodes(affected)
+            # Preserve the legacy explicit-number contract for a sparse append
+            # (for example, adding the first episode as number 3).  Normal
+            # insertions and all reorder/move operations remain sequential.
+            if requested_number is not None and requested_number > len(series.episode_ids):
+                script.episode_number = requested_number
+            if self.storage_enabled:
+                affected_scripts = {
+                    episode_id: self.scripts[episode_id]
+                    for affected in affected_series.values()
+                    for episode_id in affected.episode_ids
+                }
+                self.repository.save_bundle(affected_scripts, affected_series)
+            else:
+                self._save_data()
+                self._save_series_data_unlocked()
+            return series
+
+    def _renumber_series_episodes(self, series: Series) -> None:
+        """Keep the persisted episode number aligned with the ordered ID list."""
+        for number, episode_id in enumerate(series.episode_ids, start=1):
+            script = self.scripts.get(episode_id)
+            if script and script.series_id == series.id:
+                script.episode_number = number
+
+    def reorder_series_episodes(self, series_id: str, episode_ids: list[str]) -> Series:
+        """Persist an exact new order for all episodes in a Series."""
+        with self._save_lock:
+            series = self.series_store.get(series_id)
+            if not series:
+                raise ValueError("Series not found")
+            if len(episode_ids) != len(set(episode_ids)) or set(episode_ids) != set(series.episode_ids):
+                raise ValueError("episode_ids must contain every Series episode exactly once")
+            series.episode_ids = list(episode_ids)
+            self._renumber_series_episodes(series)
             series.updated_at = time.time()
             if self.storage_enabled:
-                self.repository.save_bundle({script.id: script}, affected_series)
+                self.repository.save_bundle(
+                    {episode_id: self.scripts[episode_id] for episode_id in series.episode_ids},
+                    {series.id: series},
+                )
+            else:
+                self._save_data()
+                self._save_series_data_unlocked()
+            return series
+
+    def move_episode_to_series(self, series_id: str, script_id: str, target_index: int) -> Series:
+        """Move an Episode within a Series or from another Series into it."""
+        with self._save_lock:
+            series = self.series_store.get(series_id)
+            script = self.scripts.get(script_id)
+            if not series:
+                raise ValueError("Series not found")
+            if not script:
+                raise ValueError("Script not found")
+            affected_series = {series.id: series}
+            if script.series_id and script.series_id != series_id:
+                old_series = self.series_store.get(script.series_id)
+                if old_series and script_id in old_series.episode_ids:
+                    old_series.episode_ids.remove(script_id)
+                    self._renumber_series_episodes(old_series)
+                    affected_series[old_series.id] = old_series
+            if script_id in series.episode_ids:
+                series.episode_ids.remove(script_id)
+            target_index = max(0, min(int(target_index), len(series.episode_ids)))
+            series.episode_ids.insert(target_index, script_id)
+            script.series_id = series_id
+            self._renumber_series_episodes(series)
+            series.updated_at = time.time()
+            if self.storage_enabled:
+                affected_scripts = {
+                    episode_id: self.scripts[episode_id]
+                    for affected in affected_series.values()
+                    for episode_id in affected.episode_ids
+                }
+                affected_scripts[script_id] = script
+                self.repository.save_bundle(affected_scripts, affected_series)
+            else:
+                self._save_data()
+                self._save_series_data_unlocked()
+            return series
+
+    def set_episode_archived(self, series_id: str, script_id: str, archived: bool) -> Series:
+        """Archive/restore an Episode without deleting its production data."""
+        with self._save_lock:
+            series = self.series_store.get(series_id)
+            script = self.scripts.get(script_id)
+            if not series or not script or script_id not in series.episode_ids or script.series_id != series_id:
+                raise ValueError("Episode not found in Series")
+            if archived and not script.archived:
+                active_count = sum(
+                    1 for episode_id in series.episode_ids
+                    if (episode := self.scripts.get(episode_id)) and not episode.archived
+                )
+                if active_count <= 1:
+                    raise ValueError("Cannot archive the last active Episode")
+            script.archived = archived
+            script.archived_at = time.time() if archived else None
+            script.updated_at = time.time()
+            series.updated_at = time.time()
+            if self.storage_enabled:
+                self.repository.save_bundle({script_id: script}, {series.id: series})
             else:
                 self._save_data()
                 self._save_series_data_unlocked()

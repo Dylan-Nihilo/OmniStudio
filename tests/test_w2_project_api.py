@@ -102,6 +102,106 @@ def _add_episode(client, series_id: str, script_id: str, episode_number: int) ->
     assert response.status_code == 200, response.text
 
 
+def test_project_archive_restore_and_impact_preserve_production_data(api_client):
+    project = _create_project(api_client, "项目生命周期")
+    project_id = project["id"]
+
+    impact = api_client.get(f"/projects/{project_id}/archive-impact")
+    assert impact.status_code == 200, impact.text
+    assert impact.json()["archived"] is False
+    assert impact.json()["impact"]["episodes"] == 1
+    assert "不会删除" in impact.json()["message"]
+
+    archived = api_client.post(f"/projects/{project_id}/archive")
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["archived"] is True
+    assert archived.json()["impact"] == impact.json()["impact"]
+
+    persisted = api_client.get(f"/projects/{project_id}")
+    assert persisted.status_code == 200, persisted.text
+    assert persisted.json()["archived"] is True
+
+    restored = api_client.post(f"/projects/{project_id}/restore")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["archived"] is False
+    assert restored.json()["archived_at"] is None
+
+
+def test_project_title_update_does_not_reparse_script(api_client):
+    project = _create_project(api_client, "原始标题")
+    response = api_client.patch(
+        f"/projects/{project['id']}",
+        json={"title": "编辑后的标题"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "编辑后的标题"
+    loaded = api_client.get(f"/projects/{project['id']}")
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json()["title"] == "编辑后的标题"
+
+
+def test_standalone_to_series_preview_and_confirm_preserve_episode(api_client):
+    project = _create_project(api_client, "待转换项目")
+    project_id = project["id"]
+
+    preview = api_client.get(f"/projects/{project_id}/convert-to-series/preview")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["project_id"] == project_id
+    assert preview.json()["episode_count"] == 1
+    assert "video_tasks" in preview.json()["preserved_fields"]
+
+    confirmed = api_client.post(
+        f"/projects/{project_id}/convert-to-series",
+        json={"title": "转换后的系列", "description": "保留原生产数据"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    payload = confirmed.json()
+    assert payload["series"]["title"] == "转换后的系列"
+    assert payload["series"]["episode_ids"] == [project_id]
+    assert payload["episode"]["id"] == project_id
+    assert payload["episode"]["series_id"] == payload["series"]["id"]
+    assert payload["episode"]["episode_number"] == 1
+
+    assert api_module.pipeline.repository.project_exists(project_id) is False
+    series = api_client.get(f"/series/{payload['series']['id']}")
+    assert series.status_code == 200, series.text
+    assert [episode["id"] for episode in series.json()["episodes"]] == [project_id]
+
+    repeated = api_client.get(f"/projects/{project_id}/convert-to-series/preview")
+    assert repeated.status_code == 404
+
+
+def test_episode_order_move_and_archive_api(api_client):
+    series = _create_series(api_client, "Episode 生命周期")
+    first = _create_project(api_client, "第一集")
+    second = _create_project(api_client, "第二集")
+    _add_episode(api_client, series["id"], first["id"], 1)
+    _add_episode(api_client, series["id"], second["id"], 2)
+
+    reordered = api_client.put(
+        f"/series/{series['id']}/episodes/order",
+        json={"episode_ids": [second["id"], first["id"]]},
+    )
+    assert reordered.status_code == 200, reordered.text
+    episodes = api_client.get(f"/series/{series['id']}/episodes").json()
+    assert [episode["id"] for episode in episodes] == [second["id"], first["id"]]
+    assert [episode["episode_number"] for episode in episodes] == [1, 2]
+
+    archived = api_client.post(f"/series/{series['id']}/episodes/{first['id']}/archive")
+    assert archived.status_code == 200, archived.text
+    assert api_client.get(f"/projects/{first['id']}").json()["archived"] is True
+    blocked = api_client.post(f"/series/{series['id']}/episodes/{second['id']}/archive")
+    assert blocked.status_code == 409, blocked.text
+
+    restored = api_client.post(f"/series/{series['id']}/episodes/{first['id']}/restore")
+    assert restored.status_code == 200, restored.text
+    moved = api_client.post(
+        f"/series/{series['id']}/episodes/{first['id']}/move",
+        json={"target_index": 1},
+    )
+    assert moved.status_code == 200, moved.text
+
+
 def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
     project = _create_project(api_client, "列表接口回归")
 
