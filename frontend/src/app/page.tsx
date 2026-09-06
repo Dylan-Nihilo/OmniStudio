@@ -18,7 +18,7 @@ import AppShell from "@/components/layout/AppShell";
 import PlaygroundModeSelector from "@/components/modules/playground/ModeSelector";
 import WorkspaceOverview from "@/components/workspace/WorkspaceOverview";
 import { useAuthStore } from "@/store/authStore";
-import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
+import type { WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 import ModuleErrorBoundary from "@/components/layout/ModuleErrorBoundary";
 import type { GlobalTab } from "@/components/layout/GlobalSidebar";
 import dynamic from "next/dynamic";
@@ -1104,7 +1104,7 @@ function AuthenticatedHome() {
 
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
-        <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} context={activeTab === "workspace" ? <WorkspaceNavigation section={workspaceSection} /> : activeTab === "playground" ? <PlaygroundModeSelector /> : undefined}>
+        <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} workspaceSection={workspaceSection} context={activeTab === "playground" ? <PlaygroundModeSelector /> : undefined}>
           <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>

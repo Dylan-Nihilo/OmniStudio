@@ -22,6 +22,7 @@ import { useAuthStore } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
 import ChangePasswordDialog from "@/components/auth/ChangePasswordDialog";
 import WorkspaceControls from "@/components/collaboration/WorkspaceControls";
+import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 
 export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
 
@@ -29,6 +30,7 @@ interface GlobalSidebarProps {
   activeTab: GlobalTab;
   onTabChange: (tab: GlobalTab) => void;
   context?: ReactNode;
+  workspaceSection?: WorkspaceSection;
 }
 
 export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: string }[] = [
@@ -77,7 +79,7 @@ function NavButton({
   );
 }
 
-export default function GlobalSidebar({ activeTab, onTabChange, context }: GlobalSidebarProps) {
+export default function GlobalSidebar({ activeTab, onTabChange, context, workspaceSection = "overview" }: GlobalSidebarProps) {
   const t = useTranslations("nav");
   const ta = useTranslations("auth");
   const user = useAuthStore((state) => state.user);
@@ -149,7 +151,8 @@ export default function GlobalSidebar({ activeTab, onTabChange, context }: Globa
           <Image src={brandMark} alt="" width={24} height={24} /><span>Omni Studio</span>
         </button>
         <div className={styles.navigationBody}><nav className={styles.railNav} aria-label={t("mainNavAria")}>
-          {GLOBAL_NAV_ITEMS.slice(0, 4).map((item) => (
+          <WorkspaceNavigation active={activeTab === "workspace"} section={workspaceSection} />
+          {GLOBAL_NAV_ITEMS.slice(1, 4).map((item) => (
             <NavButton key={item.id} active={activeTab === item.id} label={t(item.id)} icon={item.icon} onClick={() => handleNav(item.id, item.hash)} />
           ))}
         </nav>

@@ -9,16 +9,27 @@ vi.mock("@/components/auth/ChangePasswordDialog", () => ({ default: () => null }
 vi.mock("@/store/authStore", () => ({ useAuthStore: (select: (s: unknown) => unknown) => select({ user: { username: "artist" }, logout: vi.fn() }) }));
 
 describe("workspace navigation", () => {
-  it("keeps the selected section and project/asset routes distinct", () => {
-    render(<WorkspaceNavigation section="series" />);
+  it("groups only workspace pages under a disclosure and reopens it on entry", () => {
+    const { rerender } = render(<WorkspaceNavigation active section="series" />);
+    const summary = screen.getByText("title");
+    const disclosure = summary.closest("details");
+    expect(disclosure).toHaveAttribute("open");
     expect(screen.getByRole("link", { name: "series" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "overview" })).toHaveAttribute("href", "#/workspace");
     expect(screen.getByRole("link", { name: "projects" })).toHaveAttribute("href", "#/workspace/projects");
-    expect(screen.getByRole("link", { name: "assets" })).toHaveAttribute("href", "#/library");
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(summary).not.toHaveAttribute("aria-current");
+    fireEvent.click(summary);
+    expect(disclosure).not.toHaveAttribute("open");
+    rerender(<WorkspaceNavigation active={false} section="series" />);
+    expect(screen.queryByRole("link", { current: "page" })).not.toBeInTheDocument();
+    rerender(<WorkspaceNavigation active section="drafts" />);
+    expect(disclosure).toHaveAttribute("open");
+    expect(screen.getByRole("link", { name: "projects" })).toHaveAttribute("aria-current", "page");
   });
 
   it("keeps global, context and account actions inside one sidebar", () => {
-    render(<GlobalSidebar activeTab="workspace" onTabChange={vi.fn()} context={<WorkspaceNavigation section="overview" />} />);
+    render(<GlobalSidebar activeTab="workspace" onTabChange={vi.fn()} workspaceSection="overview" />);
     const sidebar = screen.getByRole("complementary");
     expect(screen.getAllByRole("complementary")).toHaveLength(1);
     expect(sidebar).toContainElement(screen.getByRole("navigation", { name: "mainNavAria" }));

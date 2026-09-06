@@ -4,6 +4,7 @@ import { PageTransition } from "@omnistudio/ui";
 import GlobalSidebar, { type GlobalTab } from "./GlobalSidebar";
 import OfflineBanner from "./OfflineBanner";
 import BottomTabBar from "./BottomTabBar";
+import type { WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 
 interface AppShellProps {
   activeTab: GlobalTab;
@@ -11,14 +12,15 @@ interface AppShellProps {
   children: React.ReactNode;
   context?: React.ReactNode;
   transitionKey?: string;
+  workspaceSection?: WorkspaceSection;
 }
 
-export default function AppShell({ activeTab, onTabChange, children, context, transitionKey = activeTab }: AppShellProps) {
+export default function AppShell({ activeTab, onTabChange, children, context, workspaceSection, transitionKey = activeTab }: AppShellProps) {
   return (
     <div className="flex h-full w-full flex-col">
       <OfflineBanner />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <GlobalSidebar activeTab={activeTab} onTabChange={onTabChange} context={context} />
+        <GlobalSidebar activeTab={activeTab} onTabChange={onTabChange} context={context} workspaceSection={workspaceSection} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto"><PageTransition transitionKey={transitionKey}>{children}</PageTransition></div>
       </div>
       <BottomTabBar activeTab={activeTab} onTabChange={onTabChange} />
