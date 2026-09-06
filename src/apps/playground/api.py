@@ -18,6 +18,7 @@ from .models import (
 from .service import PlaygroundService
 from .storage import PlaygroundStorage
 from ...utils import get_logger
+from ...storage.job_repository import JobRepository
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,13 @@ def _workspace_id(request: Request) -> str:
     ):
         _storage.claim_unscoped(context.workspace.id)
     return context.workspace.id
+
+
+def _job_repository(request: Request) -> JobRepository:
+    engine = getattr(request.app.state, "storage_engine", None)
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Task storage unavailable")
+    return JobRepository(engine)
 
 
 def _workspace_input_media(value: str, workspace_id: str) -> bool:
@@ -59,9 +67,26 @@ def generate(payload: GenerateRequest, background_tasks: BackgroundTasks, http_r
     workspace_id = _workspace_id(http_request)
     if any(not _workspace_input_media(item, workspace_id) for item in payload.input_media or []):
         raise HTTPException(status_code=404, detail="Input media not found")
+    repository = _job_repository(http_request)
+    if payload.idempotency_key:
+        existing = repository.find_item_by_idempotency(workspace_id, payload.idempotency_key)
+        if existing:
+            generation_id = existing.payload.get("generation_id")
+            generation = _storage.get_generation(generation_id, workspace_id) if generation_id else None
+            if generation is not None:
+                return generation
     gen = _service.create_generation(payload, workspace_id)
+    job = repository.create_job(workspace_id, f"playground.{payload.mode.value}")
+    item = repository.create_item(
+        job.id,
+        payload.mode.value,
+        payload.idempotency_key or f"playground:{gen.id}",
+        payload={"generation_id": gen.id, "model_id": payload.model_id},
+    )
+    gen = gen.model_copy(update={"job_id": job.id, "job_item_id": item.id})
+    _storage.update_generation(gen)
     context = copy_context()
-    background_tasks.add_task(context.run, _service.process_generation, gen.id)
+    background_tasks.add_task(context.run, _service.process_generation, gen.id, repository)
     return gen
 
 
@@ -104,7 +129,11 @@ def get_generation_status(generation_id: str, http_request: Request):
 
 def cancel_generation(generation_id: str, http_request: Request):
     """Cancel local generation state and release the client from polling."""
-    gen = _service.cancel_generation(generation_id, _workspace_id(http_request))
+    gen = _service.cancel_generation(
+        generation_id,
+        _workspace_id(http_request),
+        _job_repository(http_request),
+    )
     if not gen:
         raise HTTPException(status_code=404, detail="Generation not found or already completed")
     return gen

@@ -179,6 +179,95 @@ export interface VideoTask {
     provider_request_id?: string | null;
 }
 
+export type UnifiedJobStatus = "pending" | "processing" | "succeeded" | "failed" | "canceled" | "skipped";
+
+export interface UnifiedMediaRef {
+    id: string;
+    kind: string;
+    uri: string;
+}
+
+export interface UnifiedJobItem {
+    id: string;
+    job_id: string;
+    workspace_id: string;
+    project_id?: string | null;
+    episode_id?: string | null;
+    kind: string;
+    status: UnifiedJobStatus;
+    progress: number;
+    idempotency_key: string;
+    retry_of?: string | null;
+    media_refs: UnifiedMediaRef[];
+    error_code?: string | null;
+    error_message?: string | null;
+    created_at?: number | null;
+    updated_at?: number | null;
+    started_at?: number | null;
+    finished_at?: number | null;
+    idempotent?: boolean;
+    payload?: Record<string, unknown>;
+}
+
+export interface UnifiedJob {
+    id: string;
+    workspace_id: string;
+    project_id?: string | null;
+    episode_id?: string | null;
+    kind: string;
+    status: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+    canceled: number;
+    skipped: number;
+    items: UnifiedJobItem[];
+    created_at?: number | null;
+    updated_at?: number | null;
+}
+
+export interface UnifiedTaskPage {
+    items: UnifiedJob[];
+    page: number;
+    page_size: number;
+    total: number;
+}
+
+export interface UnifiedTaskEvent {
+    id: string;
+    item_id: string;
+    from_status?: UnifiedJobStatus | null;
+    to_status: UnifiedJobStatus;
+    progress?: number | null;
+    error_code?: string | null;
+    created_at: number;
+}
+
+export interface UnifiedTaskDetail {
+    job: UnifiedJob;
+    events: UnifiedTaskEvent[];
+}
+
+export interface UnifiedTaskSummary {
+    pending: number;
+    processing: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+    canceled: number;
+    skipped: number;
+    total: number;
+}
+
+export interface UnifiedTaskFilters {
+    project_id?: string;
+    episode_id?: string;
+    status?: string;
+    q?: string;
+    page?: number;
+    page_size?: number;
+}
+
 // ─── Storyboard Schema v2 types ─────────────────────────────────────────────
 
 export interface DialogueStructured {
@@ -263,6 +352,34 @@ function asObject(value: unknown): Record<string, any> {
 }
 
 export const api = {
+    listTasks: async (filters: UnifiedTaskFilters = {}): Promise<UnifiedTaskPage> => {
+        const res = await apiClient.get<UnifiedTaskPage>(`${API_URL}/tasks`, { params: filters });
+        return res.data;
+    },
+
+    getTask: async (jobId: string): Promise<UnifiedTaskDetail> => {
+        const res = await apiClient.get<UnifiedTaskDetail>(`${API_URL}/tasks/${jobId}`);
+        return res.data;
+    },
+
+    cancelTask: async (jobId: string): Promise<UnifiedJob> => {
+        const res = await apiClient.post<UnifiedJob>(`${API_URL}/tasks/${jobId}/cancel`);
+        return res.data;
+    },
+
+    retryTask: async (jobId: string, itemIds?: string[], idempotencyKey?: string): Promise<UnifiedJob> => {
+        const body: { item_ids?: string[]; idempotency_key?: string } = {};
+        if (itemIds?.length) body.item_ids = itemIds;
+        if (idempotencyKey) body.idempotency_key = idempotencyKey;
+        const res = await apiClient.post<UnifiedJob>(`${API_URL}/tasks/${jobId}/retry`, body);
+        return res.data;
+    },
+
+    getTaskSummary: async (filters: Pick<UnifiedTaskFilters, "project_id" | "episode_id"> = {}): Promise<UnifiedTaskSummary> => {
+        const res = await apiClient.get<UnifiedTaskSummary>(`${API_URL}/tasks/summary`, { params: filters });
+        return res.data;
+    },
+
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
             params: { skip_analysis: skipAnalysis }

@@ -36,3 +36,29 @@ def test_recovery_resumes_recoverable_items_and_fails_unknown_kind():
     assert states[recoverable.id] == "processing"
     assert states[unknown.id] == "failed"
     engine.dispose()
+
+
+def test_find_item_by_idempotency_is_workspace_scoped():
+    engine = create_engine(
+        ":memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    init_schema(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            Workspace.__table__.insert(),
+            [
+                {"id": "workspace-1", "name": "One", "created_at": 1.0, "updated_at": 1.0},
+                {"id": "workspace-2", "name": "Two", "created_at": 1.0, "updated_at": 1.0},
+            ],
+        )
+
+    repository = JobRepository(engine)
+    first = repository.create_item(repository.create_job("workspace-1", "image").id, "image", "same-key")
+    second = repository.create_item(repository.create_job("workspace-2", "image").id, "image", "same-key")
+
+    assert repository.find_item_by_idempotency("workspace-1", "same-key").id == first.id
+    assert repository.find_item_by_idempotency("workspace-2", "same-key").id == second.id
+    assert repository.find_item_by_idempotency("workspace-3", "same-key") is None
+    engine.dispose()
