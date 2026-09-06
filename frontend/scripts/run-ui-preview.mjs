@@ -42,8 +42,14 @@ const libraryUploads = new Map();
 });
 
 
+const settingsConfig = {
+  LLM_PROVIDER: "dashscope", DASHSCOPE_API_KEY: "sk-••••••••demo", OPENAI_API_KEY: "", OPENAI_BASE_URL: "https://api.openai.com/v1", OPENAI_MODEL: "gpt-4o",
+  KLING_PROVIDER_MODE: "dashscope", VIDU_PROVIDER_MODE: "dashscope", KLING_ACCESS_KEY: "", KLING_SECRET_KEY: "", VIDU_API_KEY: "", MULEROUTER_API_KEY: "",
+  OSS_ENABLE: false, ALIBABA_CLOUD_ACCESS_KEY_ID: "", ALIBABA_CLOUD_ACCESS_KEY_SECRET: "", OSS_BUCKET_NAME: "", OSS_ENDPOINT: "", OSS_BASE_PATH: "", endpoint_overrides: {},
+};
+
 // Exposed only to the local launcher so a preview restart can retain review edits.
-export const previewState = { projects, series, documents, library, libraryUploads };
+export const previewState = { projects, series, documents, library, libraryUploads, settingsConfig };
 
 function replaceLibraryImage(asset, type, imageUrl) {
   asset.image_url = imageUrl;
@@ -269,6 +275,28 @@ export async function previewHandler(request, response) {
     }
     return reply(200, settings === "model_settings" && project && !reading ? project : entity[settings] || {});
   }
+  if (pathname === "/config/env") {
+    if (reading) return reply(200, settingsConfig);
+    if (method === "POST") {
+      const invalidValue = Object.entries(body).some(([key, value]) => {
+        if (!Object.hasOwn(settingsConfig, key)) return true;
+        if (key === "endpoint_overrides") return !value || typeof value !== "object" || Array.isArray(value) || Object.entries(value).some(([endpoint, url]) => !["DASHSCOPE_BASE_URL", "KLING_BASE_URL", "VIDU_BASE_URL", "MULEROUTER_BASE_URL"].includes(endpoint) || typeof url !== "string");
+        if (key === "OSS_ENABLE") return typeof value !== "boolean";
+        if (typeof value !== "string") return true;
+        if (key === "LLM_PROVIDER") return !["dashscope", "openai"].includes(value);
+        if (key.endsWith("_PROVIDER_MODE")) return !["dashscope", "vendor"].includes(value);
+        return false;
+      });
+      if (invalidValue) return invalid();
+      for (const [key, value] of Object.entries(body)) {
+        if (key === "endpoint_overrides") Object.assign(settingsConfig.endpoint_overrides, value);
+        else if (/(?:_KEY|_SECRET|_KEY_ID)$/.test(key) && value) {
+          if (!value.includes("•")) settingsConfig[key] = `••••••••${value.slice(-4)}`;
+        } else settingsConfig[key] = value;
+      }
+      return reply(200, { status: "success" });
+    }
+  }
   if (!reading) return reply(501, { detail: "此操作尚未接入本地演示。请在真实工作区执行；演示编辑仅保留到预览服务重启。" });
   if (pathname.startsWith("/files/")) {
     const file = pathname.slice("/files/".length);
@@ -282,7 +310,9 @@ export async function previewHandler(request, response) {
     "/auth/setup-status": { initialized: true, setup_allowed: false, setup_token_required: false },
     "/auth/me": { user, workspace, workspaces: [workspace] },
     "/auth/legacy-claim/status": { summary: { projects: 0, series: 0, media: 0, conflicts: 0 }, batch: null },
-    "/config/env": { DASHSCOPE_API_KEY: "ui-preview-placeholder" },
+    "/health": { ok: true, time: Date.now() / 1000, log_file: "", log_dir: "", studio_projects: projects.length },
+    "/system/check": { status: "preview", dependencies: {} },
+    "/prompt_defaults": {},
     "/projects": projects,
     "/series": series,
     "/library/assets": library,

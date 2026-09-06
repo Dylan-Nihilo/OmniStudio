@@ -106,3 +106,28 @@ test("library preview uploads, creates and stars isolated assets with validated 
     assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.some(asset => asset.id === created.id), false);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
+
+
+test("settings preview applies partial updates, masks secrets, and never triggers real login", async () => {
+  const server = http.createServer(previewHandler).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const save = body => fetch(base + "/config/env", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const config = async () => (await fetch(base + "/config/env")).json();
+  const original = await config();
+  try {
+    assert.equal((await save({OSS_BUCKET_NAME:"demo-settings-bucket"})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, original.DASHSCOPE_API_KEY);
+    assert.equal((await save({DASHSCOPE_API_KEY:"sk-preview-test-value", endpoint_overrides:{DASHSCOPE_BASE_URL:"https://preview.example.test"}})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, "••••••••alue");
+    assert.equal((await save({DASHSCOPE_API_KEY:"••••ignored"})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, "••••••••alue");
+    assert.equal((await save({OSS_ENABLE:"false"})).status, 422);
+    assert.equal((await save({toString:"invalid"})).status, 422);
+    assert.equal((await save({endpoint_overrides:null})).status, 422);
+    assert.equal((await save({DASHSCOPE_API_KEY:"", endpoint_overrides:{DASHSCOPE_BASE_URL:""}})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, "");
+    assert.equal((await config()).OSS_BUCKET_NAME, "demo-settings-bucket");
+    assert.equal((await fetch(base + "/config/mulerun-login", {method:"POST"})).status, 501);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
