@@ -267,6 +267,8 @@ export interface Series {
      *  direct_r2v); 'i2v' = 画面优先 (new shots default t2i_i2v). */
     default_generation_mode?: "r2v" | "i2v";
     episode_ids: string[];
+    archived?: boolean;
+    archived_at?: number | null;
     created_at: number;
     updated_at: number;
 }

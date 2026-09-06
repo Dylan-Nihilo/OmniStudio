@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
-import { Image as ImageIcon, Play, ChevronRight } from "lucide-react";
+import { Image as ImageIcon, Play, ChevronRight, Archive, ArchiveRestore, ArrowUpToLine } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Series, Character, Scene, Prop, Project } from "@/store/projectStore";
 import AssetCard from "@/components/common/AssetCard";
@@ -34,6 +34,7 @@ export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [showPromptConfig, setShowPromptConfig] = useState(false);
   const [showImportAssets, setShowImportAssets] = useState(false);
+  const [isUpdatingSeriesArchive, setIsUpdatingSeriesArchive] = useState(false);
 
   const t = useTranslations("series");
   const tc = useTranslations("common");
@@ -85,6 +86,43 @@ export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
     if (e.key === "Escape") {
       setEditTitle(series?.title || "");
       setIsEditingTitle(false);
+    }
+  };
+
+  const handleToggleSeriesArchive = async () => {
+    if (!series || isUpdatingSeriesArchive) return;
+    setIsUpdatingSeriesArchive(true);
+    try {
+      if (!series.archived) {
+        const preview = await api.getSeriesArchiveImpact(seriesId);
+        const i = preview.impact;
+        const confirmed = window.confirm(
+          `${preview.message}\n\n将保留：${i.episodes} 集、${i.characters} 个共享角色、${i.scenes} 个共享场景、${i.props} 个共享道具、${i.shots} 个镜头、${i.video_tasks} 个视频任务。\n\n确认归档项目「${series.title}」？`
+        );
+        if (!confirmed) return;
+        await api.archiveSeries(seriesId);
+      } else {
+        await api.restoreSeries(seriesId);
+      }
+      await refreshSeriesData();
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || "项目状态更新失败");
+    } finally {
+      setIsUpdatingSeriesArchive(false);
+    }
+  };
+
+  const handlePromoteEpisodeDefaults = async (episode: Project) => {
+    try {
+      const preview = await api.previewEpisodeDefaultPromotion(seriesId, episode.id);
+      const changed = Object.keys(preview.changes);
+      const detail = changed.length > 0 ? `\n\n将更新：${changed.join("、")}` : "\n\n当前配置与 Series 默认相同。";
+      if (!window.confirm(`${preview.message}${detail}\n\n确认提升为默认？`)) return;
+      await api.promoteEpisodeDefaults(seriesId, episode.id, preview.sections);
+      await refreshSeriesData();
+      window.alert("Episode 配置已提升为 Series 默认。");
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || "提升默认配置失败");
     }
   };
 
@@ -216,6 +254,7 @@ export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
         onOpenModelSettings={() => setShowModelSettings(true)}
         onOpenPromptConfig={() => setShowPromptConfig(true)}
         onOpenImportAssets={() => setShowImportAssets(true)}
+        onToggleSeriesArchive={handleToggleSeriesArchive}
       />
 
       {/* ── Content Area ── */}
@@ -240,6 +279,7 @@ export default function SeriesDetailPage({ seriesId }: SeriesDetailPageProps) {
               episode={selectedEpisode}
               seriesId={seriesId}
               onOpenEditor={() => handleOpenEpisode(selectedEpisode.id)}
+              onPromoteDefaults={() => handlePromoteEpisodeDefaults(selectedEpisode)}
             />
           ) : null}
         </AnimatePresence>
@@ -361,10 +401,12 @@ function EpisodeContentPanel({
   episode,
   seriesId,
   onOpenEditor,
+  onPromoteDefaults,
 }: {
   episode: Project;
   seriesId: string;
   onOpenEditor: () => void;
+  onPromoteDefaults: () => void;
 }) {
   const t = useTranslations("series");
 
@@ -396,16 +438,27 @@ function EpisodeContentPanel({
             {episode.workflow_mode === "r2v" ? "R2V" : "I2V Legacy"} · {t("frameCount", { count: frames.length })}
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={onOpenEditor}
-          className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-primary/20 hover:shadow-primary/30"
-        >
-          <Play size={14} />
-          {t("enterEditor")}
-          <ChevronRight size={14} />
-        </motion.button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onPromoteDefaults}
+            title="将此 Episode 的配置提升为 Series 默认"
+            className="flex items-center gap-2 border border-glass-border bg-surface hover:bg-hover-bg text-text-secondary hover:text-foreground px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+          >
+            <ArrowUpToLine size={14} />
+            提升为默认
+          </button>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={onOpenEditor}
+            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg shadow-primary/20 hover:shadow-primary/30"
+          >
+            <Play size={14} />
+            {t("enterEditor")}
+            <ChevronRight size={14} />
+          </motion.button>
+        </div>
       </div>
 
       {/* Episode Overview */}

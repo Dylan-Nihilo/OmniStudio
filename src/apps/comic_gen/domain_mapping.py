@@ -25,6 +25,8 @@ def script_to_episode(script: Script) -> Episode:
         series_id=series_id,
         episode_number=episode_number,
         script=episode_script,
+        archived=script.archived,
+        archived_at=script.archived_at,
         created_at=script.created_at,
         updated_at=script.updated_at,
     )
@@ -50,6 +52,8 @@ def series_to_project(series: Series) -> Project:
         custom_voices=[item.model_copy(deep=True) for item in series.custom_voices],
         content_mode=series.content_mode,
         episode_ids=list(series.episode_ids),
+        archived=series.archived,
+        archived_at=series.archived_at,
         created_at=series.created_at,
         updated_at=series.updated_at,
     )
@@ -86,6 +90,8 @@ def build_project_episodes(
             title=first_script.title,
             mode=ProjectMode.STANDALONE,
             episode_ids=[script.id for script in scripts],
+            archived=first_script.archived,
+            archived_at=first_script.archived_at,
             created_at=first_script.created_at,
             updated_at=first_script.updated_at,
         )

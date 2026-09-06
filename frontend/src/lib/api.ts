@@ -1452,7 +1452,7 @@ export const api = {
     },
     updateSeries: async (
         seriesId: string,
-        data: { title?: string; description?: string; art_direction?: any },
+        data: { title?: string; description?: string; workflow_mode?: string; content_mode?: string; default_generation_mode?: "r2v" | "i2v"; art_direction?: any },
     ) => {
         const response = await apiClient.put(`${API_URL}/series/${seriesId}`, data);
         return response.data;
@@ -1599,6 +1599,39 @@ export const api = {
     },
     restoreSeriesEpisode: async (seriesId: string, scriptId: string) => {
         const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/restore`);
+        return response.data;
+    },
+    getSeriesArchiveImpact: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/archive-impact`);
+        return response.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+    archiveSeries: async (seriesId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/archive`);
+        return response.data;
+    },
+    restoreSeries: async (seriesId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/restore`);
+        return response.data;
+    },
+    previewEpisodeDefaultPromotion: async (seriesId: string, scriptId: string, sections?: string[]) => {
+        // The default preview covers every promotable section. Keep the
+        // optional argument for callers that want to retain the same shape as
+        // the confirm API without relying on array query-string serialization.
+        void sections;
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/episodes/${scriptId}/promote-defaults/preview`);
+        return response.data as {
+            series_id: string;
+            episode_id: string;
+            episode_title: string;
+            sections: string[];
+            changes: Record<string, { before: unknown; after: unknown }>;
+            message: string;
+        };
+    },
+    promoteEpisodeDefaults: async (seriesId: string, scriptId: string, sections?: string[]) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/promote-defaults`, {
+            sections: sections ?? ["model_settings", "prompt_config", "art_direction", "workflow_mode", "default_generation_mode"],
+        });
         return response.data;
     },
     removeEpisodeFromSeries: async (seriesId: string, scriptId: string) => {

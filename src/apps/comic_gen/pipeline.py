@@ -35,6 +35,14 @@ from ...storage.schema import MigrationRun
 
 logger = get_logger(__name__)
 
+EPISODE_DEFAULT_SECTIONS = (
+    "model_settings",
+    "prompt_config",
+    "art_direction",
+    "workflow_mode",
+    "default_generation_mode",
+)
+
 # --- Security helpers ---
 
 # Allowed pattern for IDs used in file paths (UUID hex + hyphens)
@@ -5120,6 +5128,85 @@ class ComicGenPipeline:
                     setattr(series, key, value)
             series.updated_at = time.time()
             self.series_store[series_id] = series
+            self._save_series_data_unlocked()
+            return series
+
+    def _episode_for_defaults(self, series_id: str, script_id: str) -> tuple[Series, Script]:
+        series = self.series_store.get(series_id)
+        script = self.scripts.get(script_id)
+        if not series or not script or script_id not in series.episode_ids or script.series_id != series_id:
+            raise ValueError("Episode not found in Series")
+        return series, script
+
+    @staticmethod
+    def _config_snapshot(value: Any) -> Any:
+        """Return JSON-safe config data for preview responses."""
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        return copy.deepcopy(value)
+
+    def preview_episode_default_promotion(
+        self,
+        series_id: str,
+        script_id: str,
+        sections: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Build a non-mutating diff before promoting Episode settings."""
+        series, script = self._episode_for_defaults(series_id, script_id)
+        selected = list(sections or EPISODE_DEFAULT_SECTIONS)
+        unknown = [section for section in selected if section not in EPISODE_DEFAULT_SECTIONS]
+        if unknown:
+            raise ValueError(f"Unsupported default sections: {', '.join(unknown)}")
+        if not selected:
+            raise ValueError("At least one default section is required")
+
+        changes: Dict[str, Dict[str, Any]] = {}
+        for section in selected:
+            before = self._config_snapshot(getattr(series, section))
+            after = self._config_snapshot(getattr(script, section))
+            if before != after:
+                changes[section] = {"before": before, "after": after}
+        return {
+            "series_id": series_id,
+            "episode_id": script_id,
+            "episode_title": script.title,
+            "sections": selected,
+            "changes": changes,
+            "message": "仅更新 Series 默认配置，不会修改 Episode 内容或其他未选配置。",
+        }
+
+    def promote_episode_defaults(
+        self,
+        series_id: str,
+        script_id: str,
+        sections: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Copy explicitly selected Episode config sections to Series defaults."""
+        with self._save_lock:
+            series, script = self._episode_for_defaults(series_id, script_id)
+            preview = self.preview_episode_default_promotion(series_id, script_id, sections)
+            for section in preview["sections"]:
+                setattr(series, section, copy.deepcopy(getattr(script, section)))
+            series.updated_at = time.time()
+            if self.storage_enabled:
+                self.repository.save_bundle({}, {series.id: series})
+            else:
+                self._save_series_data_unlocked()
+            return {
+                "series": series,
+                "episode": script,
+                "preview": preview,
+            }
+
+    def set_series_archived(self, series_id: str, archived: bool) -> Series:
+        """Archive or restore the Series project without changing Episodes."""
+        with self._save_lock:
+            series = self.series_store.get(series_id)
+            if not series:
+                raise ValueError("Series not found")
+            series.archived = archived
+            series.archived_at = time.time() if archived else None
+            series.updated_at = time.time()
             self._save_series_data_unlocked()
             return series
 

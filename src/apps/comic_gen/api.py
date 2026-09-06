@@ -1024,6 +1024,38 @@ class ProjectArchiveResponse(BaseModel):
     message: str
 
 
+EpisodeDefaultSection = Literal[
+    "model_settings",
+    "prompt_config",
+    "art_direction",
+    "workflow_mode",
+    "default_generation_mode",
+]
+
+
+class PromoteEpisodeDefaultsRequest(BaseModel):
+    sections: List[EpisodeDefaultSection] = Field(
+        default_factory=lambda: [
+            "model_settings",
+            "prompt_config",
+            "art_direction",
+            "workflow_mode",
+            "default_generation_mode",
+        ],
+        min_length=1,
+        description="Episode config sections to copy to Series defaults",
+    )
+
+
+class EpisodeDefaultsPromotionPreview(BaseModel):
+    series_id: str
+    episode_id: str
+    episode_title: str
+    sections: List[EpisodeDefaultSection]
+    changes: Dict[str, Dict[str, Any]]
+    message: str
+
+
 def _project_archive_impact(script) -> dict[str, int]:
     return {
         "episodes": 1,
@@ -1032,6 +1064,18 @@ def _project_archive_impact(script) -> dict[str, int]:
         "props": len(script.props),
         "shots": len(script.frames),
         "video_tasks": len(script.video_tasks),
+    }
+
+
+def _series_archive_impact(series) -> dict[str, int]:
+    episodes = pipeline.get_series_episodes(series.id)
+    return {
+        "episodes": len(episodes),
+        "characters": len(series.characters),
+        "scenes": len(series.scenes),
+        "props": len(series.props),
+        "shots": sum(len(episode.frames) for episode in episodes),
+        "video_tasks": sum(len(episode.video_tasks) for episode in episodes),
     }
 
 
@@ -1332,6 +1376,8 @@ def get_series(series_id: str):
             "id": ep.id,
             "title": ep.title,
             "episode_number": ep.episode_number,
+            "archived": ep.archived,
+            "archived_at": ep.archived_at,
             "created_at": ep.created_at,
             "updated_at": ep.updated_at,
         }
@@ -1353,6 +1399,57 @@ def update_series(series_id: str, request: UpdateSeriesRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get("/series/{series_id}/archive-impact", response_model=ProjectArchiveResponse)
+def series_archive_impact(series_id: str):
+    """Preview archiving the Series container without archiving its Episodes."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    state = "已归档" if series.archived else "归档后可随时恢复"
+    return {
+        "id": series.id,
+        "title": series.title,
+        "archived": series.archived,
+        "archived_at": series.archived_at,
+        "impact": _series_archive_impact(series),
+        "message": f"{state}；只归档项目容器，不会归档或删除 Episode、脚本、素材、分镜、视频任务或导出引用。",
+    }
+
+
+@app.post("/series/{series_id}/archive", response_model=ProjectArchiveResponse)
+def archive_series(series_id: str, request: Request):
+    try:
+        series = pipeline.set_series_archived(series_id, True)
+        record_request_event(request, action="project.archive", object_type="project", object_id=series_id)
+        return {
+            "id": series.id,
+            "title": series.title,
+            "archived": True,
+            "archived_at": series.archived_at,
+            "impact": _series_archive_impact(series),
+            "message": "项目已归档，可随时恢复；Episode 状态和生产数据保持不变。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Series not found") from exc
+
+
+@app.post("/series/{series_id}/restore", response_model=ProjectArchiveResponse)
+def restore_series(series_id: str, request: Request):
+    try:
+        series = pipeline.set_series_archived(series_id, False)
+        record_request_event(request, action="project.restore", object_type="project", object_id=series_id)
+        return {
+            "id": series.id,
+            "title": series.title,
+            "archived": False,
+            "archived_at": None,
+            "impact": _series_archive_impact(series),
+            "message": "项目已恢复；Episode 状态和生产数据保持不变。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Series not found") from exc
+
+
 @app.delete("/series/{series_id}")
 def delete_series(series_id: str):
     """Delete a Series and disassociate its episodes."""
@@ -1366,6 +1463,54 @@ def delete_series(series_id: str):
 class AddEpisodeRequest(BaseModel):
     script_id: str
     episode_number: Optional[int] = None
+
+
+@app.get(
+    "/series/{series_id}/episodes/{script_id}/promote-defaults/preview",
+    response_model=EpisodeDefaultsPromotionPreview,
+)
+def preview_episode_defaults(
+    series_id: str,
+    script_id: str,
+    sections: Optional[List[EpisodeDefaultSection]] = Query(None),
+):
+    """Preview copying selected Episode settings to Series defaults."""
+    try:
+        return pipeline.preview_episode_default_promotion(series_id, script_id, sections)
+    except ValueError as exc:
+        status = 400 if "Unsupported" in str(exc) or "required" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@app.post(
+    "/series/{series_id}/episodes/{script_id}/promote-defaults",
+)
+def promote_episode_defaults(
+    series_id: str,
+    script_id: str,
+    request: PromoteEpisodeDefaultsRequest,
+    http_request: Request,
+):
+    """Confirm copying selected Episode settings to Series defaults."""
+    try:
+        result = pipeline.promote_episode_defaults(series_id, script_id, request.sections)
+        record_request_event(
+            http_request,
+            action="episode.defaults_promote",
+            object_type="episode",
+            object_id=script_id,
+            metadata={"series_id": series_id, "sections": request.sections},
+        )
+        return signed_response(
+            {
+                "series": result["series"].model_dump(),
+                "episode": result["episode"].model_dump(),
+                "preview": result["preview"],
+            }
+        )
+    except ValueError as exc:
+        status = 400 if "Unsupported" in str(exc) or "required" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 class EpisodeOrderRequest(BaseModel):

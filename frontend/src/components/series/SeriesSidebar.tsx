@@ -55,6 +55,7 @@ interface SeriesSidebarProps {
   onOpenModelSettings: () => void;
   onOpenPromptConfig: () => void;
   onOpenImportAssets: () => void;
+  onToggleSeriesArchive: () => void;
 }
 
 // ── Asset nav config ──
@@ -91,6 +92,7 @@ export default function SeriesSidebar({
   onOpenModelSettings,
   onOpenPromptConfig,
   onOpenImportAssets,
+  onToggleSeriesArchive,
 }: SeriesSidebarProps) {
   const t = useTranslations("series");
   const tc = useTranslations("common");
@@ -139,13 +141,28 @@ export default function SeriesSidebar({
               autoFocus
             />
           ) : (
-            <h1
-              className="text-base font-display font-bold text-foreground cursor-pointer hover:text-primary transition-colors truncate"
-              onDoubleClick={onTitleDoubleClick}
-              title={t("editTitleHint")}
-            >
-              {series.title}
-            </h1>
+            <div className="flex items-center gap-2 min-w-0">
+              <h1
+                className="text-base font-display font-bold text-foreground cursor-pointer hover:text-primary transition-colors truncate"
+                onDoubleClick={onTitleDoubleClick}
+                title={t("editTitleHint")}
+              >
+                {series.title}
+              </h1>
+              <button
+                type="button"
+                onClick={onToggleSeriesArchive}
+                aria-label={series.archived ? "恢复项目" : "归档项目"}
+                title={series.archived ? "恢复项目" : "归档项目"}
+                className="grid h-7 w-7 shrink-0 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground"
+              >
+                {series.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              </button>
+            </div>
+          )}
+
+          {series.archived && (
+            <span className="inline-flex rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">项目已归档</span>
           )}
 
           {series.description && (
