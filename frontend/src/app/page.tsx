@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect, useRef, useId } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
-  Plus, RefreshCw, Library, FileUp, X, ChevronDown, FileText,
-  Zap, Film, Sparkles, Search, Clock, MoreVertical,
+  Plus, RefreshCw, Library, FileUp, ChevronDown, FileText,
+  Film, Sparkles, Search, Clock, MoreVertical,
 } from "lucide-react";
 import { useProjectStore, Project } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { useOnline } from "@/lib/useOnline";
-import { rovingKeyDown } from "@/lib/a11y";
+import { Button, TextField } from "@omnistudio/ui";
+import { Dropdown, Label } from "@heroui/react";
 import ProjectCard, { deriveStatus, deriveCover, type DerivedStatus } from "@/components/project/ProjectCard";
+import CreateSeriesDialog from "@/components/series/CreateSeriesDialog";
 import CreateProjectDialog from "@/components/project/CreateProjectDialog";
 import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import CreativeCanvas from "@/components/canvas/CreativeCanvas";
@@ -40,287 +42,6 @@ const AssetLibraryPage = dynamic(() => withChunkLoadRecovery(() => import("@/com
 const PlaygroundPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/playground/PlaygroundPage")), { ssr: false });
 const ScriptEditorShell = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/ScriptEditorShell")), { ssr: false });
 const StandaloneScriptEditor = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/StandaloneScriptEditor")), { ssr: false });
-
-// ── Create Series Dialog ──
-function CreateSeriesDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [workflowMode, setWorkflowMode] = useState<"r2v" | "i2v_legacy">("r2v");
-  // R2V v2 Phase 6 — content_mode (scripted | freeform)
-  const [contentMode, setContentMode] = useState<"scripted" | "freeform">("scripted");
-  // PR-3e — default per-shot generation mode (r2v=节奏优先 / i2v=画面优先)
-  const [defaultGenerationMode, setDefaultGenerationMode] = useState<"r2v" | "i2v">("r2v");
-  const [isCreating, setIsCreating] = useState(false);
-  const t = useTranslations("workspace");
-  const tc = useTranslations("common");
-  const tp = useTranslations("project");
-
-  // a11y — dialog labelling + focus management
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    // Move focus into the dialog (the title input is the first field).
-    const node = dialogRef.current;
-    if (node) {
-      const field = node.querySelector<HTMLElement>("input, textarea");
-      (field ?? node.querySelector<HTMLElement>("button:not([disabled])"))?.focus();
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== "Tab" || !dialogRef.current) return;
-      const focusables = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-        )
-      );
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === first || !dialogRef.current.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last || !dialogRef.current.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus?.();
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleCreate = async () => {
-    if (!title.trim()) return;
-    setIsCreating(true);
-    try {
-      // Use the v2 createSeriesV2 API directly so we can pass content_mode
-      const { api } = await import("@/lib/api");
-      const series = await api.createSeriesV2(title.trim(), {
-        description: description.trim() || undefined,
-        workflow_mode: workflowMode,
-        content_mode: contentMode,
-        default_generation_mode: defaultGenerationMode,
-      });
-      setTitle("");
-      setDescription("");
-      setWorkflowMode("r2v");
-      setContentMode("scripted");
-      setDefaultGenerationMode("r2v");
-      onClose();
-      window.location.hash = `#/series/${series.id}`;
-    } catch (error) {
-      console.error("Failed to create series:", error);
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm" onClick={onClose}>
-      <motion.div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-elevated border border-border rounded-2xl p-8 w-full max-w-4xl shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-6">
-          <h2 id={titleId} className="text-2xl font-display font-bold text-foreground">{t("newSeries")}</h2>
-          <button onClick={onClose} aria-label={tc("close")} className="p-2 rounded-lg hover:bg-hover-bg transition-colors">
-            <X size={20} className="text-text-secondary" />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{t("seriesTitle")} *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t("seriesTitlePlaceholder")}
-              className="glass-input w-full"
-            />
-          </div>
-
-          {/* Workflow Mode */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tp("workflowMode")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setWorkflowMode("r2v")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  workflowMode === "r2v"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Zap size={16} className={workflowMode === "r2v" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("workflowR2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("workflowR2VDesc")}</p>
-                {workflowMode === "r2v" && (
-                  <span className="absolute top-2 right-2 text-[0.625rem] font-medium text-primary bg-primary/20 px-1.5 py-0.5 rounded">
-                    {tc("recommended")}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setWorkflowMode("i2v_legacy")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  workflowMode === "i2v_legacy"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Film size={16} className={workflowMode === "i2v_legacy" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("workflowI2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("workflowI2VDesc")}</p>
-              </button>
-            </div>
-          </div>
-
-          {/* R2V v2 Phase 6 — Content mode picker */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tp("contentMode")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setContentMode("scripted")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  contentMode === "scripted"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="font-semibold text-sm text-foreground">{tp("contentScripted")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("contentScriptedDesc")}</p>
-                {contentMode === "scripted" && (
-                  <span className="absolute top-2 right-2 text-[0.625rem] font-medium text-primary bg-primary/20 px-1.5 py-0.5 rounded">
-                    {tc("recommended")}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setContentMode("freeform")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  contentMode === "freeform"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="font-semibold text-sm text-foreground">{tp("contentFreeform")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("contentFreeformDesc")}</p>
-              </button>
-            </div>
-          </div>
-
-          {/* PR-3e · Visual Control Preference picker — decides new-shot default
-              tabMode (r2v=direct_r2v / i2v=t2i_i2v). Series-level setting,
-              episodes inherit, shots can override individually. */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tp("visualControlPref")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setDefaultGenerationMode("r2v")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  defaultGenerationMode === "r2v"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Zap size={16} className={defaultGenerationMode === "r2v" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("visualControlR2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("visualControlR2VDesc")}</p>
-                {defaultGenerationMode === "r2v" && (
-                  <span className="absolute top-2 right-2 text-[0.625rem] font-medium text-primary bg-primary/20 px-1.5 py-0.5 rounded">
-                    {tc("recommended")}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDefaultGenerationMode("i2v")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  defaultGenerationMode === "i2v"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Film size={16} className={defaultGenerationMode === "i2v" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("visualControlI2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("visualControlI2VDesc")}</p>
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{t("description")}</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("descriptionPlaceholder")}
-              rows={4}
-              className="glass-input w-full resize-none"
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-3 pt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 glass-button"
-          >
-            {tc("cancel")}
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={!title.trim() || isCreating}
-            className="flex-1 bg-primary hover:bg-primary/90 text-foreground px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isCreating ? t("creating") : t("createSeries")}
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
 
 // ── New Project Tile (Line B dashed add card) ──
 function NewProjectTile({ onClick, episode = false }: { onClick: () => void; episode?: boolean }) {
@@ -478,7 +199,6 @@ function AuthenticatedHome() {
   const [syncError, setSyncError] = useState(false);
   const syncRequest = useRef(0);
   const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
-  const [showCreateDropdown, setShowCreateDropdown] = useState(false);
   const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
@@ -560,14 +280,6 @@ function AuthenticatedHome() {
       if (isCurrent()) setIsSyncing(false);
     }
   };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!showCreateDropdown) return;
-    const handleClick = () => setShowCreateDropdown(false);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, [showCreateDropdown]);
 
   // 监听 hash 变化
   useEffect(() => {
@@ -781,123 +493,36 @@ function AuthenticatedHome() {
             </h1>
           </div>
           <div className="flex items-center flex-wrap gap-2.5 md:pb-1">
-            <button
-              onClick={syncAll}
-              disabled={isSyncing || !online}
-              title={!online ? tc("offlineTooltip") : undefined}
-              className="glass-button flex items-center gap-2 text-[0.8125rem] font-semibold disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
-              {tc("sync")}
-            </button>
-            <button
-              onClick={() => setIsImportDialogOpen(true)}
-              disabled={!online}
-              title={!online ? tc("offlineTooltip") : undefined}
-              className="glass-button flex items-center gap-2 text-[0.8125rem] font-semibold disabled:opacity-50"
-            >
-              <FileUp size={14} />
-              {t("importFile")}
-            </button>
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowCreateDropdown((v) => !v); }}
-                disabled={!online}
-                title={!online ? tc("offlineTooltip") : undefined}
-                className="bg-primary hover:bg-primary/90 text-on-accent px-4 py-2 rounded-[10px] font-semibold flex items-center gap-2 transition-all text-[0.8125rem] shadow-[var(--glow-primary)] disabled:opacity-50"
-              >
-                <Plus size={14} />
-                {t("new")}
-                <ChevronDown size={12} />
-              </button>
-              {showCreateDropdown && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute right-0 top-full mt-1 w-48 bg-elevated border border-glass-border rounded-xl shadow-xl z-20 overflow-hidden"
-                >
-                  <button
-                    onClick={() => { setIsSeriesDialogOpen(true); setShowCreateDropdown(false); }}
-                    className="w-full px-4 py-2.5 text-sm text-left text-foreground hover:bg-hover-bg transition-colors flex items-center gap-2"
-                  >
-                    <Library size={16} className="text-primary" />
-                    {t("newSeries")}
-                  </button>
-                  <button
-                    onClick={() => { setIsDialogOpen(true); setShowCreateDropdown(false); }}
-                    className="w-full px-4 py-2.5 text-sm text-left text-foreground hover:bg-hover-bg transition-colors flex items-center gap-2"
-                  >
-                    <FileText size={16} className="text-text-muted" />
-                    {t("newProject")}
-                  </button>
-                  <div className="border-t border-glass-border" />
-                  <button
-                    onClick={() => { window.location.hash = '#/playground'; setShowCreateDropdown(false); }}
-                    className="w-full px-4 py-2.5 text-sm text-left text-foreground hover:bg-hover-bg transition-colors flex items-center gap-2"
-                  >
-                    <Sparkles size={16} className="text-accent" />
-                    Playground
-                  </button>
-                </motion.div>
-              )}
-            </div>
+            <Button variant="secondary" onPress={() => void syncAll()} isPending={isSyncing} isDisabled={!online} aria-description={!online ? tc("offlineTooltip") : undefined}>
+              <RefreshCw size={14} />{tc("sync")}
+            </Button>
+            <Button variant="secondary" onPress={() => setIsImportDialogOpen(true)} isDisabled={!online} aria-description={!online ? tc("offlineTooltip") : undefined}>
+              <FileUp size={14} />{t("importFile")}
+            </Button>
+            <Dropdown>
+              <Button isDisabled={!online} aria-description={!online ? tc("offlineTooltip") : undefined}><Plus size={14} />{t("new")}<ChevronDown size={12} /></Button>
+              <Dropdown.Popover placement="bottom end">
+                <Dropdown.Menu aria-label={t("new")}>
+                  <Dropdown.Item id="series" textValue={t("newSeries")} onAction={() => setIsSeriesDialogOpen(true)}><Library size={16} /><Label>{t("newSeries")}</Label></Dropdown.Item>
+                  <Dropdown.Item id="project" textValue={t("newProject")} onAction={() => setIsDialogOpen(true)}><FileText size={16} /><Label>{t("newProject")}</Label></Dropdown.Item>
+                  <Dropdown.Item id="playground" textValue="Playground" onAction={() => { window.location.hash = "#/playground"; }}><Sparkles size={16} /><Label>Playground</Label></Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
           </div>
         </header>
 
-        {/* Toolbar — 状态横向筛选 + 搜索 + 视图切换 */}
-        <div className="px-7 pb-2 flex flex-wrap items-center gap-3">
-          <div className="inline-flex p-[3px] rounded-full bg-surface-inset atelier-pill-tabs" role="tablist" aria-label={t("statusFilterAria")} onKeyDown={rovingKeyDown}>
-            {wsStatusPills.map((pill) => {
-              const on = wsStatus === pill.id;
-              return (
-                <button
-                  key={pill.id}
-                  role="tab"
-                  aria-selected={on}
-                  tabIndex={on ? 0 : -1}
-                  onClick={() => setWsStatus(pill.id)}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                    on ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-                  }`}
-                >
-                  {pill.label}
-                  <span className={`font-mono text-[0.59375rem] ${on ? "text-text-secondary" : "text-text-muted"}`}>{pill.count}</span>
-                </button>
-              );
-            })}
+        <div className="px-4 md:px-7 pb-2 flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1" role="group" aria-label={t("statusFilterAria")}>
+            {wsStatusPills.map(pill => <Button key={pill.id} variant={wsStatus === pill.id ? "secondary" : "quiet"} aria-pressed={wsStatus === pill.id} onPress={() => setWsStatus(pill.id)}>
+              {pill.label}<span className="font-mono text-xs text-text-muted">{pill.count}</span>
+            </Button>)}
           </div>
-          <div className="relative flex-1 min-w-[180px] max-w-[340px] bg-surface-inset border border-glass-border rounded-full atelier-search-input">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            <input
-              type="search"
-              value={wsSearch}
-              onChange={(e) => setWsSearch(e.target.value)}
-              placeholder={t("searchPlaceholder") || "搜索项目 / 系列…"}
-              aria-label={t("searchPlaceholder") || "搜索项目 / 系列…"}
-              className="w-full bg-transparent border-0 rounded-full py-2 pl-9 pr-4 text-[0.8125rem] text-foreground placeholder-text-muted focus:outline-none"
-            />
-          </div>
-          <div className="inline-flex p-[3px] rounded-full bg-surface-inset atelier-pill-tabs ml-auto" role="group" aria-label={`${t("gallery") || "画廊"} / ${t("list") || "列表"}`}>
-            <button
-              type="button"
-              onClick={() => changeViewMode("gallery")}
-              aria-pressed={viewMode === "gallery"}
-              className={`inline-flex items-center px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                viewMode === "gallery" ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-              }`}
-            >
-              {t("gallery") || "画廊"}
-            </button>
-            <button
-              type="button"
-              onClick={() => changeViewMode("list")}
-              aria-pressed={viewMode === "list"}
-              className={`inline-flex items-center px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                viewMode === "list" ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-              }`}
-            >
-              {t("list") || "列表"}
-            </button>
+          <TextField label={t("searchPlaceholder")} type="search" value={wsSearch} onChange={setWsSearch} placeholder={t("searchPlaceholder")}
+            className="min-w-44 max-w-[340px] flex-1 [&>label]:sr-only" />
+          <div className="ml-auto flex gap-1" role="group" aria-label={`${t("gallery")} / ${t("list")}`}>
+            <Button variant={viewMode === "gallery" ? "secondary" : "quiet"} aria-pressed={viewMode === "gallery"} onPress={() => changeViewMode("gallery")}>{t("gallery")}</Button>
+            <Button variant={viewMode === "list" ? "secondary" : "quiet"} aria-pressed={viewMode === "list"} onPress={() => changeViewMode("list")}>{t("list")}</Button>
           </div>
         </div>
 
