@@ -3931,6 +3931,7 @@ class UpdateFrameRequest(BaseModel):
     frame_id: str
     image_prompt: Optional[str] = None
     action_description: Optional[str] = None
+    visual_description: Optional[str] = None
     dialogue: Optional[str] = None
     camera_angle: Optional[str] = None
     scene_id: Optional[str] = None
@@ -3949,6 +3950,7 @@ def update_frame(script_id: str, request: UpdateFrameRequest):
             request.frame_id,
             image_prompt=request.image_prompt,
             action_description=request.action_description,
+            visual_description=request.visual_description,
             dialogue=request.dialogue,
             camera_angle=request.camera_angle,
             scene_id=request.scene_id,

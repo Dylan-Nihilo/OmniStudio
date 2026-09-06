@@ -111,6 +111,26 @@ def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
     assert [item["id"] for item in response.json()] == [project["id"]]
 
 
+def test_frame_visual_prompt_round_trips_without_overwriting_legacy_action(api_client):
+    project = _create_project(api_client, "Prompt persistence")
+    route = f"/projects/{project['id']}"
+    created = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Coarse action"})
+    assert created.status_code == 200, created.text
+    frame_id = created.json()["frames"][0]["id"]
+    for prompt in ["Refined visual narrative", ""]:
+        saved = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "visual_description": prompt})
+        assert saved.status_code == 200, saved.text
+        frame = api_client.get(route).json()["frames"][0]
+        assert frame["visual_description"] == prompt
+        assert frame["action_description"] == "Coarse action"
+        if prompt:
+            assert prompt in frame["assembled_prompt"]
+        else:
+            assert "Refined visual narrative" not in frame["assembled_prompt"]
+    invalid = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "visual_description": {"invalid": True}})
+    assert invalid.status_code == 422
+
+
 def test_script_document_uses_current_project_storage(api_client, tmp_path):
     project = _create_project(api_client, "剧本文档保存回归")
     content = {

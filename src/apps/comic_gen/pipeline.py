@@ -1903,6 +1903,8 @@ class ComicGenPipeline:
             frame.image_prompt = kwargs['image_prompt']
         if kwargs.get('action_description') is not None:
             frame.action_description = kwargs['action_description']
+        if kwargs.get('visual_description') is not None:
+            frame.visual_description = kwargs['visual_description']
         if kwargs.get('dialogue') is not None:
             frame.dialogue = kwargs['dialogue']
         if kwargs.get('camera_angle') is not None:
@@ -1928,6 +1930,11 @@ class ComicGenPipeline:
                 )
         if kwargs.get('transition_hint') is not None:
             frame.transition_hint = kwargs['transition_hint']
+        if frame.visual_description is not None and any(kwargs.get(key) is not None for key in (
+            'visual_description', 'shot_size', 'camera_angle', 'camera_movement_description', 'transition_hint',
+        )):
+            from .prompt_assembly import assemble_prompt
+            frame.assembled_prompt = assemble_prompt(frame, self.resolve_episode_assets(script)["characters"])
         
         self._save_data()
         return script
