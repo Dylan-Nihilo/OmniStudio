@@ -115,6 +115,9 @@ const getValidationErrors = (env: EnvConfig): string[] => {
   return errors;
 };
 
+const STORAGE_FIELDS = ['OSS_ENABLE', 'OSS_BUCKET_NAME', 'OSS_ENDPOINT', 'OSS_BASE_PATH', 'ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'] as const;
+const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY'] as const;
+
 const LS_KEY_MODEL = "omni_studio_default_model_settings";
 const LS_KEY_PROMPT = "omni_studio_default_prompt_config";
 
@@ -206,7 +209,11 @@ export default function SettingsPage() {
 
   // ── API Config ──
   const [config, setConfig] = useState<EnvConfig>(DEFAULT_CONFIG);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const savedConfigRef = useRef<EnvConfig>(DEFAULT_CONFIG);
+  const configRequest = useRef(0);
+  const mounted = useRef(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [endpointsOpen, setEndpointsOpen] = useState(false);
@@ -236,20 +243,26 @@ export default function SettingsPage() {
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
 
   const loadConfig = useCallback(async () => {
+    const request = ++configRequest.current;
     setLoading(true);
     setLoadError(null);
     try {
       const data = await api.getEnvConfig();
-      setConfig((prev) => normalizeEnvConfig(prev, data));
+      if (!mounted.current || request !== configRequest.current) return;
+      const loaded = normalizeEnvConfig(DEFAULT_CONFIG, data);
+      savedConfigRef.current = loaded;
+      setConfig(loaded);
     } catch {
-      setLoadError(t("loadConfigFailed"));
+      if (mounted.current && request === configRequest.current) setLoadError(t("loadConfigFailed"));
     } finally {
-      setLoading(false);
+      if (mounted.current && request === configRequest.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    mounted.current = true;
     loadConfig();
+    return () => { mounted.current = false; configRequest.current += 1; };
   }, [loadConfig]);
 
   // Pre-fill the prompt fields with the real built-in defaults so users can see
@@ -338,37 +351,44 @@ export default function SettingsPage() {
     }
   }, [active, systemChecked, systemLoading, loadSystem]);
 
-  const handleSaveApiConfig = async () => {
-    const errors = getValidationErrors(config);
-    if (errors.length > 0) {
-      toast.error(t("fillRequired"), { body: `- ${errors.join("\n- ")}` });
-      return;
+  const saveEnvScope = async (scope: 'apikeys' | 'storage') => {
+    if (saving || loading || loadError || !online) return;
+    setSaveError(null);
+    if (scope === 'apikeys') {
+      const errors = getValidationErrors(config);
+      if (errors.length) { setSaveError(`${t('fillRequired')}: ${errors.join(', ')}`); return; }
     }
+    const fields = scope === 'storage' ? STORAGE_FIELDS : PROVIDER_FIELDS;
+    const payload: EnvConfigPayload = {};
+    for (const key of fields) {
+      const value = config[key];
+      if (value !== savedConfigRef.current[key] && !(typeof value === 'string' && value.includes('•'))) Object.assign(payload, { [key]: value });
+    }
+    if (scope === 'apikeys') {
+      const endpoints = Object.fromEntries(Object.entries(config.endpoint_overrides).filter(([key,value]) => value !== savedConfigRef.current.endpoint_overrides[key]));
+      if (Object.keys(endpoints).length) payload.endpoint_overrides = endpoints;
+    }
+    if (!Object.keys(payload).length) { toast.success(t('saved')); return; }
     setSaving(true);
     try {
-      await api.saveEnvConfig(config);
-      toast.success(t("saveSuccess"));
+      await api.saveEnvConfig(payload);
+      if (!mounted.current) return;
+      savedConfigRef.current = normalizeEnvConfig(savedConfigRef.current, {
+        ...payload,
+        endpoint_overrides: {...savedConfigRef.current.endpoint_overrides, ...payload.endpoint_overrides},
+      });
+      toast.success(t('saveSuccess'));
     } catch {
-      toast.error(t("saveConfigFailed"));
+      if (mounted.current) setSaveError(t('saveConfigFailed'));
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
-
-  // Storage(OSS) 保存不应被 DashScope / 生成相关必填项挡住——它们与存储无关。
-  const handleSaveStorage = async () => {
-    setSaving(true);
-    try {
-      await api.saveEnvConfig(config);
-      toast.success(t("saveSuccess"));
-    } catch {
-      toast.error(t("saveConfigFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const handleSaveApiConfig = () => saveEnvScope('apikeys');
+  const handleSaveStorage = () => saveEnvScope('storage');
 
   const handleChange = (key: keyof EnvConfig, value: string) => {
+    setSaveError(null);
     setConfig((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -688,9 +708,7 @@ export default function SettingsPage() {
           <span className="ml-2 text-text-secondary">{t("loadingConfig")}</span>
         </div>
       ) : loadError ? (
-        <div className="bg-status-failed-bg border border-status-failed-border rounded-lg p-4 text-sm text-status-failed-fg">
-          {loadError}
-        </div>
+        <div role="alert" className="text-status-failed-fg">{loadError}<button type="button" onClick={loadConfig}>{t("retryLoad")}</button></div>
       ) : (
         <div className="space-y-1">
           <FormRow label={t("llmProviderLabel")} hint={t("llmProviderHint")}>
@@ -919,6 +937,7 @@ export default function SettingsPage() {
             )}
           </FormRow>
 
+          {saveError && <p role="alert">{saveError}</p>}
           <div className="flex justify-end pt-4">
             <button
               type="button"
@@ -941,6 +960,7 @@ export default function SettingsPage() {
       title={t("secStorageTitle")}
       desc={t("secStorageDesc")}
     >
+      {loading ? <p role="status">{t("loadingConfig")}</p> : loadError ? <div role="alert">{loadError}<button type="button" onClick={loadConfig}>{t("retryLoad")}</button></div> : <fieldset disabled={saving}>
       <FormRow label={t("cloudStorageLabel")}>
         <Toggle
           checked={config.OSS_ENABLE}
@@ -1021,11 +1041,13 @@ export default function SettingsPage() {
         <PathField value={logDir} label="LOG_DIR · MANAGED" />
       </FormRow>
 
+      </fieldset>}
+      {saveError && <p role="alert">{saveError}</p>}
       <div className="flex justify-end pt-4">
         <button
           type="button"
           onClick={handleSaveStorage}
-          disabled={saving || loading || !online}
+          disabled={saving || loading || Boolean(loadError) || !online}
           className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-on-accent text-sm font-medium rounded-lg transition-all disabled:opacity-50"
         >
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}

@@ -618,6 +618,7 @@
     "emptyQuote": "“每一座城市，都藏着一个还没被讲出来的故事。”"
   },
   "settings": {
+    "retryLoad": "重新加载",
     "title": "设置",
     "appearance": "外观",
     "language": "语言",

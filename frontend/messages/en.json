@@ -618,6 +618,7 @@
     "emptyQuote": "“Every city hides a story yet to be told.”"
   },
   "settings": {
+    "retryLoad": "Retry loading",
     "title": "Settings",
     "appearance": "Appearance",
     "language": "Language",

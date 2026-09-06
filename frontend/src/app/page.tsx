@@ -426,7 +426,7 @@ function AuthenticatedHome() {
   // Determine content based on activeTab
   const renderContent = () => {
     if (currentView === 'settings') {
-      return <SettingsPage />;
+      return <SettingsPage key={activeWorkspaceId} />;
     }
     if (currentView === 'playground') {
       return <PlaygroundPage />;
