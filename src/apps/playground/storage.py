@@ -125,7 +125,7 @@ class PlaygroundStorage:
                     continue
                 if existing.status in ("completed", "failed"):
                     return None
-                canceled = existing.model_copy(update={"status": "failed", "error": error})
+                canceled = existing.model_copy(update={"status": "canceled", "error": error})
                 self._history[i] = canceled
                 self._save_history()
                 return canceled.model_copy(deep=True)

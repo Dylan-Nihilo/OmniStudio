@@ -36,11 +36,11 @@ def test_cancel_generation_marks_processing_record_failed(tmp_path):
     canceled = service.cancel_generation("generation-1", "workspace-1")
 
     assert canceled is not None
-    assert canceled.status == "failed"
+    assert canceled.status == "canceled"
     assert canceled.error == "Canceled by user"
     persisted = storage.get_generation("generation-1", "workspace-1")
     assert persisted is not None
-    assert persisted.status == "failed"
+    assert persisted.status == "canceled"
 
 
 def test_cancel_generation_rejects_unknown_or_terminal_record(tmp_path):
@@ -65,7 +65,7 @@ def test_late_provider_completion_does_not_overwrite_cancellation(tmp_path):
 
     persisted = storage.get_generation("generation-1", "workspace-1")
     assert persisted is not None
-    assert persisted.status == "failed"
+    assert persisted.status == "canceled"
     assert persisted.error == "Canceled by user"
 
 
@@ -79,7 +79,18 @@ def test_start_generation_does_not_resurrect_a_canceled_record(tmp_path):
 
     persisted = storage.get_generation("generation-1", "workspace-1")
     assert persisted is not None
-    assert persisted.status == "failed"
+    assert persisted.status == "canceled"
+
+
+def test_playground_cancel_status_is_distinct_from_provider_failure(tmp_path):
+    storage = _storage(tmp_path)
+    storage.add_generation(_generation(status="processing"))
+
+    canceled = storage.cancel_generation("generation-1", "workspace-1")
+
+    assert canceled is not None
+    assert canceled.status == "canceled"
+    assert canceled.error == "Canceled by user"
 
 
 def test_playground_router_exposes_cancel_endpoint():

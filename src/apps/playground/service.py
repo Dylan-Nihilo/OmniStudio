@@ -19,6 +19,8 @@ from .models import (
 )
 from .storage import PlaygroundStorage
 from ...utils import get_logger
+from ...storage.job_repository import JobRepository
+from ...apps.comic_gen.contracts import sanitize_error_text
 
 logger = get_logger(__name__)
 
@@ -51,13 +53,24 @@ class PlaygroundService:
         self,
         generation_id: str,
         workspace_id: str | None = None,
+        job_repository: JobRepository | None = None,
     ) -> PlaygroundGeneration | None:
         """Cancel local state; an already-running provider call may continue remotely."""
-        return self.storage.cancel_generation(
+        generation = self.storage.cancel_generation(
             generation_id,
             workspace_id,
             error="Canceled by user",
         )
+        if generation and generation.job_item_id and job_repository:
+            try:
+                job_repository.transition_item(
+                    generation.job_item_id,
+                    "canceled",
+                    error={"code": "CANCELED", "message": "任务已取消"},
+                )
+            except Exception:
+                logger.exception("Failed to synchronize cancellation for %s", generation_id)
+        return generation
 
     def create_generation(
         self,
@@ -80,11 +93,16 @@ class PlaygroundService:
             status="pending",
             error=None,
             created_at=datetime.now(timezone.utc).isoformat(),
+            idempotency_key=request.idempotency_key,
         )
         self.storage.add_generation(gen)
         return gen
 
-    def process_generation(self, generation_id: str) -> None:
+    def process_generation(
+        self,
+        generation_id: str,
+        job_repository: JobRepository | None = None,
+    ) -> None:
         """Execute the actual generation.  Intended to run in a background
         thread -- all calls are synchronous (blocking)."""
         gen = self.storage.get_generation(generation_id)
@@ -99,6 +117,12 @@ class PlaygroundService:
         if not self.storage.start_generation(gen):
             return
 
+        if gen.job_item_id and job_repository:
+            try:
+                job_repository.transition_item(gen.job_item_id, "processing", progress=0.0)
+            except Exception:
+                logger.exception("Failed to synchronize processing state for %s", generation_id)
+
         try:
             mode = gen.mode
             if mode in (PlaygroundMode.T2I, PlaygroundMode.I2I):
@@ -110,9 +134,31 @@ class PlaygroundService:
 
             if not self.storage.finish_generation(gen, "completed"):
                 return
+            if gen.job_item_id and job_repository:
+                refs = [
+                    {"id": output.id, "kind": output.media_type, "uri": output.media_path}
+                    for output in gen.outputs
+                ]
+                try:
+                    job_repository.transition_item(
+                        gen.job_item_id,
+                        "succeeded",
+                        media_refs=refs,
+                    )
+                except Exception:
+                    logger.exception("Failed to synchronize success state for %s", generation_id)
         except Exception as exc:
             logger.exception("Generation %s failed", generation_id)
-            self.storage.finish_generation(gen, "failed", str(exc))
+            safe_error = sanitize_error_text(str(exc))
+            if self.storage.finish_generation(gen, "failed", safe_error) and gen.job_item_id and job_repository:
+                try:
+                    job_repository.transition_item(
+                        gen.job_item_id,
+                        "failed",
+                        error={"code": "PROVIDER_FAILED", "message": safe_error},
+                    )
+                except Exception:
+                    logger.exception("Failed to synchronize failure state for %s", generation_id)
 
     def save_to_library(
         self,
