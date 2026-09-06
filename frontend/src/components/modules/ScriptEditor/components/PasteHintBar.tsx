@@ -1,5 +1,6 @@
 'use client';
 
+import { Button, IconButton } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Wand2, X } from 'lucide-react';
@@ -24,30 +25,30 @@ export function PasteHintBar({ visible, analysis, onApply, onDismiss }: PasteHin
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="absolute top-2 left-1/2 -translate-x-1/2 z-50 w-auto max-w-[560px]"
+          className="sticky top-0 z-10 w-full"
         >
-          <div className="flex items-center gap-3 rounded-lg border border-blue-500/20 bg-blue-500/10 backdrop-blur-md px-4 py-2.5 shadow-lg shadow-blue-500/5">
-            <Sparkles size={16} className="shrink-0 text-blue-400" />
-            <span className="text-sm text-blue-200/90 whitespace-nowrap">
+          <div className="flex flex-wrap items-center gap-3 border-b border-border-subtle bg-surface-inset px-4 py-2.5">
+            <Sparkles size={16} className="shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 text-sm text-text-secondary">
               {t('paste.detectedDetail', { percent: matchPercent, lines: analysis.suggestions.length })}
             </span>
             <div className="flex items-center gap-2 ml-2">
-              <button
+              <Button variant="secondary"
                 type="button"
-                onClick={onApply}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 px-3 py-1 text-xs font-medium text-blue-300 transition-colors"
+                onPress={onApply}
+
               >
                 <Wand2 size={12} />
                 {t('paste.format')}
-              </button>
-              <button
+              </Button>
+              <IconButton
                 type="button"
-                onClick={onDismiss}
-                className="inline-flex items-center justify-center rounded-md hover:bg-white/10 p-1 text-blue-300/60 hover:text-blue-300 transition-colors"
+                onPress={onDismiss}
+
                 aria-label={t('paste.dismiss')}
               >
                 <X size={14} />
-              </button>
+              </IconButton>
             </div>
           </div>
         </motion.div>

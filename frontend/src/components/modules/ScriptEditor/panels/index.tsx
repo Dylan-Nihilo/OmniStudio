@@ -2,8 +2,8 @@
 
 import { useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Camera, Workflow, MapPin, Package, StickyNote, Sparkles, Lock, Unlock } from 'lucide-react';
+import { IconButton, SelectField } from '@omnistudio/ui';
+import { Lock, Unlock } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import type { Project } from '@/store/projectStore';
 import { useEditorStore } from '@/store/editorStore';
@@ -28,8 +28,6 @@ type PanelTab = 'characters' | 'shots' | 'pipeline' | 'locations' | 'props' | 'n
 interface TabDef {
   id: PanelTab;
   label: string;
-  icon: React.ReactNode;
-  group: 'primary' | 'secondary';
 }
 
 export default function RightPanelContainer({
@@ -46,18 +44,18 @@ export default function RightPanelContainer({
   const setRightPanelLocked = useEditorStore((s) => s.setRightPanelLocked);
 
   const ALL_TABS: TabDef[] = [
-    { id: 'characters', label: t('panels.characters'), icon: <Users size={14} />, group: 'primary' },
-    { id: 'shots', label: t('panels.shots'), icon: <Camera size={14} />, group: 'primary' },
-    { id: 'pipeline', label: t('panels.pipeline'), icon: <Workflow size={14} />, group: 'primary' },
-    { id: 'locations', label: t('panels.locations'), icon: <MapPin size={14} />, group: 'secondary' },
-    { id: 'props', label: t('panels.props'), icon: <Package size={14} />, group: 'secondary' },
-    { id: 'notes', label: t('panels.notes'), icon: <StickyNote size={14} />, group: 'secondary' },
-    { id: 'ai', label: t('panels.aiCompletion'), icon: <Sparkles size={14} />, group: 'secondary' },
+    { id: 'characters', label: t('panels.characters') },
+    { id: 'shots', label: t('panels.shots') },
+    { id: 'pipeline', label: t('panels.pipeline') },
+    { id: 'locations', label: t('panels.locations') },
+    { id: 'props', label: t('panels.props') },
+    { id: 'notes', label: t('panels.notes') },
+    { id: 'ai', label: t('panels.aiCompletion') },
   ];
 
   const TABS_EMBEDDED: TabDef[] = [
-    { id: 'shots', label: t('panels.shots'), icon: <Camera size={14} />, group: 'primary' },
-    { id: 'pipeline', label: t('panels.pipeline'), icon: <Workflow size={14} />, group: 'primary' },
+    { id: 'shots', label: t('panels.shots') },
+    { id: 'pipeline', label: t('panels.pipeline') },
   ];
 
   const togglePanelLock = useCallback(() => {
@@ -111,89 +109,14 @@ export default function RightPanelContainer({
     };
   }, [editor, panelLocked, isEmbedded, setActivePanel]);
 
-  const primaryTabs = tabs.filter((t) => t.group === 'primary');
-  const secondaryTabs = tabs.filter((t) => t.group === 'secondary');
 
   return (
     <div className="flex h-full flex-col">
-      {/* Tab bar - Primary group */}
-      <div className="flex shrink-0 border-b border-glass-border bg-surface">
-        {primaryTabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => handleTabChange(tab.id)}
-            className={`relative flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors ${
-              currentTab === tab.id
-                ? 'text-foreground'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-            {currentTab === tab.id && (
-              <motion.div
-                layoutId="panel-tab-indicator"
-                className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-indigo-500"
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              />
-            )}
-          </button>
-        ))}
-
-        {/* Lock/Unlock toggle */}
-        <button
-          type="button"
-          onClick={togglePanelLock}
-          title={panelLocked ? t('panels.unlockPanel') : t('panels.lockPanel')}
-          className={`flex items-center justify-center px-2.5 py-2.5 text-xs transition-colors border-l border-border-subtle ${
-            panelLocked
-              ? 'text-amber-400 hover:text-amber-300'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
-        >
-          {panelLocked ? <Lock size={13} /> : <Unlock size={13} />}
-        </button>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle p-3">
+        <SelectField label={t('shell.inspector')} className="min-w-0 flex-1 [&_label]:sr-only" value={currentTab} onChange={value => handleTabChange(value as PanelTab)} options={tabs.map(tab => ({ id: tab.id, label: tab.label }))} />
+        <IconButton aria-label={panelLocked ? t('panels.unlockPanel') : t('panels.lockPanel')} aria-pressed={panelLocked} onPress={togglePanelLock} className={panelLocked ? 'bg-primary/10 text-primary' : ''}>{panelLocked ? <Lock size={16} /> : <Unlock size={16} />}</IconButton>
       </div>
-
-      {/* Tab bar - Secondary group */}
-      {secondaryTabs.length > 0 && (
-        <div className="flex shrink-0 border-b border-border-subtle bg-surface-inset">
-          {secondaryTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => handleTabChange(tab.id)}
-              className={`relative flex flex-1 items-center justify-center gap-1 px-2 py-2 text-xs font-medium transition-colors ${
-                currentTab === tab.id
-                  ? 'text-foreground'
-                  : 'text-text-muted hover:text-text-secondary'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-              {currentTab === tab.id && (
-                <motion.div
-                  layoutId="panel-tab-indicator-secondary"
-                  className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-teal-500"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Panel content */}
-      <div className="flex-1 overflow-y-auto">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentTab}
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -10 }}
-            transition={{ duration: 0.15 }}
-          >
+      <div className="min-h-0 flex-1 overflow-y-auto">
             {currentTab === 'characters' && !isEmbedded && (
               <CharacterPanel editor={editor} project={project} />
             )}
@@ -203,6 +126,7 @@ export default function RightPanelContainer({
             {currentTab === 'pipeline' && (
               <PipelinePanel
                 projectId={projectId}
+                project={project}
                 onEnterPipeline={onEnterPipeline}
               />
             )}
@@ -218,8 +142,6 @@ export default function RightPanelContainer({
             {currentTab === 'ai' && !isEmbedded && (
               <L3CompletionPanel />
             )}
-          </motion.div>
-        </AnimatePresence>
       </div>
     </div>
   );

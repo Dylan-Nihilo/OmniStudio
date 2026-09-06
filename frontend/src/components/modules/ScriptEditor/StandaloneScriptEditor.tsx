@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ArrowLeft, BookOpen, FolderOpen, Loader2, Plus, RefreshCw, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, ArrowLeft, FolderOpen, Plus, RefreshCw } from 'lucide-react';
+import { Button, IconButton, LoadingState, TextField } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { useProjectStore } from '@/store/projectStore';
@@ -29,29 +30,34 @@ export default function StandaloneScriptEditor() {
   const [isCreating, setIsCreating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadProjects = async () => {
+  const requestRef = useRef(0);
+
+  const loadProjects = async (reopenLast = false) => {
+    const request = ++requestRef.current;
     setIsLoadingProjects(true);
     setLoadError(null);
     try {
       const latestProjects = await api.getProjects();
+      if (request !== requestRef.current) return;
       setProjects(latestProjects);
       try {
         const lastProjectId = window.localStorage.getItem(LAST_PROJECT_STORAGE_KEY);
-        if (lastProjectId && latestProjects.some((project) => project.id === lastProjectId)) {
+        if (reopenLast && lastProjectId && latestProjects.some((project) => project.id === lastProjectId)) {
           setSelectedProjectId(lastProjectId);
         }
       } catch {
         // Keep the picker usable when local storage is unavailable.
       }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : t('standalone.loadProjectsFailed'));
+      if (request === requestRef.current) setLoadError(error instanceof Error ? error.message : t('standalone.loadProjectsFailed'));
     } finally {
-      setIsLoadingProjects(false);
+      if (request === requestRef.current) setIsLoadingProjects(false);
     }
   };
 
   useEffect(() => {
-    void loadProjects();
+    void loadProjects(true);
+    return () => { requestRef.current += 1; };
     // Loading is intentionally scoped to this route mount. The project store
     // remains the shared source for the picker and the rest of the workspace.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,120 +104,55 @@ export default function StandaloneScriptEditor() {
   }
 
   return (
-    <main className="flex h-full min-h-0 w-full items-center justify-center overflow-y-auto bg-background px-6 py-10 text-foreground">
-      <section className="w-full max-w-3xl rounded-2xl border border-glass-border bg-surface p-6 shadow-2xl sm:p-8">
-        <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-            <BookOpen size={21} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold text-foreground">{t('standalone.emptyTitle')}</h1>
-            <p className="mt-1 text-sm leading-6 text-text-secondary">{t('standalone.emptyDescription')}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => { window.location.hash = '#/'; }}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground"
-          >
-            <ArrowLeft size={14} />
-            {t('standalone.backToWorkspace')}
-          </button>
+    <div className="flex h-full min-h-0 w-full flex-col bg-background text-foreground">
+      <header className="flex min-h-20 shrink-0 items-center justify-between gap-4 border-b border-border-subtle px-4 py-4 sm:px-8">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold">{t('shell.title')}</h1>
+          <p className="mt-1 text-sm text-text-muted">{t('standalone.emptyDescription')}</p>
         </div>
-
-        <div className="mt-7 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-foreground">{t('standalone.selectProject')}</h2>
-              <button
-                type="button"
-                onClick={() => void loadProjects()}
-                disabled={isLoadingProjects}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                title={t('standalone.refreshProjects')}
-              >
-                <RefreshCw size={13} className={isLoadingProjects ? 'animate-spin' : ''} />
-                {t('standalone.refreshProjects')}
-              </button>
+        <IconButton aria-label={t('standalone.backToWorkspace')} isDisabled={isCreating} onPress={() => { window.location.hash = '#/workspace'; }}>
+          <ArrowLeft size={18} />
+        </IconButton>
+      </header>
+      <main className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-8">
+        <div className="mx-auto grid w-full max-w-6xl gap-10 lg:grid-cols-[minmax(0,1.6fr)_minmax(260px,1fr)]">
+          <section className="min-w-0" aria-label={t('standalone.selectProject')}>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-medium">{t('standalone.selectProject')}</h2>
+              <IconButton aria-label={t('standalone.refreshProjects')} onPress={() => void loadProjects()} isDisabled={isLoadingProjects || isCreating}>
+                <RefreshCw size={16} className={isLoadingProjects ? 'animate-spin' : ''} />
+              </IconButton>
             </div>
-
-            <div className="relative mb-3">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={t('standalone.searchProjects')}
-                className="w-full rounded-lg border border-glass-border bg-input-bg px-9 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary"
-              />
+            <TextField label={t('standalone.searchProjects')} type="search" value={searchQuery} onChange={setSearchQuery} placeholder={t('standalone.searchProjects')} className="mb-4 [&_label]:sr-only" />
+            {isLoadingProjects && <LoadingState label={t('standalone.loadingProjects')} />}
+            <div className="divide-y divide-border-subtle border-y border-border-subtle">
+              {filteredProjects.map(project => (
+                <Button key={project.id} variant="quiet" isDisabled={isCreating} className="h-auto w-full justify-start gap-3 rounded-none px-2 py-4 text-left whitespace-normal" onPress={() => {
+                  rememberLastProject(project.id);
+                  setSelectedProjectId(project.id);
+                }}>
+                  <FolderOpen size={18} className="shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{project.title}</span>
+                    <span className="mt-1 block text-xs font-normal text-text-muted">{t('standalone.projectStats', { scenes: project.scenes?.length || 0, characters: project.characters?.length || 0 })}</span>
+                  </span>
+                </Button>
+              ))}
+              {!isLoadingProjects && filteredProjects.length === 0 && <p className="py-10 text-sm text-text-muted">{searchQuery ? t('standalone.noMatchingProjects') : t('standalone.noProjects')}</p>}
             </div>
-
-            <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-glass-border bg-surface-inset p-2">
-              {isLoadingProjects ? (
-                <div className="flex items-center justify-center gap-2 py-10 text-sm text-text-muted">
-                  <Loader2 size={16} className="animate-spin" />
-                  {t('standalone.loadingProjects')}
-                </div>
-              ) : filteredProjects.length > 0 ? (
-                filteredProjects.map((project) => (
-                  <button
-                    key={project.id}
-                    type="button"
-                    onClick={() => {
-                      rememberLastProject(project.id);
-                      setSelectedProjectId(project.id);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/10"
-                  >
-                    <FolderOpen size={16} className="shrink-0 text-primary" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">{project.title}</span>
-                      <span className="mt-0.5 block text-xs text-text-muted">
-                        {t('standalone.projectStats', { scenes: project.scenes?.length || 0, characters: project.characters?.length || 0 })}
-                      </span>
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <p className="py-10 text-center text-sm text-text-muted">
-                  {searchQuery ? t('standalone.noMatchingProjects') : t('standalone.noProjects')}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-glass-border bg-glass p-4">
-            <h2 className="text-sm font-medium text-foreground">{t('standalone.createProject')}</h2>
-            <p className="mt-1 text-xs leading-5 text-text-muted">{t('standalone.createDescription')}</p>
-            <label className="mt-4 block text-xs text-text-secondary" htmlFor="standalone-project-title">
-              {t('standalone.projectTitle')}
-            </label>
-            <input
-              id="standalone-project-title"
-              value={newProjectTitle}
-              onChange={(event) => setNewProjectTitle(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void handleCreateProject(); }}
-              placeholder={t('standalone.projectTitlePlaceholder')}
-              className="mt-2 w-full rounded-lg border border-glass-border bg-input-bg px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary"
-            />
-            <button
-              type="button"
-              onClick={() => void handleCreateProject()}
-              disabled={!newProjectTitle.trim() || isCreating}
-              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-on-accent transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isCreating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+          </section>
+          <form className="min-w-0 border-t border-border-subtle pt-6 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8" onSubmit={event => { event.preventDefault(); void handleCreateProject(); }}>
+            <h2 className="text-lg font-medium">{t('standalone.createProject')}</h2>
+            <p className="mt-2 mb-6 text-sm leading-6 text-text-muted">{t('standalone.createDescription')}</p>
+            <TextField label={t('standalone.projectTitle')} value={newProjectTitle} onChange={setNewProjectTitle} isDisabled={isCreating} placeholder={t('standalone.projectTitlePlaceholder')} />
+            <Button type="submit" className="mt-4 w-full" isDisabled={!newProjectTitle.trim() || isCreating} isPending={isCreating}>
+              <Plus size={16} />
               {isCreating ? t('standalone.creatingProject') : t('standalone.createAndOpen')}
-            </button>
-          </div>
+            </Button>
+          </form>
+          {loadError && <div role="alert" className="flex items-start gap-2 text-sm text-status-failed-fg lg:col-span-2"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span>{loadError}</span></div>}
         </div>
-
-        {loadError && (
-          <div role="alert" className="mt-5 flex items-start gap-2 rounded-lg border border-status-failed-border bg-status-failed-bg px-3 py-2.5 text-xs text-status-failed-fg">
-            <AlertCircle size={15} className="mt-0.5 shrink-0 text-status-failed-fg" />
-            <span>{t('standalone.loadError', { message: loadError })}</span>
-          </div>
-        )}
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }

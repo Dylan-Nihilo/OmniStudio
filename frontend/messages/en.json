@@ -2031,6 +2031,12 @@
   },
   "scriptEditor": {
     "shell": {
+      "outline": "Scenes and outline",
+      "inspector": "Script details",
+      "unsavedTitle": "Save your changes?",
+      "unsavedHint": "This script has unsaved changes. Save before switching projects.",
+      "saveAndLeave": "Save and switch",
+      "discardAndLeave": "Switch without saving",
       "title": "Script Editor",
       "loading": "Loading editor...",
       "loadingDocument": "Loading project script...",
@@ -2046,7 +2052,7 @@
     },
     "standalone": {
       "emptyTitle": "Choose a project to start editing",
-      "emptyDescription": "The script editor needs a project binding to load content and save changes. Open an existing project or create a new empty one.",
+      "emptyDescription": "Continue writing in an existing project, or start a new script.",
       "selectProject": "Open an existing project",
       "searchProjects": "Search projects...",
       "refreshProjects": "Refresh projects",
@@ -2067,6 +2073,8 @@
       "switchProject": "Switch project"
     },
     "toolbar": {
+      "save": "Save",
+      "actions": "Script actions",
       "format": "Format",
       "rendering": "Rendering",
       "undo": "Undo",
@@ -2177,7 +2185,19 @@
       "resultsCount": "{count} results",
       "actLabel": "Act {number}",
       "sceneLabel": "Scene {number}",
-      "noOutline": "No outline structure yet"
+      "noOutline": "No outline structure yet",
+      "sceneColor": "Scene marker color",
+      "clearColor": "Clear color",
+      "colors": {
+        "0": "Indigo",
+        "1": "Purple",
+        "2": "Pink",
+        "3": "Red",
+        "4": "Orange",
+        "5": "Yellow",
+        "6": "Green",
+        "7": "Cyan"
+      }
     },
     "views": {
       "edit": "Edit",
@@ -2203,7 +2223,7 @@
       "offline": "Offline Mode",
       "savedAt": "Saved {time}",
       "ready": "Ready",
-      "offlineBanner": "Offline mode — content cached locally",
+      "offlineBanner": "Offline · Autosave resumes when connected",
       "localCacheFound": "A newer local version was found",
       "restore": "Restore",
       "dismissLocalCache": "Dismiss notification",
@@ -2278,6 +2298,7 @@
         "footer": "FDX / Fountain / TXT generated locally · PDF / DOCX via server"
       },
       "import": {
+        "chooseFile": "Choose file",
         "title": "Import Script",
         "unsupportedType": "Unsupported file type \"{ext}\". Supports .fdx, .fountain, .txt",
         "fileTooLarge": "File too large ({size} MB). Maximum 10 MB",
@@ -2305,6 +2326,8 @@
         "confirmLink": "Confirm Link"
       },
       "snapshots": {
+        "loadFailed": "Could not load version history. Please retry.",
+        "restoreFailed": "Could not restore. Your current content is unchanged. Please retry.",
         "justNow": "Just now",
         "minutesAgo": "{count} min ago",
         "hoursAgo": "{count}h ago",

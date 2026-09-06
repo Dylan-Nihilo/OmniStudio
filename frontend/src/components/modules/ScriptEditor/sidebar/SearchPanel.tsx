@@ -1,13 +1,14 @@
 'use client';
 
-import { SelectField } from "@omnistudio/ui";
+import { Button, SelectField, TextField } from "@omnistudio/ui";
 import { useState, useMemo, useCallback } from 'react';
-import { Search, X, Film } from 'lucide-react';
+import { Search, Film } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useTranslations } from 'next-intl';
 
 export interface SearchPanelProps {
   editor: Editor | null;
+  onNavigate?: () => void;
 }
 
 type NodeTypeFilter = 'all' | 'sceneHeading' | 'characterCue' | 'dialogue' | 'action' | 'note';
@@ -39,7 +40,7 @@ const NODE_TYPE_LABEL_KEYS: Record<string, string> = {
   paragraph: 'sidebar.labelParagraph',
 };
 
-export default function SearchPanel({ editor }: SearchPanelProps) {
+export default function SearchPanel({ editor, onNavigate }: SearchPanelProps) {
   const t = useTranslations('scriptEditor');
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<NodeTypeFilter>('all');
@@ -97,36 +98,19 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
       if (!editor) return;
       editor.commands.setTextSelection(pos + 1);
       editor.commands.scrollIntoView();
+      onNavigate?.();
     },
-    [editor]
+    [editor, onNavigate]
   );
 
   return (
     <div className="flex flex-col h-full">
       {/* Search Input */}
       <div className="p-2 space-y-2 border-b border-border-subtle bg-surface">
-        <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('sidebar.searchPlaceholder')}
-            className="w-full rounded-lg bg-input-bg border border-glass-border py-2 pl-8 pr-8 text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-foreground"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
+        <TextField label={t('sidebar.searchPlaceholder')} type="search" autoFocus value={query} onChange={setQuery} placeholder={t('sidebar.searchPlaceholder')} className="[&_label]:sr-only" />
 
         {/* Type filter */}
-        <SelectField label={t('sidebar.search')} className="[&>label]:sr-only" value={typeFilter} onChange={value => setTypeFilter(value as NodeTypeFilter)}
+        <SelectField label={t('sidebar.search')} className="[&_label]:sr-only" value={typeFilter} onChange={value => setTypeFilter(value as NodeTypeFilter)}
           options={NODE_TYPE_OPTIONS.map(option => ({ id: option.id, label: t(option.labelKey) }))} />
       </div>
 
@@ -147,11 +131,12 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
               {t('sidebar.resultsCount', { count: results.length })}
             </p>
             {results.map((result) => (
-              <button
+              <Button
+                variant="quiet"
                 key={result.id}
                 type="button"
-                onClick={() => handleResultClick(result.pos)}
-                className="flex w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-hover-bg transition-colors border border-transparent hover:border-glass-border"
+                onPress={() => handleResultClick(result.pos)}
+                className="h-auto items-start whitespace-normal w-full flex-col gap-0.5 rounded-lg px-2 py-2 text-left hover:bg-hover-bg transition-colors border border-transparent hover:border-glass-border"
               >
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] px-1 py-0.5 rounded bg-surface-inset text-text-secondary shrink-0">
@@ -165,7 +150,7 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
                 <p className="text-xs text-text-secondary line-clamp-2 mt-0.5">
                   {result.text}
                 </p>
-              </button>
+              </Button>
             ))}
           </div>
         )}
