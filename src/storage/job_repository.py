@@ -224,6 +224,124 @@ class JobRepository:
             ).mappings().one()
         return self._item_record(row)
 
+    def job_exists(self, job_id: str) -> bool:
+        """Return whether an id belongs to a unified job in any Workspace."""
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(Job.__table__.c.id).where(Job.__table__.c.id == job_id)
+            ).first() is not None
+
+    def find_item_by_idempotency(
+        self,
+        workspace_id: str,
+        idempotency_key: str,
+    ) -> JobItemRecord | None:
+        """Find an existing item without crossing Workspace boundaries."""
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(JobItem.__table__).where(
+                    JobItem.__table__.c.workspace_id == workspace_id,
+                    JobItem.__table__.c.idempotency_key == idempotency_key,
+                )
+            ).mappings().first()
+        return self._item_record(row, idempotent=True) if row is not None else None
+
+    def get_job(self, workspace_id: str, job_id: str) -> JobRecord | None:
+        """Read one unified job only when it belongs to the requested Workspace."""
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(Job.__table__).where(
+                    Job.__table__.c.id == job_id,
+                    Job.__table__.c.workspace_id == workspace_id,
+                )
+            ).mappings().first()
+            return self._job_record(connection, row) if row is not None else None
+
+    def list_item_events(self, workspace_id: str, job_id: str) -> list[dict[str, Any]] | None:
+        """Return status history for a Workspace-owned job, or ``None`` if hidden."""
+        with self.engine.connect() as connection:
+            owned = connection.execute(
+                select(Job.__table__.c.id).where(
+                    Job.__table__.c.id == job_id,
+                    Job.__table__.c.workspace_id == workspace_id,
+                )
+            ).first()
+            if owned is None:
+                return None
+            rows = connection.execute(
+                select(JobItemEvent.__table__)
+                .join(JobItem.__table__, JobItemEvent.__table__.c.item_id == JobItem.__table__.c.id)
+                .where(JobItem.__table__.c.job_id == job_id)
+                .order_by(JobItemEvent.__table__.c.created_at, JobItemEvent.__table__.c.id)
+            ).mappings().all()
+        return [
+            {
+                "id": row["id"],
+                "item_id": row["item_id"],
+                "from_status": row["from_status"],
+                "to_status": row["to_status"],
+                "progress": row["progress"],
+                "error_code": row["error_code"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def cancel_job(self, workspace_id: str, job_id: str) -> JobRecord | None:
+        """Cancel all pending/processing items while preserving terminal states."""
+        job = self.get_job(workspace_id, job_id)
+        if job is None:
+            return None
+        for item in job.items:
+            if item.status in {JobStatus.PENDING.value, JobStatus.PROCESSING.value}:
+                self.transition_item(item.id, JobStatus.CANCELED.value, error={"code": "CANCELED", "message": "任务已取消"})
+        return self.get_job(workspace_id, job_id)
+
+    def retry_failed_items(
+        self,
+        workspace_id: str,
+        job_id: str,
+        *,
+        item_ids: list[str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> JobRecord | None:
+        """Create one deterministic retry item per selected failed item."""
+        job = self.get_job(workspace_id, job_id)
+        if job is None:
+            return None
+        selected = set(item_ids or [])
+        for item in job.items:
+            if item.status != JobStatus.FAILED.value or (selected and item.id not in selected):
+                continue
+            key = f"{idempotency_key}:{item.id}" if idempotency_key else f"retry:{item.id}"
+            self.create_retry(item.id, key)
+        return self.get_job(workspace_id, job_id)
+
+    def summarize(
+        self,
+        workspace_id: str,
+        *,
+        project_id: str | None = None,
+        episode_id: str | None = None,
+    ) -> dict[str, int]:
+        """Aggregate item states without exposing jobs from another Workspace."""
+        with self.engine.connect() as connection:
+            query = select(JobItem.__table__.c.status).join(
+                Job.__table__, JobItem.__table__.c.job_id == Job.__table__.c.id
+            ).where(Job.__table__.c.workspace_id == workspace_id)
+            if project_id:
+                query = query.where(Job.__table__.c.project_id == project_id)
+            if episode_id:
+                query = query.where(Job.__table__.c.episode_id == episode_id)
+            statuses = [row[0] for row in connection.execute(query)]
+        counts = {"pending": 0, "processing": 0, "succeeded": 0, "failed": 0, "canceled": 0, "skipped": 0}
+        for status in statuses:
+            if status in counts:
+                counts[status] += 1
+        counts["running"] = counts["pending"] + counts["processing"]
+        counts["total"] = len(statuses)
+        return counts
+
     def transition_item(
         self,
         item_id: str,

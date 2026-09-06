@@ -20,7 +20,7 @@
 # import_file_preview, import_file_confirm, upload_t2i_frame,
 # analyze_script_for_styles. All others are `def` for a reason.
 # ─────────────────────────────────────────────────────────────────────────────
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -73,10 +73,28 @@ from .audit import record_request_event
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
+from ...storage.job_repository import JobRepository
 from ...storage.legacy_claim import LegacyClaimService
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
+
+
+class TaskAPIError(Exception):
+    """Stable error envelope for the unified task API."""
+
+    def __init__(self, code: str, message: str, status_code: int = 400):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
+@app.exception_handler(TaskAPIError)
+def task_api_error_handler(request: Request, exc: TaskAPIError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
 
 _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "LLM_PROVIDER",
@@ -3267,9 +3285,169 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RetryTaskRequest(BaseModel):
+    item_ids: Optional[List[str]] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+def _task_repository(request: Request) -> JobRepository:
+    engine = getattr(request.app.state, "storage_engine", None)
+    if engine is None:
+        raise TaskAPIError("TASK_STORAGE_UNAVAILABLE", "任务存储不可用", status_code=503)
+    return JobRepository(engine)
+
+
+def _task_item_payload(item):
+    return {
+        "id": item.id,
+        "job_id": item.job_id,
+        "workspace_id": item.workspace_id,
+        "project_id": item.project_id,
+        "episode_id": item.episode_id,
+        "kind": item.kind,
+        "status": item.status,
+        "progress": item.progress,
+        "idempotency_key": item.idempotency_key,
+        "retry_of": item.retry_of,
+        "payload": item.payload,
+        "media_refs": item.media_refs,
+        "error_code": item.error_code,
+        "error_message": item.error_message,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "started_at": item.started_at,
+        "finished_at": item.finished_at,
+        "idempotent": item.idempotent,
+    }
+
+
+def _task_payload(job):
+    return {
+        "id": job.id,
+        "workspace_id": job.workspace_id,
+        "project_id": job.project_id,
+        "episode_id": job.episode_id,
+        "kind": job.kind,
+        "status": job.status,
+        "total": job.total,
+        "succeeded": job.succeeded,
+        "failed": job.failed,
+        "canceled": job.canceled,
+        "skipped": job.skipped,
+        "items": [_task_item_payload(item) for item in job.items],
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
+
+
+def _task_context(request: Request):
+    context = getattr(request.state, "auth_context", None)
+    if context is None or not getattr(getattr(context, "workspace", None), "id", None):
+        raise TaskAPIError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+    return context
+
+
+@app.get("/tasks")
+def list_tasks(
+    request: Request,
+    project_id: Optional[str] = None,
+    episode_id: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = Query(default=None, max_length=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """List unified jobs within the active Workspace."""
+    context = _task_context(request)
+    result = _task_repository(request).list_jobs(
+        context.workspace.id,
+        project_id=project_id,
+        episode_id=episode_id,
+        status=status,
+        query=q,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        "items": [_task_payload(job) for job in result.items],
+        "page": result.page,
+        "page_size": result.page_size,
+        "total": result.total,
+    }
+
+
+@app.get("/tasks/summary")
+def task_summary(
+    request: Request,
+    project_id: Optional[str] = None,
+    episode_id: Optional[str] = None,
+):
+    """Return item counts for the active Workspace and optional context."""
+    context = _task_context(request)
+    return _task_repository(request).summarize(
+        context.workspace.id,
+        project_id=project_id,
+        episode_id=episode_id,
+    )
+
+
+@app.post("/tasks/{job_id}/cancel")
+def cancel_task(job_id: str, request: Request):
+    """Cancel only pending/processing items in a unified job."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    job = repository.cancel_job(context.workspace.id, job_id)
+    if job is None:
+        code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
+        message = "任务不存在" if code == "TASK_NOT_FOUND" else "任务不存在"
+        raise TaskAPIError(code, message, status_code=404)
+    record_request_event(
+        request,
+        action="task.cancel",
+        object_type="job",
+        object_id=job_id,
+    )
+    return _task_payload(job)
+
+
+@app.post("/tasks/{job_id}/retry")
+def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest] = None):
+    """Create idempotent pending retry items for failed items."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    body = payload or RetryTaskRequest()
+    job = repository.retry_failed_items(
+        context.workspace.id,
+        job_id,
+        item_ids=body.item_ids,
+        idempotency_key=body.idempotency_key,
+    )
+    if job is None:
+        code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
+        raise TaskAPIError(code, "任务不存在", status_code=404)
+    record_request_event(
+        request,
+        action="task.retry",
+        object_type="job",
+        object_id=job_id,
+        metadata={"item_ids": body.item_ids or []},
+    )
+    return _task_payload(job)
+
+
 @app.get("/tasks/{task_id}")
 def get_task_status(task_id: str, request: Request):
-    """Returns the status of an asset generation task for polling."""
+    """Return a unified job detail, falling back to legacy asset polling."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    job = repository.get_job(context.workspace.id, task_id)
+    if job is not None:
+        events = repository.list_item_events(context.workspace.id, task_id) or []
+        return {"job": _task_payload(job), "events": events}
+    if repository.job_exists(task_id):
+        raise TaskAPIError("AUTH_RESOURCE_NOT_FOUND", "任务不存在", status_code=404)
+
+    # Legacy asset generation task polling remains available for older clients.
     status = pipeline.get_asset_generation_task_status(task_id)
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")

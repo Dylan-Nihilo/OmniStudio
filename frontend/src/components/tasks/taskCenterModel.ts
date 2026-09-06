@@ -1,0 +1,83 @@
+import type { UnifiedJob, UnifiedJobItem, UnifiedJobStatus } from "@/lib/api";
+
+export type TaskAction = "cancel" | "retry" | "none";
+
+export interface TaskObjectRef {
+  projectId?: string | null;
+  episodeId?: string | null;
+  frameId?: string | null;
+  assetId?: string | null;
+  videoTaskId?: string | null;
+}
+
+export interface TaskViewModel {
+  id: string;
+  title: string;
+  kind: string;
+  status: UnifiedJobStatus;
+  statusLabel: string;
+  progress: number;
+  failedCount: number;
+  total: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  action: TaskAction;
+  objectRef: TaskObjectRef;
+  updatedAt?: number | null;
+}
+
+const statusLabels: Record<UnifiedJobStatus, string> = {
+  pending: "pending",
+  processing: "processing",
+  succeeded: "succeeded",
+  failed: "failed",
+  canceled: "canceled",
+  skipped: "skipped",
+};
+
+function firstItem(job: UnifiedJob): UnifiedJobItem | undefined {
+  return job.items?.[0];
+}
+
+function getRef(job: UnifiedJob): TaskObjectRef {
+  const payload = firstItem(job)?.payload ?? {};
+  const value = (key: string) => typeof payload[key] === "string" ? payload[key] as string : null;
+  return {
+    projectId: job.project_id ?? firstItem(job)?.project_id ?? null,
+    episodeId: job.episode_id ?? firstItem(job)?.episode_id ?? null,
+    frameId: value("frame_id") ?? value("frameId"),
+    assetId: value("asset_id") ?? value("assetId"),
+    videoTaskId: value("video_task_id") ?? value("videoTaskId"),
+  };
+}
+
+function deriveProgress(job: UnifiedJob): number {
+  if (job.status === "failed" && job.total > 0) {
+    return Math.round((job.succeeded / job.total) * 100);
+  }
+  if (job.items?.length) {
+    return Math.round(job.items.reduce((sum, item) => sum + Math.max(0, Math.min(1, item.progress ?? 0)), 0) / job.items.length * 100);
+  }
+  if (job.total > 0) return Math.round((job.succeeded / job.total) * 100);
+  return job.status === "succeeded" ? 100 : 0;
+}
+
+export function toTaskViewModel(job: UnifiedJob): TaskViewModel {
+  const status = job.status as UnifiedJobStatus;
+  const item = firstItem(job);
+  return {
+    id: job.id,
+    title: `${job.kind} · ${job.id.slice(0, 8)}`,
+    kind: job.kind,
+    status,
+    statusLabel: statusLabels[status] ?? status,
+    progress: deriveProgress(job),
+    failedCount: job.failed,
+    total: job.total,
+    errorCode: item?.error_code ?? null,
+    errorMessage: item?.error_message ?? null,
+    action: status === "failed" ? "retry" : status === "pending" || status === "processing" ? "cancel" : "none",
+    objectRef: getRef(job),
+    updatedAt: job.updated_at ?? item?.updated_at ?? null,
+  };
+}

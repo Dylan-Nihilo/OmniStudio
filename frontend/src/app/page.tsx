@@ -27,6 +27,9 @@ import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
 import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
+import TaskCenter from "@/components/tasks/TaskCenter";
+import type { TaskObjectRef } from "@/components/tasks/taskCenterModel";
+import { useAuthStore } from "@/store/authStore";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -483,7 +486,7 @@ function AuthenticatedHome() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showCreateDropdown, setShowCreateDropdown] = useState(false);
-  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'studio/editor' | 'project-editor'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [wsSearch, setWsSearch] = useState("");
   const online = useOnline();
@@ -502,6 +505,7 @@ function AuthenticatedHome() {
   const fetchSeriesList = useProjectStore((state) => state.fetchSeriesList);
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
+  const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
 
   const renameProject = async (project: Project) => {
     const title = window.prompt("项目标题", project.title)?.trim();
@@ -690,6 +694,14 @@ function AuthenticatedHome() {
         setEpisodeId(null);
         return;
       }
+      if (hash === '#/tasks') {
+        setCurrentView('tasks');
+        setActiveTab('tasks');
+        setProjectId(null);
+        setSeriesId(null);
+        setEpisodeId(null);
+        return;
+      }
       // Menu action: open new project dialog then land on workspace
       if (hash === '#/new-project') {
         setCurrentView('home');
@@ -763,6 +775,13 @@ function AuthenticatedHome() {
     }
     if (currentView === 'playground') {
       return <PlaygroundPage />;
+    }
+    if (currentView === 'tasks') {
+      const openTaskObject = (ref: TaskObjectRef) => {
+        const target = ref.episodeId || ref.projectId;
+        if (target) window.location.hash = `#/project/${target}`;
+      };
+      return <TaskCenter workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
     }
     if (currentView === 'studio/editor') {
       return <StandaloneScriptEditor />;
@@ -1152,7 +1171,7 @@ function AuthenticatedHome() {
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 flex-1 overflow-hidden">
         <AppShell activeTab={activeTab} onTabChange={handleTabChange}>
-          <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
+          <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : currentView === "tasks" ? "任务中心" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>
         </AppShell>
