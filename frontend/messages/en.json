@@ -1597,6 +1597,13 @@
     "noRefVideosAvailable": "No reference videos available. Generate Motion References in the Assets step first."
   },
   "storyboardR2V": {
+    "saveNow": "Save now",
+    "saveStatus": "Save status",
+    "saved": "Saved",
+    "unsaved": "Unsaved changes",
+    "saveFailedRetained": "Save failed. Changes retained.",
+    "retrySave": "Retry save",
+    "draftStorageUnavailable": "Browser draft storage is unavailable. Keep this page open and retry saving.",
     "saveFailed": "Save failed. Please retry.",
     "unknownError": "Unknown error",
     "saving": "Saving…",

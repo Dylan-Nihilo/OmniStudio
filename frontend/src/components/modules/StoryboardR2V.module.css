@@ -19,3 +19,6 @@
 .thumbnail strong { font-size: 12px; font-weight: 400; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @media (max-width: 1199px) { .header { padding: 18px 24px; flex-wrap: wrap; } .headerActions { gap: 8px; } }
 @media (max-width: 959px) { .page { overflow: auto; } .header { padding: 20px 16px; } .headerActions { width: 100%; } }
+
+.saveState { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--color-text-muted); }
+.saveState [data-error], .saveState [role="alert"] { color: var(--color-status-failed-fg); }

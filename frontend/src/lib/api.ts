@@ -862,6 +862,7 @@ export const api = {
     updateFrame: async (scriptId: string, frameId: string, data: {
         image_prompt?: string;
         action_description?: string;
+        visual_description?: string;
         dialogue?: string;
         camera_angle?: string;
         scene_id?: string;

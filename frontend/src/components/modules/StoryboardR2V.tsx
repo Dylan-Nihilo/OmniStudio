@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Button, EmptyState, LoadingState } from "@omnistudio/ui";
+import { Button, EmptyState } from "@omnistudio/ui";
 import styles from "./StoryboardR2V.module.css";
 import { Plus, Film } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
+import { useAuthStore } from "@/store/authStore";
+import { useShotDrafts } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi, type VideoTask, type RefineSSEEvent } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
@@ -37,12 +39,22 @@ import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
 import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationBanner";
 
 export default function StoryboardR2V() {
+    const projectId = useProjectStore(state => state.currentProject?.id);
+    const userId = useAuthStore(state => state.user?.id);
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id);
+    return <StoryboardWorkbench key={JSON.stringify([userId, workspaceId, projectId])} />;
+}
+
+function StoryboardWorkbench() {
     const currentProject = useProjectStore((state) => state.currentProject);
     const updateProject = useProjectStore((state) => state.updateProject);
     const t = useTranslations("storyboardR2V");
     const tStudio = useTranslations("studioPage");
     const selectedFrameId = useProjectStore(state => state.selectedFrameId);
     const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
+
+    const draftSave = useShotDrafts(currentProject?.id);
+    const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, adopt: adoptDraft, markFailed: markDraftFailed, restore: restoreDraft } = draftSave;
 
     // Derive shots from project frames. Workbench state (T2I 抽卡
     // history, last-active tab, batch count) now comes from backend-
@@ -53,11 +65,14 @@ export default function StoryboardR2V() {
     const [shots, setShots] = useState<ShotNode[]>(() => {
         if (currentProject?.frames && currentProject.frames.length > 0) {
             const videoTasks: any[] = (currentProject as any).video_tasks ?? [];
-            return currentProject.frames.map((frame: any) => frameToShotNode(frame, videoTasks));
+            return [...currentProject.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks))), ...draftSave.localShots()];
         }
+        if (draftSave.localShots().length) return draftSave.localShots();
         return [migrateShotNode({ id: `shot_${Date.now()}`, prompt: "", tabMode: "direct_r2v" })];
     });
 
+    const shotsRef = useRef(shots);
+    shotsRef.current = shots;
     const structurePendingRef = useRef(false);
     const [structurePending, setStructurePending] = useState(false);
     const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
@@ -183,132 +198,104 @@ export default function StoryboardR2V() {
     // workbench_generate_count so user choices survive refresh.
     const [shotCounts, setShotCounts] = useState<Record<string, number>>(() => {
         const out: Record<string, number> = {};
-        const frames: any[] = currentProject?.frames ?? [];
+        const frames: any[] = [...(currentProject?.frames ?? []), ...draftSave.localShots()];
         for (const f of frames) {
-            if (typeof f.workbench_generate_count === "number") {
-                out[f.id] = f.workbench_generate_count;
+            const count = draftSave.countFor(f.id) ?? f.workbench_generate_count;
+            if (typeof count === "number") {
+                out[f.id] = count;
             }
         }
         return out;
     });
 
-    // Debounced backend writer for workbench state. Coalesces rapid
-    // changes (e.g. user clicking through T2I thumbs) into one PATCH
-    // per shot per second. Per-shot map ensures one shot's pending
-    // write doesn't get overwritten by another's.
-    const workbenchPendingRef = useRef<Map<string, {
-        timer: number;
-        patch: Parameters<typeof api.updateFrameWorkbench>[2];
-    }>>(new Map());
-    const persistWorkbench = useCallback((
-        shotId: string,
-        patch: Parameters<typeof api.updateFrameWorkbench>[2],
-    ) => {
-        if (!currentProject?.id) return;
-        // Synthetic shot id (not yet materialized on backend) — skip; the
-        // workbench state will be re-applied after createFrame swaps the id.
-        if (shotId.startsWith("shot_")) return;
+    const materializingRef = useRef(new Map<string, Promise<string>>());
+    const materializeShot = useCallback(async (shot: ShotNode, index: number): Promise<string> => {
+        if (!shot.id.startsWith("shot_")) return shot.id;
+        if (!currentProject?.id) throw new Error("No current project");
+        const existing = materializingRef.current.get(shot.id);
+        if (existing) return existing;
         const projectId = currentProject.id;
-        const map = workbenchPendingRef.current;
-        const existing = map.get(shotId);
-        const merged = { ...(existing?.patch ?? {}), ...patch };
-        if (existing) {
-            window.clearTimeout(existing.timer);
-        }
-        const timer = window.setTimeout(() => {
-            map.delete(shotId);
-            api.updateFrameWorkbench(projectId, shotId, merged)
-                .then(() => {
-                    // Sync store so other tabs (or remount on tab switch)
-                    // see the latest workbench state. Read store live to
-                    // avoid stale closure.
-                    const proj = useProjectStore.getState().currentProject;
-                    if (!proj || proj.id !== projectId) return;
-                    const nextFrames = (proj.frames ?? []).map((f: any) =>
-                        f.id === shotId ? { ...f, ...merged } : f,
-                    );
-                    updateProject(projectId, { frames: nextFrames });
-                })
-                .catch((err) => {
-                    debugLog.warn("Studio", "Failed to persist workbench state:", err);
+        const previousStructurePending = structurePendingRef.current;
+        structurePendingRef.current = true;
+        setStructurePending(true);
+        const request = (async () => {
+            try {
+                const created = await crudApi.createFrame(projectId, {
+                    scene_id: "", action_description: shot.prompt || "", insert_at: index,
                 });
-        }, 1000);
-        map.set(shotId, { timer, patch: merged });
-    }, [currentProject?.id, updateProject]);
+                const frames = Array.isArray(created?.frames) ? created.frames : [];
+                const frame = frames[Math.min(index, frames.length - 1)];
+                if (!frame?.id) throw new Error("Frame creation returned no persisted frame");
+                adoptDraft(shot.id, frame.id);
+                if (useProjectStore.getState().currentProject?.id === projectId) {
+                    shotsRef.current = shotsRef.current.map(candidate => candidate.id === shot.id ? { ...candidate, id: frame.id } : candidate);
+                    setShots(shotsRef.current);
+                    setShotCounts(prev => prev[shot.id] === undefined ? prev : { ...prev, [frame.id]: prev[shot.id] });
+                    setShotSeeds(prev => prev[shot.id] === undefined ? prev : { ...prev, [frame.id]: prev[shot.id] });
+                    if (useProjectStore.getState().selectedFrameId === shot.id) setSelectedFrameId(frame.id);
+                    updateProject(projectId, { frames });
+                }
+                await flushDrafts();
+                return frame.id;
+            } catch (error) {
+                markDraftFailed(shot.id);
+                throw error;
+            }
+        })();
+        materializingRef.current.set(shot.id, request);
+        try { return await request; }
+        finally {
+            materializingRef.current.delete(shot.id);
+            structurePendingRef.current = previousStructurePending;
+            setStructurePending(previousStructurePending);
+        }
+    }, [currentProject?.id, adoptDraft, flushDrafts, markDraftFailed, updateProject, setSelectedFrameId]);
 
-    // Prompt edits hit a different endpoint (POST /frames/update with
-    // action_description) — debounced separately from workbench so a
-    // user typing fast doesn't push 6 PATCH /workbench every keystroke.
-    const promptPendingRef = useRef<Map<string, { timer: number; prompt: string }>>(new Map());
+    const saveAllDrafts = useCallback(async () => {
+        try {
+            for (const [index, shot] of shots.entries()) {
+                if (shot.id.startsWith("shot_") && (shot.prompt || draftSave.pending)) await materializeShot(shot, index);
+            }
+            return await flushDrafts();
+        } catch (error) {
+            toast.error(t("saveFailed"), { body: error instanceof Error ? error.message : t("unknownError") });
+            return false;
+        }
+    }, [shots, draftSave.pending, materializeShot, flushDrafts, t]);
+
+    useEffect(() => {
+        if (!draftSave.pending || draftSave.hasError || !shots.some(shot => shot.id.startsWith("shot_"))) return;
+        const timer = window.setTimeout(() => { void saveAllDrafts(); }, 800);
+        return () => window.clearTimeout(timer);
+    }, [shots, draftSave.pending, draftSave.hasError, saveAllDrafts]);
+
+    const persistWorkbench = useCallback((shotId: string, patch: Parameters<typeof api.updateFrameWorkbench>[2]) => {
+        queueDraft(shotId, "workbench", patch, 1000);
+    }, [queueDraft]);
     const persistPrompt = useCallback((shotId: string, prompt: string) => {
-        if (!currentProject?.id) return;
-        if (shotId.startsWith("shot_")) return;
-        const projectId = currentProject.id;
-        const map = promptPendingRef.current;
-        const existing = map.get(shotId);
-        if (existing) window.clearTimeout(existing.timer);
-        const timer = window.setTimeout(() => {
-            map.delete(shotId);
-            api.updateFrame(projectId, shotId, { action_description: prompt })
-                .then(() => {
-                    const proj = useProjectStore.getState().currentProject;
-                    if (!proj || proj.id !== projectId) return;
-                    const nextFrames = (proj.frames ?? []).map((f: any) =>
-                        f.id === shotId ? { ...f, action_description: prompt } : f,
-                    );
-                    updateProject(projectId, { frames: nextFrames });
-                })
-                .catch((err) => debugLog.warn("Studio", "persistPrompt failed", err));
-        }, 800);
-        map.set(shotId, { timer, prompt });
-    }, [currentProject?.id, updateProject]);
-
-    // Flush all pending writes on unmount (e.g. user switches step tab)
-    // so the last keystroke / param change isn't stranded in the debounce
-    // window. All queues (workbench, prompt, field) drain in parallel.
-    useEffect(() => {
-        const wbMap = workbenchPendingRef.current;
-        const pMap = promptPendingRef.current;
-        const fMap = fieldPendingRef.current;
-        return () => {
-            const projectId = currentProject?.id;
-            if (!projectId) return;
-            for (const [shotId, entry] of Array.from(wbMap.entries())) {
-                window.clearTimeout(entry.timer);
-                api.updateFrameWorkbench(projectId, shotId, entry.patch).catch(() => {});
-            }
-            wbMap.clear();
-            for (const [shotId, entry] of Array.from(pMap.entries())) {
-                window.clearTimeout(entry.timer);
-                api.updateFrame(projectId, shotId, { action_description: entry.prompt }).catch(() => {});
-            }
-            pMap.clear();
-            for (const [shotId, entry] of Array.from(fMap.entries())) {
-                window.clearTimeout(entry.timer);
-                api.updateFrame(projectId, shotId, entry.fields).catch(() => {});
-            }
-            fMap.clear();
-        };
-    }, [currentProject?.id]);
-
-    // beforeunload guard: warn when structured field edits are pending
-    useEffect(() => {
-        const handler = (e: BeforeUnloadEvent) => {
-            if (fieldPendingRef.current.size > 0 || promptPendingRef.current.size > 0) {
-                e.preventDefault();
-            }
-        };
-        window.addEventListener("beforeunload", handler);
-        return () => window.removeEventListener("beforeunload", handler);
-    }, []);
+        const frame = useProjectStore.getState().currentProject?.frames.find(frame => frame.id === shotId);
+        queueDraft(shotId, "fields", frame?.visual_description != null ? { visual_description: prompt } : { action_description: prompt }, 800);
+    }, [queueDraft]);
 
     const characters = currentProject?.characters || [];
     const scenes = currentProject?.scenes || [];
     const props = currentProject?.props || [];
 
+    const updateT2IWorkbench = useCallback((shotId: string, change: (shot: ShotNode) => ShotNode) => {
+        const shot = shotsRef.current.find(candidate => candidate.id === shotId);
+        if (!shot) return;
+        const next = change(shot);
+        persistWorkbench(shotId, { t2i_image_urls: next.t2iImageUrls ?? [], t2i_selected_index: next.t2iSelectedIndex ?? 0 });
+        shotsRef.current = shotsRef.current.map(candidate => candidate.id === shotId ? next : candidate);
+        setShots(shotsRef.current);
+    }, [persistWorkbench]);
+
     // New shots keep a local draft until materialized; deletion and ordering await confirmation.
     // Add a new shot after the given index
     const addShot = useCallback(async (afterIndex: number) => {
+        if (!currentProject?.id || structurePendingRef.current) return;
+        structurePendingRef.current = true;
+        setStructurePending(true);
         const synthId = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         // PR-3e · pick default tabMode from project preference (inherited from
         // series). "i2v" (画面优先) → t2i_i2v; "r2v" (节奏优先, default) → direct_r2v.
@@ -325,28 +312,20 @@ export default function StoryboardR2V() {
         });
         setSelectedFrameId(synthId);
 
-        if (!currentProject?.id) return;
+        queueDraft(synthId, "workbench", { workbench_tab_mode: defaultMode }, 1000);
         try {
-            const resp = await crudApi.createFrame(currentProject.id, {
-                scene_id: "",
-                action_description: "",
-                insert_at: afterIndex + 1,
-            });
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            const realFrame = frames?.[Math.min(afterIndex + 1, frames.length - 1)];
-            if (realFrame?.id) {
-                setShots(prev => prev.map(s => s.id === synthId ? { ...s, id: realFrame.id } : s));
-                if (useProjectStore.getState().selectedFrameId === synthId) setSelectedFrameId(realFrame.id);
-
-            }
-            if (frames) updateProject(currentProject.id, { frames });
+            await materializeShot(newShot, afterIndex + 1);
         } catch (err) {
             debugLog.warn("Studio", "addShot backend persist failed", err);
             toast.error(t("saveFailed"), {
                 body: err instanceof Error ? err.message : t("unknownError"),
             });
         }
-    }, [currentProject, t, updateProject]);
+        finally {
+            structurePendingRef.current = false;
+            setStructurePending(false);
+        }
+    }, [currentProject, t, queueDraft, materializeShot]);
 
     // PR-3 followup · LLM storyboard generation. State + handler live at
     // the StoryboardR2V level (not in a sub-component) because the toast
@@ -445,7 +424,7 @@ export default function StoryboardR2V() {
             if (Array.isArray(updated?.frames)) {
                 const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
                 const videoTasks: any[] = (updated as any).video_tasks ?? [];
-                setShots(updated.frames.map((frame: any) => frameToShotNode(frame, videoTasks, defaultMode)));
+                setShots(updated.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
             }
 
             // Phase 2: batch refine (SSE)
@@ -462,7 +441,7 @@ export default function StoryboardR2V() {
                     updateProject(projectId, { frames: refreshed.frames });
                     const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
                     const videoTasks: any[] = (refreshed as any).video_tasks ?? [];
-                    setShots(refreshed.frames.map((frame: any) => frameToShotNode(frame, videoTasks, defaultMode)));
+                    setShots(refreshed.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
                 }
             }
             setBannerState("summary");
@@ -490,7 +469,7 @@ export default function StoryboardR2V() {
                 updateProject(currentProject.id, { frames: updated.frames });
                 const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
                 const videoTasks: any[] = (updated as any).video_tasks ?? [];
-                setShots(updated.frames.map((frame: any) => frameToShotNode(frame, videoTasks, defaultMode)));
+                setShots(updated.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
             }
             toast.success(t("refineDoneToast"));
         } catch (err) {
@@ -512,11 +491,7 @@ export default function StoryboardR2V() {
                 if (Array.isArray(resp?.frames)) updateProject(projectId, { frames: resp.frames });
             }
             if (useProjectStore.getState().currentProject?.id !== projectId) return;
-            for (const pending of [promptPendingRef.current, fieldPendingRef.current, workbenchPendingRef.current]) {
-                const entry = pending.get(target.id);
-                if (entry) window.clearTimeout(entry.timer);
-                pending.delete(target.id);
-            }
+            discardDraft(target.id);
             setShots(prev => prev.filter(shot => shot.id !== target.id));
             if (useProjectStore.getState().selectedFrameId === target.id) {
                 setSelectedFrameId(shots[index + 1]?.id ?? shots[index - 1]?.id ?? null);
@@ -528,7 +503,7 @@ export default function StoryboardR2V() {
             structurePendingRef.current = false;
             setStructurePending(false);
         }
-    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId]);
+    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId, discardDraft]);
 
     const moveShot = useCallback(async (index: number, direction: "up" | "down") => {
         const targetIndex = direction === "up" ? index - 1 : index + 1;
@@ -564,71 +539,53 @@ export default function StoryboardR2V() {
         }
     }, [shots, currentProject?.id, t, updateProject]);
 
-    // Duplicate a shot
+    // Copy only after the source edits are saved; a failed copy leaves the sequence intact.
     const duplicateShot = useCallback(async (index: number) => {
         const source = shots[index];
-        if (!source) return;
-        const synthId = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const newShot: ShotNode = {
-            ...source,
-            id: synthId,
-            // Generated artifacts don't carry over; user duplicates
-            // the *intent* of the shot, not the output.
-            videoUrl: undefined,
-            videoTaskId: undefined,
-            videoStatus: undefined,
-            t2iImageUrl: undefined,
-            t2iTaskId: undefined,
-            t2iStatus: undefined,
-        };
-        setShots(prev => {
-            const updated = [...prev];
-            updated.splice(index + 1, 0, newShot);
-            return updated;
-        });
-
-        setSelectedFrameId(synthId);
-        if (!currentProject?.id) return;
-        // Source itself isn't on backend yet — best-effort: skip remote
-        // copy, the next workbench/prompt write will materialize it.
-        if (source.id.startsWith("shot_")) return;
+        const projectId = currentProject?.id;
+        if (!source || !projectId || structurePendingRef.current) return;
+        structurePendingRef.current = true;
+        setStructurePending(true);
         try {
-            const resp = await crudApi.copyFrame(currentProject.id, source.id, index + 1);
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            const realFrame = frames?.[index + 1];
-            if (realFrame?.id) {
-                setShots(prev => prev.map(s => s.id === synthId ? { ...s, id: realFrame.id } : s));
-                if (useProjectStore.getState().selectedFrameId === synthId) setSelectedFrameId(realFrame.id);
-
-            }
-            if (frames) updateProject(currentProject.id, { frames });
+            if (!await saveAllDrafts()) return;
+            const sourceId = await materializeShot(source, index);
+            const resp = await crudApi.copyFrame(projectId, sourceId, index + 1);
+            const frame = resp?.frames?.[index + 1];
+            if (!frame?.id) throw new Error("Frame copy returned no persisted frame");
+            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            setShots(prev => {
+                const next = [...prev];
+                next.splice(index + 1, 0, frameToShotNode(frame, []));
+                return next;
+            });
+            setSelectedFrameId(frame.id);
+            updateProject(projectId, { frames: resp.frames });
         } catch (err) {
-            debugLog.warn("Studio", "duplicateShot backend persist failed", err);
+            toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
+        } finally {
+            structurePendingRef.current = false;
+            setStructurePending(false);
         }
-    }, [shots, currentProject, updateProject]);
+    }, [shots, currentProject?.id, saveAllDrafts, materializeShot, updateProject, setSelectedFrameId, t]);
 
-    // Update shot prompt — local immediate + debounced backend write
+    // Update local input immediately; the shared writer retains it until acknowledged.
     const updatePrompt = useCallback((index: number, prompt: string) => {
-        setShots(prev => prev.map((s, i) => {
-            if (i !== index) return s;
-            persistPrompt(s.id, prompt);
-            return { ...s, prompt };
-        }));
-    }, [persistPrompt]);
+        const shot = shots[index];
+        if (!shot) return;
+        persistPrompt(shot.id, prompt);
+        setShots(prev => prev.map(s => s.id === shot.id ? { ...s, prompt } : s));
+    }, [shots, persistPrompt]);
 
-    // Set shot tab mode + persist so the user's last-active tab
-    // survives refresh.
     const setTabMode = useCallback((index: number, mode: "t2i_i2v" | "direct_r2v") => {
-        setShots(prev => prev.map((s, i) => {
-            if (i !== index) return s;
-            persistWorkbench(s.id, { workbench_tab_mode: mode });
-            return { ...s, tabMode: mode };
-        }));
-    }, [persistWorkbench]);
+        const shot = shots[index];
+        if (!shot) return;
+        persistWorkbench(shot.id, { workbench_tab_mode: mode });
+        setShots(prev => prev.map(s => s.id === shot.id ? { ...s, tabMode: mode } : s));
+    }, [shots, persistWorkbench]);
 
     // Structured field updates — local immediate + debounce 3s auto-save
-    const fieldPendingRef = useRef<Map<string, { timer: number; fields: Record<string, any> }>>(new Map());
     const handleUpdateField = useCallback((index: number, field: string, value: string | number | null) => {
+        if (field === "duration" && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) return;
         setShots(prev => prev.map((s, i) => {
             if (i !== index) return s;
             if (field === "duration") return { ...s, duration: typeof value === "number" ? value : null };
@@ -649,40 +606,16 @@ export default function StoryboardR2V() {
             if (field === "transitionHint") return { ...s, transitionHint: typeof value === "string" ? value : null };
             return s;
         }));
-        // Debounce 3s persist to backend
         const shotId = shots[index]?.id;
-        if (!shotId || shotId.startsWith("shot_") || !currentProject?.id) return;
-        const projectId = currentProject.id;
-        const map = fieldPendingRef.current;
-        const existing = map.get(shotId);
-        if (existing) window.clearTimeout(existing.timer);
+        if (!shotId) return;
         const backendField: Record<string, any> = {};
         if (field === "duration") backendField.duration = typeof value === "number" ? value : undefined;
-        if (field === "shotSize") backendField.shot_size = typeof value === "string" ? value : undefined;
-        if (field === "cameraAngle") backendField.camera_angle = typeof value === "string" ? value : undefined;
-        if (field === "cameraMovement") backendField.camera_movement_description = typeof value === "string" ? value : undefined;
-        if (field === "transitionHint") backendField.transition_hint = typeof value === "string" ? value : undefined;
-        const merged = { ...(existing?.fields ?? {}), ...backendField };
-        const timer = window.setTimeout(() => {
-            map.delete(shotId);
-            api.updateFrame(projectId, shotId, merged)
-                .then(() => {
-                    const proj = useProjectStore.getState().currentProject;
-                    if (!proj || proj.id !== projectId) return;
-                    const nextFrames = (proj.frames ?? []).map((f: any) =>
-                        f.id === shotId ? { ...f, ...merged } : f,
-                    );
-                    updateProject(projectId, { frames: nextFrames });
-                })
-                .catch((err) => {
-                    debugLog.warn("Studio", "persistField failed", err);
-                    toast.error(t("saveFailed"), {
-                        body: err instanceof Error ? err.message : t("unknownError"),
-                    });
-                });
-        }, 3000);
-        map.set(shotId, { timer, fields: merged });
-    }, [shots, currentProject?.id, t, updateProject]);
+        if (field === "shotSize") backendField.shot_size = typeof value === "string" ? value : "";
+        if (field === "cameraAngle") backendField.camera_angle = typeof value === "string" ? value : "";
+        if (field === "cameraMovement") backendField.camera_movement_description = typeof value === "string" ? value : "固定镜头";
+        if (field === "transitionHint") backendField.transition_hint = typeof value === "string" ? value : "";
+        queueDraft(shotId, "fields", backendField, 3000);
+    }, [shots, queueDraft]);
 
     // Duration editor config — derived from active R2V model's catalog entry
     const durationEditorCfg = useMemo(() => {
@@ -789,29 +722,6 @@ export default function StoryboardR2V() {
         return prompt.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
     };
 
-    const materializeShot = useCallback(async (shot: ShotNode, index: number): Promise<string> => {
-        if (!shot.id.startsWith("shot_")) return shot.id;
-        if (!currentProject?.id) throw new Error("No current project");
-
-        const projectId = currentProject.id;
-        const created = await crudApi.createFrame(projectId, {
-            scene_id: "",
-            action_description: shot.prompt || "",
-            insert_at: index,
-        });
-        const frames = Array.isArray(created?.frames) ? created.frames : [];
-        const newFrame = frames[Math.min(index, frames.length - 1)];
-        if (!newFrame?.id) throw new Error("Frame creation returned no persisted frame");
-
-        setShots(prev => prev.map(candidate =>
-            candidate.id === shot.id ? { ...candidate, id: newFrame.id } : candidate,
-        ));
-        if (useProjectStore.getState().selectedFrameId === shot.id) setSelectedFrameId(newFrame.id);
-
-        updateProject(projectId, { frames });
-        return newFrame.id;
-    }, [currentProject?.id, updateProject]);
-
     // Generate T2I image for a shot (t2i_i2v mode stage 1)
     const generateT2I = useCallback(async (index: number) => {
         const shot = shots[index];
@@ -841,15 +751,7 @@ export default function StoryboardR2V() {
                 // history + auto-select so the new image becomes the
                 // active首帧 used by downstream I2V generation.
                 const imageUrl = result.image_url || result.rendered_image_url;
-                setShots(prev => prev.map((s, i) => {
-                    if (i !== index) return s;
-                    const updated = appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl);
-                    persistWorkbench(s.id, {
-                        t2i_image_urls: updated.t2iImageUrls ?? [],
-                        t2i_selected_index: updated.t2iSelectedIndex ?? 0,
-                    });
-                    return updated;
-                }));
+                updateT2IWorkbench(frameId, s => appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl));
             }
         } catch (error) {
             debugLog.error("Studio", "Failed to generate T2I for shot:", error);
@@ -857,7 +759,7 @@ export default function StoryboardR2V() {
                 i === index ? { ...s, t2iStatus: "failed" } : s
             ));
         }
-    }, [shots, currentProject, materializeShot, persistWorkbench]);
+    }, [shots, currentProject, materializeShot, updateT2IWorkbench]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
@@ -1263,15 +1165,7 @@ export default function StoryboardR2V() {
                         if (status.status === "completed") {
                             const imageUrl = status.image_url || status.video_url || status.result_url;
                             if (imageUrl) {
-                                setShots(prev => prev.map(s => {
-                                    if (s.id !== shot.id) return s;
-                                    const updated = appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl);
-                                    persistWorkbench(s.id, {
-                                        t2i_image_urls: updated.t2iImageUrls ?? [],
-                                        t2i_selected_index: updated.t2iSelectedIndex ?? 0,
-                                    });
-                                    return updated;
-                                }));
+                                updateT2IWorkbench(shot.id, s => appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl));
                             }
                         } else if (status.status === "failed") {
                             setShots(prev => prev.map(s =>
@@ -1286,7 +1180,7 @@ export default function StoryboardR2V() {
         }, 5000);
 
         return () => clearInterval(interval);
-    }, [shots, persistWorkbench]);
+    }, [shots, updateT2IWorkbench]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1521,7 +1415,7 @@ export default function StoryboardR2V() {
             }
             return updated;
         });
-    }, [persistWorkbench, shotCounts]);
+    }, [persistWorkbench, shotCounts, shots, videoConfig.duration, handleUpdateField]);
 
     // Annotate handlers wire CandidateThumb's star/label CTAs to the
     // backend PATCH endpoint. We refresh the project after each call
@@ -1691,7 +1585,13 @@ export default function StoryboardR2V() {
             <header className={styles.header}>
                 <div><p>{currentProject?.title} / {tStudio("storyboard")}</p><h2>{selectedShot ? tStudio("shotNumber", { number: shots.indexOf(selectedShot) + 1 }) : tStudio("storyboard")}</h2></div>
                 <div className={styles.headerActions}>
-                    {structurePending && <LoadingState inline label={t("saving")} />}
+                    <div className={styles.saveState}>
+                        <span role="status" aria-label={t("saveStatus")} aria-live="polite" data-error={draftSave.hasError || undefined}>
+                            {structurePending || draftSave.saving ? t("saving") : draftSave.hasError ? t("saveFailedRetained") : draftSave.pending ? t("unsaved") : t("saved")}
+                        </span>
+                        {draftSave.pending && <Button variant="quiet" isDisabled={draftSave.saving} onPress={() => { void saveAllDrafts(); }}>{t(draftSave.hasError ? "retrySave" : "saveNow")}</Button>}
+                        {draftSave.pending && draftSave.storageUnavailable && <span role="alert">{t("draftStorageUnavailable")}</span>}
+                    </div>
                     <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
                     <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
                     <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating}>{generating ? t("genInFlight") : t("genShots")}</Button>
@@ -1896,23 +1796,8 @@ export default function StoryboardR2V() {
                                         generating={shot.t2iStatus === "pending" || shot.t2iStatus === "processing"}
                                         inFlightTaskId={shot.t2iTaskId}
                                         inFlightStatus={shot.t2iStatus}
-                                        onSelect={(i) => setShots(prev => prev.map((s, j) => {
-                                            if (j !== index) return s;
-                                            const next = setActiveT2IIndex(s, i);
-                                            persistWorkbench(s.id, {
-                                                t2i_selected_index: next.t2iSelectedIndex ?? 0,
-                                            });
-                                            return next;
-                                        }))}
-                                        onRemove={(i) => setShots(prev => prev.map((s, j) => {
-                                            if (j !== index) return s;
-                                            const next = removeT2IImage(s, i);
-                                            persistWorkbench(s.id, {
-                                                t2i_image_urls: next.t2iImageUrls ?? [],
-                                                t2i_selected_index: next.t2iSelectedIndex ?? 0,
-                                            });
-                                            return next;
-                                        }))}
+                                        onSelect={(i) => updateT2IWorkbench(shot.id, s => setActiveT2IIndex(s, i))}
+                                        onRemove={(i) => updateT2IWorkbench(shot.id, s => removeT2IImage(s, i))}
                                         onGenerate={() => generateT2I(index)}
                                         onUpload={async (file) => {
                                             // Issue 10: upload an external image as a T2I首帧 candidate.
