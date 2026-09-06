@@ -179,6 +179,95 @@ export interface VideoTask {
     provider_request_id?: string | null;
 }
 
+export type UnifiedJobStatus = "pending" | "processing" | "succeeded" | "failed" | "canceled" | "skipped";
+
+export interface UnifiedMediaRef {
+    id: string;
+    kind: string;
+    uri: string;
+}
+
+export interface UnifiedJobItem {
+    id: string;
+    job_id: string;
+    workspace_id: string;
+    project_id?: string | null;
+    episode_id?: string | null;
+    kind: string;
+    status: UnifiedJobStatus;
+    progress: number;
+    idempotency_key: string;
+    retry_of?: string | null;
+    media_refs: UnifiedMediaRef[];
+    error_code?: string | null;
+    error_message?: string | null;
+    created_at?: number | null;
+    updated_at?: number | null;
+    started_at?: number | null;
+    finished_at?: number | null;
+    idempotent?: boolean;
+    payload?: Record<string, unknown>;
+}
+
+export interface UnifiedJob {
+    id: string;
+    workspace_id: string;
+    project_id?: string | null;
+    episode_id?: string | null;
+    kind: string;
+    status: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+    canceled: number;
+    skipped: number;
+    items: UnifiedJobItem[];
+    created_at?: number | null;
+    updated_at?: number | null;
+}
+
+export interface UnifiedTaskPage {
+    items: UnifiedJob[];
+    page: number;
+    page_size: number;
+    total: number;
+}
+
+export interface UnifiedTaskEvent {
+    id: string;
+    item_id: string;
+    from_status?: UnifiedJobStatus | null;
+    to_status: UnifiedJobStatus;
+    progress?: number | null;
+    error_code?: string | null;
+    created_at: number;
+}
+
+export interface UnifiedTaskDetail {
+    job: UnifiedJob;
+    events: UnifiedTaskEvent[];
+}
+
+export interface UnifiedTaskSummary {
+    pending: number;
+    processing: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+    canceled: number;
+    skipped: number;
+    total: number;
+}
+
+export interface UnifiedTaskFilters {
+    project_id?: string;
+    episode_id?: string;
+    status?: string;
+    q?: string;
+    page?: number;
+    page_size?: number;
+}
+
 // ─── Storyboard Schema v2 types ─────────────────────────────────────────────
 
 export interface DialogueStructured {
@@ -263,6 +352,34 @@ function asObject(value: unknown): Record<string, any> {
 }
 
 export const api = {
+    listTasks: async (filters: UnifiedTaskFilters = {}): Promise<UnifiedTaskPage> => {
+        const res = await apiClient.get<UnifiedTaskPage>(`${API_URL}/tasks`, { params: filters });
+        return res.data;
+    },
+
+    getTask: async (jobId: string): Promise<UnifiedTaskDetail> => {
+        const res = await apiClient.get<UnifiedTaskDetail>(`${API_URL}/tasks/${jobId}`);
+        return res.data;
+    },
+
+    cancelTask: async (jobId: string): Promise<UnifiedJob> => {
+        const res = await apiClient.post<UnifiedJob>(`${API_URL}/tasks/${jobId}/cancel`);
+        return res.data;
+    },
+
+    retryTask: async (jobId: string, itemIds?: string[], idempotencyKey?: string): Promise<UnifiedJob> => {
+        const body: { item_ids?: string[]; idempotency_key?: string } = {};
+        if (itemIds?.length) body.item_ids = itemIds;
+        if (idempotencyKey) body.idempotency_key = idempotencyKey;
+        const res = await apiClient.post<UnifiedJob>(`${API_URL}/tasks/${jobId}/retry`, body);
+        return res.data;
+    },
+
+    getTaskSummary: async (filters: Pick<UnifiedTaskFilters, "project_id" | "episode_id"> = {}): Promise<UnifiedTaskSummary> => {
+        const res = await apiClient.get<UnifiedTaskSummary>(`${API_URL}/tasks/summary`, { params: filters });
+        return res.data;
+    },
+
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
             params: { skip_analysis: skipAnalysis }
@@ -285,6 +402,49 @@ export const api = {
 
     deleteProject: async (scriptId: string) => {
         const res = await apiClient.delete(`${API_URL}/projects/${scriptId}`);
+        return res.data;
+    },
+
+    updateProject: async (scriptId: string, data: { title: string }) => {
+        const res = await apiClient.patch(`${API_URL}/projects/${scriptId}`, data);
+        return { ...res.data, originalText: res.data.original_text };
+    },
+
+    previewProjectToSeries: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/convert-to-series/preview`);
+        return res.data as {
+            project_id: string;
+            title: string;
+            episode_count: number;
+            characters: number;
+            scenes: number;
+            props: number;
+            shots: number;
+            video_tasks: number;
+            preserved_fields: string[];
+        };
+    },
+
+    convertProjectToSeries: async (scriptId: string, title?: string, description?: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/convert-to-series`, {
+            title: title || undefined,
+            description: description || "",
+        });
+        return res.data;
+    },
+
+    getProjectArchiveImpact: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/archive-impact`);
+        return res.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+
+    archiveProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/archive`);
+        return res.data;
+    },
+
+    restoreProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/restore`);
         return res.data;
     },
 
@@ -1292,7 +1452,7 @@ export const api = {
     },
     updateSeries: async (
         seriesId: string,
-        data: { title?: string; description?: string; art_direction?: any },
+        data: { title?: string; description?: string; workflow_mode?: string; content_mode?: string; default_generation_mode?: "r2v" | "i2v"; art_direction?: any },
     ) => {
         const response = await apiClient.put(`${API_URL}/series/${seriesId}`, data);
         return response.data;
@@ -1423,6 +1583,55 @@ export const api = {
     },
     addEpisodeToSeries: async (seriesId: string, scriptId: string, episodeNumber?: number) => {
         const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes`, { script_id: scriptId, episode_number: episodeNumber });
+        return response.data;
+    },
+    reorderSeriesEpisodes: async (seriesId: string, episodeIds: string[]) => {
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}/episodes/order`, { episode_ids: episodeIds });
+        return response.data;
+    },
+    moveSeriesEpisode: async (seriesId: string, scriptId: string, targetIndex: number) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/move`, { target_index: targetIndex });
+        return response.data;
+    },
+    archiveSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/archive`);
+        return response.data;
+    },
+    restoreSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/restore`);
+        return response.data;
+    },
+    getSeriesArchiveImpact: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/archive-impact`);
+        return response.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+    archiveSeries: async (seriesId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/archive`);
+        return response.data;
+    },
+    restoreSeries: async (seriesId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/restore`);
+        return response.data;
+    },
+    previewEpisodeDefaultPromotion: async (seriesId: string, scriptId: string, sections?: string[]) => {
+        // The default preview covers every promotable section. Keep the
+        // optional argument for callers that want to retain the same shape as
+        // the confirm API without relying on array query-string serialization.
+        void sections;
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/episodes/${scriptId}/promote-defaults/preview`);
+        return response.data as {
+            series_id: string;
+            episode_id: string;
+            episode_title: string;
+            sections: string[];
+            changes: Record<string, { before: unknown; after: unknown }>;
+            message: string;
+        };
+    },
+    promoteEpisodeDefaults: async (seriesId: string, scriptId: string, sections?: string[]) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/promote-defaults`, {
+            sections: sections ?? ["model_settings", "prompt_config", "art_direction", "workflow_mode", "default_generation_mode"],
+        });
         return response.data;
     },
     removeEpisodeFromSeries: async (seriesId: string, scriptId: string) => {

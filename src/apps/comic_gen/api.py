@@ -20,7 +20,7 @@
 # import_file_preview, import_file_confirm, upload_t2i_frame,
 # analyze_script_for_styles. All others are `def` for a reason.
 # ─────────────────────────────────────────────────────────────────────────────
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -73,10 +73,28 @@ from .audit import record_request_event
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
+from ...storage.job_repository import JobRepository
 from ...storage.legacy_claim import LegacyClaimService
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
+
+
+class TaskAPIError(Exception):
+    """Stable error envelope for the unified task API."""
+
+    def __init__(self, code: str, message: str, status_code: int = 400):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
+@app.exception_handler(TaskAPIError)
+def task_api_error_handler(request: Request, exc: TaskAPIError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
 
 _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "LLM_PROVIDER",
@@ -954,6 +972,113 @@ class ReparseProjectRequest(BaseModel):
     text: str
 
 
+class UpdateProjectRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+
+
+class ConvertProjectToSeriesRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: str = Field("", max_length=2000)
+
+
+@app.get("/projects/{script_id}/convert-to-series/preview")
+def preview_project_to_series(script_id: str):
+    """Preview Standalone → Series impact without changing project data."""
+    try:
+        return signed_response(pipeline.preview_project_to_series(script_id))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/projects/{script_id}/convert-to-series")
+def convert_project_to_series(
+    script_id: str,
+    request: ConvertProjectToSeriesRequest,
+    http_request: Request,
+):
+    """Confirm Standalone → Series conversion while retaining the Script ID."""
+    try:
+        result = pipeline.convert_project_to_series(
+            script_id,
+            request.title,
+            request.description,
+        )
+        context = getattr(http_request.state, "auth_context", None)
+        if context is not None:
+            pipeline.repository.assign_workspace_for_series(result["series"].id, context.workspace.id)
+        return signed_response({
+            "series": result["series"].model_dump(),
+            "episode": result["episode"].model_dump(),
+            "preserved": result["preserved"],
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400 if "already" in str(e) else 404, detail=str(e))
+
+
+class ProjectArchiveResponse(BaseModel):
+    id: str
+    title: str
+    archived: bool
+    archived_at: Optional[float]
+    impact: dict[str, int]
+    message: str
+
+
+EpisodeDefaultSection = Literal[
+    "model_settings",
+    "prompt_config",
+    "art_direction",
+    "workflow_mode",
+    "default_generation_mode",
+]
+
+
+class PromoteEpisodeDefaultsRequest(BaseModel):
+    sections: List[EpisodeDefaultSection] = Field(
+        default_factory=lambda: [
+            "model_settings",
+            "prompt_config",
+            "art_direction",
+            "workflow_mode",
+            "default_generation_mode",
+        ],
+        min_length=1,
+        description="Episode config sections to copy to Series defaults",
+    )
+
+
+class EpisodeDefaultsPromotionPreview(BaseModel):
+    series_id: str
+    episode_id: str
+    episode_title: str
+    sections: List[EpisodeDefaultSection]
+    changes: Dict[str, Dict[str, Any]]
+    message: str
+
+
+def _project_archive_impact(script) -> dict[str, int]:
+    return {
+        "episodes": 1,
+        "characters": len(script.characters),
+        "scenes": len(script.scenes),
+        "props": len(script.props),
+        "shots": len(script.frames),
+        "video_tasks": len(script.video_tasks),
+    }
+
+
+def _series_archive_impact(series) -> dict[str, int]:
+    episodes = pipeline.get_series_episodes(series.id)
+    return {
+        "episodes": len(episodes),
+        "characters": len(series.characters),
+        "scenes": len(series.scenes),
+        "props": len(series.props),
+        "shots": sum(len(episode.frames) for episode in episodes),
+        "video_tasks": sum(len(episode.video_tasks) for episode in episodes),
+    }
+
+
 class UpdateScriptTextRequest(BaseModel):
     text: str
     expected_revision: str
@@ -1251,6 +1376,8 @@ def get_series(series_id: str):
             "id": ep.id,
             "title": ep.title,
             "episode_number": ep.episode_number,
+            "archived": ep.archived,
+            "archived_at": ep.archived_at,
             "created_at": ep.created_at,
             "updated_at": ep.updated_at,
         }
@@ -1272,6 +1399,57 @@ def update_series(series_id: str, request: UpdateSeriesRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get("/series/{series_id}/archive-impact", response_model=ProjectArchiveResponse)
+def series_archive_impact(series_id: str):
+    """Preview archiving the Series container without archiving its Episodes."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    state = "已归档" if series.archived else "归档后可随时恢复"
+    return {
+        "id": series.id,
+        "title": series.title,
+        "archived": series.archived,
+        "archived_at": series.archived_at,
+        "impact": _series_archive_impact(series),
+        "message": f"{state}；只归档项目容器，不会归档或删除 Episode、脚本、素材、分镜、视频任务或导出引用。",
+    }
+
+
+@app.post("/series/{series_id}/archive", response_model=ProjectArchiveResponse)
+def archive_series(series_id: str, request: Request):
+    try:
+        series = pipeline.set_series_archived(series_id, True)
+        record_request_event(request, action="project.archive", object_type="project", object_id=series_id)
+        return {
+            "id": series.id,
+            "title": series.title,
+            "archived": True,
+            "archived_at": series.archived_at,
+            "impact": _series_archive_impact(series),
+            "message": "项目已归档，可随时恢复；Episode 状态和生产数据保持不变。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Series not found") from exc
+
+
+@app.post("/series/{series_id}/restore", response_model=ProjectArchiveResponse)
+def restore_series(series_id: str, request: Request):
+    try:
+        series = pipeline.set_series_archived(series_id, False)
+        record_request_event(request, action="project.restore", object_type="project", object_id=series_id)
+        return {
+            "id": series.id,
+            "title": series.title,
+            "archived": False,
+            "archived_at": None,
+            "impact": _series_archive_impact(series),
+            "message": "项目已恢复；Episode 状态和生产数据保持不变。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Series not found") from exc
+
+
 @app.delete("/series/{series_id}")
 def delete_series(series_id: str):
     """Delete a Series and disassociate its episodes."""
@@ -1287,11 +1465,110 @@ class AddEpisodeRequest(BaseModel):
     episode_number: Optional[int] = None
 
 
+@app.get(
+    "/series/{series_id}/episodes/{script_id}/promote-defaults/preview",
+    response_model=EpisodeDefaultsPromotionPreview,
+)
+def preview_episode_defaults(
+    series_id: str,
+    script_id: str,
+    sections: Optional[List[EpisodeDefaultSection]] = Query(None),
+):
+    """Preview copying selected Episode settings to Series defaults."""
+    try:
+        return pipeline.preview_episode_default_promotion(series_id, script_id, sections)
+    except ValueError as exc:
+        status = 400 if "Unsupported" in str(exc) or "required" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@app.post(
+    "/series/{series_id}/episodes/{script_id}/promote-defaults",
+)
+def promote_episode_defaults(
+    series_id: str,
+    script_id: str,
+    request: PromoteEpisodeDefaultsRequest,
+    http_request: Request,
+):
+    """Confirm copying selected Episode settings to Series defaults."""
+    try:
+        result = pipeline.promote_episode_defaults(series_id, script_id, request.sections)
+        record_request_event(
+            http_request,
+            action="episode.defaults_promote",
+            object_type="episode",
+            object_id=script_id,
+            metadata={"series_id": series_id, "sections": request.sections},
+        )
+        return signed_response(
+            {
+                "series": result["series"].model_dump(),
+                "episode": result["episode"].model_dump(),
+                "preview": result["preview"],
+            }
+        )
+    except ValueError as exc:
+        status = 400 if "Unsupported" in str(exc) or "required" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+class EpisodeOrderRequest(BaseModel):
+    episode_ids: List[str]
+
+
+class EpisodeMoveRequest(BaseModel):
+    target_index: int = Field(ge=0)
+
+
 @app.post("/series/{series_id}/episodes")
 def add_episode_to_series(series_id: str, request: AddEpisodeRequest):
     """Add an existing project as an episode to a Series."""
     try:
         series = pipeline.add_episode_to_series(series_id, request.script_id, request.episode_number)
+        return signed_response(series)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.put("/series/{series_id}/episodes/order")
+def reorder_series_episodes(series_id: str, request: EpisodeOrderRequest):
+    """Persist the complete ordered Episode list for a Series."""
+    try:
+        series = pipeline.reorder_series_episodes(series_id, request.episode_ids)
+        return signed_response(series)
+    except ValueError as e:
+        status = 404 if str(e) == "Series not found" else 400
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/move")
+def move_series_episode(series_id: str, script_id: str, request: EpisodeMoveRequest):
+    """Move an Episode to a zero-based position, including from another Series."""
+    try:
+        series = pipeline.move_episode_to_series(series_id, script_id, request.target_index)
+        return signed_response(series)
+    except ValueError as e:
+        status = 404 if str(e) in {"Series not found", "Script not found"} else 400
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/archive")
+def archive_series_episode(series_id: str, script_id: str, request: Request):
+    try:
+        series = pipeline.set_episode_archived(series_id, script_id, True)
+        record_request_event(request, action="episode.archive", object_type="episode", object_id=script_id)
+        return signed_response(series)
+    except ValueError as e:
+        status = 409 if "last active" in str(e) else 404
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/restore")
+def restore_series_episode(series_id: str, script_id: str, request: Request):
+    try:
+        series = pipeline.set_episode_archived(series_id, script_id, False)
+        record_request_event(request, action="episode.restore", object_type="episode", object_id=script_id)
         return signed_response(series)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -2040,6 +2317,20 @@ def update_env_config(config: EnvConfig, request: Request):
         logger.exception("Failed to save environment configuration")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/projects/{script_id}/archive-impact", response_model=ProjectArchiveResponse)
+def project_archive_impact(script_id: str):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    state = "已归档" if script.archived else "归档后可随时恢复"
+    return {
+        "id": script.id,
+        "title": script.title,
+        "archived": script.archived,
+        "archived_at": script.archived_at,
+        "impact": _project_archive_impact(script),
+        "message": f"{state}；不会删除脚本、素材、分镜、视频任务或导出引用。",
+    }
 
 
 @app.get("/projects/{script_id}")
@@ -2124,6 +2415,39 @@ def get_project(script_id: str, request: Request):
                 d["source"] = "global"
                 payload["props"].append(d)
     return signed_response(payload)
+
+
+@app.patch("/projects/{script_id}")
+def update_project(script_id: str, payload: UpdateProjectRequest, request: Request):
+    """Update project metadata without changing its production content."""
+    if payload.title is None:
+        raise HTTPException(status_code=400, detail="No project fields to update")
+    try:
+        script = pipeline.update_project_title(script_id, payload.title)
+        record_request_event(request, action="project.update", object_type="project", object_id=script_id, metadata={"fields": ["title"]})
+        return signed_response(script)
+    except ValueError as exc:
+        raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/archive", response_model=ProjectArchiveResponse)
+def archive_project(script_id: str, request: Request):
+    try:
+        script = pipeline.set_project_archived(script_id, True)
+        record_request_event(request, action="project.archive", object_type="project", object_id=script_id)
+        return {"id": script.id, "title": script.title, "archived": True, "archived_at": script.archived_at, "impact": _project_archive_impact(script), "message": "项目已归档，可随时恢复；生产数据未删除。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
+@app.post("/projects/{script_id}/restore", response_model=ProjectArchiveResponse)
+def restore_project(script_id: str, request: Request):
+    try:
+        script = pipeline.set_project_archived(script_id, False)
+        record_request_event(request, action="project.restore", object_type="project", object_id=script_id)
+        return {"id": script.id, "title": script.title, "archived": False, "archived_at": None, "impact": _project_archive_impact(script), "message": "项目已恢复，生产数据保持不变。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
 
 
 
@@ -3106,9 +3430,169 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RetryTaskRequest(BaseModel):
+    item_ids: Optional[List[str]] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+def _task_repository(request: Request) -> JobRepository:
+    engine = getattr(request.app.state, "storage_engine", None)
+    if engine is None:
+        raise TaskAPIError("TASK_STORAGE_UNAVAILABLE", "任务存储不可用", status_code=503)
+    return JobRepository(engine)
+
+
+def _task_item_payload(item):
+    return {
+        "id": item.id,
+        "job_id": item.job_id,
+        "workspace_id": item.workspace_id,
+        "project_id": item.project_id,
+        "episode_id": item.episode_id,
+        "kind": item.kind,
+        "status": item.status,
+        "progress": item.progress,
+        "idempotency_key": item.idempotency_key,
+        "retry_of": item.retry_of,
+        "payload": item.payload,
+        "media_refs": item.media_refs,
+        "error_code": item.error_code,
+        "error_message": item.error_message,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "started_at": item.started_at,
+        "finished_at": item.finished_at,
+        "idempotent": item.idempotent,
+    }
+
+
+def _task_payload(job):
+    return {
+        "id": job.id,
+        "workspace_id": job.workspace_id,
+        "project_id": job.project_id,
+        "episode_id": job.episode_id,
+        "kind": job.kind,
+        "status": job.status,
+        "total": job.total,
+        "succeeded": job.succeeded,
+        "failed": job.failed,
+        "canceled": job.canceled,
+        "skipped": job.skipped,
+        "items": [_task_item_payload(item) for item in job.items],
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
+
+
+def _task_context(request: Request):
+    context = getattr(request.state, "auth_context", None)
+    if context is None or not getattr(getattr(context, "workspace", None), "id", None):
+        raise TaskAPIError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+    return context
+
+
+@app.get("/tasks")
+def list_tasks(
+    request: Request,
+    project_id: Optional[str] = None,
+    episode_id: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = Query(default=None, max_length=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """List unified jobs within the active Workspace."""
+    context = _task_context(request)
+    result = _task_repository(request).list_jobs(
+        context.workspace.id,
+        project_id=project_id,
+        episode_id=episode_id,
+        status=status,
+        query=q,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        "items": [_task_payload(job) for job in result.items],
+        "page": result.page,
+        "page_size": result.page_size,
+        "total": result.total,
+    }
+
+
+@app.get("/tasks/summary")
+def task_summary(
+    request: Request,
+    project_id: Optional[str] = None,
+    episode_id: Optional[str] = None,
+):
+    """Return item counts for the active Workspace and optional context."""
+    context = _task_context(request)
+    return _task_repository(request).summarize(
+        context.workspace.id,
+        project_id=project_id,
+        episode_id=episode_id,
+    )
+
+
+@app.post("/tasks/{job_id}/cancel")
+def cancel_task(job_id: str, request: Request):
+    """Cancel only pending/processing items in a unified job."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    job = repository.cancel_job(context.workspace.id, job_id)
+    if job is None:
+        code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
+        message = "任务不存在" if code == "TASK_NOT_FOUND" else "任务不存在"
+        raise TaskAPIError(code, message, status_code=404)
+    record_request_event(
+        request,
+        action="task.cancel",
+        object_type="job",
+        object_id=job_id,
+    )
+    return _task_payload(job)
+
+
+@app.post("/tasks/{job_id}/retry")
+def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest] = None):
+    """Create idempotent pending retry items for failed items."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    body = payload or RetryTaskRequest()
+    job = repository.retry_failed_items(
+        context.workspace.id,
+        job_id,
+        item_ids=body.item_ids,
+        idempotency_key=body.idempotency_key,
+    )
+    if job is None:
+        code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
+        raise TaskAPIError(code, "任务不存在", status_code=404)
+    record_request_event(
+        request,
+        action="task.retry",
+        object_type="job",
+        object_id=job_id,
+        metadata={"item_ids": body.item_ids or []},
+    )
+    return _task_payload(job)
+
+
 @app.get("/tasks/{task_id}")
 def get_task_status(task_id: str, request: Request):
-    """Returns the status of an asset generation task for polling."""
+    """Return a unified job detail, falling back to legacy asset polling."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    job = repository.get_job(context.workspace.id, task_id)
+    if job is not None:
+        events = repository.list_item_events(context.workspace.id, task_id) or []
+        return {"job": _task_payload(job), "events": events}
+    if repository.job_exists(task_id):
+        raise TaskAPIError("AUTH_RESOURCE_NOT_FOUND", "任务不存在", status_code=404)
+
+    # Legacy asset generation task polling remains available for older clients.
     status = pipeline.get_asset_generation_task_status(task_id)
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")
