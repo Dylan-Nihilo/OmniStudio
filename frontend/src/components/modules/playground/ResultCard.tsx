@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { playgroundApi } from '@/lib/api';
 import { apiStreamRequest } from '@/lib/apiClient';
 import { getAssetUrl } from '@/lib/utils';
+import { toast } from '@/store/toastStore';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 
 interface ResultCardProps {
@@ -130,7 +131,7 @@ function CompletedCard({ generation, outputIndex, aspectRatio, onGenerateVideo, 
 
   const saved = output?.saved_to_library ?? false;
   const mediaUrl = output?.media_path ? getMediaUrl(output.media_path) : null;
-  const updateGeneration = usePlaygroundStore((s) => s.updateGeneration);
+  const markOutputSaved = usePlaygroundStore((s) => s.markOutputSaved);
   const useResultAsReference = usePlaygroundStore((s) => s.useResultAsReference);
   const featuredByGen = usePlaygroundStore((s) => s.featuredByGen);
   const toggleFeatured = usePlaygroundStore((s) => s.toggleFeatured);
@@ -158,23 +159,18 @@ function CompletedCard({ generation, outputIndex, aspectRatio, onGenerateVideo, 
 
   const handleSaveToLibrary = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!output || saving) return;
+    if (!output || saved || saving) return;
     setSaving(true);
     try {
-      const newSaved = !saved;
-      if (newSaved) {
-        await playgroundApi.saveToLibrary(generation.id, output.id);
-      }
-      const updatedOutputs = generation.outputs.map((o) =>
-        o.id === output.id ? { ...o, saved_to_library: newSaved } : o
-      );
-      updateGeneration({ ...generation, outputs: updatedOutputs });
+      await playgroundApi.saveToLibrary(generation.id, output.id);
+      markOutputSaved(generation.id, output.id);
     } catch (err) {
       console.error('[Playground] Save to library failed:', err);
+      toast.error(t('detail.saveFailed'));
     } finally {
       setSaving(false);
     }
-  }, [generation, output, saved, saving, updateGeneration]);
+  }, [generation.id, output, saved, saving, markOutputSaved, t]);
 
   const handleUseAsReference = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -280,6 +276,8 @@ function CompletedCard({ generation, outputIndex, aspectRatio, onGenerateVideo, 
           </button>
           <button
             onClick={handleSaveToLibrary}
+            disabled={saved || saving}
+            aria-busy={saving}
             className={`w-7 h-7 rounded-full backdrop-blur-sm flex items-center justify-center transition ${saved ? 'bg-primary/15' : 'bg-elevated hover:bg-hover-bg'}`}
             title={saved ? t('card.saved') : t('card.saveToLibrary')}
           >

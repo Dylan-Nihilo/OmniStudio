@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ResultCard from "@/components/modules/playground/ResultCard";
 import { apiStreamRequest } from "@/lib/apiClient";
+import { playgroundApi } from "@/lib/api";
 import { usePlaygroundStore, type PlaygroundGeneration } from "@/components/modules/playground/usePlaygroundStore";
 
 const getAssetUrl = vi.hoisted(() => vi.fn((path: string) => `/api-proxy/files/${path}`));
@@ -43,12 +44,11 @@ describe("ResultCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     usePlaygroundStore.setState({ featuredByGen: {} });
-    vi.stubGlobal("URL", {
-      ...URL,
-      createObjectURL: vi.fn(() => "blob:download"),
-      revokeObjectURL: vi.fn(),
-    });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it("renders a playable video for completed video output", () => {
     render(<ResultCard generation={generation} />);
@@ -75,5 +75,35 @@ describe("ResultCard", () => {
         "/api-proxy/files/playground/videos/workspace-1/t2v-generation-1_0.mp4",
       );
     });
+  });
+
+  it("preserves both results when a batch saves out of order and prevents duplicate saves", async () => {
+    const batch = { ...generation, batch_size: 2, outputs: [generation.outputs[0], { ...generation.outputs[0], id: "output-2" }] };
+    usePlaygroundStore.setState({ history: [batch] });
+    const completions: (() => void)[] = [];
+    vi.mocked(playgroundApi.saveToLibrary).mockImplementation(() => new Promise(resolve => {
+      completions.push(() => resolve({ ok: true }));
+    }));
+    function Cards() {
+      const current = usePlaygroundStore(state => state.history[0]);
+      return <><ResultCard generation={current} /><ResultCard generation={current} outputIndex={1} /></>;
+    }
+    render(<Cards />);
+    const saveButtons = screen.getAllByRole('button', { name: 'card.saveToLibrary' });
+    fireEvent.click(saveButtons[0]);
+    fireEvent.click(saveButtons[1]);
+    expect(saveButtons.every(button => button.hasAttribute('disabled'))).toBe(true);
+    expect(playgroundApi.saveToLibrary).toHaveBeenNthCalledWith(1, 'generation-1', 'output-1');
+    expect(playgroundApi.saveToLibrary).toHaveBeenNthCalledWith(2, 'generation-1', 'output-2');
+    await act(async () => completions[1]());
+    await act(async () => completions[0]());
+    const savedButtons = screen.getAllByRole('button', { name: 'card.saved' });
+    expect(savedButtons).toHaveLength(2);
+    for (const button of savedButtons) {
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+    }
+    expect(playgroundApi.saveToLibrary).toHaveBeenCalledTimes(2);
+    expect(usePlaygroundStore.getState().history[0].outputs.map(output => output.saved_to_library)).toEqual([true, true]);
   });
 });

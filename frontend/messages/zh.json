@@ -1998,10 +1998,15 @@
     },
     "detail": {
       "saving": "处理中...",
-      "savedCancel": "已收藏（点击取消）",
-      "saveToLibrary": "收藏到资产库",
+      "title": "生成详情",
+      "previous": "上一条生成",
+      "next": "下一条生成",
+      "deleting": "正在删除…",
+      "saveFailed": "保存失败，请重试。",
+      "deleteFailed": "删除失败，请重试。",
+      "saveToLibrary": "保存到资产库",
       "parameters": "参数",
-      "markHint": "收藏：存入资产库，可跨项目复用 · 精选：标记本批最好的一张"
+      "markHint": "保存：存入资产库，可跨项目复用 · 精选：标记本批最好的一张"
     },
     "gallery": {
       "viewDetail": "点击查看详情",

@@ -1998,7 +1998,12 @@
     },
     "detail": {
       "saving": "Saving…",
-      "savedCancel": "Saved (click to remove)",
+      "title": "Generation details",
+      "previous": "Previous generation",
+      "next": "Next generation",
+      "deleting": "Deleting…",
+      "saveFailed": "Could not save. Please try again.",
+      "deleteFailed": "Could not delete. Please try again.",
       "saveToLibrary": "Save to library",
       "parameters": "Parameters",
       "markHint": "Save: archive to your asset library (reusable across projects) · Featured: mark the best of this batch"

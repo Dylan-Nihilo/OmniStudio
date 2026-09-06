@@ -177,6 +177,7 @@ interface PlaygroundState {
   // Actions — generation lifecycle
   startGeneration: (gen: PlaygroundGeneration) => void;
   updateGeneration: (gen: PlaygroundGeneration) => void;
+  markOutputSaved: (generationId: string, outputId: string) => void;
   removeGeneration: (id: string) => void;
 
   // Actions — history
@@ -335,6 +336,12 @@ export const usePlaygroundStore = create<PlaygroundState>((set, get) => ({
   startGeneration: (gen) => get().setHistory([gen, ...get().history.filter(item => item.id !== gen.id)]),
 
   updateGeneration: (gen) => get().setHistory(get().history.map(item => item.id === gen.id ? gen : item)),
+
+  markOutputSaved: (generationId, outputId) => get().setHistory(get().history.map(gen =>
+    gen.id === generationId
+      ? { ...gen, outputs: gen.outputs.map(output => output.id === outputId ? { ...output, saved_to_library: true } : output) }
+      : gen
+  )),
 
   removeGeneration: (id) => get().setHistory(get().history.filter(item => item.id !== id)),
 
