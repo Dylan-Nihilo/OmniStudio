@@ -28,17 +28,19 @@ export function TextField({ label, description, errorMessage, placeholder, class
 export type PasswordFieldProps = Omit<TextFieldProps, 'type'> & {
   showPasswordLabel: string;
   hidePasswordLabel: string;
+  isRevealDisabled?: boolean;
 };
 
-export function PasswordField({ label, description, errorMessage, placeholder, className = '', inputRef, autoFocus, showPasswordLabel, hidePasswordLabel, ...props }: PasswordFieldProps) {
+export function PasswordField({ label, description, errorMessage, placeholder, className = '', inputRef, autoFocus, showPasswordLabel, hidePasswordLabel, isRevealDisabled = false, ...props }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false);
+  const shown = visible && !isRevealDisabled;
   return (
-    <HeroTextField {...props} type={visible ? 'text' : 'password'} className={`omni-field ${className}`}>
+    <HeroTextField {...props} type={shown ? 'text' : 'password'} className={`omni-field ${className}`}>
       <Label>{label}</Label>
       <div className="omni-password">
         <Input autoFocus={autoFocus} ref={inputRef} placeholder={placeholder} />
-        <IconButton type="button" isDisabled={props.isDisabled} aria-label={visible ? hidePasswordLabel : showPasswordLabel} aria-pressed={visible} onPress={() => setVisible(!visible)}>
-          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+        <IconButton type="button" isDisabled={props.isDisabled || isRevealDisabled} aria-label={shown ? hidePasswordLabel : showPasswordLabel} aria-pressed={shown} onPress={() => setVisible(!shown)}>
+          {shown ? <EyeOff size={16} /> : <Eye size={16} />}
         </IconButton>
       </div>
       {description && <Description>{description}</Description>}

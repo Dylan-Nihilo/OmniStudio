@@ -82,3 +82,19 @@ it('action menus preserve labels, disabled actions and Escape dismissal', async 
   fireEvent.keyDown(menu, { key: 'Escape' });
   expect(screen.queryByRole('menu')).toBeNull();
 });
+
+
+it('conceals masked credentials without replacing the editable input', () => {
+  const props = {label:'API Key', showPasswordLabel:'Show', hidePasswordLabel:'Hide'};
+  const {rerender} = render(<PasswordField {...props} defaultValue="test-value" />);
+  const input = screen.getByLabelText('API Key') as HTMLInputElement;
+  fireEvent.click(screen.getByRole('button', {name:'Show'}));
+  expect(input.type).toBe('text');
+  input.focus();
+  rerender(<PasswordField {...props} isRevealDisabled />);
+  expect(screen.getByLabelText('API Key')).toBe(input);
+  expect(document.activeElement).toBe(input);
+  expect(input.type).toBe('password');
+  expect(input.disabled).toBe(false);
+  expect((screen.getByRole('button', {name:'Show'}) as HTMLButtonElement).disabled).toBe(true);
+});
