@@ -480,6 +480,8 @@ def _owner_required_for_request(method: str, path: str) -> bool:
         return True
     if method == "POST" and parts == ["series", "import", "confirm"]:
         return True
+    if method == "POST" and len(parts) == 3 and parts[0] in {"projects", "series"} and parts[2] == "purge":
+        return True
     if parts and parts[0] == "library":
         return True
     if method == "DELETE" and parts and parts[0] in {"projects", "series"}:
@@ -1024,6 +1026,40 @@ class ProjectArchiveResponse(BaseModel):
     message: str
 
 
+class PermanentPurgeRequest(BaseModel):
+    confirmation_token: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+class PermanentPurgeImpactResponse(BaseModel):
+    resource_type: Literal["project", "series"]
+    id: str
+    title: str
+    archived: bool
+    archived_at: Optional[float]
+    impact: dict[str, int]
+    confirmation_token: str
+    confirmation_phrase: str
+    message: str
+
+
+class PermanentPurgeResponse(BaseModel):
+    job_id: str
+    status: str
+    resource_type: Literal["project", "series"]
+    resource_id: str
+    report_url: str
+
+
+class PermanentPurgeJobResponse(BaseModel):
+    job_id: str
+    status: str
+    resource_type: Literal["project", "series"]
+    resource_id: str
+    report: Optional[Dict[str, Any]] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+
+
 EpisodeDefaultSection = Literal[
     "model_settings",
     "prompt_config",
@@ -1077,6 +1113,176 @@ def _series_archive_impact(series) -> dict[str, int]:
         "shots": sum(len(episode.frames) for episode in episodes),
         "video_tasks": sum(len(episode.video_tasks) for episode in episodes),
     }
+
+
+def _purge_confirmation_token(resource_type: str, resource_id: str, updated_at: float, impact: dict[str, int]) -> str:
+    payload = json.dumps(
+        {"resource_type": resource_type, "resource_id": resource_id, "updated_at": updated_at, "impact": impact},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _purge_snapshot(resource_type: str, resource_id: str) -> dict[str, Any]:
+    if resource_type == "project":
+        resource = pipeline.get_script(resource_id)
+        if not resource:
+            raise HTTPException(status_code=404, detail="Project not found")
+        impact = _project_archive_impact(resource)
+        payloads = [resource.model_dump(mode="json")]
+    else:
+        resource = pipeline.get_series(resource_id)
+        if not resource:
+            raise HTTPException(status_code=404, detail="Series not found")
+        episodes = pipeline.get_series_episodes(resource_id)
+        impact = _series_archive_impact(resource)
+        payloads = [resource.model_dump(mode="json")] + [episode.model_dump(mode="json") for episode in episodes]
+    media_refs = list(dict.fromkeys(ref for payload in payloads for ref in _iter_media_strings(payload)))
+    return {
+        "resource": resource,
+        "impact": impact,
+        "updated_at": resource.updated_at,
+        "payloads": payloads,
+        "media_refs": media_refs,
+        "confirmation_token": _purge_confirmation_token(resource_type, resource_id, resource.updated_at, impact),
+    }
+
+
+def _purge_impact_payload(resource_type: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+    resource = snapshot["resource"]
+    return {
+        "resource_type": resource_type,
+        "id": resource.id,
+        "title": resource.title,
+        "archived": resource.archived,
+        "archived_at": resource.archived_at,
+        "impact": snapshot["impact"],
+        "confirmation_token": snapshot["confirmation_token"],
+        "confirmation_phrase": "永久删除",
+        "message": "永久删除不可撤销；确认后将异步清除业务数据，并清理未被其他资源引用的本地媒体。",
+    }
+
+
+def _remaining_local_media_paths() -> set[str]:
+    values = [
+        *(script.model_dump(mode="json") for script in pipeline.scripts.values()),
+        *(series.model_dump(mode="json") for series in pipeline.series_store.values()),
+        pipeline.library_store.model_dump(mode="json"),
+    ]
+    return {
+        resolved
+        for value in values
+        for raw in _iter_media_strings(value)
+        if (resolved := _resolve_media_reference(raw))
+    }
+
+
+def _cleanup_purge_media(media_refs: list[str], remaining_paths: set[str]) -> dict[str, Any]:
+    local_paths = {
+        resolved
+        for raw in media_refs
+        if (resolved := _resolve_media_reference(raw))
+    }
+    shared = sorted(path for path in local_paths if path in remaining_paths)
+    deleted: list[str] = []
+    missing: list[str] = []
+    failed: list[dict[str, str]] = []
+    output_root = (MEDIA_PROJECT_ROOT / "output").resolve()
+
+    def display_path(path: str) -> str:
+        try:
+            return str(Path(path).resolve().relative_to(output_root))
+        except ValueError:
+            return "[local path redacted]"
+
+    for path in sorted(local_paths - set(shared)):
+        target = Path(path)
+        try:
+            if target.is_file():
+                target.unlink()
+                deleted.append(path)
+            else:
+                missing.append(path)
+        except OSError as exc:
+            failed.append({"path": display_path(path), "error": str(exc)})
+    return {
+        "candidates": len(local_paths),
+        "deleted": len(deleted),
+        "skipped_shared": len(shared),
+        "missing": len(missing),
+        "failed": len(failed),
+        "remote_or_unresolved_preserved": len(set(media_refs) - local_paths),
+        "failed_paths": failed,
+    }
+
+
+def _run_purge_job(
+    job_id: str,
+    item_id: str,
+    workspace_id: str,
+    user_id: str,
+    resource_type: str,
+    resource_id: str,
+    snapshot: dict[str, Any],
+) -> None:
+    repository = JobRepository(pipeline.storage_engine)
+    try:
+        repository.transition_item(item_id, "processing", progress=0.05)
+        if resource_type == "project":
+            pipeline.delete_project(resource_id)
+        else:
+            pipeline.purge_series(resource_id)
+        media = _cleanup_purge_media(snapshot["media_refs"], _remaining_local_media_paths())
+        report = {
+            "status": "completed_with_warnings" if media["failed"] else "completed",
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "data_deleted": True,
+            "impact": snapshot["impact"],
+            "media": media,
+            "finished_at": time.time(),
+        }
+        job = repository.get_job(workspace_id, job_id)
+        if job is None or not job.items:
+            raise RuntimeError("Purge job disappeared before completion")
+        item = next((candidate for candidate in job.items if candidate.id == item_id), job.items[0])
+        repository.update_item_payload(item.id, {**item.payload, "report": report})
+        repository.transition_item(
+            item.id,
+            "succeeded",
+            media_refs=[{"id": job_id, "kind": "cleanup_report", "uri": f"cleanup-report://{job_id}"}],
+        )
+        try:
+            pipeline.repository.record_audit_event(
+                actor_user_id=user_id,
+                workspace_id=workspace_id,
+                action="project.purge.completed",
+                object_type=resource_type,
+                object_id=resource_id,
+                metadata={"job_id": job_id, "report": report},
+            )
+        except Exception:
+            logger.exception("Failed to persist purge completion audit for %s", job_id)
+    except Exception as exc:
+        safe_error = str(exc)
+        report = {"status": "failed", "resource_type": resource_type, "resource_id": resource_id, "data_deleted": False, "error": safe_error, "finished_at": time.time()}
+        try:
+            job = repository.get_job(workspace_id, job_id)
+            if job and job.items:
+                repository.update_item_payload(job.items[0].id, {**job.items[0].payload, "report": report})
+                repository.transition_item(job.items[0].id, "failed", error={"code": "PURGE_FAILED", "message": safe_error})
+                pipeline.repository.record_audit_event(
+                    actor_user_id=user_id,
+                    workspace_id=workspace_id,
+                    action="project.purge.failed",
+                    object_type=resource_type,
+                    object_id=resource_id,
+                    metadata={"job_id": job_id, "error": safe_error},
+                )
+        except Exception:
+            logger.exception("Failed to persist purge failure for %s", job_id)
 
 
 class UpdateScriptTextRequest(BaseModel):
@@ -1450,14 +1656,122 @@ def restore_series(series_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Series not found") from exc
 
 
+def _find_existing_purge_job(request: Request, resource_id: str, confirmation_token: str):
+    context = _task_context(request)
+    jobs = _task_repository(request).list_jobs(
+        context.workspace.id,
+        project_id=resource_id,
+        query="project.purge",
+        page=1,
+        page_size=100,
+    ).items
+    for job in jobs:
+        if job.kind != "project.purge" or not job.items:
+            continue
+        item = job.items[0]
+        if item.payload.get("confirmation_token") == confirmation_token and job.status in {"pending", "processing", "succeeded"}:
+            return job
+    return None
+
+
+def _submit_purge(
+    resource_type: Literal["project", "series"],
+    resource_id: str,
+    request: PermanentPurgeRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    context = _task_context(http_request)
+    snapshot = _purge_snapshot(resource_type, resource_id)
+    if not secrets.compare_digest(request.confirmation_token, snapshot["confirmation_token"]):
+        raise HTTPException(status_code=409, detail="影响预览已过期，请重新获取预览并确认")
+
+    existing = _find_existing_purge_job(http_request, resource_id, request.confirmation_token)
+    if existing is not None:
+        return {
+            "job_id": existing.id,
+            "status": existing.status,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "report_url": f"/purge-jobs/{existing.id}",
+        }
+
+    repository = _task_repository(http_request)
+    job = repository.create_job(
+        context.workspace.id,
+        "project.purge",
+        project_id=resource_id,
+        metadata={"resource_type": resource_type, "resource_id": resource_id},
+    )
+    item = repository.create_item(
+        job.id,
+        "project.purge",
+        f"purge:{resource_type}:{resource_id}:{request.confirmation_token}:{job.id}",
+        payload={
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "confirmation_token": request.confirmation_token,
+            "impact": snapshot["impact"],
+        },
+    )
+    background_tasks.add_task(
+        _run_purge_job,
+        job.id,
+        item.id,
+        context.workspace.id,
+        context.user.id,
+        resource_type,
+        resource_id,
+        snapshot,
+    )
+    record_request_event(
+        http_request,
+        action="project.purge.requested",
+        object_type=resource_type,
+        object_id=resource_id,
+        metadata={"job_id": job.id, "impact": snapshot["impact"]},
+    )
+    return {
+        "job_id": job.id,
+        "status": "pending",
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "report_url": f"/purge-jobs/{job.id}",
+    }
+
+
+@app.get("/series/{series_id}/purge-impact", response_model=PermanentPurgeImpactResponse)
+def series_purge_impact(series_id: str):
+    return _purge_impact_payload("series", _purge_snapshot("series", series_id))
+
+
+@app.post("/series/{series_id}/purge", response_model=PermanentPurgeResponse, status_code=202)
+def purge_series(series_id: str, request: PermanentPurgeRequest, background_tasks: BackgroundTasks, http_request: Request):
+    return _submit_purge("series", series_id, request, http_request, background_tasks)
+
+
+@app.get("/purge-jobs/{job_id}", response_model=PermanentPurgeJobResponse)
+def get_purge_job(job_id: str, request: Request):
+    context = _task_context(request)
+    job = _task_repository(request).get_job(context.workspace.id, job_id)
+    if job is None or job.kind != "project.purge" or not job.items:
+        raise HTTPException(status_code=404, detail="清除任务不存在")
+    item = job.items[0]
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "resource_type": item.payload.get("resource_type", "project"),
+        "resource_id": item.payload.get("resource_id") or job.project_id or "",
+        "report": item.payload.get("report"),
+        "error_code": item.error_code,
+        "error_message": item.error_message,
+    }
+
+
 @app.delete("/series/{series_id}")
 def delete_series(series_id: str):
-    """Delete a Series and disassociate its episodes."""
-    try:
-        pipeline.delete_series(series_id)
-        return {"status": "deleted"}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    """Legacy deletion path is disabled; permanent purge requires preview + Owner confirmation."""
+    raise HTTPException(status_code=410, detail="请先调用 purge-impact，再通过 POST /series/{series_id}/purge 确认清除")
 
 
 class AddEpisodeRequest(BaseModel):
@@ -2333,6 +2647,16 @@ def project_archive_impact(script_id: str):
     }
 
 
+@app.get("/projects/{script_id}/purge-impact", response_model=PermanentPurgeImpactResponse)
+def project_purge_impact(script_id: str):
+    return _purge_impact_payload("project", _purge_snapshot("project", script_id))
+
+
+@app.post("/projects/{script_id}/purge", response_model=PermanentPurgeResponse, status_code=202)
+def purge_project(script_id: str, request: PermanentPurgeRequest, background_tasks: BackgroundTasks, http_request: Request):
+    return _submit_purge("project", script_id, request, http_request, background_tasks)
+
+
 @app.get("/projects/{script_id}")
 def get_project(script_id: str, request: Request):
     """Retrieves a project by ID. When the project belongs to a
@@ -2453,22 +2777,8 @@ def restore_project(script_id: str, request: Request):
 
 @app.delete("/projects/{script_id}")
 def delete_project(script_id: str, request: Request):
-    """Deletes a project by ID. WARNING: This permanently removes the project from backend storage."""
-    script = pipeline.get_script(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    try:
-        pipeline.delete_project(script_id)
-        record_request_event(
-            request,
-            action="project.delete",
-            object_type="project",
-            object_id=script_id,
-        )
-        return {"status": "deleted", "id": script_id, "title": script.title}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Legacy deletion path is disabled; permanent purge requires preview + Owner confirmation."""
+    raise HTTPException(status_code=410, detail="请先调用 purge-impact，再通过 POST /projects/{script_id}/purge 确认清除")
 
 
 # ─────────────────────────────────────────────────────────────────────

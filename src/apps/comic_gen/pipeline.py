@@ -5229,6 +5229,10 @@ class ComicGenPipeline:
             if self.storage_enabled:
                 self.repository.delete_script(script_id)
                 del self.scripts[script_id]
+                if script.series_id:
+                    series = self.series_store.get(script.series_id)
+                    if series:
+                        self.repository.save_series({series.id: series})
             else:
                 del self.scripts[script_id]
                 self._save_data()
@@ -5256,6 +5260,22 @@ class ComicGenPipeline:
             else:
                 self._save_data()
                 del self.series_store[series_id]
+                self._save_series_data_unlocked()
+
+    def purge_series(self, series_id: str) -> None:
+        """Permanently delete a Series, its Episodes, and production payloads."""
+        with self._save_lock:
+            series = self.series_store.get(series_id)
+            if not series:
+                raise ValueError("Series not found")
+            episode_ids = list(series.episode_ids)
+            if self.storage_enabled:
+                self.repository.purge_series(series_id)
+            for episode_id in episode_ids:
+                self.scripts.pop(episode_id, None)
+            self.series_store.pop(series_id, None)
+            if not self.storage_enabled:
+                self._save_data()
                 self._save_series_data_unlocked()
 
     def add_episode_to_series(self, series_id: str, script_id: str, episode_number: Optional[int] = None) -> Series:

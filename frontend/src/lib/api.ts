@@ -181,6 +181,42 @@ export interface VideoTask {
 
 export type UnifiedJobStatus = "pending" | "processing" | "succeeded" | "failed" | "canceled" | "skipped";
 
+export interface PermanentPurgeImpact {
+    resource_type: "project" | "series";
+    id: string;
+    title: string;
+    archived: boolean;
+    archived_at: number | null;
+    impact: Record<string, number>;
+    confirmation_token: string;
+    confirmation_phrase: string;
+    message: string;
+}
+
+export interface PermanentPurgeSubmission {
+    job_id: string;
+    status: string;
+    resource_type: "project" | "series";
+    resource_id: string;
+    report_url: string;
+}
+
+export interface PermanentPurgeJob {
+    job_id: string;
+    status: string;
+    resource_type: "project" | "series";
+    resource_id: string;
+    report?: {
+        status: string;
+        data_deleted: boolean;
+        impact: Record<string, number>;
+        media?: Record<string, unknown>;
+        finished_at?: number;
+    };
+    error_code?: string | null;
+    error_message?: string | null;
+}
+
 export interface UnifiedMediaRef {
     id: string;
     kind: string;
@@ -403,6 +439,18 @@ export const api = {
     deleteProject: async (scriptId: string) => {
         const res = await apiClient.delete(`${API_URL}/projects/${scriptId}`);
         return res.data;
+    },
+
+    getProjectPurgeImpact: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/purge-impact`);
+        return res.data as PermanentPurgeImpact;
+    },
+
+    purgeProject: async (scriptId: string, confirmationToken: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/purge`, {
+            confirmation_token: confirmationToken,
+        });
+        return res.data as PermanentPurgeSubmission;
     },
 
     updateProject: async (scriptId: string, data: { title: string }) => {
@@ -1612,6 +1660,20 @@ export const api = {
     restoreSeries: async (seriesId: string) => {
         const response = await apiClient.post(`${API_URL}/series/${seriesId}/restore`);
         return response.data;
+    },
+    getSeriesPurgeImpact: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/purge-impact`);
+        return response.data as PermanentPurgeImpact;
+    },
+    purgeSeries: async (seriesId: string, confirmationToken: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/purge`, {
+            confirmation_token: confirmationToken,
+        });
+        return response.data as PermanentPurgeSubmission;
+    },
+    getPurgeJob: async (jobId: string) => {
+        const response = await apiClient.get(`${API_URL}/purge-jobs/${jobId}`);
+        return response.data as PermanentPurgeJob;
     },
     previewEpisodeDefaultPromotion: async (seriesId: string, scriptId: string, sections?: string[]) => {
         // The default preview covers every promotable section. Keep the

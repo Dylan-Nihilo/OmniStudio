@@ -240,6 +240,67 @@ def test_series_and_episode_archive_are_independent_and_audited(api_client):
     assert "project.restore" in actions
 
 
+def test_permanent_project_purge_requires_preview_token_and_persists_report(api_client, tmp_path):
+    project = _create_project(api_client, "永久清除项目")
+    media_path = tmp_path / "output" / "video" / "purge-me.mp4"
+    media_path.parent.mkdir(parents=True)
+    media_path.write_bytes(b"purge")
+    api_module.pipeline.scripts[project["id"]].merged_video_url = "video/purge-me.mp4"
+    api_module.pipeline._save_data()
+
+    preview = api_client.get(f"/projects/{project['id']}/purge-impact")
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["confirmation_phrase"] == "永久删除"
+    assert body["impact"]["episodes"] == 1
+
+    rejected = api_client.post(
+        f"/projects/{project['id']}/purge",
+        json={"confirmation_token": "0" * 64},
+    )
+    assert rejected.status_code == 409, rejected.text
+
+    submitted = api_client.post(
+        f"/projects/{project['id']}/purge",
+        json={"confirmation_token": body["confirmation_token"]},
+    )
+    assert submitted.status_code == 202, submitted.text
+    job = api_client.get(submitted.json()["report_url"])
+    assert job.status_code == 200, job.text
+    assert job.json()["status"] == "succeeded"
+    assert job.json()["report"]["data_deleted"] is True
+    assert job.json()["report"]["media"]["deleted"] == 1
+    assert not media_path.exists()
+    assert api_client.get(f"/projects/{project['id']}").status_code == 404
+    workspace_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    events = api_module.pipeline.repository.list_audit_events(workspace_id)
+    assert any(event.action == "project.purge.requested" for event in events)
+    assert any(event.action == "project.purge.completed" for event in events)
+
+
+def test_permanent_series_purge_removes_series_and_all_episodes(api_client):
+    series = _create_series(api_client, "完整清除系列")
+    first = _create_project(api_client, "完整清除第一集")
+    second = _create_project(api_client, "完整清除第二集")
+    _add_episode(api_client, series["id"], first["id"], 1)
+    _add_episode(api_client, series["id"], second["id"], 2)
+
+    preview = api_client.get(f"/series/{series['id']}/purge-impact")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["impact"]["episodes"] == 2
+    submitted = api_client.post(
+        f"/series/{series['id']}/purge",
+        json={"confirmation_token": preview.json()["confirmation_token"]},
+    )
+    assert submitted.status_code == 202, submitted.text
+    job = api_client.get(submitted.json()["report_url"])
+    assert job.status_code == 200, job.text
+    assert job.json()["status"] == "succeeded"
+    assert api_client.get(f"/series/{series['id']}").status_code == 404
+    assert api_client.get(f"/projects/{first['id']}").status_code == 404
+    assert api_client.get(f"/projects/{second['id']}").status_code == 404
+
+
 def test_episode_defaults_preview_then_promote_updates_only_series_defaults(api_client):
     series = _create_series(api_client, "Episode 默认配置")
     episode = _create_project(api_client, "默认来源集")
