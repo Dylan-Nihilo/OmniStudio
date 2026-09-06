@@ -11,14 +11,14 @@
 .railBottom { flex-shrink: 0; display: grid; gap: 8px; padding-top: 8px; }
 .context { min-height: 0; margin-top: 16px; border-top: 1px solid var(--color-border-default); }
 .account { flex-shrink: 0; margin: 0 4px; border-top: 1px solid var(--color-border-default); padding-top: 12px; }
-.accountButton { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; text-align: left; }
+.accountButton { padding: 0; justify-content: flex-start; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; text-align: left; }
 .avatar { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px; background: var(--color-text-primary); color: var(--color-bg-base); font-size: 13px; font-weight: 600; }
 .identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .identity strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .identity > span { color: var(--color-text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accountChevron { flex-shrink: 0; color: var(--color-text-muted); }
-.popover { left: 0; right: auto; width: 260px; max-width: calc(100vw - 32px); }
-.accountAction { display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.popover { width: 280px; max-width: calc(100vw - 24px); }
+.accountAction { justify-content: flex-start; display: flex; width: 100%; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
 .accountAction:hover { background: var(--color-bg-hover); }
 
 @media (max-width: 767px) {
@@ -30,5 +30,4 @@
   .account { margin: 0; padding: 0; border: 0; }
   .accountButton { width: 44px; justify-content: center; }
   .identity, .accountChevron { display: none; }
-  .popover { top: calc(100% + 8px); bottom: auto; left: auto; right: 0; }
 }

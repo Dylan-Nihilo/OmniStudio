@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import WorkspaceNavigation from "./WorkspaceNavigation";
 import GlobalSidebar from "../layout/GlobalSidebar";
@@ -28,7 +28,7 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("link", { name: "projects" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("keeps global, context and account actions inside one sidebar", () => {
+  it("keeps global, context and account actions inside one sidebar", async () => {
     render(<GlobalSidebar activeTab="workspace" onTabChange={vi.fn()} workspaceSection="overview" />);
     const sidebar = screen.getByRole("complementary");
     expect(screen.getAllByRole("complementary")).toHaveLength(1);
@@ -39,7 +39,7 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("button", { name: "switchWorkspace" })).toBeVisible();
     expect(screen.getByRole("button", { name: "changePassword" })).toBeVisible();
     expect(screen.getByRole("button", { name: "logout" })).toBeVisible();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("button", { name: "logout" })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "artist" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "logout" })).not.toBeInTheDocument());
   });
 });
