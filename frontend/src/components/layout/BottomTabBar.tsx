@@ -12,9 +12,11 @@ import { GLOBAL_NAV_ITEMS, type GlobalTab } from "./GlobalSidebar";
 export default function BottomTabBar({
   activeTab,
   onTabChange,
+  taskBadge,
 }: {
   activeTab: GlobalTab;
   onTabChange: (tab: GlobalTab) => void;
+  taskBadge?: number;
 }) {
   const t = useTranslations("nav");
   return (
@@ -34,12 +36,12 @@ export default function BottomTabBar({
             }}
             aria-current={active ? "page" : undefined}
             className={clsx(
-              "flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-colors",
+              "relative min-w-0 flex-1 flex flex-col items-center justify-center gap-1 px-0.5 py-2 transition-colors",
               active ? "text-primary" : "text-text-muted hover:text-foreground"
             )}
           >
-            <Icon size={20} strokeWidth={1.8} />
-            <span className="text-[0.625rem] font-medium leading-none">{t(id)}</span>
+            <span className="relative"><Icon size={19} strokeWidth={1.8} />{id === "tasks" && !!taskBadge && <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-status-failed-fg px-1 text-[0.5625rem] leading-4 text-white">{taskBadge > 9 ? "9+" : taskBadge}</span>}</span>
+            <span className="max-w-full truncate text-[0.5625rem] font-medium leading-none">{t(id)}</span>
           </button>
         );
       })}

@@ -7,6 +7,7 @@ import {
   KeyRound,
   Layers,
   LayoutGrid,
+  ListTodo,
   LogOut,
   Settings,
   Wand2,
@@ -20,11 +21,12 @@ import { toast } from "@/store/toastStore";
 import ChangePasswordDialog from "@/components/auth/ChangePasswordDialog";
 import WorkspaceControls from "@/components/collaboration/WorkspaceControls";
 
-export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
+export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "tasks" | "settings";
 
 interface GlobalSidebarProps {
   activeTab: GlobalTab;
   onTabChange: (tab: GlobalTab) => void;
+  taskBadge?: number;
 }
 
 export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: string }[] = [
@@ -32,6 +34,7 @@ export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: s
   { id: "library", icon: Layers, hash: "#/library" },
   { id: "editor", icon: FileText, hash: "#/studio/editor" },
   { id: "playground", icon: Wand2, hash: "#/playground" },
+  { id: "tasks", icon: ListTodo, hash: "#/tasks" },
   { id: "settings", icon: Settings, hash: "#/settings" },
 ];
 
@@ -48,11 +51,13 @@ function NavButton({
   label,
   icon: Icon,
   onClick,
+  badge,
 }: {
   active: boolean;
   label: string;
   icon: typeof LayoutGrid;
   onClick: () => void;
+  badge?: number;
 }) {
   return (
     <button
@@ -76,11 +81,12 @@ function NavButton({
         )}
       />
       <span className="text-base">{label}</span>
+      {!!badge && <span className="ml-auto min-w-5 rounded-full bg-status-failed-bg px-1.5 py-0.5 text-center font-mono text-[0.625rem] text-status-failed-fg">{badge > 99 ? "99+" : badge}</span>}
     </button>
   );
 }
 
-export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarProps) {
+export default function GlobalSidebar({ activeTab, onTabChange, taskBadge }: GlobalSidebarProps) {
   const t = useTranslations("nav");
   const ta = useTranslations("auth");
   const user = useAuthStore((state) => state.user);
@@ -135,13 +141,14 @@ export default function GlobalSidebar({ activeTab, onTabChange }: GlobalSidebarP
         </button>
 
         <nav className="flex flex-1 flex-col gap-0.5 p-2.5" aria-label={t("mainNavAria")}>
-          {GLOBAL_NAV_ITEMS.slice(0, 4).map((item) => (
+          {GLOBAL_NAV_ITEMS.filter((item) => item.id !== "settings").map((item) => (
             <NavButton
               key={item.id}
               active={activeTab === item.id}
               label={t(item.id)}
               icon={item.icon}
               onClick={() => handleNav(item.id, item.hash)}
+              badge={item.id === "tasks" ? taskBadge : undefined}
             />
           ))}
         </nav>
