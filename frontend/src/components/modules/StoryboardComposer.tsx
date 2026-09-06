@@ -1,5 +1,6 @@
 "use client";
 
+import { SelectField } from "@omnistudio/ui";
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
@@ -690,17 +691,8 @@ function CreateFrameDialog({ onClose, onCreate, scenes }: { onClose: () => void;
 
                 <div className="p-6 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-text-secondary mb-2">Scene</label>
-                        <select
-                            value={sceneId}
-                            onChange={(e) => setSceneId(e.target.value)}
-                            className="w-full px-4 py-3 bg-input-bg border border-glass-border rounded-lg text-foreground focus:border-primary/50 focus:outline-none appearance-none"
-                        >
-                            <option value="" disabled>Select a scene</option>
-                            {scenes.map((s: any) => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                        </select>
+                        <SelectField label="Scene" value={sceneId || null} placeholder="Select a scene" onChange={value => setSceneId(String(value))}
+                            options={scenes.map((scene: { id: string; name: string }) => ({ id: scene.id, label: scene.name }))} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-text-secondary mb-2">Action Description *</label>

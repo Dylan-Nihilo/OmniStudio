@@ -1,5 +1,6 @@
 "use client";
 
+import { SelectField } from "@omnistudio/ui";
 import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import { Settings, Sliders, Image as ImageIcon, Type, FileText, Users, Layout, Video, Mic, Music, Film, Info, Paintbrush, Wand2, Sparkles } from "lucide-react";
@@ -486,16 +487,13 @@ function StoryboardInspector() {
 
                             {/* Scene Selector */}
                             <div className="mb-2 space-y-2">
-                                <label className="text-[0.625rem] font-bold text-text-muted uppercase">Scene</label>
-                                <select
-                                    className="w-full bg-input-bg border border-glass-border rounded p-2 text-xs text-text-secondary focus:outline-none"
-                                    value={selectedFrame.scene_id || ""}
-                                    onChange={(e) => {
+                                <SelectField label="Scene" value={selectedFrame.scene_id || "__none"}
+                                    onChange={(value) => {
                                         // Check if selecting this scene would exceed limit
                                         // Actually, replacing a scene is always fine unless we treat scene as optional toggle.
                                         // Here it's a dropdown, so we always have 0 or 1 scene. 
                                         // If we switch to a scene with image from one without, we might exceed limit.
-                                        const newSceneId = e.target.value;
+                                        const newSceneId = value === "__none" ? "" : String(value);
                                         const newScene = currentProject?.scenes?.find((s: any) => s.id === newSceneId);
                                         const newSceneHasImage = newScene?.image_url;
 
@@ -510,12 +508,7 @@ function StoryboardInspector() {
                                         }
                                         updateFrame({ scene_id: newSceneId });
                                     }}
-                                >
-                                    <option value="">Select Scene...</option>
-                                    {currentProject?.scenes?.map((scene: any) => (
-                                        <option key={scene.id} value={scene.id}>{scene.name}</option>
-                                    ))}
-                                </select>
+                                    options={[{ id: "__none", label: "Select Scene..." }, ...(currentProject?.scenes || []).map(scene => ({ id: scene.id, label: scene.name }))]} />
 
                                 {/* Show Scene Description if selected */}
                                 {selectedScene?.description && (
@@ -641,19 +634,8 @@ function StoryboardInspector() {
             <div className="space-y-2">
                 <label className="text-xs font-bold text-text-muted uppercase">{tp("sceneContext")}</label>
                 <div className="grid grid-cols-1 gap-2">
-                    <select
-                        className="bg-input-bg border border-glass-border rounded p-2 text-xs text-text-secondary focus:outline-none"
-                        value={selectedFrame.camera_angle || ""}
-                        onChange={(e) => updateFrame({ camera_angle: e.target.value })}
-                    >
-                        <option value="">Angle...</option>
-                        <option value="Wide Shot">Wide Shot</option>
-                        <option value="Medium Shot">Medium Shot</option>
-                        <option value="Close Up">Close Up</option>
-                        <option value="Low Angle">Low Angle</option>
-                        <option value="High Angle">High Angle</option>
-                        <option value="Over the Shoulder">Over the Shoulder</option>
-                    </select>
+                    <SelectField label="Camera angle" value={selectedFrame.camera_angle || "__none"} onChange={value => updateFrame({ camera_angle: value === "__none" ? "" : String(value) })}
+                        options={[{ id: "__none", label: "Angle..." }, ...["Wide Shot", "Medium Shot", "Close Up", "Low Angle", "High Angle", "Over the Shoulder"].map(angle => ({ id: angle, label: angle }))]} />
                 </div>
             </div>
 

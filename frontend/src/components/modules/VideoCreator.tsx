@@ -1,5 +1,6 @@
 "use client";
 
+import { SelectField } from "@omnistudio/ui";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
@@ -955,21 +956,13 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                                             /* Empty Slot */
                                                             <div className="aspect-square flex flex-col items-center justify-center p-3">
                                                                 <ImageIcon size={16} className="text-text-muted mb-1" />
-                                                                <select
-                                                                    className="w-full text-xs bg-input-bg border border-glass-border rounded-lg px-2 py-1.5 text-text-secondary focus:border-primary focus:outline-none"
-                                                                    value=""
-                                                                    onChange={(e) => {
-                                                                        const selectedImg = availableReferenceImages.find(img => img.url === e.target.value);
-                                                                        if (selectedImg) {
-                                                                            handleCastSlotSelect(slotIndex, { url: selectedImg.url, name: selectedImg.assetName });
-                                                                        }
-                                                                    }}
-                                                                >
-                                                                    <option value="">{tc('selectImage')}</option>
-                                                                    {availableReferenceImages.map((img, i) => (
-                                                                        <option key={i} value={img.url}>{img.assetName} - {img.type}</option>
-                                                                    ))}
-                                                                </select>
+                                                                <SelectField label={tc('selectImage')} className="[&>label]:sr-only" placeholder={tc('selectImage')} value={null}
+                                                                    options={availableReferenceImages.map((asset, index) => ({ id: String(index), label: `${asset.assetName} - ${asset.type}` }))}
+                                                                    onChange={value => {
+                                                                        if (value === null) return;
+                                                                        const asset = availableReferenceImages[Number(value)];
+                                                                        if (asset) handleCastSlotSelect(slotIndex, { url: asset.url, name: asset.assetName });
+                                                                    }} />
                                                                 {slotIndex === 0 && (
                                                                     <p className="text-[0.625rem] text-amber-400 mt-1">Required</p>
                                                                 )}
@@ -1032,21 +1025,13 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                                             /* Empty Slot */
                                                             <div className="aspect-video flex flex-col items-center justify-center p-4">
                                                                 <p className="text-xs text-text-secondary mb-2">{slotTitle}</p>
-                                                                <select
-                                                                    className="w-full text-xs bg-input-bg border border-glass-border rounded-lg px-2 py-1.5 text-text-secondary focus:border-primary focus:outline-none"
-                                                                    value=""
-                                                                    onChange={(e) => {
-                                                                        const selectedVideo = availableReferenceVideos.find(v => v.url === e.target.value);
-                                                                        if (selectedVideo) {
-                                                                            handleCastSlotSelect(slotIndex, { url: selectedVideo.url, name: selectedVideo.assetName });
-                                                                        }
-                                                                    }}
-                                                                >
-                                                                    <option value="">{tc('selectRefVideo')}</option>
-                                                                    {availableReferenceVideos.map((v, i) => (
-                                                                        <option key={i} value={v.url}>{v.assetName} - {v.type}</option>
-                                                                    ))}
-                                                                </select>
+                                                                <SelectField label={tc('selectRefVideo')} className="[&>label]:sr-only" placeholder={tc('selectRefVideo')} value={null}
+                                                                    options={availableReferenceVideos.map((asset, index) => ({ id: String(index), label: `${asset.assetName} - ${asset.type}` }))}
+                                                                    onChange={value => {
+                                                                        if (value === null) return;
+                                                                        const asset = availableReferenceVideos[Number(value)];
+                                                                        if (asset) handleCastSlotSelect(slotIndex, { url: asset.url, name: asset.assetName });
+                                                                    }} />
                                                                 {slotIndex === 0 && (
                                                                     <p className="text-[0.625rem] text-amber-400 mt-2">Required</p>
                                                                 )}

@@ -1,5 +1,6 @@
 'use client';
 
+import { SelectField } from "@omnistudio/ui";
 import { useState, useMemo, useCallback } from 'react';
 import { Search, X, Film } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
@@ -125,17 +126,8 @@ export default function SearchPanel({ editor }: SearchPanelProps) {
         </div>
 
         {/* Type filter */}
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as NodeTypeFilter)}
-          className="w-full rounded-lg bg-input-bg border border-glass-border py-1.5 px-2 text-xs text-foreground focus:outline-none focus:border-primary"
-        >
-          {NODE_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {t(opt.labelKey)}
-            </option>
-          ))}
-        </select>
+        <SelectField label={t('sidebar.search')} className="[&>label]:sr-only" value={typeFilter} onChange={value => setTypeFilter(value as NodeTypeFilter)}
+          options={NODE_TYPE_OPTIONS.map(option => ({ id: option.id, label: t(option.labelKey) }))} />
       </div>
 
       {/* Results */}

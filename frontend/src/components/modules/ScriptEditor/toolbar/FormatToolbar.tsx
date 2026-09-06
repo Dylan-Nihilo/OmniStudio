@@ -1,5 +1,6 @@
 'use client';
 
+import { SelectField } from "@omnistudio/ui";
 import { useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import {
@@ -7,7 +8,6 @@ import {
   Redo2,
   Sparkles,
   Download,
-  ChevronDown,
   Pencil,
   LayoutGrid,
   BookOpen,
@@ -58,42 +58,12 @@ export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeCha
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-glass-border bg-surface px-4">
       {/* Format Selector */}
-      <div className="relative">
-        <select
-          value={currentFormat}
-          onChange={(e) => setFormat(e.target.value as ScriptFormat)}
-          className="appearance-none rounded-md border border-glass-border bg-input-bg px-3 py-1.5 pr-7 text-xs text-foreground outline-none transition-colors hover:border-primary focus:border-[var(--color-primary)]"
-        >
-          {FORMAT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown
-          size={12}
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
-        />
-      </div>
+      <SelectField label={t('toolbar.format')} className="max-w-40 [&>label]:sr-only" value={currentFormat} onChange={value => setFormat(value as ScriptFormat)}
+        options={FORMAT_OPTIONS.map(option => ({ id: option.value, label: option.label }))} />
 
       {/* Rendering Selector */}
-      <div className="relative">
-        <select
-          value={currentRendering}
-          onChange={(e) => setRendering(e.target.value as TextRendering)}
-          className="appearance-none rounded-md border border-glass-border bg-input-bg px-3 py-1.5 pr-7 text-xs text-foreground outline-none transition-colors hover:border-primary focus:border-[var(--color-primary)]"
-        >
-          {RENDERING_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown
-          size={12}
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
-        />
-      </div>
+      <SelectField label={t('toolbar.rendering')} className="max-w-40 [&>label]:sr-only" value={currentRendering} onChange={value => setRendering(value as TextRendering)}
+        options={RENDERING_OPTIONS.map(option => ({ id: option.value, label: option.label }))} />
 
       {/* Separator */}
       <div className="mx-1 h-5 w-px bg-glass-border" />
