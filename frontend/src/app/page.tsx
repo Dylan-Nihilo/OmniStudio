@@ -792,6 +792,11 @@ function AuthenticatedHome() {
 
     // Workspace view — Line B skeleton
     const wsAllProjects: Project[] = [...Object.values(seriesEpisodes).flat(), ...standaloneProjects];
+    const archivedSeriesEpisodeIds = new Set(
+      seriesList
+        .filter((series) => series.archived)
+        .flatMap((series) => (seriesEpisodes[series.id] || []).map((episode) => episode.id))
+    );
     const wsStatusCounts: Record<"all" | DerivedStatus | "archived", number> = {
       all: wsAllProjects.length,
       completed: 0,
@@ -800,13 +805,14 @@ function AuthenticatedHome() {
       archived: 0,
     };
     for (const p of wsAllProjects) {
-      if (p.archived) wsStatusCounts.archived++;
+      if (p.archived || archivedSeriesEpisodeIds.has(p.id)) wsStatusCounts.archived++;
       else wsStatusCounts[deriveStatus(p)]++;
     }
     const wsQuery = wsSearch.trim().toLowerCase();
     const wsFiltering = wsStatus !== "all" || wsQuery.length > 0;
-    const wsMatch = (p: Project, seriesTitleMatched = false) => {
-      if (wsStatus === "archived" ? !p.archived : p.archived || (wsStatus !== "all" && deriveStatus(p) !== wsStatus)) return false;
+    const wsMatch = (p: Project, seriesTitleMatched = false, parentArchived = false) => {
+      const archived = p.archived || parentArchived;
+      if (wsStatus === "archived" ? !archived : archived || (wsStatus !== "all" && deriveStatus(p) !== wsStatus)) return false;
       // A matching series title keeps the whole series' episodes visible (search at group level).
       if (wsQuery && !seriesTitleMatched && !p.title.toLowerCase().includes(wsQuery)) return false;
       return true;
@@ -824,7 +830,7 @@ function AuthenticatedHome() {
       const seriesTitleMatched = wsQuery.length > 0 && s.title.toLowerCase().includes(wsQuery);
       const eps = [...(seriesEpisodes[s.id] || [])]
         .sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0))
-        .filter((ep) => wsMatch(ep, seriesTitleMatched));
+        .filter((ep) => wsMatch(ep, seriesTitleMatched, Boolean(s.archived)));
       return { s, eps };
     });
     const wsVisibleStandalone = standaloneProjects.filter((p) => wsMatch(p));
@@ -1039,6 +1045,7 @@ function AuthenticatedHome() {
                       >
                         {s.title}
                       </button>
+                      {s.archived && <span className="rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">项目已归档</span>}
                       <span className="font-mono text-[0.625rem] uppercase tracking-wider text-text-muted">
                         {t("series")} · {t("frames", { count: eps.length })}
                       </span>

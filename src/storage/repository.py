@@ -534,6 +534,8 @@ class SQLiteRepository:
                                     deep=True,
                                     update={"series_id": None, "episode_number": None},
                                 ),
+                                archived=script.archived,
+                                archived_at=script.archived_at,
                                 created_at=episode_row[Episode.__table__.c.created_at],
                                 updated_at=episode_row[Episode.__table__.c.updated_at],
                             )
@@ -577,6 +579,8 @@ class SQLiteRepository:
                                     item.model_copy(deep=True) for item in series.custom_voices
                                 ],
                                 "content_mode": series.content_mode,
+                                "archived": series.archived,
+                                "archived_at": series.archived_at,
                             }
 
                     project = _LoadedProject(
@@ -588,6 +592,14 @@ class SQLiteRepository:
                         episodes=episodes,
                         created_at=project_row["created_at"],
                         updated_at=project_row["updated_at"],
+                        **(
+                            {}
+                            if project_row["mode"] == ProjectMode.SERIES.value
+                            else {
+                                "archived": episodes[0].archived if episodes else False,
+                                "archived_at": episodes[0].archived_at if episodes else None,
+                            }
+                        ),
                         **shared_values,
                     )
                     projects[project_id] = project

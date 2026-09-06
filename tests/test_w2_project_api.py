@@ -202,6 +202,76 @@ def test_episode_order_move_and_archive_api(api_client):
     assert moved.status_code == 200, moved.text
 
 
+def test_series_and_episode_archive_are_independent_and_audited(api_client):
+    series = _create_series(api_client, "项目与集归档分离")
+    first = _create_project(api_client, "独立归档第一集")
+    second = _create_project(api_client, "独立归档第二集")
+    _add_episode(api_client, series["id"], first["id"], 1)
+    _add_episode(api_client, series["id"], second["id"], 2)
+
+    impact = api_client.get(f"/series/{series['id']}/archive-impact")
+    assert impact.status_code == 200, impact.text
+    assert impact.json()["impact"]["episodes"] == 2
+    assert "不会归档或删除 Episode" in impact.json()["message"]
+
+    archived_project = api_client.post(f"/series/{series['id']}/archive")
+    assert archived_project.status_code == 200, archived_project.text
+    assert archived_project.json()["archived"] is True
+    assert api_client.get(f"/series/{series['id']}").json()["archived"] is True
+    assert api_client.get(f"/projects/{first['id']}").json()["archived"] is False
+
+    archived_episode = api_client.post(f"/series/{series['id']}/episodes/{first['id']}/archive")
+    assert archived_episode.status_code == 200, archived_episode.text
+    assert api_client.get(f"/projects/{first['id']}").json()["archived"] is True
+    assert api_client.get(f"/projects/{second['id']}").json()["archived"] is False
+
+    restored_project = api_client.post(f"/series/{series['id']}/restore")
+    assert restored_project.status_code == 200, restored_project.text
+    assert restored_project.json()["archived"] is False
+    assert api_client.get(f"/projects/{first['id']}").json()["archived"] is True
+
+    workspace_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    actions = [
+        event.action
+        for event in api_module.pipeline.repository.list_audit_events(workspace_id)
+    ]
+    assert "project.archive" in actions
+    assert "episode.archive" in actions
+    assert "project.restore" in actions
+
+
+def test_episode_defaults_preview_then_promote_updates_only_series_defaults(api_client):
+    series = _create_series(api_client, "Episode 默认配置")
+    episode = _create_project(api_client, "默认来源集")
+    _add_episode(api_client, series["id"], episode["id"], 1)
+    api_module.pipeline.scripts[episode["id"]].default_generation_mode = "i2v"
+
+    preview = api_client.get(
+        f"/series/{series['id']}/episodes/{episode['id']}/promote-defaults/preview"
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["episode_id"] == episode["id"]
+    assert preview.json()["changes"]["default_generation_mode"]["after"] == "i2v"
+    assert api_module.pipeline.get_series(series["id"]).default_generation_mode == "r2v"
+
+    promoted = api_client.post(
+        f"/series/{series['id']}/episodes/{episode['id']}/promote-defaults",
+        json={"sections": ["default_generation_mode"]},
+    )
+    assert promoted.status_code == 200, promoted.text
+    assert promoted.json()["series"]["default_generation_mode"] == "i2v"
+    assert promoted.json()["episode"]["default_generation_mode"] == "i2v"
+
+    workspace_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    events = api_module.pipeline.repository.list_audit_events(workspace_id)
+    assert any(
+        event.action == "episode.defaults_promote"
+        and event.object_id == episode["id"]
+        and event.metadata["sections"] == ["default_generation_mode"]
+        for event in events
+    )
+
+
 def test_list_projects_uses_canonical_path_without_trailing_slash(api_client):
     project = _create_project(api_client, "列表接口回归")
 
