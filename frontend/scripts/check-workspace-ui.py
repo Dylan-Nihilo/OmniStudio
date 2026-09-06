@@ -1,5 +1,6 @@
 """Browser acceptance check; all account/project responses are local test data."""
 import sys
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 from playwright.sync_api import expect, sync_playwright
@@ -121,7 +122,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="重试", exact=True).click()
     expect(page.get_by_text("部分项目未能加载，请重试。")).not_to_be_visible()
     page.get_by_role("button", name="Dylan", exact=True).click()
-    page.get_by_role("combobox", name="当前 Workspace").select_option("empty")
+    page.get_by_role("button", name=re.compile("当前工作区")).click()
+    page.get_by_role("option", name="空白工作区", exact=True).click()
     page.keyboard.press("Escape")
     expect(page.get_by_role("heading", name="从一个故事开始")).to_be_visible()
     expect(page.get_by_role("heading", name="系列剧集", exact=True)).not_to_be_visible()
@@ -146,7 +148,8 @@ with sync_playwright() as p:
     expect(dialog).not_to_be_visible()
     state["mode"] = "populated"
     page.get_by_role("button", name="Dylan", exact=True).click()
-    page.get_by_role("combobox", name="当前 Workspace").select_option("preview")
+    page.get_by_role("button", name=re.compile("当前工作区")).click()
+    page.get_by_role("option", name="创作工作室", exact=True).click()
     page.keyboard.press("Escape")
     user["display_name"] = "A creator with a very long display name"
     projects[0]["title"] = "A long story title that must wrap without obscuring the project controls"

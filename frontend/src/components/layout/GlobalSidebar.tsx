@@ -45,9 +45,9 @@ export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: s
 
 export const getUserMenuLayerClasses = () => "relative z-30";
 export const getUserMenuPopoverClasses = () =>
-  "z-[70] isolate rounded-xl border border-glass-border bg-elevated shadow-lg";
+  "isolate rounded-xl border border-glass-border bg-elevated shadow-lg";
 export const getLogoutButtonClasses = () =>
-  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-status-failed-fg transition hover:bg-status-failed-bg hover:text-status-failed-fg";
+  "flex w-full items-center justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-status-failed-fg transition hover:bg-status-failed-bg hover:text-status-failed-fg";
 
 function NavButton({
   active,
@@ -108,7 +108,7 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, workspa
 
   const account = (
     <div className={clsx(styles.account, getUserMenuLayerClasses())}>
-      <Popover isOpen={menuOpen} onOpenChange={setMenuOpen}>
+      <WorkspaceControls>{controls => <Popover isOpen={menuOpen} onOpenChange={setMenuOpen}>
         <Button variant="quiet" aria-label={displayName} className={styles.accountButton}>
           <span className={styles.avatar}>{avatarLetter}</span>
           <span className={styles.identity}>
@@ -116,9 +116,9 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, workspa
           </span>
           <ChevronUp size={15} className={styles.accountChevron} />
         </Button>
-        <Popover.Content placement="top start" offset={8} className={clsx(styles.popover, getUserMenuPopoverClasses())}>
+        <Popover.Content placement="top start" offset={8} style={{ zIndex: 50 }} className={clsx(styles.popover, getUserMenuPopoverClasses())}>
           <Popover.Dialog aria-label={displayName}>
-            <WorkspaceControls />
+            {controls}
             <Button variant="quiet" onPress={() => { setMenuOpen(false); setChangePasswordOpen(true); }} className={styles.accountAction}>
               <KeyRound size={15} />{ta("changePassword")}
             </Button>
@@ -127,7 +127,7 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, workspa
             </Button>
           </Popover.Dialog>
         </Popover.Content>
-      </Popover>
+      </Popover>}</WorkspaceControls>
     </div>
   );
 

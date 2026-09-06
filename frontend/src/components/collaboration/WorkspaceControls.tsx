@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { Copy, Plus, Users } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, Dialog, EmptyState, IconButton, LoadingState, SelectField, TextField } from "@omnistudio/ui";
@@ -16,7 +16,7 @@ interface WorkspaceMember {
   role: "owner" | "member";
 }
 
-export default function WorkspaceControls() {
+export default function WorkspaceControls({ children }: { children?: (controls: ReactNode) => ReactNode }) {
   const t = useTranslations("workspaceControls");
   const tc = useTranslations("common");
   const active = useAuthStore((state) => state.activeWorkspace);
@@ -58,8 +58,7 @@ export default function WorkspaceControls() {
     finally { setBusy(false); }
   };
 
-  return (
-    <>
+  const controls = (
       <div className="mb-2 grid gap-2 border-b border-glass-border pb-3">
         <SelectField label={t("currentWorkspace")} value={active?.id ?? null} onChange={(value) => { if (typeof value === "string") void switchWorkspace(value); }}
           options={workspaces.map(workspace => ({ id: workspace.id, label: workspace.name }))} isDisabled={busy || membersOpen || createOpen} />
@@ -71,6 +70,11 @@ export default function WorkspaceControls() {
         {busy && !createOpen && <LoadingState inline label={t("switching")} />}
         {error && !createOpen && <p role="alert" className="text-xs text-status-failed-fg">{error}</p>}
       </div>
+  );
+
+  return (
+    <>
+      {children ? children(controls) : controls}
       <Dialog isOpen={createOpen} onOpenChange={(open) => { if (!busy) setCreateOpen(open); }} isDismissable={!busy} title={t("createWorkspace")} closeLabel={tc("close")}
         footer={<><Button variant="secondary" isDisabled={busy} onPress={() => setCreateOpen(false)}>{tc("cancel")}</Button><Button type="submit" form={formId} isPending={busy} isDisabled={!name.trim()}>{tc("create")}</Button></>}>
         <form id={formId} onSubmit={addWorkspace} className="grid gap-4">

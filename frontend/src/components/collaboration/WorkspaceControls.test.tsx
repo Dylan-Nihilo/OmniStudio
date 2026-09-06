@@ -27,7 +27,8 @@ it('keeps the account popover open while choosing a workspace in a portaled list
 it('retains a failed workspace draft and blocks dismissal during creation', async () => {
   let reject!: (error: Error) => void;
   auth.createWorkspace.mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
-  render(<WorkspaceControls />);
+  render(<GlobalSidebar activeTab="workspace" onTabChange={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'artist' }));
   fireEvent.click(screen.getByRole('button', { name: 'createWorkspace' }));
   const dialog = await screen.findByRole('dialog', { name: 'createWorkspace' });
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'workspaceName' }), { target: { value: 'My studio' } });
@@ -54,4 +55,19 @@ it('requires in-app confirmation to remove a member and retains the member after
   await waitFor(() => expect(remove).toHaveBeenCalledWith('/auth/workspaces/one/members/member'));
   expect(await within(confirm).findByRole('alert')).toHaveTextContent('removeFailed');
   expect(get).toHaveBeenCalledTimes(1);
+});
+
+it('retries switching to an already-created workspace without creating a duplicate', async () => {
+  auth.createWorkspace.mockResolvedValue({ id: 'created' });
+  auth.setActiveWorkspace.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined);
+  render(<WorkspaceControls />);
+  fireEvent.click(screen.getByRole('button', { name: 'createWorkspace' }));
+  const dialog = await screen.findByRole('dialog', { name: 'createWorkspace' });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'workspaceName' }), { target: { value: 'My studio' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'create' }));
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('switchCreatedFailed');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'create' }));
+  await waitFor(() => expect(auth.setActiveWorkspace).toHaveBeenCalledTimes(2));
+  expect(auth.createWorkspace).toHaveBeenCalledOnce();
+  expect(auth.setActiveWorkspace).toHaveBeenLastCalledWith('created');
 });

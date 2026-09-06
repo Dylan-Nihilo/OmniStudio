@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import WorkspaceNavigation from "./WorkspaceNavigation";
 import GlobalSidebar from "../layout/GlobalSidebar";
 
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string) => key }));
-vi.mock("@/components/collaboration/WorkspaceControls", () => ({ default: () => <button>switchWorkspace</button> }));
+vi.mock("@/components/collaboration/WorkspaceControls", () => ({ default: ({ children }: { children: (controls: ReactNode) => ReactNode }) => children(<button>switchWorkspace</button>) }));
 vi.mock("@/components/auth/ChangePasswordDialog", () => ({ default: () => null }));
 vi.mock("@/store/authStore", () => ({ useAuthStore: (select: (s: unknown) => unknown) => select({ user: { username: "artist" }, logout: vi.fn() }) }));
 
