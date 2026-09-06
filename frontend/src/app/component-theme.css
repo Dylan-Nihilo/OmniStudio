@@ -32,3 +32,8 @@
     font-family: var(--font-inter), sans-serif;
   }
 }
+
+/* This confirmation opens above the legacy voice picker (z-index: 100). */
+@layer components {
+  .modal__backdrop:has(.voice-delete-confirmation) { z-index: 101; }
+}

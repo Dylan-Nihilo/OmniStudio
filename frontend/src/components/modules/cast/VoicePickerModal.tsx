@@ -22,6 +22,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Play, Pause, Check, Sparkles, Loader2, Trash2 } from "lucide-react";
+import { Button, Dialog } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import { api, type VoiceMeta, type CustomVoice } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
@@ -66,6 +67,7 @@ export default function VoicePickerModal({
     characterDescription,
 }: VoicePickerModalProps) {
     const t = useTranslations("voicePicker");
+    const tc = useTranslations("common");
     const [tab, setTab] = useState<Tab>("system");
     const [voices, setVoices] = useState<VoiceMeta[]>([]);
     const [customVoices, setCustomVoices] = useState<CustomVoice[]>([]);
@@ -76,6 +78,9 @@ export default function VoicePickerModal({
     const [previewingId, setPreviewingId] = useState<string | null>(null);
     const [cloneModalOpen, setCloneModalOpen] = useState(false);
     const [designModalOpen, setDesignModalOpen] = useState(false);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // Sync selected when current changes / modal opens
@@ -130,16 +135,17 @@ export default function VoicePickerModal({
     };
 
     // PR-3h · delete a custom voice (Tab 2/3 trash icon)
-    const handleDeleteCustom = async (voiceId: string) => {
-        if (!seriesId) return;
-        if (!window.confirm(t("confirmDelete"))) return;
+    const handleDeleteCustom = async () => {
+        if (!seriesId || !deletingId || isDeleting) return;
+        setIsDeleting(true);
+        setDeleteError(false);
         try {
-            await api.deleteCustomVoice(seriesId, voiceId);
-            await refreshCustomVoices();
-            if (selectedId === voiceId) setSelectedId(undefined);
-        } catch (e) {
-            console.error("Failed to delete custom voice:", e);
-        }
+            await api.deleteCustomVoice(seriesId, deletingId);
+            setCustomVoices(current => current.filter(voice => voice.id !== deletingId));
+            if (selectedId === deletingId) setSelectedId(undefined);
+            setDeletingId(null);
+        } catch { setDeleteError(true); }
+        finally { setIsDeleting(false); }
     };
 
     // Stop any in-flight audio when closing
@@ -231,6 +237,7 @@ export default function VoicePickerModal({
     if (!isOpen) return null;
 
     return (
+        <>
         <div className="fixed inset-0 z-[100] grid place-items-center bg-overlay backdrop-blur-sm" onClick={onClose}>
             <div
                 className="w-full max-w-4xl max-h-[85vh] flex flex-col rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
@@ -334,7 +341,7 @@ export default function VoicePickerModal({
                                 previewingId={previewingId}
                                 onSelect={setSelectedId}
                                 onPreview={(cv) => handlePreviewCustom(cv)}
-                                onDelete={handleDeleteCustom}
+                                onDelete={id => { setDeleteError(false); setDeletingId(id); }}
                                 onCreate={() => setCloneModalOpen(true)}
                                 createLabel={t("cloneCreateBtn")}
                                 emptyTitle={t("cloneEmptyTitle")}
@@ -358,7 +365,7 @@ export default function VoicePickerModal({
                                 previewingId={previewingId}
                                 onSelect={setSelectedId}
                                 onPreview={(cv) => handlePreviewCustom(cv)}
-                                onDelete={handleDeleteCustom}
+                                onDelete={id => { setDeleteError(false); setDeletingId(id); }}
                                 onCreate={() => setDesignModalOpen(true)}
                                 createLabel={t("designCreateBtn")}
                                 emptyTitle={t("designEmptyTitle")}
@@ -427,6 +434,13 @@ export default function VoicePickerModal({
                 />
             )}
         </div>
+            <Dialog isOpen={Boolean(deletingId)} className="voice-delete-confirmation" title={tc("delete")} closeLabel={tc("close")} isDismissable={!isDeleting}
+                onOpenChange={open => { if (!open && !isDeleting) setDeletingId(null); }}
+                footer={<><Button variant="secondary" isDisabled={isDeleting} onPress={() => setDeletingId(null)}>{tc("cancel")}</Button><Button variant="danger" isPending={isDeleting} onPress={() => void handleDeleteCustom()}>{tc("confirm")}</Button></>}>
+                <p>{t("confirmDelete")}</p>
+                {deleteError && <p role="alert" className="mt-3 text-sm text-status-failed-fg">{t("deleteFailed")}</p>}
+            </Dialog>
+        </>
     );
 }
 

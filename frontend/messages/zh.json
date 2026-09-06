@@ -78,6 +78,7 @@
     "originClone": "复刻",
     "originDesign": "设计",
     "confirmDelete": "确定要删除此音色吗？已绑定的角色会失效。",
+    "deleteFailed": "删除音色失败，请重试。",
     "designEmptyTitle": "暂无设计音色",
     "designEmptyBody": "描述你想要的音色（如「温柔知性女声，30 岁左右」），AI 从零生成专属音色。",
     "designCreateBtn": "+ 设计新音色",

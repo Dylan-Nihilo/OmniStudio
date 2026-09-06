@@ -78,6 +78,7 @@
     "originClone": "Clone",
     "originDesign": "Design",
     "confirmDelete": "Delete this voice? Characters using it will become unbound.",
+    "deleteFailed": "Could not delete the voice. Please retry.",
     "designEmptyTitle": "No designed voices yet",
     "designEmptyBody": "Describe the voice you want (e.g. 'warm 30-something female') and AI generates a custom one.",
     "designCreateBtn": "+ Design new voice",
