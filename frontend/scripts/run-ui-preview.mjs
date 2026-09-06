@@ -180,7 +180,7 @@ export async function previewHandler(request, response) {
         return saveFrames();
       }
       if (route === "frames/update" && method === "POST") {
-        const textFields = ["image_prompt", "action_description", "dialogue", "camera_angle", "scene_id", "shot_size", "camera_movement_description", "transition_hint"];
+        const textFields = ["image_prompt", "action_description", "visual_description", "dialogue", "camera_angle", "scene_id", "shot_size", "camera_movement_description", "transition_hint"];
         if (textFields.some(key => body[key] != null && typeof body[key] !== "string") ||
             body.duration != null && (!Number.isFinite(body.duration) || body.duration <= 0) ||
             body.character_ids != null && (!Array.isArray(body.character_ids) || body.character_ids.some(id => typeof id !== "string"))) return invalid();

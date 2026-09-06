@@ -27,6 +27,9 @@ test("preview supports isolated project/series/document edits and rejects unsupp
     const frame = (await addFrame.json()).frames[0];
     assert.equal(frame.action_description, "First shot");
     assert.equal((await request(`/projects/${created.id}/frames/update`, "POST", { frame_id: frame.id, action_description: "Edited shot" })).status, 200);
+    assert.equal((await request(`/projects/${created.id}/frames/update`, "POST", { frame_id: frame.id, visual_description: "Refined shot" })).status, 200);
+    assert.equal((await (await fetch(base + `/projects/${created.id}`)).json()).frames[0].visual_description, "Refined shot");
+    assert.equal((await request(`/projects/${created.id}/frames/update`, "POST", { frame_id: frame.id, visual_description: {} })).status, 422);
     assert.equal((await request(`/projects/${created.id}/frames/${frame.id}/workbench`, "PATCH", { workbench_generate_count: 4 })).status, 200);
     assert.equal((await request(`/projects/${created.id}/frames/${frame.id}/workbench`, "PATCH", { workbench_generate_count: -1 })).status, 422);
     const copied = await (await request(`/projects/${created.id}/frames/copy`, "POST", { frame_id: frame.id, insert_at: 1 })).json();
