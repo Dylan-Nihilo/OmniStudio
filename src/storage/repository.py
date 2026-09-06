@@ -738,6 +738,35 @@ class SQLiteRepository:
         except Exception as exc:
             raise StorageError(f"Failed to delete series {series_id}; transaction rolled back: {exc}") from exc
 
+    def purge_series(self, series_id: str) -> None:
+        """Permanently delete a Series project and all of its Episodes."""
+        self._validate_id(series_id, "series_id")
+        try:
+            with self.engine.begin() as connection:
+                series_row = connection.execute(
+                    select(Series.__table__.c.project_id).where(Series.__table__.c.id == series_id)
+                ).mappings().first()
+                if series_row is None:
+                    return
+                episode_ids = [
+                    row[0]
+                    for row in connection.execute(
+                        select(Episode.__table__.c.id).where(Episode.__table__.c.series_id == series_id)
+                    )
+                ]
+                if episode_ids:
+                    connection.execute(delete(Script.__table__).where(Script.__table__.c.id.in_(episode_ids)))
+                    connection.execute(delete(Episode.__table__).where(Episode.__table__.c.id.in_(episode_ids)))
+                connection.execute(delete(Series.__table__).where(Series.__table__.c.id == series_id))
+                connection.execute(
+                    delete(Project.__table__).where(
+                        Project.__table__.c.id == series_row["project_id"],
+                        Project.__table__.c.mode == "series",
+                    )
+                )
+        except Exception as exc:
+            raise StorageError(f"Failed to purge series {series_id}; transaction rolled back: {exc}") from exc
+
     def finalize_standalone_to_series(self, standalone_id: str, series_id: str) -> None:
         """Retire the old standalone envelope after its Episode was reparented.
 

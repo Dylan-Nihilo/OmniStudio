@@ -12,7 +12,7 @@ import { api } from "@/lib/api";
 
 interface ProjectCardProps {
     project: Project;
-    onDelete: (id: string) => void;
+    onDelete: (project: Project) => void | Promise<void>;
     onArchive: (project: Project) => void;
     onRestore: (project: Project) => void;
     onRename: (project: Project) => void;
@@ -121,7 +121,7 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
     const handleDelete = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (confirm(t("confirmDelete", { title: project.title }))) {
-            onDelete(project.id);
+            void onDelete(project);
         }
     };
 

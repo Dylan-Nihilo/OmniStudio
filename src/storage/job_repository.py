@@ -408,6 +408,30 @@ class JobRepository:
             ).mappings().one()
         return self._item_record(updated)
 
+    def update_item_payload(self, item_id: str, payload: dict[str, Any]) -> JobItemRecord:
+        """Persist worker-produced details such as a cleanup report."""
+        now = time.time()
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(JobItem.__table__).where(JobItem.__table__.c.id == item_id)
+            ).mappings().first()
+            if row is None:
+                raise StorageError(f"JobItem {item_id} not found")
+            connection.execute(
+                update(JobItem.__table__)
+                .where(JobItem.__table__.c.id == item_id)
+                .values(payload_json=json.dumps(payload, ensure_ascii=False), updated_at=now)
+            )
+            connection.execute(
+                update(Job.__table__)
+                .where(Job.__table__.c.id == row["job_id"])
+                .values(updated_at=now)
+            )
+            updated = connection.execute(
+                select(JobItem.__table__).where(JobItem.__table__.c.id == item_id)
+            ).mappings().one()
+        return self._item_record(updated)
+
     def list_jobs(
         self,
         workspace_id: str,

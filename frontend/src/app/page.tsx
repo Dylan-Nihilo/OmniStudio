@@ -499,7 +499,6 @@ function AuthenticatedHome() {
   const [, setEpisodesLoading] = useState(false);
   const projects = useProjectStore((state) => state.projects);
   const seriesList = useProjectStore((state) => state.seriesList);
-  const deleteProject = useProjectStore((state) => state.deleteProject);
   const updateProject = useProjectStore((state) => state.updateProject);
   const setProjects = useProjectStore((state) => state.setProjects);
   const fetchSeriesList = useProjectStore((state) => state.fetchSeriesList);
@@ -535,6 +534,32 @@ function AuthenticatedHome() {
       updateProject(project.id, updated);
     } catch (error: any) {
       window.alert(error?.response?.data?.detail || "项目恢复失败");
+    }
+  };
+  const permanentlyDeleteProject = async (project: Project) => {
+    try {
+      const preview = await api.getProjectPurgeImpact(project.id);
+      const i = preview.impact;
+      const ok = window.confirm(
+        `${preview.message}\n\n将永久清除：${i.episodes} 集、${i.characters} 个角色、${i.scenes} 个场景、${i.props} 个道具、${i.shots} 个镜头、${i.video_tasks} 个视频任务。\n\n${preview.confirmation_phrase}「${project.title}」？此操作不可撤销。`
+      );
+      if (!ok) return;
+      const submitted = await api.purgeProject(project.id, preview.confirmation_token);
+      let job = await api.getPurgeJob(submitted.job_id);
+      for (let attempt = 0; attempt < 20 && (job.status === "pending" || job.status === "processing"); attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        job = await api.getPurgeJob(submitted.job_id);
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error_message || "永久清除失败");
+      }
+      await syncAll();
+      const media = job.report?.media;
+      window.alert(
+        `永久清除完成。\n\n已删除本地媒体：${media?.deleted ?? 0}\n共享媒体跳过：${media?.skipped_shared ?? 0}\n清理警告：${media?.failed ?? 0}`
+      );
+    } catch (error: any) {
+      window.alert(error?.response?.data?.detail || error?.message || "永久清除失败");
     }
   };
   const convertProject = async (project: Project) => {
@@ -1089,7 +1114,7 @@ function AuthenticatedHome() {
                             className="atelier-reveal"
                             style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                           >
-                            <ProjectCard project={ep} onDelete={deleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
+                            <ProjectCard project={ep} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                           </div>
                         ))}
                         {!wsFiltering && <NewProjectTile episode onClick={() => { setDialogSeries({ id: s.id, title: s.title }); setIsDialogOpen(true); }} />}
@@ -1146,7 +1171,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                            <ProjectCard project={p} onDelete={deleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
+                            <ProjectCard project={p} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                         </div>
                       ))}
                       {!wsFiltering && <NewProjectTile onClick={() => setIsDialogOpen(true)} />}
