@@ -10,7 +10,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
 
-const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     retryVideoTask: vi.fn(),
@@ -18,6 +18,7 @@ const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFram
     uploadT2IFrame: vi.fn(),
     getProject: vi.fn(),
     generateDialogueAudioBatch: vi.fn(),
+    analyzeToStoryboard: vi.fn(),
     getTaskStatus: vi.fn(),
     toastError: vi.fn(),
     deleteFrame: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@/lib/api", () => ({
         uploadT2IFrame,
         getProject,
         generateDialogueAudioBatch,
+        analyzeToStoryboard,
         getTaskStatus,
         updateFrameWorkbench,
         updateFrame,
@@ -129,7 +131,7 @@ vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", async importOrig
         <button onClick={() => onAudioUpdated({ frames: [{ id: frameId, action_description: "Stale prompt", dialogue: "Stale dialogue", audio_url: "new-audio.mp3", dialogue_snapshot_text: "Saved dialogue", audio_generation_status: "completed" }] })}>audio completed</button>
     </>,
 }));
-vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({ default: () => null }));
+vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({ default: ({ isOpen, onConfirm }: { isOpen: boolean; onConfirm: () => void }) => isOpen ? <button onClick={onConfirm}>confirm storyboard</button> : null }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: ({ onUpload, onRemove }: { onUpload: (file: File) => Promise<unknown>; onRemove: (index: number) => void }) => <><button onClick={() => { void onUpload(new File(['image'], 'first-frame.png', { type: 'image/png' })); }}>upload first frame</button><button onClick={() => onRemove(0)}>remove first frame</button></> }));
@@ -157,6 +159,18 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("keeps existing storyboard shots when replacement generation fails", async () => {
+        const frame = { id: "original-shot", action_description: "Keep the original shot" };
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, originalText: "A radio operator listens for a signal in the dark.".repeat(2), frames: [frame] } }));
+        analyzeToStoryboard.mockRejectedValueOnce(new Error("Analysis unavailable"));
+        render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "genShots" }));
+        fireEvent.click(screen.getByRole("button", { name: "confirm storyboard" }));
+        await waitFor(() => expect(toastError).toHaveBeenCalled());
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Keep the original shot");
+        expect(useProjectStore.getState().currentProject!.frames).toEqual([frame]);
+    });
+
     it("saves before batch dialogue, retains its request on reentry and merges only audio", async () => {
         const frame = { id: "batch-frame", action_description: "Original", dialogue: "Current dialogue", character_ids: ["character-1"] };
         const project = { ...useProjectStore.getState().currentProject!, frames: [frame], characters: [{ id: "character-1", name: "Speaker", voice_id: "voice" }] };
@@ -497,6 +511,7 @@ describe("StoryboardR2V synthetic frame generation", () => {
         vi.clearAllMocks();
         getProject.mockReset();
         generateDialogueAudioBatch.mockReset();
+        analyzeToStoryboard.mockReset();
         useDialogueAudioRequests.setState({}, true);
         renderFrame.mockReset();
         useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} });

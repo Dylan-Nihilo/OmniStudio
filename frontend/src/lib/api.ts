@@ -1,6 +1,15 @@
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
+export interface StoryboardGeneration {
+    id: string;
+    phase: "analyze" | "refine";
+    status: "pending" | "processing" | "completed" | "failed";
+    frame_ids: string[];
+    results: Record<string, "completed" | "failed" | "skipped">;
+    error?: string | null;
+}
+
 export interface DialogueAudioBatch {
     id: string;
     status: "pending" | "processing" | "completed" | "failed";
@@ -232,6 +241,8 @@ export interface RefineSSEEvent {
     frame_index?: number;
     total?: number;
     error?: string;
+    success?: number;
+    failed?: number;
 }
 
 /**
@@ -1116,36 +1127,60 @@ export const api = {
         return res.data;
     },
 
-    /** Schema v2 · Batch refine all frames via SSE stream. */
+    /** Read complete SSE records; a closed stream alone is not proof of success. */
     refineBatchFrames: async (
         scriptId: string,
         onEvent: (event: RefineSSEEvent) => void,
-    ): Promise<void> => {
-        const response = await apiStreamRequest(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
-            method: "POST",
-        });
-        if (!response.ok) throw new Error("Failed to start batch refine");
-        const reader = response.body?.getReader();
-        if (!reader) return;
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            let currentEventType = "";
-            for (const line of lines) {
-                if (line.startsWith("event: ")) {
-                    currentEventType = line.slice(7).trim();
-                } else if (line.startsWith("data: ")) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        onEvent({ type: currentEventType as RefineSSEEvent["type"], ...data });
-                    } catch { /* skip malformed lines */ }
+        frameIds?: string[],
+    ): Promise<{ total: number; success: number; failed: number }> => {
+        const controller = new AbortController();
+        let timer = setTimeout(() => controller.abort(), 120_000);
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        try {
+            const response = await apiStreamRequest(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
+                method: "POST", signal: controller.signal,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ frame_ids: frameIds }),
+            });
+            if (!response.ok) throw new Error("Failed to start batch refinement");
+            reader = response.body?.getReader();
+            if (!reader) throw new Error("Batch refinement returned no stream");
+            const decoder = new TextDecoder();
+            let buffer = "", eventType = "", data: string[] = [];
+            while (true) {
+                clearTimeout(timer);
+                // A stalled connection must yield to project readback, not wait indefinitely.
+                timer = setTimeout(() => controller.abort(), 120_000);
+                const { done, value } = await reader.read();
+                buffer += done ? decoder.decode() + "\n\n" : decoder.decode(value, { stream: true });
+                let end: number;
+                while ((end = buffer.indexOf("\n")) >= 0) {
+                    const line = buffer.slice(0, end).replace(/\r$/, "");
+                    buffer = buffer.slice(end + 1);
+                    if (line.startsWith("event:")) eventType = line.slice(6).trim();
+                    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+                    else if (!line) {
+                        if (data.length) {
+                            const payload = JSON.parse(data.join("\n"));
+                            if (["frame_refine_start", "frame_refine_complete", "frame_refine_error", "batch_complete"].includes(eventType)) {
+                                onEvent({ ...payload, type: eventType as RefineSSEEvent["type"] });
+                                if (eventType === "batch_complete") {
+                                    const { total, success, failed } = payload;
+                                    if (![total, success, failed].every(value => Number.isInteger(value) && value >= 0) || success + failed !== total) throw new Error("Invalid batch refinement result");
+                                    return { total, success, failed };
+                                }
+                            }
+                        }
+                        eventType = ""; data = [];
+                    }
                 }
+                if (done) throw new Error("Batch refinement ended before completion");
             }
+        } finally {
+            clearTimeout(timer);
+            await reader?.cancel().catch(() => {});
+            reader?.releaseLock();
+            controller.abort();
         }
     },
 

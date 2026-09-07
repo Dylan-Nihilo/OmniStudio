@@ -342,14 +342,7 @@ function StoryboardWorkbench() {
         return draft ?? (result !== "generated" && result !== "skipped" ? previous?.instructions[frame.id] : undefined);
     }, [firstFrameKey, currentProject?.dialogue_audio_batch]);
 
-    const PHASE1_CAPTIONS = useMemo(() => [
-        "正在分析剧本结构…",
-        "识别场景切换点…",
-        "拆分镜头与动作…",
-        "琢磨每帧的构图和节奏…",
-        "快了，安排景别和运镜…",
-        "最后润色一下…",
-    ], []);
+    const PHASE1_CAPTIONS = useMemo(() => [t("storyboardAnalyzing")], [t]);
 
     const bannerSummary = useMemo(() => {
         const frames = currentProject?.frames ?? [];
@@ -414,19 +407,24 @@ function StoryboardWorkbench() {
     const handleSmartGenerate = useCallback(async () => {
         if (!currentProject?.id || batchPending) return;
         const projectId = currentProject.id;
-        const scriptText = (currentProject as any).originalText || (currentProject as any).original_text || "";
+        const scriptText = (currentProject as any).original_text ?? currentProject.originalText ?? "";
         if (!scriptText.trim()) {
             toast.warning(t("genToastNoScript"));
             return;
         }
         setGenerating(true);
         setBannerState("phase1");
-        setShots([]);
+        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
         try {
+            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrent()) return;
             // Phase 1: generate coarse frames
             const updated = await api.analyzeToStoryboard(projectId, scriptText);
+            if (!isCurrent()) return;
             const newFrameCount = Array.isArray(updated?.frames) ? updated.frames.length : 0;
-            updateProject(projectId, updated);
+            updateProject(projectId, { frames: updated.frames, storyboard_generation: updated.storyboard_generation });
             if (Array.isArray(updated?.frames)) {
                 const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
                 const videoTasks: any[] = (updated as any).video_tasks ?? [];
@@ -437,24 +435,27 @@ function StoryboardWorkbench() {
             if (newFrameCount > 0) {
                 setBannerState("phase2");
                 setRefineProgress({ current: 0, total: newFrameCount });
-                await api.refineBatchFrames(projectId, (event: RefineSSEEvent) => {
-                    if (event.type === "frame_refine_start") {
+                const outcome = await api.refineBatchFrames(projectId, (event: RefineSSEEvent) => {
+                    if (isCurrent() && (event.type === "frame_refine_complete" || event.type === "frame_refine_error")) {
                         setRefineProgress({ current: (event.frame_index ?? 0) + 1, total: event.total ?? newFrameCount });
                     }
                 });
+                if (!isCurrent()) return;
                 const refreshed = await api.getProject(projectId);
+                if (!isCurrent()) return;
                 if (refreshed?.frames) {
-                    updateProject(projectId, { frames: refreshed.frames });
+                    updateProject(projectId, { frames: refreshed.frames, storyboard_generation: refreshed.storyboard_generation });
                     const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
                     const videoTasks: any[] = (refreshed as any).video_tasks ?? [];
                     setShots(refreshed.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
                 }
+                if (outcome.failed > 0) throw new Error(t("refinePartialFailure", { count: outcome.failed }));
             }
             setBannerState("summary");
             toast.success(t("genToastDone", { count: newFrameCount }));
         } catch (err: any) {
             const detail = err?.response?.data?.detail || err?.message || t("genToastErrUnknown");
-            toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
+            if (isCurrent()) toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
         } finally {
             setGenerating(false);
             setRefineProgress(null);
@@ -464,7 +465,7 @@ function StoryboardWorkbench() {
                 return currentShots;
             });
         }
-    }, [currentProject, updateProject, t, batchPending]);
+    }, [currentProject, updateProject, t, batchPending, firstFrameContext, saveAllDrafts]);
 
     const displayedRefinements = useRef<Record<string, number>>({});
     useEffect(() => {
