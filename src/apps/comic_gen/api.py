@@ -3873,58 +3873,25 @@ def revert_frame_dub(script_id: str, frame_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DialogueAudioBatchRequest(BaseModel):
+    instructions: Dict[str, str] = Field(default_factory=dict)
+
+
 @app.post("/projects/{script_id}/dialogue_audio/batch")
-def generate_dialogue_audio_batch(script_id: str):
-    """PR-3j · Generate audio for every frame that has dialogue.
-
-    Idempotent re-use: frames whose audio is already up-to-date (matching
-    text/voice/instructions hash) are skipped. Stale + missing frames get
-    regenerated using each character's bound voice.
-
-    Returns the updated script plus _batch_stats with generated/skipped/failed counts.
-    """
-    from .audio import dialogue_audio_is_stale
+def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudioBatchRequest] = None):
+    """Generate current dialogue and persist progress so retries can reuse completed audio."""
     try:
-        script = pipeline.get_script(script_id)
-        if not script:
-            raise HTTPException(status_code=404, detail="Script not found")
-        generated = 0
-        skipped = 0
-        failed = 0
-        no_voice = 0
-        for frame in script.frames:
-            dialogue_text = (
-                (frame.dialogue_structured.line if hasattr(frame, 'dialogue_structured') and frame.dialogue_structured else None)
-                or frame.dialogue
-            )
-            if not dialogue_text:
-                continue
-            speaker = pipeline._resolve_dialogue_speaker(script, frame)
-            if not speaker or not speaker.voice_id:
-                no_voice += 1
-                continue
-            if frame.audio_url and not dialogue_audio_is_stale(frame, speaker):
-                skipped += 1
-                continue
-            try:
-                pipeline.generate_dialogue_line(
-                    script_id,
-                    frame.id,
-                    speed=speaker.voice_speed,
-                    pitch=speaker.voice_pitch,
-                    volume=speaker.voice_volume,
-                )
-                generated += 1
-            except Exception as exc:
-                logger.error(f"[batch_dialogue_audio] frame={frame.id} error={exc}")
-                failed += 1
-        logger.info(f"[batch_dialogue_audio] script={script_id} generated={generated} skipped={skipped} failed={failed} no_voice={no_voice}")
-        script = pipeline.get_script(script_id)
-        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
-        response_data["_batch_stats"] = {"generated": generated, "skipped": skipped, "failed": failed, "no_voice": no_voice}
-        return signed_response(response_data)
-    except HTTPException:
-        raise
+        script = pipeline.generate_dialogue_audio_batch(script_id, request.instructions if request else None)
+        payload = script.model_dump()
+        results = script.dialogue_audio_batch.results.values()
+        payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
+        return signed_response(payload)
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

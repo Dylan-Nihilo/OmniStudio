@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 import time
 from pydantic import BaseModel, Field
@@ -540,6 +540,15 @@ class PromptConfig(BaseModel):
     # 显式覆盖时用于切到 vision-capable 或更便宜的模型（qwen3.6-flash、kimi-k2.6 等）。
     polish_model: str = Field("", description="Override LLM model id used for polish calls; empty = use system default")
 
+class DialogueAudioBatch(BaseModel):
+    id: str
+    status: GenerationStatus = GenerationStatus.PROCESSING
+    frame_ids: List[str]
+    instructions: Dict[str, str] = Field(default_factory=dict)
+    results: Dict[str, Literal["generated", "skipped", "failed", "no_voice", "busy"]] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
 class Script(BaseModel):
     id: str = Field(..., description="Unique identifier for the script project")
     title: str = Field(..., description="Title of the comic/video")
@@ -550,6 +559,7 @@ class Script(BaseModel):
     props: List[Prop] = Field(default_factory=list)
     frames: List[StoryboardFrame] = Field(default_factory=list)
     video_tasks: List[VideoTask] = Field(default_factory=list)
+    dialogue_audio_batch: Optional[DialogueAudioBatch] = None
     
     # Global style settings (legacy, will be replaced by art_direction)
     style_preset: str = Field("realistic", description="Global style preset for all image generations")

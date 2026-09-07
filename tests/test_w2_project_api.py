@@ -444,6 +444,123 @@ def test_dialogue_generation_saves_the_current_frame_and_preserves_previous_audi
         assert Path("output", restored[0]["audio_url"]).read_bytes() == b"new-audio"
 
 
+def test_dialogue_batch_recovers_partial_results_and_resolves_inherited_voices(api_client):
+    from src.apps.comic_gen.audio import AudioGenerator
+    from src.apps.comic_gen.models import Character, DialogueStructured
+
+    project = _create_project(api_client, "Batch dialogue")
+    route = f"/projects/{project['id']}"
+    series = _create_series(api_client)
+    _add_episode(api_client, series["id"], project["id"], 1)
+    api_module.pipeline.series_store[series["id"]].characters = [Character(id="voice", name="Speaker", description="", voice_id="inherited-voice")]
+    api_module.pipeline._save_series_data()
+    for line in ("First dialogue", "Second dialogue", "Unbound dialogue"):
+        api_client.post(route + "/frames", json={"scene_id": "", "action_description": line})
+    script = api_module.pipeline.scripts[project["id"]]
+    for index, frame in enumerate(script.frames):
+        frame.dialogue = ("First dialogue", "Second dialogue", "Unbound dialogue")[index]
+        frame.dialogue_structured = DialogueStructured(speaker="Speaker" if index < 2 else "Unbound", line=frame.dialogue)
+        frame.character_ids = ["voice"] if index < 2 else []
+    api_module.pipeline._save_data()
+    ids = [frame.id for frame in script.frames]
+    calls = []
+    fail_second = True
+    def synthesize(text, output_path, **kwargs):
+        calls.append(text)
+        assert kwargs["voice"] == "inherited-voice"
+        assert kwargs["instructions"] == "whisper"
+        running = api_client.get(route).json()
+        assert running["dialogue_audio_batch"]["status"] == "processing"
+        assert running["characters"][0]["voice_id"] == "inherited-voice"
+        assert api_client.post(route + "/dialogue_audio/batch").status_code == 409
+        api_client.post(route + "/frames/update", json={"frame_id": ids[0], "action_description": "New writing"})
+        if text == "Second dialogue" and fail_second:
+            raise RuntimeError("One voice failed")
+        Path(output_path).write_bytes(b"valid-audio")
+    with patch("src.apps.comic_gen.audio.TTSProcessor") as processor:
+        processor.return_value.synthesize.side_effect = synthesize
+        api_module.pipeline.audio_generator = AudioGenerator()
+        response = api_client.post(route + "/dialogue_audio/batch", json={"instructions": {ids[0]: "whisper", ids[1]: "whisper"}})
+        assert response.status_code == 200, response.text
+        assert response.json()["_batch_stats"] == {"generated": 1, "skipped": 0, "failed": 1, "no_voice": 1, "busy": 0}
+        api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+        restored = api_client.get(route).json()
+        assert restored["dialogue_audio_batch"]["results"] == {ids[0]: "generated", ids[1]: "failed", ids[2]: "no_voice"}
+        assert restored["frames"][0]["action_description"] == "New writing"
+        first_url = restored["frames"][0]["audio_url"]
+        fail_second = False
+        retry = api_client.post(route + "/dialogue_audio/batch", json={"instructions": {ids[1]: "whisper"}})
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["_batch_stats"] == {"generated": 1, "skipped": 1, "failed": 0, "no_voice": 1, "busy": 0}
+    assert calls == ["First dialogue", "Second dialogue", "Second dialogue"]
+    assert api_client.get(route).json()["frames"][0]["audio_url"] == first_url
+
+
+
+def test_dialogue_batch_preserves_progress_on_restart_and_failed_storage(api_client):
+    from src.apps.comic_gen.models import Character, DialogueAudioBatch, GenerationStatus
+    project = _create_project(api_client, "Interrupted dialogue batch")
+    route = f"/projects/{project['id']}"
+    api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Keep this shot"})
+    script = api_module.pipeline.scripts[project["id"]]
+    frame = script.frames[0]
+    frame.dialogue = "Keep this line"
+    frame.character_ids = ["speaker"]
+    frame.audio_url = "audio/previous.mp3"
+    frame.audio_generation_status = GenerationStatus.PROCESSING
+    script.characters = [Character(id="speaker", name="Speaker", description="", voice_id="test-voice")]
+    api_module.pipeline._save_data()
+    for instructions in ({"foreign-frame": "whisper"}, {frame.id: "x" * 257}):
+        assert api_client.post(route + "/dialogue_audio/batch", json={"instructions": instructions}).status_code == 400
+    with patch.object(api_module.pipeline, "generate_dialogue_line") as generate:
+        response = api_client.post(route + "/dialogue_audio/batch")
+        assert response.status_code == 200, response.text
+        assert response.json()["_batch_stats"]["busy"] == 1
+        generate.assert_not_called()
+    previous = api_client.get(route).json()["dialogue_audio_batch"]
+    with patch.object(api_module.pipeline, "_save_data", side_effect=StorageError("Storage unavailable")):
+        assert api_client.post(route + "/dialogue_audio/batch").status_code == 500
+    assert api_module.pipeline.scripts[script.id].dialogue_audio_batch.model_dump() == previous
+    running = api_module.pipeline.scripts[script.id]
+    running.dialogue_audio_batch = DialogueAudioBatch(id="interrupted", frame_ids=[frame.id], results={frame.id: "busy"}, instructions={frame.id: "whisper"})
+    api_module.pipeline._save_data()
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    api_module.pipeline._recover_orphan_tasks()
+    restored = api_client.get(route).json()
+    assert restored["dialogue_audio_batch"]["status"] == "failed"
+    assert restored["dialogue_audio_batch"]["instructions"] == {frame.id: "whisper"}
+    assert restored["dialogue_audio_batch"]["results"] == {frame.id: "busy"}
+    assert restored["frames"][0]["audio_url"] == "audio/previous.mp3"
+    assert restored["frames"][0]["audio_generation_status"] == "failed"
+
+
+@pytest.mark.parametrize("failing_save", [2, 3])
+def test_dialogue_batch_progress_failure_is_persisted_without_losing_old_media(api_client, failing_save):
+    project = _create_project(api_client, "Batch persistence failure")
+    route = f"/projects/{project['id']}"
+    api_client.post(route + "/frames", json={"scene_id": "", "action_description": "A shot"})
+    frame = api_module.pipeline.scripts[project["id"]].frames[0]
+    frame.dialogue = "A line without a voice binding"
+    frame.audio_url = "audio/keep.mp3"
+    api_module.pipeline._save_data()
+    persist = api_module.pipeline._save_data
+    calls = 0
+    def save():
+        nonlocal calls
+        calls += 1
+        if calls == failing_save:
+            raise StorageError("Progress write failed")
+        persist()
+    with patch.object(api_module.pipeline, "_save_data", side_effect=save):
+        response = api_client.post(route + "/dialogue_audio/batch")
+    assert response.status_code == 500, response.text
+    restored = api_client.get(route).json()
+    assert restored["dialogue_audio_batch"]["status"] == "failed"
+    assert "Progress write failed" in restored["dialogue_audio_batch"]["error"]
+    assert restored["dialogue_audio_batch"]["results"] == ({} if failing_save == 2 else {frame.id: "no_voice"})
+    assert restored["frames"][0]["audio_url"] == "audio/keep.mp3"
+
+
 def _add_episode(client, series_id: str, script_id: str, episode_number: int) -> None:
     response = client.post(
         f"/series/{series_id}/episodes",

@@ -11,7 +11,7 @@ import subprocess
 import threading
 import platform
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary
+from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
 from .storyboard import StoryboardGenerator
@@ -348,6 +348,10 @@ class ComicGenPipeline:
         recovered = 0
 
         for script in self.scripts.values():
+            if script.dialogue_audio_batch and script.dialogue_audio_batch.status in STUCK:
+                script.dialogue_audio_batch.status = GenerationStatus.FAILED
+                script.dialogue_audio_batch.error = script.dialogue_audio_batch.error or self._ORPHAN_RECOVERY_REASON
+                recovered += 1
             for frame in script.frames:
                 if frame.image_generation_status in STUCK:
                     frame.image_generation_status = GenerationStatus.FAILED
@@ -4508,6 +4512,79 @@ class ComicGenPipeline:
                     target.audio_generation_status = GenerationStatus.FAILED
                     target.audio_error = str(error)
                     self._save_data()
+            raise
+
+    def generate_dialogue_audio_batch(self, script_id: str, instructions: Optional[Dict[str, str]] = None) -> Script:
+        from .audio import _effective_dialogue_text, dialogue_audio_is_stale
+        instructions = instructions or {}
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame_ids = {frame.id for frame in script.frames}
+            if any(frame_id not in frame_ids or not isinstance(value, str) or len(value) > 256 for frame_id, value in instructions.items()):
+                raise ValueError("Dialogue instructions must belong to this project and contain at most 256 characters")
+            previous = script.dialogue_audio_batch
+            # ponytail: process-local exclusion; multiple workers need a database claim.
+            if previous and previous.status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
+            batch = DialogueAudioBatch(id=str(uuid.uuid4()), frame_ids=[frame.id for frame in script.frames if _effective_dialogue_text(frame).strip()], instructions=dict(instructions))
+            script.dialogue_audio_batch = batch
+            try:
+                self._save_data()
+            except Exception:
+                script.dialogue_audio_batch = previous
+                raise
+
+        def save_progress(frame_id=None, result=None, **changes):
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if not current:
+                    raise LookupError("Script not found")
+                prior = current.dialogue_audio_batch
+                if not prior or prior.id != batch.id:
+                    raise GenerationInProgressError("The dialogue batch changed. Refresh its status")
+                if frame_id is not None:
+                    changes["results"] = {**prior.results, frame_id: result}
+                current.dialogue_audio_batch = prior.model_copy(update=changes)
+                try:
+                    self._save_data()
+                except Exception:
+                    current.dialogue_audio_batch = prior
+                    raise
+                return current
+
+        try:
+            for frame_id in batch.frame_ids:
+                with self._save_lock:
+                    current = self.scripts.get(script_id)
+                    if not current:
+                        raise LookupError("Script not found")
+                    frame = next((frame for frame in current.frames if frame.id == frame_id), None)
+                    resolved = current.model_copy(update={"characters": self.resolve_episode_assets(current)["characters"]})
+                    speaker = self._resolve_dialogue_speaker(resolved, frame) if frame else None
+                    probe = frame.model_copy(update={"dialogue_instructions": instructions[frame_id]}) if frame and frame_id in instructions else frame
+                    result = ("skipped" if not frame or not _effective_dialogue_text(frame).strip()
+                        else "busy" if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING)
+                        else "no_voice" if not speaker or not speaker.voice_id
+                        else "skipped" if frame.audio_url and frame.dialogue_snapshot_text is not None and not dialogue_audio_is_stale(probe, speaker)
+                        else None)
+                if result is None:
+                    try:
+                        self.generate_dialogue_line(script_id, frame_id, speaker.voice_speed, speaker.voice_pitch, speaker.voice_volume, instructions=instructions.get(frame_id))
+                        result = "generated"
+                    except GenerationInProgressError:
+                        result = "busy"
+                    except LookupError:
+                        result = "skipped"
+                    except Exception:
+                        result = "failed"
+                save_progress(frame_id, result)
+            return save_progress(status=GenerationStatus.COMPLETED)
+        except Exception as error:
+            current = self.scripts.get(script_id)
+            if current and current.dialogue_audio_batch and current.dialogue_audio_batch.id == batch.id:
+                save_progress(status=GenerationStatus.FAILED, error=str(error))
             raise
 
     def bind_voice(self, script_id: str, char_id: str, voice_id: str, voice_name: str) -> Script:
