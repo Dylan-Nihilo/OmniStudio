@@ -115,11 +115,16 @@ def _context_iterator(iterable):
 
     def iterate():
         iterator = iter(iterable)
-        while True:
-            try:
-                yield context.run(next, iterator)
-            except StopIteration:
-                return
+        try:
+            while True:
+                try:
+                    yield context.run(next, iterator)
+                except StopIteration:
+                    return
+        finally:
+            close = getattr(iterator, "close", None)
+            if close:
+                context.run(close)
 
     return iterate()
 
@@ -2747,8 +2752,12 @@ def analyze_to_storyboard(script_id: str, request: AnalyzeToStoryboardRequest):
     try:
         updated_script = pipeline.analyze_text_to_frames(script_id, request.text)
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in analyze_to_storyboard: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -2796,25 +2805,43 @@ def refine_single_frame(script_id: str, frame_id: str):
         if not frame:
             raise HTTPException(status_code=500, detail="Refine returned no result")
         return frame.model_dump() if hasattr(frame, 'model_dump') else frame.dict()
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in refine_single_frame: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/projects/{script_id}/storyboard/refine_batch")
-def refine_storyboard_batch(script_id: str):
-    """Phase 2: Batch refine all coarse frames. Streams SSE events."""
-    from fastapi.responses import StreamingResponse
+class RefineBatchRequest(BaseModel):
+    frame_ids: Optional[List[str]] = None
 
-    script = pipeline.get_script(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Script not found")
+
+@app.post("/projects/{script_id}/storyboard/refine_batch")
+def refine_storyboard_batch(script_id: str, request: Optional[RefineBatchRequest] = None):
+    """Refine selected frames; preserve progress independently of SSE delivery."""
+    from fastapi.responses import StreamingResponse
+    try:
+        generation = pipeline.start_storyboard_refinement(script_id, request.frame_ids if request else None)
+    except GenerationInProgressError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
     def event_stream():
-        for event_type, data in _context_iterator(pipeline.refine_batch_generator(script_id)):
-            yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        iterator = _context_iterator(pipeline.refine_batch_generator(script_id, generation.id))
+        try:
+            for event_type, data in iterator:
+                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        finally:
+            iterator.close()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

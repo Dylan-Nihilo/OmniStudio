@@ -444,6 +444,81 @@ def test_dialogue_generation_saves_the_current_frame_and_preserves_previous_audi
         assert Path("output", restored[0]["audio_url"]).read_bytes() == b"new-audio"
 
 
+@pytest.mark.parametrize("outcome", ["completed", "edited", "failed_save"])
+def test_storyboard_analysis_persists_current_project_and_protects_existing_shots(api_client, outcome):
+    project = _create_project(api_client, "Storyboard replacement")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Keep the original"}).json()["frames"][0]["id"]
+    def analyze(*args, **kwargs):
+        # GET reloads the current Script object from SQLite during the LLM call.
+        running = api_client.get(route).json()
+        assert running["frames"][0]["id"] == frame_id
+        if outcome == "edited":
+            api_client.post(route + "/frames/update", json={"frame_id": frame_id, "action_description": "A newer manual edit"})
+        return [{"action_summary": "New generated shot", "dialogue": "New line"}]
+    persist = api_module.pipeline._save_data
+    def save():
+        current = api_module.pipeline.scripts[project["id"]]
+        if outcome == "failed_save" and current.frames[0].id != frame_id:
+            raise StorageError("Cannot persist new shots")
+        persist()
+    with patch.object(api_module.pipeline.script_processor, "analyze_to_storyboard", side_effect=analyze), patch.object(api_module.pipeline, "_save_data", side_effect=save):
+        response = api_client.post(route + "/storyboard/analyze", json={"text": "A sufficiently detailed scene about a radio operator listening for a signal."})
+    assert response.status_code == {"completed": 200, "edited": 409, "failed_save": 500}[outcome], response.text
+    restored = api_client.get(route).json()
+    assert restored["frames"][0]["action_description"] == {"completed": "New generated shot", "edited": "A newer manual edit", "failed_save": "Keep the original"}[outcome]
+    assert restored["storyboard_generation"]["status"] == ("completed" if outcome == "completed" else "failed")
+
+
+@pytest.mark.parametrize("outcome", ["completed", "edited", "empty"])
+def test_storyboard_refinement_saves_after_readback_and_rejects_stale_output(api_client, outcome):
+    project = _create_project(api_client, "Refinement result")
+    route = f"/projects/{project['id']}"
+    fid = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original action"}).json()["frames"][0]["id"]
+    def refine(*args, **kwargs):
+        assert api_client.get(route).status_code == 200
+        if outcome == "edited":
+            api_client.post(route + "/frames/update", json={"frame_id": fid, "action_description": "Newer manual action"})
+        return None if outcome == "empty" else {"visual_description": "Detailed new composition", "shot_size": "close-up"}
+    with patch.object(api_module.pipeline.script_processor, "refine_frame_to_rich", side_effect=refine):
+        response = api_client.post(route + f"/frames/{fid}/refine")
+    assert response.status_code == {"completed": 200, "edited": 409, "empty": 500}[outcome], response.text
+    frame = api_client.get(route).json()["frames"][0]
+    assert frame["visual_description"] == ("Detailed new composition" if outcome == "completed" else None)
+    assert frame["action_description"] == ("Newer manual action" if outcome == "edited" else "Original action")
+
+
+def test_storyboard_batch_refinement_persists_partial_results_and_retries_selected_frames(api_client):
+    project = _create_project(api_client, "Batch refinement")
+    route = f"/projects/{project['id']}"
+    for text in ("First action", "Second action"):
+        api_client.post(route + "/frames", json={"scene_id": "", "action_description": text})
+    ids = [f["id"] for f in api_client.get(route).json()["frames"]]
+    calls = []
+    fail_second = True
+    def refine(coarse, *args):
+        calls.append(coarse["action_summary"])
+        running = api_client.get(route).json()
+        assert running["storyboard_generation"]["status"] == "processing"
+        assert api_client.post(route + "/storyboard/refine_batch").status_code == 409
+        if coarse["action_summary"] == "Second action" and fail_second:
+            return None
+        return {"visual_description": coarse["action_summary"] + " in detail"}
+    with patch.object(api_module.pipeline.script_processor, "refine_frame_to_rich", side_effect=refine):
+        response = api_client.post(route + "/storyboard/refine_batch")
+        assert response.status_code == 200, response.text
+        assert '"failed": 1' in response.text
+        restored = api_client.get(route).json()
+        assert restored["storyboard_generation"]["results"] == {ids[0]: "completed", ids[1]: "failed"}
+        assert restored["frames"][0]["visual_description"] == "First action in detail"
+        fail_second = False
+        retry = api_client.post(route + "/storyboard/refine_batch", json={"frame_ids": [ids[1]]})
+        assert retry.status_code == 200, retry.text
+        assert '"failed": 0' in retry.text
+    assert calls == ["First action", "Second action", "Second action"]
+    assert api_client.get(route).json()["frames"][0]["visual_description"] == "First action in detail"
+
+
 def test_dialogue_batch_recovers_partial_results_and_resolves_inherited_voices(api_client):
     from src.apps.comic_gen.audio import AudioGenerator
     from src.apps.comic_gen.models import Character, DialogueStructured

@@ -540,6 +540,15 @@ class PromptConfig(BaseModel):
     # 显式覆盖时用于切到 vision-capable 或更便宜的模型（qwen3.6-flash、kimi-k2.6 等）。
     polish_model: str = Field("", description="Override LLM model id used for polish calls; empty = use system default")
 
+class StoryboardGeneration(BaseModel):
+    id: str
+    phase: Literal["analyze", "refine"]
+    status: GenerationStatus = GenerationStatus.PROCESSING
+    frame_ids: List[str] = Field(default_factory=list)
+    results: Dict[str, Literal["completed", "failed", "skipped"]] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
 class DialogueAudioBatch(BaseModel):
     id: str
     status: GenerationStatus = GenerationStatus.PROCESSING
@@ -560,6 +569,7 @@ class Script(BaseModel):
     frames: List[StoryboardFrame] = Field(default_factory=list)
     video_tasks: List[VideoTask] = Field(default_factory=list)
     dialogue_audio_batch: Optional[DialogueAudioBatch] = None
+    storyboard_generation: Optional[StoryboardGeneration] = None
     
     # Global style settings (legacy, will be replaced by art_direction)
     style_preset: str = Field("realistic", description="Global style preset for all image generations")
