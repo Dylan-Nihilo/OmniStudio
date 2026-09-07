@@ -66,6 +66,7 @@ if (typeof window !== 'undefined') {
 function mergeFrameFields(frame: any, patch: Fields & Workbench) {
     return {
         ...frame, ...patch,
+        ...(patch.dialogue !== undefined && frame.dialogue_structured ? { dialogue_structured: { ...frame.dialogue_structured, line: patch.dialogue } } : {}),
         ...(patch.camera_movement_description !== undefined ? {
             camera_movement_structured: {
                 ...frame.camera_movement_structured,
@@ -286,6 +287,7 @@ export function useShotDrafts(projectId: string | undefined) {
         const imageIndex = w.t2i_selected_index ?? shot.t2iSelectedIndex ?? 0;
         return {
             ...shot,
+            ...(f.dialogue !== undefined ? { dialogueStructured: { speaker: shot.dialogueStructured?.speaker ?? "", ...shot.dialogueStructured, line: f.dialogue } } : {}),
             ...(f.visual_description !== undefined ? { prompt: f.visual_description, visualDescription: f.visual_description }
                 : f.action_description !== undefined ? { prompt: f.action_description } : {}),
             ...(f.duration !== undefined ? { duration: f.duration } : {}),

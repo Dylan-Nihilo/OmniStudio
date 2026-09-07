@@ -17,7 +17,7 @@ import type { BatchSummary } from "./storyboard-r2v/shot-panel/CandidatesSection
 import { getR2vRouteModelId, isR2vImageBased, VIDEO_I2V_MODELS, VIDEO_R2V_MODELS, DEFAULT_I2V_MODEL_ID, DEFAULT_R2V_MODEL_ID } from "@/lib/modelCatalog";
 import ShotCard, { type ShotNode } from "./storyboard-r2v/ShotCard";
 import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
-import DialogueAudioRow from "./storyboard-r2v/DialogueAudioRow";
+import DialogueAudioRow, { useDialogueAudioRequests } from "./storyboard-r2v/DialogueAudioRow";
 import StoryboardGenerateDialog from "./storyboard-r2v/StoryboardGenerateDialog";
 import { toast } from "@/store/toastStore";
 import AssetDrawer from "./storyboard-r2v/AssetDrawer";
@@ -43,6 +43,8 @@ import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationB
 // Reload recovery uses the frame's persisted image state; live requests stay in this tab.
 const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string; recovering?: boolean; previousGenerationId?: string }>>>(() => ({}));
 const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
+const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash"] as const;
+const dubFields = ["preview_video_url", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
 
@@ -707,6 +709,7 @@ function StoryboardWorkbench() {
     };
 
     const firstFrameRequests = useFirstFrameRequests();
+    const dialogueRequests = useDialogueAudioRequests();
     const firstFrameContext = useRef({
         userId: useAuthStore.getState().user?.id,
         workspaceId: useAuthStore.getState().activeWorkspace?.id,
@@ -714,6 +717,16 @@ function StoryboardWorkbench() {
     const firstFrameKey = useCallback((frameId: string) => JSON.stringify([
         firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id, frameId,
     ]), [firstFrameContext, currentProject?.id]);
+
+    const mergeAudioResult = (frameId: string, result: any, fields: readonly string[]) => {
+        const auth = useAuthStore.getState();
+        const current = useProjectStore.getState().currentProject;
+        if (!current || auth.user?.id !== firstFrameContext.userId || auth.activeWorkspace?.id !== firstFrameContext.workspaceId || current.id !== currentProject?.id) return;
+        const saved = result?.frames?.find((frame: { id: string }) => frame.id === frameId);
+        if (!saved) throw new Error(t("saveFailed"));
+        updateProject(current.id, { frames: current.frames.map(frame => frame.id === frameId
+            ? { ...frame, ...Object.fromEntries(fields.map(field => [field, saved[field]])) } : frame) });
+    };
 
     // Reentry observes the same request. Image readback must not replace prompt drafts.
     useEffect(() => {
@@ -723,6 +736,7 @@ function StoryboardWorkbench() {
             const saved = frame ? restoreDraft(frameToShotNode(frame, [])) : shot;
             const next = {
                 ...shot, imageUrl: saved.imageUrl,
+                dialogueStructured: saved.dialogueStructured,
                 t2iImageUrls: saved.t2iImageUrls, t2iSelectedIndex: saved.t2iSelectedIndex,
                 t2iError: request?.error || frame?.image_error || undefined,
                 t2iOperation: request?.operation,
@@ -1167,6 +1181,7 @@ function StoryboardWorkbench() {
         const projectAtStart = useProjectStore.getState().currentProject;
         const selectionsAtStart = useVideoSelectionRequests.getState();
         const imagesAtStart = useFirstFrameRequests.getState();
+        const audioAtStart = useDialogueAudioRequests.getState();
         setRefreshingTasks(true);
         const request = (async () => {
             try {
@@ -1185,6 +1200,27 @@ function StoryboardWorkbench() {
                     const before = projectAtStart?.frames.find(before => before.id === frame.id);
                     const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
                     let next = frame;
+                    if (before?.audio_generation_status === "processing" || audioAtStart[key]?.operation === "generate" || audioAtStart[key]?.recovering) {
+                        if (audioAtStart[key] !== useDialogueAudioRequests.getState()[key] || audioFields.some(field => before?.[field] !== frame[field])) {
+                            selectionReadNeeded = true;
+                        } else if (!saved) {
+                            useDialogueAudioRequests.setState({ [key]: { instructions: audioAtStart[key]?.instructions } });
+                            next = { ...next, audio_generation_status: "failed", audio_error: missingFirstFrameMessage };
+                        } else {
+                            next = { ...next, ...Object.fromEntries(audioFields.map(field => [field, saved[field]])) };
+                            if (audioAtStart[key]?.recovering) {
+                                useDialogueAudioRequests.setState(state => {
+                                    const requests = { ...state };
+                                    if (saved.audio_generation_id && saved.audio_generation_id !== audioAtStart[key]?.previousGenerationId) {
+                                        if (saved.audio_generation_status === "failed") requests[key] = { instructions: audioAtStart[key]?.instructions };
+                                        else delete requests[key];
+                                    }
+                                    else requests[key] = { ...audioAtStart[key], recovering: false };
+                                    return requests;
+                                }, true);
+                            }
+                        }
+                    }
                     const imageRequest = imagesAtStart[key];
                     if (before?.image_generation_status === "processing" || (imageRequest?.operation === "generate" && imageRequest.pending)) {
                         if (imageRequest !== useFirstFrameRequests.getState()[key] || firstFrameFields.some(field => before?.[field] !== frame[field])) {
@@ -1194,10 +1230,10 @@ function StoryboardWorkbench() {
                                 useFirstFrameRequests.setState(state => {
                                     const requests = { ...state }; delete requests[key]; return requests;
                                 }, true);
-                                return { ...frame, image_generation_status: "failed", image_error: missingFirstFrameMessage };
+                                return { ...next, image_generation_status: "failed", image_error: missingFirstFrameMessage };
                             }
                             // Never replace prompt drafts or a history selection written during this read.
-                            next = { ...frame, ...Object.fromEntries(firstFrameFields.map(field => [field, saved[field]])) };
+                            next = { ...next, ...Object.fromEntries(firstFrameFields.map(field => [field, saved[field]])) };
                             if (imageRequest?.recovering) {
                                 const observed = saved.image_generation_id && saved.image_generation_id !== imageRequest.previousGenerationId;
                                 useFirstFrameRequests.setState(state => {
@@ -1243,12 +1279,14 @@ function StoryboardWorkbench() {
     });
     const hasPendingImages = currentProject?.frames.some(frame => frame.image_generation_status === "processing")
         || shots.some(shot => firstFrameRequests[firstFrameKey(shot.id)]?.pending);
+    const hasPendingAudio = currentProject?.frames.some(frame => frame.audio_generation_status === "processing")
+        || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
     useEffect(() => {
-        if (!hasPendingVideoTasks && !hasPendingImages && !taskRefreshNeeded) return;
+        if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingAudio && !taskRefreshNeeded) return;
         // Editing a shot must not postpone task updates. Slow reads share one request.
         const timer = window.setInterval(() => { void refreshProject(); }, 5000);
         return () => window.clearInterval(timer);
-    }, [hasPendingVideoTasks, hasPendingImages, taskRefreshNeeded, refreshProject]);
+    }, [hasPendingVideoTasks, hasPendingImages, hasPendingAudio, taskRefreshNeeded, refreshProject]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1783,40 +1821,34 @@ function StoryboardWorkbench() {
                             // Show row when dialogue exists, or when video exists (dub available)
                             if (!dialogueText?.trim() && !hasVideoTask) return null;
                             const charId = Array.isArray(frame.character_ids) ? frame.character_ids[0] : null;
-                            const speaker = charId ? characters.find((c: any) => c.id === charId) : null;
+                            const speakerName = (frame.speaker || frame.dialogue_structured?.speaker || "").trim().toLowerCase();
+                            const speaker = (speakerName && (characters.find((c: any) => c.name.trim().toLowerCase() === speakerName)
+                                || characters.find((c: any) => speakerName.includes(c.name.trim().toLowerCase()) || c.name.trim().toLowerCase().includes(speakerName))))
+                                || characters.find((c: any) => c.id === charId);
                             return (
                                 <div className="mx-5 mb-4">
                                     <DialogueAudioRow key={frame.id}
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
                                         dialogue={dialogueText}
+                                        draftDialogue={restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line}
                                         voiceId={speaker?.voice_id}
                                         audioUrl={frame.audio_url}
                                         audioError={frame.audio_error}
-                                        snapshotDialogue={dialogueText}
+                                        generationStatus={frame.audio_generation_status}
+                                        generationId={frame.audio_generation_id}
+                                        refreshFailed={taskRefreshError}
+                                        refreshing={refreshingTasks}
+                                        onRefresh={() => { void refreshProject(); }}
+                                        snapshotDialogue={frame.dialogue_snapshot_text}
                                         snapshotVoiceId={frame.dialogue_voice_id}
                                         snapshotInstructions={frame.dialogue_instructions}
                                         onUpdateDialogue={async (text: string) => {
-                                            if (!currentProject) return;
-                                            try {
-                                                await api.updateFrame(currentProject.id, frame.id, { dialogue: text });
-                                                const updated = await api.getProject(currentProject.id);
-                                                if (updated?.frames) updateProject(currentProject.id, { frames: updated.frames });
-                                            } catch (e) {
-                                                debugLog.error("Studio", "update dialogue from audio row failed", e);
-                                            }
+                                            queueDraft(frame.id, "fields", { dialogue: text }, 1000);
+                                            if (!await flushDrafts()) throw new Error(t("saveFailed"));
                                         }}
-                                        onAudioUpdated={async () => {
-                                            if (!currentProject) return;
-                                            try {
-                                                const updated = await api.getProject(currentProject.id);
-                                                if (updated?.frames) {
-                                                    updateProject(currentProject.id, { frames: updated.frames });
-                                                }
-                                            } catch (e) {
-                                                debugLog.warn("Studio", "refresh after audio gen failed", e);
-                                            }
-                                        }}
+                                        onDraftChange={text => queueDraft(frame.id, "fields", { dialogue: text }, 1000)}
+                                        onAudioUpdated={result => mergeAudioResult(frame.id, result, audioFields)}
                                         videoUrl={(() => {
                                             const selectedId = frame.selected_video_id;
                                             const task = (currentProject as any)?.video_tasks?.find(
@@ -1832,28 +1864,16 @@ function StoryboardWorkbench() {
                                         dubbedVideoUrl={frame.dubbed_video_url}
                                         dubOffsetMs={frame.dub_offset_ms ?? 0}
                                         onPreviewDub={async (videoTaskId: string, offsetMs: number) => {
-                                            if (!currentProject) return;
-                                            await api.previewDub(currentProject.id, frame.id, videoTaskId, offsetMs);
-                                            const updated = await api.getProject(currentProject.id);
-                                            if (updated?.frames) {
-                                                updateProject(currentProject.id, { frames: updated.frames });
-                                            }
+                                            const result = await api.previewDub(currentProject!.id, frame.id, videoTaskId, offsetMs);
+                                            mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                         onApplyDub={async () => {
-                                            if (!currentProject) return;
-                                            await api.applyDub(currentProject.id, frame.id);
-                                            const updated = await api.getProject(currentProject.id);
-                                            if (updated?.frames) {
-                                                updateProject(currentProject.id, { frames: updated.frames });
-                                            }
+                                            const result = await api.applyDub(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                         onRevertDub={async () => {
-                                            if (!currentProject) return;
-                                            await api.revertDub(currentProject.id, frame.id);
-                                            const updated = await api.getProject(currentProject.id);
-                                            if (updated?.frames) {
-                                                updateProject(currentProject.id, { frames: updated.frames });
-                                            }
+                                            const result = await api.revertDub(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                     />
                                 </div>

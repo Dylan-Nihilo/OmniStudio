@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDrafts";
+import { useDialogueAudioRequests } from "@/components/modules/storyboard-r2v/DialogueAudioRow";
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
@@ -80,6 +81,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", async importOriginal => 
         sequence?: React.ReactNode;
         candidates?: React.ReactNode;
         configuration?: React.ReactNode;
+        audio?: React.ReactNode;
         shot: { id: string; prompt: string; videoUrl?: string; t2iImageUrl?: string; t2iStatus?: string; t2iError?: string };
         onDelete: () => void;
         onMoveDown: () => void;
@@ -111,11 +113,19 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", async importOriginal => 
             {props.sequence}
             {props.candidates}
             {props.configuration}
+            {props.audio}
         </div>
     ),
 }));
 
-vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", () => ({ default: () => null }));
+vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", async importOriginal => ({
+    ...await importOriginal<typeof import("@/components/modules/storyboard-r2v/DialogueAudioRow")>(),
+    default: ({ frameId, voiceId, generationStatus, onUpdateDialogue, onAudioUpdated }: { frameId: string; voiceId?: string; generationStatus?: string; onUpdateDialogue: (text: string) => Promise<void>; onAudioUpdated: (result: unknown) => void }) => <>
+        <output aria-label="dialogue voice">{voiceId}</output><output aria-label="audio state">{generationStatus}</output>
+        <button onClick={() => { void onUpdateDialogue("Saved dialogue").catch(candidateError); }}>save dialogue</button>
+        <button onClick={() => onAudioUpdated({ frames: [{ id: frameId, action_description: "Stale prompt", dialogue: "Stale dialogue", audio_url: "new-audio.mp3", dialogue_snapshot_text: "Saved dialogue", audio_generation_status: "completed" }] })}>audio completed</button>
+    </>,
+}));
 vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
@@ -147,6 +157,62 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("uses the explicit speaker and merges audio without replacing dialogue or other edits", async () => {
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!,
+            characters: [{ id: "silent", name: "Silent" }, { id: "speaker", name: "Speaker", voice_id: "speaker-voice" }],
+            frames: [{ id: "audio-frame", action_description: "Original prompt", character_ids: ["silent", "speaker"], dialogue_structured: { speaker: "Speaker", line: "Original dialogue" } }],
+        } } as never));
+        render(<StoryboardR2V />);
+        expect(screen.getByLabelText("dialogue voice")).toHaveTextContent("speaker-voice");
+        fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "New prompt" } });
+        fireEvent.click(screen.getByRole("button", { name: "save dialogue" }));
+        await waitFor(() => expect(useProjectStore.getState().currentProject!.frames[0].dialogue_structured.line).toBe("Saved dialogue"));
+        fireEvent.click(screen.getByRole("button", { name: "audio completed" }));
+        const frame = useProjectStore.getState().currentProject!.frames[0];
+        expect(frame.audio_url).toBe("new-audio.mp3");
+        expect(frame.action_description).toBe("New prompt");
+        expect(frame.dialogue_structured.line).toBe("Saved dialogue");
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New prompt");
+    });
+
+    it("recovers persisted dialogue generation through the shared project poll without replacing input", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "audio-reload", action_description: "New prompt", dialogue: "New dialogue", audio_url: "old.mp3", audio_generation_status: "processing", audio_generation_id: "audio-current" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame] };
+        useProjectStore.setState({ currentProject: project });
+        getProject.mockResolvedValueOnce({ ...project, frames: [{ ...frame, action_description: "Old prompt", dialogue: "Old dialogue", audio_url: "finished.mp3", audio_generation_status: "completed" }] });
+        const view = render(<StoryboardR2V />);
+        try {
+            expect(screen.getByLabelText("audio state")).toHaveTextContent("processing");
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByLabelText("audio state")).toHaveTextContent("completed");
+            expect(useProjectStore.getState().currentProject!.frames[0].dialogue).toBe("New dialogue");
+            expect(useProjectStore.getState().currentProject!.frames[0].audio_url).toBe("finished.mp3");
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("stops recovering a deleted frame while retaining dialogue and previous media", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "audio-deleted", action_description: "Keep writing", dialogue: "Keep dialogue", audio_url: "old.mp3", audio_generation_status: "processing", image_generation_status: "processing", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"] };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame] };
+        const auth = useAuthStore.getState();
+        const key = JSON.stringify([auth.user?.id, auth.activeWorkspace?.id, project.id, frame.id]);
+        useProjectStore.setState({ currentProject: project });
+        useDialogueAudioRequests.setState({ [key]: { recovering: true, instructions: "whisper" } });
+        getProject.mockResolvedValue({ ...project, frames: [] });
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByLabelText("audio state")).toHaveTextContent("failed");
+            expect(useProjectStore.getState().currentProject!.frames[0]).toMatchObject({ dialogue: "Keep dialogue", audio_url: "old.mp3", image_generation_status: "failed" });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Keep writing");
+            await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+            expect(getProject).toHaveBeenCalledOnce();
+        } finally { view.unmount(); useDialogueAudioRequests.setState({}, true); vi.useRealTimers(); }
+    });
+
     it("recovers a persisted first-frame render after reload without duplicate requests or lost edits", async () => {
         vi.useFakeTimers();
         const frame = { id: "frame-render-reload", action_description: "Original", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], t2i_selected_index: 0, image_generation_status: "processing", image_generation_id: "render-reload" };

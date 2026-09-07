@@ -1069,7 +1069,7 @@ export const api = {
             speed,
             pitch,
             volume,
-            instructions: instructions || null,
+            instructions: instructions ?? null,
         });
         return res.data;
     },
