@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { api } from '@/lib/api';
+import { api, type DialogueAudioBatch } from '@/lib/api';
 import type { FrontendModelSettings } from '@/lib/modelCatalog';
 
 const projectStorageScope = (): string => {
@@ -280,6 +280,7 @@ export interface Project {
     props: Prop[];
     frames: any[]; // Keeping as any for now to avoid breaking too much, but ideally StoryboardFrame[]
     video_tasks?: any[];
+    dialogue_audio_batch?: DialogueAudioBatch | null;
     status: string;
     createdAt: string;
     updatedAt: string;

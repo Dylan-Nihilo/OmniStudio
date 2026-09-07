@@ -1,9 +1,10 @@
 "use client";
 import { useState, useEffect, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { CheckCircle2, Mic } from "lucide-react";
+import { Mic } from "lucide-react";
 import { Button, LoadingState } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
+import type { DialogueAudioBatch } from "@/lib/api";
 
 export type BannerState = "idle" | "phase1" | "phase2" | "dialogue" | "summary";
 export interface GenerationBannerProps {
@@ -13,9 +14,15 @@ export interface GenerationBannerProps {
     dialogueProgress?: { current: number; total: number } | null;
     summary?: { frameCount: number; dialogueReady: number; dialogueMissing: number } | null;
     onGenerateDialogue?: () => void;
+    batch?: DialogueAudioBatch | null;
+    batchError?: string;
+    refreshFailed?: boolean;
+    refreshing?: boolean;
+    onRefresh?: () => void;
 }
-export function GenerationBanner({ state, phase1Captions, refineProgress, dialogueProgress, summary, onGenerateDialogue }: GenerationBannerProps) {
+export function GenerationBanner({ state, phase1Captions, refineProgress, dialogueProgress, summary, onGenerateDialogue, batch, batchError, refreshFailed, refreshing, onRefresh }: GenerationBannerProps) {
     const t = useTranslations("storyboardR2V");
+    const tAudio = useTranslations("dialogueAudio");
     const [captionIndex, setCaptionIndex] = useState(0);
     useEffect(() => {
         setCaptionIndex(0);
@@ -23,18 +30,35 @@ export function GenerationBanner({ state, phase1Captions, refineProgress, dialog
         const timer = setInterval(() => setCaptionIndex(index => (index + 1) % phase1Captions.length), 3000);
         return () => clearInterval(timer);
     }, [state, phase1Captions.length]);
-    if (state === "idle") return null;
-    if (state === "summary") {
-        // The sequence shows frame count; reserve the banner for actionable audio status.
-        if (!summary || (!summary.dialogueReady && !summary.dialogueMissing)) return null;
+    if (state === "idle" && !batch && !batchError) return null;
+    if (state === "summary" || state === "dialogue" || state === "idle") {
+        const pending = state === "dialogue";
+        if (!pending && !batch && !batchError && !summary?.dialogueReady && !summary?.dialogueMissing) return null;
+        const results = Object.values(batch?.results ?? {});
+        const failed = results.filter(result => result === "failed").length;
+        const error = batchError || (batch?.status === "failed" ? batch.error || t("batchDialogueInterrupted") : undefined);
+        const retry = !pending && (!!error || failed > 0);
         return <BannerShell>
-            <CheckCircle2 size={16} className="shrink-0 text-status-completed-fg" aria-hidden="true" />
-            <span className="text-xs text-text-secondary" role="status">
-                {t("bannerFrameCount", { count: summary.frameCount })}
-                {summary.dialogueReady > 0 && <> · {t("bannerDialoguePending", { count: summary.dialogueReady })}</>}
-                {summary.dialogueMissing > 0 && <> · {t("bannerDialogueMissingVoice", { count: summary.dialogueMissing })}</>}
-            </span>
-            {summary.dialogueReady > 0 && onGenerateDialogue && <Button variant="quiet" className="ml-auto" onPress={onGenerateDialogue}><Mic size={14} />{t("bannerSynthDialogue")}</Button>}
+            <div className="min-w-0 basis-full space-y-1 text-xs text-text-secondary sm:flex-1 sm:basis-0">
+                {pending ? <LoadingState inline className="justify-start" label={dialogueProgress
+                    ? t("bannerDialogueProgress", dialogueProgress)
+                    : t("batchDialoguePreparing")} /> : <span role="status">
+                    {batch ? t("batchDialogueResults", {
+                        generated: results.filter(result => result === "generated").length,
+                        skipped: results.filter(result => result === "skipped").length,
+                        failed,
+                    }) : t("bannerFrameCount", { count: summary?.frameCount ?? 0 })}
+                    {!!summary?.dialogueReady && <> · {t("bannerDialoguePending", { count: summary.dialogueReady })}</>}
+                </span>}
+                {!!summary?.dialogueMissing && <p>{t("bannerDialogueMissingVoice", { count: summary.dialogueMissing })}</p>}
+                {results.includes("busy") && <p>{t("batchDialogueBusy", { count: results.filter(result => result === "busy").length })}</p>}
+                {error && <p role="alert" className="break-words text-status-failed-fg">{error}</p>}
+                {refreshFailed && <p role="alert">{t("batchDialogueRefreshFailed")}</p>}
+            </div>
+            {refreshFailed && onRefresh && <Button variant="quiet" isPending={refreshing} onPress={onRefresh}>{tAudio("refreshStatus")}</Button>}
+            {(pending || retry || !!summary?.dialogueReady) && onGenerateDialogue && <Button variant="quiet" isPending={pending} onPress={onGenerateDialogue}>
+                {!pending && <Mic size={14} aria-hidden="true" />}{t(retry ? "batchDialogueRetry" : "bannerSynthDialogue")}
+            </Button>}
         </BannerShell>;
     }
     const progress = state === "phase2" ? refineProgress : dialogueProgress;

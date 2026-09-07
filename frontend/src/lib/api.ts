@@ -1,6 +1,15 @@
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
+export interface DialogueAudioBatch {
+    id: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    frame_ids: string[];
+    instructions: Record<string, string>;
+    results: Record<string, "generated" | "skipped" | "failed" | "no_voice" | "busy">;
+    error?: string | null;
+}
+
 export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
 export type LlmProvider = "dashscope" | "openai";
@@ -1076,9 +1085,9 @@ export const api = {
 
     /** PR-3j · Generate dialogue audio for every frame with dialogue.
      *  Skips frames whose snapshot hash still matches. */
-    generateDialogueAudioBatch: async (scriptId: string): Promise<{ _batch_stats: { generated: number; skipped: number; failed: number; no_voice: number } }> => {
-        const res = await apiClient.post<{ _batch_stats: { generated: number; skipped: number; failed: number; no_voice: number } }>(
-            `${API_URL}/projects/${scriptId}/dialogue_audio/batch`,
+    generateDialogueAudioBatch: async (scriptId: string, instructions: Record<string, string> = {}) => {
+        const res = await apiClient.post<{ frames: any[]; dialogue_audio_batch: DialogueAudioBatch }>(
+            `${API_URL}/projects/${scriptId}/dialogue_audio/batch`, { instructions },
         );
         return res.data;
     },

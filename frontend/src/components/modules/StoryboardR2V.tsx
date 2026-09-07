@@ -29,6 +29,7 @@ import {
     removeT2IImage,
     getActiveT2IImageUrl,
     frameToShotNode,
+    resolveDialogueSpeaker,
 } from "./storyboard-r2v/shotNodeHelpers";
 import { overridePanelSectionState } from "./storyboard-r2v/shot-panel/usePanelSectionState";
 import ParamsSection, { type ParamsState } from "./storyboard-r2v/shot-panel/ParamsSection";
@@ -62,6 +63,17 @@ function StoryboardWorkbench() {
     const tStudio = useTranslations("studioPage");
     const selectedFrameId = useProjectStore(state => state.selectedFrameId);
     const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
+
+    const firstFrameRequests = useFirstFrameRequests();
+    const dialogueRequests = useDialogueAudioRequests();
+    const firstFrameContext = useRef({
+        userId: useAuthStore.getState().user?.id,
+        workspaceId: useAuthStore.getState().activeWorkspace?.id,
+    }).current;
+    const firstFrameKey = useCallback((frameId: string) => JSON.stringify([
+        firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id, frameId,
+    ]), [firstFrameContext, currentProject?.id]);
+
 
     const draftSave = useShotDrafts(currentProject?.id);
     const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, materialize, resolveId, refine, refinedVersion, restore: restoreDraft } = draftSave;
@@ -317,7 +329,18 @@ function StoryboardWorkbench() {
         () => (currentProject?.frames?.length ?? 0) > 0 ? "summary" : "idle"
     );
     const [refineProgress, setRefineProgress] = useState<{ current: number; total: number } | null>(null);
-    const [dialogueProgress, setDialogueProgress] = useState<{ current: number; total: number } | null>(null);
+    const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
+    const batchRequest = dialogueRequests[batchScope];
+    const dialogueBatch = currentProject?.dialogue_audio_batch;
+    const batchRunning = dialogueBatch?.status === "processing" || dialogueBatch?.status === "pending";
+    const batchPending = !!batchRequest?.operation || !!batchRequest?.recovering || batchRunning;
+    const dialogueProgress = batchRunning ? { current: Object.keys(dialogueBatch.results).length, total: dialogueBatch.frame_ids.length } : null;
+    const batchInstructions = useCallback((frame: any) => {
+        const draft = useDialogueAudioRequests.getState()[firstFrameKey(frame.id)]?.instructions;
+        const previous = currentProject?.dialogue_audio_batch;
+        const result = previous?.results[frame.id];
+        return draft ?? (result !== "generated" && result !== "skipped" ? previous?.instructions[frame.id] : undefined);
+    }, [firstFrameKey, currentProject?.dialogue_audio_batch]);
 
     const PHASE1_CAPTIONS = useMemo(() => [
         "正在分析剧本结构…",
@@ -329,64 +352,67 @@ function StoryboardWorkbench() {
     ], []);
 
     const bannerSummary = useMemo(() => {
-        if (!currentProject?.frames?.length) return null;
-        const frames = currentProject.frames as any[];
-        const frameCount = frames.length;
-        const withDialogue = frames.filter((f: any) =>
-            f.dialogue_structured?.line || f.dialogue
-        );
-        const charsWithVoice = new Set(
-            (currentProject as any).characters?.filter((c: any) => c.voice_id).map((c: any) => c.id) ?? []
-        );
-        const charNameToVoice = new Map<string, boolean>(
-            (currentProject as any).characters?.filter((c: any) => c.voice_id).map((c: any) => [c.name?.toLowerCase(), true]) ?? []
-        );
-        const hasVoiceBinding = (f: any): boolean => {
-            if (f.character_ids?.[0] && charsWithVoice.has(f.character_ids[0])) return true;
-            const speaker = f.dialogue_structured?.speaker || f.speaker;
-            return !!(speaker && charNameToVoice.has(speaker.toLowerCase()));
-        };
-        const dialogueReady = withDialogue.filter((f: any) =>
-            hasVoiceBinding(f) && !f.audio_url
-        ).length;
-        const dialogueMissing = withDialogue.filter((f: any) => !hasVoiceBinding(f)).length;
-        return { frameCount, dialogueReady, dialogueMissing };
-    }, [currentProject?.frames, (currentProject as any)?.characters]);
+        const frames = currentProject?.frames ?? [];
+        let dialogueReady = 0, dialogueMissing = 0;
+        for (const frame of frames) {
+            const text = restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line ?? frame.dialogue_structured?.line ?? frame.dialogue ?? "";
+            if (!text.trim()) continue;
+            const speaker = resolveDialogueSpeaker(frame, characters);
+            if (!speaker?.voice_id) { dialogueMissing++; continue; }
+            const instructions = batchInstructions(frame) ?? frame.dialogue_instructions ?? "";
+            if (!frame.audio_url || frame.dialogue_snapshot_text !== text || frame.dialogue_voice_id !== speaker.voice_id || (frame.dialogue_instructions ?? "") !== instructions) dialogueReady++;
+        }
+        return { frameCount: frames.length, dialogueReady, dialogueMissing };
+    }, [currentProject?.frames, characters, batchInstructions, dialogueRequests, restoreDraft]);
 
     const handleBatchDialogue = useCallback(async () => {
-        if (!currentProject?.id) return;
-        setBannerState("dialogue");
-        setDialogueProgress(null);
+        const projectId = currentProject?.id;
+        const existing = useDialogueAudioRequests.getState()[batchScope];
+        if (!projectId || existing?.operation || existing?.recovering || batchRunning) return;
+        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        let submitted = false;
+        const previousGenerationId = currentProject.dialogue_audio_batch?.id;
+        useDialogueAudioRequests.setState({ [batchScope]: { operation: "batch", previousGenerationId } });
         try {
-            const frames = currentProject.frames as any[] ?? [];
-            const totalWithDialogue = frames.filter((f: any) => f.dialogue_structured?.line || f.dialogue).length;
-            setDialogueProgress({ current: 0, total: totalWithDialogue });
-            const result = await api.generateDialogueAudioBatch(currentProject.id);
-            const stats = result._batch_stats;
-            if (stats.failed > 0) {
-                toast.warning(`对白生成完成：${stats.generated} 条成功，${stats.failed} 条失败`);
-            } else if (stats.generated > 0) {
-                toast.success(`已生成 ${stats.generated} 条对白音频`);
-            } else if (stats.no_voice > 0 && stats.skipped === 0) {
-                toast.warning(`${stats.no_voice} 条对白的角色尚未绑定语音`);
-            } else if (stats.skipped > 0) {
-                toast.success(t("dialogueAllUpToDate"));
-            } else {
-                toast.warning("未找到可生成的对白");
-            }
-            const updated = await api.getProject(currentProject.id);
-            if (updated?.frames) updateProject(currentProject.id, { frames: updated.frames });
-        } catch (e) {
-            debugLog.error("Studio", "batch dialogue audio failed", e);
-            toast.error(t("batchDialogueFailed"));
+            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrent()) return;
+            const current = useProjectStore.getState().currentProject!;
+            const instructions = Object.fromEntries(current.frames.flatMap(frame => {
+                const value = batchInstructions(frame);
+                return value === undefined ? [] : [[frame.id, value]];
+            }));
+            submitted = true;
+            const result = await api.generateDialogueAudioBatch(projectId, instructions);
+            if (!isCurrent()) return;
+            if (!result.dialogue_audio_batch?.id || !Array.isArray(result.frames)) throw new Error(t("batchDialogueFailed"));
+            const latest = useProjectStore.getState().currentProject!;
+            if (latest.dialogue_audio_batch?.id && latest.dialogue_audio_batch.id !== previousGenerationId && latest.dialogue_audio_batch.id !== result.dialogue_audio_batch.id) return;
+            // The batch response owns audio fields only; editing may continue while it runs.
+            updateProject(projectId, { dialogue_audio_batch: result.dialogue_audio_batch, frames: latest.frames.map(frame => {
+                const saved = result.frames.find(saved => saved.id === frame.id);
+                const before = current.frames.find(before => before.id === frame.id);
+                const newerAudio = frame.audio_generation_id && frame.audio_generation_id !== before?.audio_generation_id && frame.audio_generation_id !== saved?.audio_generation_id;
+                return saved && !newerAudio && result.dialogue_audio_batch.frame_ids.includes(frame.id)
+                    ? { ...frame, ...Object.fromEntries(audioFields.map(field => [field, saved[field]])) } : frame;
+            }) });
+            useDialogueAudioRequests.setState({ [batchScope]: undefined });
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const recovering = submitted && (!status || status === 409 || status >= 500);
+            useDialogueAudioRequests.setState({ [batchScope]: {
+                error: recovering ? t("batchDialogueUnknown") : error?.response?.data?.detail || error?.message || t("batchDialogueFailed"),
+                recovering, previousGenerationId,
+            } });
         } finally {
-            setBannerState("summary");
-            setDialogueProgress(null);
+            const request = useDialogueAudioRequests.getState()[batchScope];
+            if (request?.operation) useDialogueAudioRequests.setState({ [batchScope]: undefined });
         }
-    }, [currentProject, updateProject]);
+    }, [currentProject?.id, currentProject?.dialogue_audio_batch?.id, batchScope, batchRunning, firstFrameContext, saveAllDrafts, batchInstructions, updateProject, t]);
 
     const handleSmartGenerate = useCallback(async () => {
-        if (!currentProject?.id) return;
+        if (!currentProject?.id || batchPending) return;
         const projectId = currentProject.id;
         const scriptText = (currentProject as any).originalText || (currentProject as any).original_text || "";
         if (!scriptText.trim()) {
@@ -438,7 +464,7 @@ function StoryboardWorkbench() {
                 return currentShots;
             });
         }
-    }, [currentProject, updateProject, t]);
+    }, [currentProject, updateProject, t, batchPending]);
 
     const displayedRefinements = useRef<Record<string, number>>({});
     useEffect(() => {
@@ -707,16 +733,6 @@ function StoryboardWorkbench() {
     const cleanPrompt = (prompt: string): string => {
         return prompt.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
     };
-
-    const firstFrameRequests = useFirstFrameRequests();
-    const dialogueRequests = useDialogueAudioRequests();
-    const firstFrameContext = useRef({
-        userId: useAuthStore.getState().user?.id,
-        workspaceId: useAuthStore.getState().activeWorkspace?.id,
-    }).current;
-    const firstFrameKey = useCallback((frameId: string) => JSON.stringify([
-        firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id, frameId,
-    ]), [firstFrameContext, currentProject?.id]);
 
     const mergeAudioResult = (frameId: string, result: any, fields: readonly string[]) => {
         const auth = useAuthStore.getState();
@@ -1195,6 +1211,11 @@ function StoryboardWorkbench() {
                 }
                 let selectionReadNeeded = false;
                 const selectionWriteOccurred = selectionsAtStart !== useVideoSelectionRequests.getState();
+                const batchAtStart = audioAtStart[batchScope];
+                const batchObserved = projectAtStart?.dialogue_audio_batch;
+                const watchBatch = batchObserved?.status === "processing" || batchObserved?.status === "pending" || !!batchAtStart?.operation || !!batchAtStart?.recovering;
+                const batchReadSafe = batchAtStart === useDialogueAudioRequests.getState()[batchScope] && batchObserved === current.dialogue_audio_batch;
+                if (watchBatch && !batchReadSafe) selectionReadNeeded = true;
                 const frames = current.frames.map(frame => {
                     const saved = fresh.frames?.find((saved: { id: string }) => saved.id === frame.id);
                     const before = projectAtStart?.frames.find(before => before.id === frame.id);
@@ -1207,7 +1228,9 @@ function StoryboardWorkbench() {
                         const errorField = kind === "audio" ? "audio_error" : "dub_error";
                         const request = audioAtStart[key];
                         const recovering = request?.recovering && (request.recoveryKind ?? "audio") === kind;
-                        if (before?.[statusField] !== "processing" && request?.operation !== (kind === "audio" ? "generate" : "preview") && !recovering) continue;
+                        const batchAudio = kind === "audio" && watchBatch && batchReadSafe
+                            && (fresh.dialogue_audio_batch?.frame_ids.includes(frame.id) || batchObserved?.frame_ids.includes(frame.id));
+                        if (before?.[statusField] !== "processing" && request?.operation !== (kind === "audio" ? "generate" : "preview") && !recovering && !batchAudio) continue;
                         if (audioAtStart[key] !== useDialogueAudioRequests.getState()[key] || fields.some(field => before?.[field] !== frame[field])) {
                             selectionReadNeeded = true;
                         } else if (!saved) {
@@ -1263,7 +1286,11 @@ function StoryboardWorkbench() {
                 });
                 // Completion and adoption are saved together by the backend. Do not
                 // replace prompt edits or a selection written while this read ran.
-                updateProject(projectId, { video_tasks: fresh.video_tasks ?? [], frames: frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames });
+                if (watchBatch && batchReadSafe && batchAtStart?.recovering) {
+                    const observed = fresh.dialogue_audio_batch?.id && fresh.dialogue_audio_batch.id !== batchAtStart.previousGenerationId;
+                    useDialogueAudioRequests.setState({ [batchScope]: observed ? undefined : { ...batchAtStart, recovering: false } });
+                }
+                updateProject(projectId, { ...(watchBatch && batchReadSafe ? { dialogue_audio_batch: fresh.dialogue_audio_batch ?? null } : {}), video_tasks: fresh.video_tasks ?? [], frames: frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames });
                 setTaskRefreshNeeded(selectionReadNeeded);
                 setTaskRefreshError(false);
             } catch {
@@ -1275,7 +1302,7 @@ function StoryboardWorkbench() {
         })();
         taskRefreshRequest.current = request;
         return request;
-    }, [currentProject?.id, updateProject, missingFirstFrameMessage]);
+    }, [currentProject?.id, updateProject, missingFirstFrameMessage, batchScope]);
 
     const hasPendingVideoTasks = (currentProject?.video_tasks ?? []).some(task =>
         task.status === "pending" || task.status === "processing",
@@ -1286,7 +1313,7 @@ function StoryboardWorkbench() {
     });
     const hasPendingImages = currentProject?.frames.some(frame => frame.image_generation_status === "processing")
         || shots.some(shot => firstFrameRequests[firstFrameKey(shot.id)]?.pending);
-    const hasPendingDialogueMedia = currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing")
+    const hasPendingDialogueMedia = batchPending || currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing")
         || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.operation === "preview" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
     useEffect(() => {
         if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingDialogueMedia && !taskRefreshNeeded) return;
@@ -1728,16 +1755,21 @@ function StoryboardWorkbench() {
                 <div className={styles.headerActions}>
                     <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
                     <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
-                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
+                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating} isDisabled={batchPending}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
                 </div>
             </header>
             <GenerationBanner
-                state={bannerState}
+                state={batchPending ? "dialogue" : bannerState}
                 phase1Captions={PHASE1_CAPTIONS}
                 refineProgress={refineProgress}
                 dialogueProgress={dialogueProgress}
                 summary={bannerSummary}
                 onGenerateDialogue={handleBatchDialogue}
+                batch={dialogueBatch}
+                batchError={batchRequest?.error}
+                refreshFailed={taskRefreshError && (batchPending || !!dialogueBatch)}
+                refreshing={refreshingTasks}
+                onRefresh={() => { void refreshProject(); }}
             />
 
             <div className={styles.workbench}>
@@ -1827,11 +1859,7 @@ function StoryboardWorkbench() {
                             const hasVideoTask = !!(frame.selected_video_id || (currentProject as any)?.video_tasks?.find((t: any) => t.frame_id === frame.id && t.status === "completed"));
                             // Show row when dialogue exists, or when video exists (dub available)
                             if (!dialogueText?.trim() && !hasVideoTask) return null;
-                            const charId = Array.isArray(frame.character_ids) ? frame.character_ids[0] : null;
-                            const speakerName = (frame.speaker || frame.dialogue_structured?.speaker || "").trim().toLowerCase();
-                            const speaker = (speakerName && (characters.find((c: any) => c.name.trim().toLowerCase() === speakerName)
-                                || characters.find((c: any) => speakerName.includes(c.name.trim().toLowerCase()) || c.name.trim().toLowerCase().includes(speakerName))))
-                                || characters.find((c: any) => c.id === charId);
+                            const speaker = resolveDialogueSpeaker(frame, characters);
                             return (
                                 <div className="mx-5 mb-4">
                                     <DialogueAudioRow key={frame.id}
@@ -1843,6 +1871,7 @@ function StoryboardWorkbench() {
                                         audioUrl={frame.audio_url}
                                         audioError={frame.audio_error}
                                         generationStatus={frame.audio_generation_status}
+                                        batchPending={batchPending}
                                         generationId={frame.audio_generation_id}
                                         refreshFailed={taskRefreshError}
                                         refreshing={refreshingTasks}

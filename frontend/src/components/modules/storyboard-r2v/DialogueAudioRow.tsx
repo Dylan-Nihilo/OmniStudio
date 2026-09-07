@@ -19,6 +19,7 @@ interface DialogueAudioRowProps {
     audioUrl?: string;
     audioError?: string | null;
     generationStatus?: string;
+    batchPending?: boolean;
     generationId?: string;
     refreshFailed?: boolean;
     refreshing?: boolean;
@@ -59,7 +60,7 @@ function mediaIdentity(value?: string) {
         return url.href;
     } catch { return value; }
 }
-type Operation = "generate" | "save" | "preview" | "apply" | "revert";
+type Operation = "batch" | "generate" | "save" | "preview" | "apply" | "revert";
 // Live operations outlive their dialog; persisted audio state is read by the workbench.
 export const useDialogueAudioRequests = create<Partial<Record<string, { operation?: Operation; error?: string; recovering?: boolean; recoveryKind?: "audio" | "dub"; previousGenerationId?: string; instructions?: string }>>>(() => ({}));
 
@@ -70,7 +71,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
     return <DialogueWorkbench key={scope} {...props} scope={scope} />;
 }
 
-function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDialogue, voiceId, audioUrl, audioError, generationStatus, generationId, refreshFailed, refreshing, onRefresh,
+function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDialogue, voiceId, audioUrl, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
     dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, onPreviewDub, onApplyDub, onRevertDub, scope,
@@ -101,7 +102,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const playRequest = useRef(0);
     const previewing = request?.operation === "preview" || (request?.recovering && request.recoveryKind === "dub") || dubGenerationStatus === "processing";
-    const busy = !!request?.operation || !!request?.recovering || generationStatus === "processing" || !!previewing;
+    const busy = !!batchPending || !!request?.operation || !!request?.recovering || generationStatus === "processing" || !!previewing;
     const generating = request?.operation === "generate" || request?.recovering || generationStatus === "processing" || previewing;
     const instructions = [emotion, freeText.trim()].filter(Boolean).join("; ");
     const dirty = draft !== dialogue;
@@ -261,7 +262,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
                     </div>
                     {previewVideoUrl && <p className="text-xs text-text-secondary">{t(previewChanged ? "previewChanged" : "previewHintBody")}</p>}
                 </section>}
-                {busy && <LoadingState inline label={t(request?.recovering ? (request.recoveryKind === "dub" ? "checkingPreview" : "checking") : previewing ? "generatingPreview" : generating ? "state.generating" : "saving")} />}
+                {busy && <LoadingState inline label={t(batchPending ? "batchRunning" : request?.recovering ? (request.recoveryKind === "dub" ? "checkingPreview" : "checking") : previewing ? "generatingPreview" : generating ? "state.generating" : "saving")} />}
                 {generating && refreshFailed && <div className="space-y-2"><p role="alert" className="text-status-failed-fg">{t("statusUnavailable")}</p>
                     <Button variant="secondary" isPending={refreshing} onPress={onRefresh}>{t("refreshStatus")}</Button></div>}
                 {error && <p role="alert" className="break-words text-status-failed-fg">{error}</p>}

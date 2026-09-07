@@ -10,13 +10,14 @@ import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
 
-const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     retryVideoTask: vi.fn(),
     renderFrame: vi.fn(),
     uploadT2IFrame: vi.fn(),
     getProject: vi.fn(),
+    generateDialogueAudioBatch: vi.fn(),
     getTaskStatus: vi.fn(),
     toastError: vi.fn(),
     deleteFrame: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("@/lib/api", () => ({
         renderFrame,
         uploadT2IFrame,
         getProject,
+        generateDialogueAudioBatch,
         getTaskStatus,
         updateFrameWorkbench,
         updateFrame,
@@ -150,14 +152,121 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/TaskQueuePanel", () => (
         </div>
     )}</div>,
 }));
-vi.mock("@/components/modules/storyboard-r2v/GenerationBanner", () => ({
-    GenerationBanner: () => null,
-}));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", () => ({
     overridePanelSectionState: vi.fn(),
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("saves before batch dialogue, retains its request on reentry and merges only audio", async () => {
+        const frame = { id: "batch-frame", action_description: "Original", dialogue: "Current dialogue", character_ids: ["character-1"] };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame], characters: [{ id: "character-1", name: "Speaker", voice_id: "voice" }] };
+        useProjectStore.setState({ currentProject: project } as never);
+        const auth = useAuthStore.getState();
+        const key = JSON.stringify([auth.user?.id, auth.activeWorkspace?.id, project.id, frame.id]);
+        useDialogueAudioRequests.setState({ [key]: { instructions: "whisper" } });
+        let finishSave!: () => void;
+        updateFrame.mockImplementationOnce(() => new Promise(resolve => { finishSave = () => resolve({}); }));
+        let finishBatch!: () => void;
+        const batch = { id: "batch-1", status: "completed", frame_ids: [frame.id], results: { [frame.id]: "generated" }, instructions: { [frame.id]: "whisper" } };
+        generateDialogueAudioBatch.mockImplementationOnce(() => new Promise(resolve => { finishBatch = () => resolve({ ...project, dialogue_audio_batch: batch, frames: [{ ...frame, audio_url: "batch.mp3", dialogue_snapshot_text: frame.dialogue, dialogue_voice_id: "voice", dialogue_instructions: "whisper" }], _batch_stats: { generated: 1, skipped: 0, failed: 0, no_voice: 0, busy: 0 } }); }));
+        const view = render(<StoryboardR2V />);
+        fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Saved first" } });
+        fireEvent.click(screen.getByRole("button", { name: "bannerSynthDialogue" }));
+        await waitFor(() => expect(updateFrame).toHaveBeenCalledOnce());
+        expect(generateDialogueAudioBatch).not.toHaveBeenCalled();
+        await act(async () => finishSave());
+        expect(generateDialogueAudioBatch).toHaveBeenCalledWith(project.id, { [frame.id]: "whisper" });
+        view.unmount();
+        render(<StoryboardR2V />);
+        expect(screen.getByRole("button", { name: "bannerSynthDialogue" })).toHaveAttribute("aria-disabled", "true");
+        fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Later writing" } });
+        await act(async () => finishBatch());
+        expect(useProjectStore.getState().currentProject!.frames[0]).toMatchObject({ action_description: "Saved first", audio_url: "batch.mp3" });
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Later writing");
+        expect(getProject).not.toHaveBeenCalled();
+    });
+
+    it("retains drafts on save failure and recovers an uncertain batch before retrying its instructions", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "batch-retry", dialogue: "Current line", action_description: "Original", character_ids: ["speaker"] };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame], characters: [{ id: "speaker", name: "Speaker", voice_id: "voice" }] };
+        useProjectStore.setState({ currentProject: project } as never);
+        updateFrame.mockRejectedValueOnce(new Error("save failed"));
+        generateDialogueAudioBatch.mockRejectedValueOnce({ response: { status: 500, data: { detail: "Connection lost" } } });
+        getProject.mockRejectedValueOnce(new Error("offline"));
+        const batch = { id: "recovered-batch", status: "failed", frame_ids: [frame.id], results: { [frame.id]: "failed" }, instructions: { [frame.id]: "whisper" }, error: "Worker restarted" };
+        getProject.mockResolvedValueOnce({ ...project, dialogue_audio_batch: batch });
+        const view = render(<StoryboardR2V />);
+        try {
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Keep this draft" } });
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "bannerSynthDialogue" })); });
+            expect(generateDialogueAudioBatch).not.toHaveBeenCalled();
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Keep this draft");
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "batchDialogueRetry" })); });
+            expect(generateDialogueAudioBatch).toHaveBeenCalledOnce();
+            expect(screen.getByRole("button", { name: "bannerSynthDialogue" })).toHaveAttribute("aria-disabled", "true");
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByText("batchDialogueRefreshFailed")).toBeInTheDocument();
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "refreshStatus" })); });
+            expect(screen.getByText("Worker restarted")).toBeInTheDocument();
+            generateDialogueAudioBatch.mockResolvedValueOnce({ ...project, dialogue_audio_batch: { ...batch, id: "retried", status: "completed", error: null, results: { [frame.id]: "generated" } } });
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "batchDialogueRetry" })); });
+            expect(generateDialogueAudioBatch).toHaveBeenLastCalledWith(project.id, { [frame.id]: "whisper" });
+            expect(useProjectStore.getState().currentProject!.frames[0].action_description).toBe("Keep this draft");
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("does not merge a completed batch into another workspace with the same project ID", async () => {
+        const workspace = useAuthStore.getState().activeWorkspace;
+        const frame = { id: "scope-frame", dialogue: "Private line", character_ids: ["speaker"] };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame], characters: [{ id: "speaker", name: "Speaker", voice_id: "voice" }] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finish!: () => void;
+        generateDialogueAudioBatch.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ ...project, frames: [{ ...frame, audio_url: "private.mp3" }], dialogue_audio_batch: { id: "private", status: "completed", frame_ids: [frame.id], results: {}, instructions: {} } }); }));
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "bannerSynthDialogue" })); });
+            await act(async () => { useAuthStore.setState({ activeWorkspace: { id: "another-workspace", name: "Other", slug: null, role: "member" } }); });
+            await act(async () => finish());
+            expect(useProjectStore.getState().currentProject!.frames[0].audio_url).toBeUndefined();
+            expect(useProjectStore.getState().currentProject!.dialogue_audio_batch).toBeUndefined();
+        } finally { view.unmount(); useAuthStore.setState({ activeWorkspace: workspace }); }
+    });
+
+    it.each(["batch", "audio"])("keeps a newer remote %s result when an older batch response arrives", async kind => {
+        const frame = { id: "late-frame", dialogue: "A line", audio_generation_id: "original", character_ids: ["speaker"] };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame], characters: [{ id: "speaker", name: "Speaker", voice_id: "voice" }] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finish!: () => void;
+        const oldBatch = { id: "old-batch", status: "completed", frame_ids: [frame.id], results: { [frame.id]: "generated" }, instructions: {} };
+        generateDialogueAudioBatch.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ ...project, dialogue_audio_batch: oldBatch, frames: [{ ...frame, audio_url: "old.mp3", audio_generation_id: "old-audio" }] }); }));
+        render(<StoryboardR2V />);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "bannerSynthDialogue" })); });
+        await act(async () => { useProjectStore.setState({ currentProject: { ...project, dialogue_audio_batch: { ...oldBatch, id: kind === "batch" ? "new-batch" : oldBatch.id }, frames: [{ ...frame, audio_url: "new.mp3", audio_generation_id: "new-audio" }] } } as never); });
+        await act(async () => finish());
+        expect(useProjectStore.getState().currentProject!.frames[0].audio_url).toBe("new.mp3");
+        expect(useProjectStore.getState().currentProject!.dialogue_audio_batch!.id).toBe(kind === "batch" ? "new-batch" : oldBatch.id);
+    });
+
+    it("recovers batch progress after reload without overwriting newer frame fields", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "batch-reload", action_description: "New writing", dialogue: "New dialogue", audio_url: "old.mp3" };
+        const batch = { id: "persisted-batch", status: "processing", frame_ids: [frame.id], results: {}, instructions: {} };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame], dialogue_audio_batch: batch };
+        useProjectStore.setState({ currentProject: project } as never);
+        getProject.mockResolvedValueOnce({ ...project, dialogue_audio_batch: { ...batch, status: "completed", results: { [frame.id]: "generated" } }, frames: [{ ...frame, action_description: "Old writing", dialogue: "Old dialogue", audio_url: "finished.mp3" }] });
+        const view = render(<StoryboardR2V />);
+        try {
+            expect(screen.getByText("bannerDialogueProgress")).toBeInTheDocument();
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(useProjectStore.getState().currentProject!.frames[0]).toMatchObject({ action_description: "New writing", dialogue: "New dialogue", audio_url: "finished.mp3" });
+            expect(screen.getByText("batchDialogueResults")).toBeInTheDocument();
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+            expect(generateDialogueAudioBatch).not.toHaveBeenCalled();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
     it("recovers a persisted dub preview without replacing current audio or text", async () => {
         vi.useFakeTimers();
         const frame = { id: "dub-reload", action_description: "New writing", dialogue: "Current dialogue", audio_url: "current.wav", dub_generation_status: "processing", dub_generation_id: "new-dub" };
@@ -387,6 +496,8 @@ describe("StoryboardR2V synthetic frame generation", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getProject.mockReset();
+        generateDialogueAudioBatch.mockReset();
+        useDialogueAudioRequests.setState({}, true);
         renderFrame.mockReset();
         useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} });
         updateFrame.mockResolvedValue({});

@@ -13,3 +13,25 @@ it('announces generation and retains the dialogue action without duplicate frame
     fireEvent.click(screen.getByRole('button', { name: 'bannerSynthDialogue' }));
     expect(generate).toHaveBeenCalledOnce();
 });
+
+it('keeps the focused batch action mounted while pending, then presents retry and read failure', () => {
+    const generate = vi.fn(), refresh = vi.fn();
+    const summary = { frameCount: 2, dialogueReady: 2, dialogueMissing: 0 };
+    const { rerender } = render(<GenerationBanner state="summary" phase1Captions={[]} summary={summary} onGenerateDialogue={generate} />);
+    const action = screen.getByRole('button', { name: 'bannerSynthDialogue' });
+    action.focus();
+    rerender(<GenerationBanner state="dialogue" phase1Captions={[]} summary={summary} onGenerateDialogue={generate} />);
+    expect(action).toHaveFocus();
+    expect(action).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('batchDialoguePreparing')).toBeInTheDocument();
+    fireEvent.click(action);
+    expect(generate).not.toHaveBeenCalled();
+    rerender(<GenerationBanner state="summary" phase1Captions={[]} summary={summary} onGenerateDialogue={generate}
+        batch={{ id: 'batch', status: 'completed', frame_ids: ['one', 'two'], instructions: {}, results: { one: 'generated', two: 'failed' } }} refreshFailed onRefresh={refresh} />);
+    expect(screen.getByText(/batchDialogueResults/)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('batchDialogueRefreshFailed');
+    fireEvent.click(screen.getByRole('button', { name: 'batchDialogueRetry' }));
+    fireEvent.click(screen.getByRole('button', { name: 'refreshStatus' }));
+    expect(generate).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledOnce();
+});
