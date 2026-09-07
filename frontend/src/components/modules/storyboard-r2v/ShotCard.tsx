@@ -17,10 +17,7 @@ import {
     Loader2,
     Code2,
     ChevronRight,
-    Pin,
     PinOff,
-    Play,
-    Star,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import AssetChipBar from "./AssetChipBar";
@@ -32,7 +29,7 @@ import { PendingTaskAffordance } from "@/components/shared/PendingTaskAffordance
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import { useProjectStore } from "@/store/projectStore";
-import { Button, ActionMenu, SelectField, LoadingState } from "@omnistudio/ui";
+import { Button, ActionMenu, SelectField, LoadingState, StatusBadge } from "@omnistudio/ui";
 import styles from "./ShotCard.module.css";
 import { selectedVariantUrl } from "@/lib/characterImage";
 
@@ -162,6 +159,7 @@ interface ShotCardProps {
      *  active take (shot.isVideoPinned=true), the hero shows a "📌 Pinned"
      *  chip; clicking it fires onUnpinVideo to resume auto latest-wins. */
     onUnpinVideo?: () => void;
+    isSelectingVideo?: boolean;
 }
 
 export default function ShotCard({
@@ -195,6 +193,7 @@ export default function ShotCard({
     onRefineFrame,
     isRefining = false,
     onUnpinVideo,
+    isSelectingVideo = false,
 }: ShotCardProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const t = useTranslations("storyboardR2V");
@@ -547,63 +546,16 @@ export default function ShotCard({
         <section className={styles.previewColumn}>
             <div className={styles.preview}>
                         {renderPreview()}
-                        {/* Selected-take amber halation */}
-                        {(shot.isVideoPinned || shot.finalTakeId) && shot.videoUrl ? (
-                            <div
-                                className="pointer-events-none absolute inset-0 rounded-[14px]"
-                                style={{ boxShadow: "inset 0 0 42px -8px rgba(255,169,77,0.28)" }}
-                            />
-                        ) : null}
-                        {/* Hover play overlay — only on completed video */}
-                        {shot.videoUrl ? (
-                            <div className="absolute inset-0 grid place-items-center bg-overlay/20 opacity-0 transition-opacity duration-base group-hover/preview:opacity-100 pointer-events-none">
-                                <div className="grid h-11 w-11 place-items-center rounded-full bg-foreground/90 text-on-accent">
-                                    <Play size={17} fill="currentColor" className="ml-0.5" />
-                                </div>
-                            </div>
-                        ) : null}
-                        {/* Top-left selected chip */}
-                        {(shot.isVideoPinned || shot.finalTakeId) && shot.videoUrl ? (
-                            <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 rounded-full border border-status-starred-border bg-status-starred-bg/90 px-2 py-[3px] backdrop-blur-sm font-mono text-[0.5625rem] font-semibold uppercase tracking-[0.08em] text-status-starred-fg">
-                                <Star size={10} fill="currentColor" aria-hidden="true" />
-                                {t("selectedTake")}
-                            </div>
-                        ) : null}
-                        {/* Duration chip */}
-                        {shot.duration ? (
-                            <div className="absolute bottom-2.5 right-2.5 z-10 rounded-full bg-overlay/70 px-2 py-0.5 backdrop-blur-sm font-mono text-[0.5625rem] text-foreground">
-                                {shot.duration}s
-                            </div>
-                        ) : null}
-                        {/* Pinned chip — overlays the hero when the user has
-                            manually pinned an active take. Group/peer makes
-                            the "Unpin" CTA fade in on hover so the chip stays
-                            calm in the resting state. Only shown when a
-                            video is actually rendered (no point pinning a
-                            "no video" placeholder). */}
-                        {shot.isVideoPinned && shot.videoUrl && onUnpinVideo ? (
-                            <div className="group/pin absolute top-2.5 right-2.5 z-20 flex items-center gap-1">
-                                <span
-                                    className="inline-flex items-center gap-1 rounded-full border border-primary/55 bg-primary/20 backdrop-blur-sm px-2 py-[2px] font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-primary shadow-[var(--glow-primary)]"
-                                    title={t("activeTakePinnedTooltip")}
-                                >
-                                    <Pin size={9} aria-hidden="true" strokeWidth={2.2} fill="currentColor" />
-                                    {t("activeTakePinned")}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); onUnpinVideo(); }}
-                                    title={t("unpinActiveTakeTooltip")}
-                                    aria-label={t("unpinActiveTake")}
-                                    className="opacity-0 transition-opacity duration-fast ease-out-quart group-hover/pin:opacity-100 focus-visible:opacity-100 inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-black/55 backdrop-blur-sm px-1.5 py-[2px] font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-foreground/80 hover:text-foreground hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                >
-                                    <PinOff size={9} aria-hidden="true" strokeWidth={2.2} />
-                                    {t("unpinActiveTakeShort")}
-                                </button>
-                            </div>
-                        ) : null}
-
             </div>
+            {shot.videoUrl && <div className={styles.previewActions}>
+                <div>
+                    {shot.isVideoPinned ? <StatusBadge tone="info">{t("activeTakePinned")}</StatusBadge> : shot.finalTakeId ? <StatusBadge tone="info">{t("selectedTake")}</StatusBadge> : null}
+                    {shot.duration ? <span>{shot.duration}s</span> : null}
+                </div>
+                {shot.isVideoPinned && onUnpinVideo && <Button variant="quiet" aria-label={t("unpinActiveTake")} isPending={isSelectingVideo} isDisabled={isSelectingVideo} onPress={onUnpinVideo}>
+                    {!isSelectingVideo && <PinOff size={16} />}{t("unpinActiveTakeShort")}
+                </Button>}
+            </div>}
             {shot.dialogueStructured?.line && <p className={styles.caption}>{shot.dialogueStructured.speaker} · {shot.dialogueStructured.line}</p>}
             {audio}
             {sequence}

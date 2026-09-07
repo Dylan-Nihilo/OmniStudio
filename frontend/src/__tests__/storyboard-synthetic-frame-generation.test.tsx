@@ -8,7 +8,7 @@ import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDr
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 
-const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     getProject: vi.fn(),
@@ -22,6 +22,10 @@ const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, del
     refineSingleFrame: vi.fn(),
     cancelVideoTask: vi.fn(),
     annotateVideoTask: vi.fn(),
+    selectVideo: vi.fn(),
+    unpinVideo: vi.fn(),
+    autoSelectLatestVideo: vi.fn(),
+    candidateError: vi.fn(),
 }));
 
 vi.mock("next-intl", () => ({
@@ -38,6 +42,9 @@ vi.mock("@/lib/api", () => ({
         refineSingleFrame,
         cancelVideoTask,
         annotateVideoTask,
+        selectVideo,
+        unpinVideo,
+        autoSelectLatestVideo,
     },
     crudApi: { createFrame, deleteFrame, reorderFrames, copyFrame },
 }));
@@ -62,7 +69,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
         onGenerateBatch: (count: number) => void;
         sequence?: React.ReactNode;
         candidates?: React.ReactNode;
-        shot: { id: string; prompt: string };
+        shot: { id: string; prompt: string; videoUrl?: string };
         onDelete: () => void;
         onMoveDown: () => void;
         onDuplicate: () => void;
@@ -84,6 +91,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
             <button onClick={() => props.onSetGenerateCount(3)}>three takes</button>
             <p>takes: {props.generateCount}</p>
             <output>{props.shot.id}</output>
+            <output aria-label="selected video">{props.shot.videoUrl}</output>
             <textarea aria-label="shot prompt" value={props.shot.prompt} onChange={event => props.onUpdatePrompt(event.target.value)} />
             {props.sequence}
             {props.candidates}
@@ -97,8 +105,11 @@ vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () 
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
-    default: ({ tasks, onToggleStar }: { tasks: Array<{ id: string; is_starred?: boolean }>; onToggleStar: (task: { id: string }, next: boolean) => Promise<void> }) => <div>{tasks.map(task =>
-        <button key={task.id} onClick={() => { void onToggleStar(task, true); }}>{task.is_starred ? "starred task" : "star task"}</button>
+    default: ({ tasks, onToggleStar, onSetActive }: { tasks: Array<{ id: string; is_starred?: boolean }>; onToggleStar: (task: { id: string }, next: boolean) => Promise<void>; onSetActive: (task: { id: string }) => Promise<void> }) => <div>{tasks.map(task =>
+        <div key={task.id}>
+            <button onClick={() => { void onToggleStar(task, true).catch(candidateError); }}>{task.is_starred ? "starred task" : "star task"}</button>
+            <button onClick={() => { void onSetActive(task).catch(() => {}); }}>select {task.id}</button>
+        </div>
     )}</div>,
 }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CompareModal", () => ({ default: () => null }));
@@ -248,7 +259,69 @@ describe("StoryboardR2V synthetic frame generation", () => {
         expect(createVideoTask.mock.calls[0][12]).toBe("frame-real-1");
     });
 
-    it("confirms a star saved during an older task read with a new read", async () => {
+    it("retains the selected video on failed adoption and merges only confirmed selection fields on retry", async () => {
+        vi.useFakeTimers();
+        const task = { id: "take-new", frame_id: "frame-select", status: "completed", video_url: "new.mp4", workbench_tab: "direct_r2v" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-select", action_description: "original", video_url: "old.mp4", selected_video_id: "take-old", dubbed_video_url: "old-dub.mp4", dubbed_video_task_id: "take-old", workbench_tab_mode: "direct_r2v" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project } as never);
+        selectVideo.mockRejectedValueOnce(new Error("selection failed"));
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "select take-new" })); });
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("old-dub.mp4");
+            let finishSelect!: (value: unknown) => void;
+            selectVideo.mockImplementationOnce(() => new Promise(resolve => { finishSelect = resolve; }));
+            fireEvent.click(screen.getByRole("button", { name: "select take-new" }));
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "new description" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("old-dub.mp4");
+            await act(async () => { finishSelect({ ...project, frames: [{ ...project.frames[0], selected_video_id: task.id, video_url: task.video_url, is_video_pinned: true }] }); });
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("new.mp4");
+            expect(useProjectStore.getState().currentProject?.frames[0].action_description).toBe("new description");
+            expect(useProjectStore.getState().currentProject?.frames[0].selected_video_id).toBe("take-new");
+            view.unmount();
+            const reopened = render(<StoryboardR2V />);
+            try { expect(screen.getByLabelText("selected video")).toHaveTextContent("new.mp4"); }
+            finally { reopened.unmount(); }
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("finishes a manual selection after an earlier automatic selection without losing the manual pin", async () => {
+        const automatic = { id: "take-auto", frame_id: "frame-select", status: "processing", workbench_tab: "direct_r2v" };
+        const manual = { id: "take-manual", frame_id: "frame-select", status: "completed", video_url: "manual.mp4", workbench_tab: "direct_r2v" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-select", action_description: "original", video_url: "old.mp4", selected_video_id: "take-old", workbench_tab_mode: "direct_r2v" }], video_tasks: [automatic, manual] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finishAuto!: (value: unknown) => void;
+        autoSelectLatestVideo.mockImplementationOnce(() => new Promise(resolve => { finishAuto = resolve; }));
+        selectVideo.mockResolvedValueOnce({ ...project, frames: [{ ...project.frames[0], selected_video_id: manual.id, video_url: manual.video_url, is_video_pinned: true }] });
+        const view = render(<StoryboardR2V />);
+        await act(async () => { useProjectStore.setState({ currentProject: { ...project, video_tasks: [{ ...automatic, status: "completed", video_url: "auto.mp4" }, manual] } } as never); });
+        expect(autoSelectLatestVideo).toHaveBeenCalledOnce();
+        fireEvent.click(screen.getByRole("button", { name: "select take-manual" }));
+        expect(selectVideo).not.toHaveBeenCalled();
+        await act(async () => { finishAuto({ ...project, frames: [{ ...project.frames[0], selected_video_id: automatic.id, video_url: "auto.mp4", is_video_pinned: false }] }); });
+        expect(selectVideo).toHaveBeenCalledWith("project-1", "frame-select", "take-manual");
+        expect(screen.getByLabelText("selected video")).toHaveTextContent("manual.mp4");
+        expect(useProjectStore.getState().currentProject?.frames[0].is_video_pinned).toBe(true);
+        view.unmount();
+    });
+
+    it("reports a failed annotation to the candidate and retains its previous value until retry succeeds", async () => {
+        const task = { id: "star-task", frame_id: "frame-star", status: "completed", workbench_tab: "direct_r2v", is_starred: false };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-star", action_description: "original", workbench_tab_mode: "direct_r2v" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project } as never);
+        const failure = new Error("annotation failed");
+        annotateVideoTask.mockRejectedValueOnce(failure).mockResolvedValueOnce({ ...task, is_starred: true });
+        const view = render(<StoryboardR2V />);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "star task" })); });
+        expect(candidateError).toHaveBeenCalledWith(failure);
+        expect(screen.getByRole("button", { name: "star task" })).toBeVisible();
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "star task" })); });
+        expect(screen.getByRole("button", { name: "starred task" })).toBeVisible();
+        view.unmount();
+    });
+
+    it("keeps a confirmed star when an older task read finishes", async () => {
         vi.useFakeTimers();
         const task = { id: "star-task", frame_id: "frame-star", status: "processing", workbench_tab: "direct_r2v", generation_mode: "r2v" };
         const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-star", action_description: "original", workbench_tab_mode: "direct_r2v" }], video_tasks: [task] };

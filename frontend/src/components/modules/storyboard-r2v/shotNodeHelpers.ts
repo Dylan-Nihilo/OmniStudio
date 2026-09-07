@@ -204,7 +204,8 @@ export function frameToShotNode(
     );
 
     let videoStatus: "pending" | "processing" | "completed" | "failed" | undefined;
-    let videoUrl: string | undefined = frame.dubbed_video_url || frame.video_url || undefined;
+    const dubbedMatchesSelection = !frame.selected_video_id || frame.dubbed_video_task_id === frame.selected_video_id;
+    let videoUrl: string | undefined = (dubbedMatchesSelection ? frame.dubbed_video_url : undefined) || frame.video_url || undefined;
     let videoTaskId: string | undefined;
 
     if (inFlightTask) {

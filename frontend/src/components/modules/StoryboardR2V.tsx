@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Button, EmptyState } from "@omnistudio/ui";
 import styles from "./StoryboardR2V.module.css";
-import { Plus, Film } from "lucide-react";
+import { Plus, Film, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
@@ -146,13 +146,13 @@ function StoryboardWorkbench() {
     // to peek at queue" UI affordance, not a saved layout preference.
     const [queueOpen, setQueueOpen] = useState(false);
 
-    // Compare-mode selection: a Set of task ids the user shift-clicked
-    // in any shot's candidate panel. Multi-shot compare is a future
-    // feature; for now the same Set is shared across shots so user
-    // can only effectively compare within one shot at a time. Cleared
-    // on Compare modal close.
+    // Compare up to four completed takes within the selected shot and tab.
     const [compareSelectedIds, setCompareSelectedIds] = useState<Set<string>>(() => new Set());
     const [compareModalOpen, setCompareModalOpen] = useState(false);
+    useEffect(() => {
+        setCompareSelectedIds(new Set());
+        setCompareModalOpen(false);
+    }, [selectedShot?.id, selectedShot?.tabMode]);
 
     // Refs map for textareas (for asset insertion from drawer)
     const textareaRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map());
@@ -1100,11 +1100,8 @@ function StoryboardWorkbench() {
         return () => { context.active = false; };
     }, []);
 
-    const refreshProject = useCallback((afterMutation = false): Promise<void> => {
-        if (taskRefreshRequest.current) {
-            // A read started before a mutation cannot confirm that mutation.
-            return afterMutation ? taskRefreshRequest.current.then(() => refreshProject()) : taskRefreshRequest.current;
-        }
+    const refreshProject = useCallback((): Promise<void> => {
+        if (taskRefreshRequest.current) return taskRefreshRequest.current;
         const projectId = currentProject?.id;
         const context = taskContext.current;
         const isCurrent = () => context.active
@@ -1242,62 +1239,70 @@ function StoryboardWorkbench() {
         [allVideoTasks],
     );
 
-    // Sync shot.videoStatus from project.video_tasks when the
-    // project-level poll refreshes. Video task status is only visible
-    // via project refresh (GET /tasks/ only covers asset tasks).
-    useEffect(() => {
-        if (!allVideoTasks.length) return;
-        const autoSelectFrameIds: string[] = [];
-        setShots(prev => {
-            let changed = false;
-            const next = prev.map(s => {
-                if (!s.videoTaskId) return s;
-                const task = allVideoTasks.find(t => t.id === s.videoTaskId);
-                if (!task) return s;
-                if (task.status === "completed" && s.videoStatus !== "completed") {
-                    changed = true;
-                    autoSelectFrameIds.push(s.id);
-                    return { ...s, videoStatus: "completed" as const, videoUrl: (task as any).video_url };
-                }
-                if (task.status === "failed" && s.videoStatus !== "failed") {
-                    changed = true;
-                    return { ...s, videoStatus: "failed" as const };
-                }
-                return s;
-            });
-            return changed ? next : prev;
-        });
-        // Persist newly-completed videos as the frame's active take so the
-        // hero survives reload / refine / cross-device opens. Backend skips
-        // pinned frames; failures here are non-fatal (UI already updated).
-        const projectId = currentProject?.id;
-        if (projectId && autoSelectFrameIds.length > 0) {
-            Promise.all(
-                autoSelectFrameIds.map(frameId =>
-                    api.autoSelectLatestVideo(projectId, frameId).catch(err => {
-                        debugLog.warn("Studio", "autoSelectLatestVideo failed for frame:", frameId, err);
-                        return null;
-                    })
-                )
-            ).then(results => {
-                // Use the last successful response's frames (all calls
-                // converge on the same script state — last write wins).
-                const last = results.filter(Boolean).pop() as any;
-                if (last?.frames) {
-                    updateProject(projectId, { frames: last.frames });
-                    // Sync the hero on every auto-selected frame: backend may
-                    // have picked a sibling take in the same batch, so the
-                    // optimistic videoUrl set above could be stale by a hop.
-                    setShots(prev => prev.map(s => {
-                        if (!autoSelectFrameIds.includes(s.id)) return s;
-                        const refreshed = last.frames.find((f: any) => f.id === s.id);
-                        if (!refreshed?.video_url) return s;
-                        return { ...s, videoUrl: refreshed.video_url, isVideoPinned: Boolean(refreshed.is_video_pinned) };
-                    }));
-                }
-            });
+    const [selectingVideoFrames, setSelectingVideoFrames] = useState<Record<string, boolean>>({});
+    const videoSelectionRequests = useRef(new Map<string, { mode: string; taskId?: string; promise: Promise<void> }>());
+    const updateVideoSelection = useCallback((frameId: string, mode: "select" | "auto" | "unpin", taskId?: string): Promise<void> => {
+        const existing = videoSelectionRequests.current.get(frameId);
+        if (existing) {
+            if (mode === "auto" || (existing.mode === mode && existing.taskId === taskId)) return existing.promise;
+            return existing.promise.catch(() => {}).then(() => updateVideoSelection(frameId, mode, taskId));
         }
-    }, [allVideoTasks, currentProject?.id, updateProject]);
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.resolve();
+        setSelectingVideoFrames(previous => ({ ...previous, [frameId]: true }));
+        const promise = (async () => {
+            try {
+                const updated = mode === "auto" ? await api.autoSelectLatestVideo(projectId, frameId)
+                    : mode === "unpin" ? await api.unpinVideo(projectId, frameId)
+                    : await api.selectVideo(projectId, frameId, taskId!);
+                if (!isCurrent()) return;
+                const frame = updated.frames?.find((frame: { id: string }) => frame.id === frameId);
+                if (!frame) throw new Error("Video selection response is missing its frame");
+                const selection = { selected_video_id: frame.selected_video_id, video_url: frame.video_url, is_video_pinned: frame.is_video_pinned };
+                const frames = useProjectStore.getState().currentProject?.frames ?? [];
+                const currentFrame = frames.find(current => current.id === frameId);
+                if (!currentFrame) return;
+                const videoUrl = frameToShotNode({ ...currentFrame, ...selection }, []).videoUrl;
+                // The response is a project snapshot; only this frame's selection belongs to this operation.
+                updateProject(projectId, { frames: frames.map(current => current.id === frameId ? { ...current, ...selection } : current) });
+                setShots(previous => previous.map(shot => shot.id === frameId ? {
+                    ...shot, videoUrl, isVideoPinned: Boolean(frame.is_video_pinned),
+                    videoStatus: videoUrl ? "completed" : shot.videoStatus,
+                } : shot));
+            } finally {
+                videoSelectionRequests.current.delete(frameId);
+                if (isCurrent()) setSelectingVideoFrames(previous => ({ ...previous, [frameId]: false }));
+            }
+        })();
+        videoSelectionRequests.current.set(frameId, { mode, taskId, promise });
+        return promise;
+    }, [currentProject?.id, updateProject]);
+
+    useEffect(() => {
+        const completed = shotsRef.current.filter(shot => shot.videoTaskId && shot.videoStatus !== "completed"
+            && !shot.isVideoPinned && allVideoTasks.some(task => task.id === shot.videoTaskId && task.status === "completed"));
+        setShots(previous => {
+            let changed = false;
+            const next = previous.map(shot => {
+                const task = allVideoTasks.find(task => task.id === shot.videoTaskId);
+                if (!task || (task.status !== "completed" && task.status !== "failed") || task.status === shot.videoStatus) return shot;
+                changed = true;
+                return { ...shot, videoStatus: task.status };
+            });
+            return changed ? next : previous;
+        });
+        const context = taskContext.current;
+        completed.forEach(shot => {
+            void updateVideoSelection(shot.id, "auto").catch(() => {
+                if (context.active) toast.error(t("candidateAdoptFailed"));
+            });
+        });
+    }, [allVideoTasks, updateVideoSelection, t]);
 
     // Compare modal needs the actual VideoTask objects for the
     // currently-selected ids (in whatever order they were selected).
@@ -1305,7 +1310,7 @@ function StoryboardWorkbench() {
         const out: VideoTask[] = [];
         Array.from(compareSelectedIds).forEach((id) => {
             const t = tasksById.get(id);
-            if (t) out.push(t);
+            if (t?.status === "completed" && t.video_url) out.push(t);
         });
         return out;
     }, [compareSelectedIds, tasksById]);
@@ -1417,70 +1422,45 @@ function StoryboardWorkbench() {
         });
     }, [persistWorkbench, shotCounts, shots, videoConfig.duration, handleUpdateField]);
 
-    // Annotate handlers wire CandidateThumb's star/label CTAs to the
-    // backend PATCH endpoint. We refresh the project after each call
-    // so the candidate cell re-renders with the new flag without
-    // waiting for the 5s polling tick.
-    const handleToggleStar = useCallback(async (task: VideoTask, next: boolean) => {
-        if (!currentProject?.id) return;
-        try {
-            await api.annotateVideoTask(currentProject.id, task.id, { is_starred: next });
-            await refreshProject(true);
-        } catch (err) {
-            debugLog.error("Studio", "Failed to toggle star:", err);
-        }
-    }, [currentProject?.id, refreshProject]);
-
-    // Manual pin: user explicitly chose this take as the frame's active
-    // video. Backend sets is_video_pinned=true so subsequent auto-selects
-    // (polling completion) skip this frame. Locally we update the shot's
-    // videoUrl + videoStatus immediately so the hero swaps without waiting
-    // for the project refresh round-trip.
-    const handleSetActive = useCallback(async (frameId: string, task: VideoTask) => {
-        if (!currentProject?.id) return;
-        const taskVideoUrl = (task as any).video_url as string | undefined;
-        setShots(prev => prev.map(s =>
-            s.id === frameId
-                ? { ...s, videoUrl: taskVideoUrl, videoStatus: "completed" as const, isVideoPinned: true }
-                : s
-        ));
-        try {
-            const updated = await api.selectVideo(currentProject.id, frameId, task.id);
-            updateProject(currentProject.id, { frames: updated.frames });
-        } catch (err) {
-            debugLog.error("Studio", "Failed to set active take:", err);
-        }
+    const annotationRequests = useRef(new Map<string, Promise<void>>());
+    const annotateCandidate = useCallback((task: VideoTask, payload: Parameters<typeof api.annotateVideoTask>[2]): Promise<void> => {
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        const previous = annotationRequests.current.get(task.id);
+        const request = (async () => {
+            if (previous) await previous.catch(() => {});
+            if (!projectId || !isCurrent()) return;
+            const updated: VideoTask = await api.annotateVideoTask(projectId, task.id, payload);
+            if (!isCurrent()) return;
+            if (updated.id !== task.id) throw new Error("Annotation response is missing its candidate");
+            const annotation = payload.is_starred !== undefined ? { is_starred: updated.is_starred } : { label: updated.label };
+            const tasks = useProjectStore.getState().currentProject?.video_tasks ?? [];
+            // Preserve status and other annotations confirmed while this write was pending.
+            updateProject(projectId, { video_tasks: tasks.map(current => current.id === task.id ? { ...current, ...annotation } : current) });
+        })().finally(() => {
+            if (annotationRequests.current.get(task.id) === request) annotationRequests.current.delete(task.id);
+        });
+        annotationRequests.current.set(task.id, request);
+        return request;
     }, [currentProject?.id, updateProject]);
+    const handleToggleStar = useCallback((task: VideoTask, next: boolean) => annotateCandidate(task, { is_starred: next }), [annotateCandidate]);
 
-    // Unpin: clear the manual pin so auto-select resumes on next
-    // completion. Selected_video_id / video_url stay put — user keeps
-    // seeing the current take until a newer one arrives.
+    const handleSetActive = useCallback((frameId: string, task: VideoTask) => {
+        if (task.status !== "completed" || !task.video_url || task.frame_id !== frameId) return Promise.reject(new Error("Candidate is not available for this shot"));
+        return updateVideoSelection(frameId, "select", task.id);
+    }, [updateVideoSelection]);
+
     const handleUnpinVideo = useCallback(async (frameId: string) => {
-        if (!currentProject?.id) return;
-        setShots(prev => prev.map(s =>
-            s.id === frameId ? { ...s, isVideoPinned: false } : s
-        ));
-        try {
-            const updated = await api.unpinVideo(currentProject.id, frameId);
-            updateProject(currentProject.id, { frames: updated.frames });
-        } catch (err) {
-            debugLog.error("Studio", "Failed to unpin video:", err);
-        }
-    }, [currentProject?.id, updateProject]);
+        try { await updateVideoSelection(frameId, "unpin"); }
+        catch { if (taskContext.current.active) toast.error(t("candidateSaveFailed")); }
+    }, [updateVideoSelection, t]);
 
-    const handleSetLabel = useCallback(async (task: VideoTask, next: string | null) => {
-        if (!currentProject?.id) return;
-        try {
-            if (next === null || next === "") {
-                await api.annotateVideoTask(currentProject.id, task.id, { clear_label: true });
-            } else {
-                await api.annotateVideoTask(currentProject.id, task.id, { label: next });
-            }
-            await refreshProject(true);
-        } catch (err) {
-            debugLog.error("Studio", "Failed to set label:", err);
-        }
-    }, [currentProject?.id, refreshProject]);
+    const handleSetLabel = useCallback((task: VideoTask, next: string | null) =>
+        annotateCandidate(task, next ? { label: next } : { clear_label: true }), [annotateCandidate]);
 
     const cancelRequests = useRef(new Map<string, Promise<void>>());
     const cancelTask = useCallback((taskId: string): Promise<void> => {
@@ -1521,24 +1501,15 @@ function StoryboardWorkbench() {
         await generateVideoBatch(ownerIdx, 1);
     }, [shots, generateVideoBatch]);
 
-    // Click on a candidate thumb: plain click = preview (open new
-    // window for v1), shift-click = toggle compare-selection.
     const handleCandidateClick = useCallback((task: VideoTask, mods: { shift: boolean; meta: boolean }) => {
-        if (mods.shift) {
-            setCompareSelectedIds(prev => {
-                const next = new Set(prev);
-                if (next.has(task.id)) next.delete(task.id);
-                else next.add(task.id);
-                return next;
-            });
-            return;
-        }
-        const frame = currentProject?.frames?.find((f: any) => f.dubbed_video_task_id === task.id);
-        const url = frame?.dubbed_video_url || task.video_url;
-        if (url) {
-            window.open(getAssetUrl(url), "_blank", "noopener");
-        }
-    }, [currentProject]);
+        if (!mods.shift || task.status !== "completed" || !task.video_url || task.frame_id !== selectedShot?.id) return;
+        setCompareSelectedIds(previous => {
+            const next = new Set(previous);
+            if (next.has(task.id)) next.delete(task.id);
+            else if (next.size < 4) next.add(task.id);
+            return next;
+        });
+    }, [selectedShot?.id]);
 
     // 复用此批参数: copy a batch's model + neg_prompt into videoConfig,
     // so the next Generate uses the same recipe. We don't change count
@@ -1593,17 +1564,17 @@ function StoryboardWorkbench() {
         <div className={styles.main}>
             <header className={styles.header}>
                 <div><p>{currentProject?.title} / {tStudio("storyboard")}</p><h2>{selectedShot ? tStudio("shotNumber", { number: shots.indexOf(selectedShot) + 1 }) : tStudio("storyboard")}</h2></div>
-                <div className={styles.headerActions}>
-                    <div className={styles.saveState}>
+                <div className={styles.saveState}>
                         <span role="status" aria-label={t("saveStatus")} aria-live="polite" data-error={draftSave.hasError || undefined}>
                             {structurePending || draftSave.saving ? t("saving") : draftSave.hasError ? t("saveFailedRetained") : draftSave.pending ? t("unsaved") : t("saved")}
                         </span>
                         {draftSave.pending && <Button variant="quiet" isDisabled={draftSave.saving || !!(selectedShot && draftSave.isRefining(selectedShot.id))} onPress={() => { void saveAllDrafts(); }}>{t(draftSave.hasError ? "retrySave" : "saveNow")}</Button>}
                         {draftSave.pending && draftSave.storageUnavailable && <span role="alert">{t("draftStorageUnavailable")}</span>}
                     </div>
+                <div className={styles.headerActions}>
                     <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
                     <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
-                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating}>{generating ? t("genInFlight") : t("genShots")}</Button>
+                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
                 </div>
             </header>
             <GenerationBanner
@@ -1672,6 +1643,7 @@ function StoryboardWorkbench() {
                             onRefineFrame={() => handleRefineFrame(shot.id)}
                             isRefining={draftSave.isRefining(shot.id)}
                             onUnpinVideo={() => handleUnpinVideo(shot.id)}
+                            isSelectingVideo={!!selectingVideoFrames[shot.id]}
                             onUpdateDialogue={async (text: string) => {
                                 if (!currentProject) return;
                                 try {
@@ -1905,6 +1877,9 @@ function StoryboardWorkbench() {
                                     onToggleStar={handleToggleStar}
                                     onSetLabel={handleSetLabel}
                                     onSetActive={(task) => handleSetActive(shot.id, task)}
+                                    isSelecting={!!selectingVideoFrames[shot.id]}
+                                    isPinned={!!currentProject?.frames?.find(frame => frame.id === shot.id)?.is_video_pinned}
+                                    onClearCompare={() => setCompareSelectedIds(new Set())}
                                     onCancel={handleCancelTask}
                                     onRetry={handleRetryTask}
                                     onReuseBatchParams={handleReuseBatchParams}

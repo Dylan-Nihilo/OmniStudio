@@ -1,7 +1,7 @@
 .page { display: flex; flex: 1; height: 100%; min-height: 0; position: relative; background: var(--color-bg-base); color: var(--color-text-primary); }
 .main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 32px; flex-shrink: 0; }
-.header > div:first-child { min-width: 0; }
+.header > div:first-child { min-width: 0; flex: 1; }
 .header p { font-size: 10px; color: var(--color-text-muted); overflow-wrap: anywhere; }
 .header h2 { margin-top: 6px; font-size: 19px; font-weight: 600; }
 .headerActions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -22,3 +22,13 @@
 
 .saveState { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--color-text-muted); }
 .saveState [data-error], .saveState [role="alert"] { color: var(--color-status-failed-fg); }
+
+@media (max-width: 959px) {
+  .header { gap: 8px 12px; padding: 12px 16px; }
+  .header > div:first-child { flex-basis: 120px; }
+  .header p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header h2 { margin-top: 4px; font-size: 18px; }
+  .saveState { max-width: 100%; justify-content: flex-end; }
+  .headerActions { flex-wrap: nowrap; }
+  .headerActions :global(.omni-button) { flex: 1; min-width: 0; padding-inline: 8px; gap: 4px; font-size: 12px; }
+}

@@ -1,56 +1,34 @@
 "use client";
-/**
- * CandidatesSection — lower half of the attached ShotPanel. Shows
- * every video task this shot has produced, grouped by batch (a
- * cluster of tasks created from one Generate ×N click).
- *
- * Design per grill Q4/Q5/Q6:
- *   - Batch + accumulate: each Generate adds N candidates; old
- *     batches stay (never overwritten)
- *   - Latest batch expanded by default, older batches collapsed
- *   - Filter chips: All / ★ Starred only / 此模型 (current model)
- *   - Sort: by time desc (default) or by model
- *   - Multi-row wrap inside each batch (no horizontal scroll)
- *   - Per-row "复用此批参数" button on each collapsed batch header
- *
- * Batch detection: VideoTask doesn't have a batch_id field; we
- * approximate by clustering tasks whose created_at differs by ≤ a
- * gap window AND share the same (model, prompt, negative_prompt)
- * fingerprint. Crude but matches the user's mental "I clicked
- * Generate once" model.
- */
+
 import { useMemo, useState } from "react";
-import { Star, Film, Clock, ArrowDown, ArrowUp, RotateCw } from "lucide-react";
+import { ChevronDown, ChevronRight, RotateCcw, Film } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { Button, EmptyState, IconButton, LoadingState, SelectField, StatusBadge } from "@omnistudio/ui";
 import type { VideoTask } from "@/lib/api";
 import SectionShell from "./SectionShell";
 import { usePanelSectionState } from "./usePanelSectionState";
 import CandidateThumb from "./CandidateThumb";
+import styles from "./CandidatesSection.module.css";
 
 interface CandidatesSectionProps {
     shotId: string;
     tasks: VideoTask[];
-    /** Tasks pre-filtered to a specific tab (t2i_i2v / direct_r2v) so
-     *  candidates from the other tab don't leak in. */
     activeModel?: string;
     compareSelectedIds: Set<string>;
-    /** Dub info: if a task was dubbed, show dubbed version in its thumb. */
     dubbedVideoUrl?: string;
     dubbedVideoTaskId?: string;
     onClickThumb: (task: VideoTask, modifiers: { shift: boolean; meta: boolean }) => void;
     onToggleStar: (task: VideoTask, next: boolean) => Promise<void> | void;
     onSetLabel: (task: VideoTask, next: string | null) => Promise<void> | void;
-    /** When provided, each thumb shows a 📌 Set-as-active button (only on
-     *  completed tasks). The task with id === activeTaskId is rendered
-     *  with the primary border + filled Pin badge. */
     onSetActive?: (task: VideoTask) => Promise<void> | void;
-    /** The frame's currently selected video id (frame.selected_video_id),
-     *  used to highlight the active thumb. */
     activeTaskId?: string | null;
+    isPinned?: boolean;
+    isSelecting?: boolean;
     onCancel?: (task: VideoTask) => Promise<void> | void;
     onRetry?: (task: VideoTask) => Promise<void> | void;
     onReuseBatchParams?: (batch: BatchSummary) => void;
     onOpenCompare?: () => void;
+    onClearCompare?: () => void;
     resolveUrl?: (url: string) => string;
 }
 
@@ -66,7 +44,8 @@ export interface BatchSummary {
 type FilterMode = "all" | "starred" | "this-model";
 type SortMode = "time" | "model";
 
-const BATCH_GAP_MS = 15_000; // Tasks within 15s of each other on the same model/prompt cluster together.
+// ponytail: tasks have no batch ID; keep the existing 15s grouping until the API provides one.
+const BATCH_GAP_MS = 15_000;
 
 function groupIntoBatches(tasks: VideoTask[]): BatchSummary[] {
     if (tasks.length === 0) return [];
@@ -96,332 +75,83 @@ function groupIntoBatches(tasks: VideoTask[]): BatchSummary[] {
         if (first.negative_prompt) parts.push(`neg="${first.negative_prompt.slice(0, 24)}"`);
         if (first.resolution) parts.push(first.resolution);
         if (first.ratio) parts.push(first.ratio);
-        const summary = parts.length ? parts.join(" · ") : "default params";
+        const summary = parts.join(" · ");
         return {
             id: `batch-${first.id}`,
             tasks: bt,
             createdAt: first.created_at,
-            model: first.model || "unknown",
+            model: first.model || "",
             summary,
         };
     });
 }
 
-export default function CandidatesSection({
-    shotId,
-    tasks,
-    activeModel,
-    compareSelectedIds,
-    dubbedVideoUrl,
-    dubbedVideoTaskId,
-    onClickThumb,
-    onToggleStar,
-    onSetLabel,
-    onSetActive,
-    activeTaskId,
-    onCancel,
-    onRetry,
-    onReuseBatchParams,
-    onOpenCompare,
-    resolveUrl,
-}: CandidatesSectionProps) {
+export default function CandidatesSection(props: CandidatesSectionProps) {
+    const { shotId, tasks, activeModel, compareSelectedIds, isSelecting, onOpenCompare, onClearCompare } = props;
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = usePanelSectionState(shotId, "candidates", true);
     const [filter, setFilter] = useState<FilterMode>("all");
     const [sort, setSort] = useState<SortMode>("time");
-
-    const filteredTasks = useMemo(() => {
-        return tasks.filter((t) => {
-            if (filter === "starred" && !t.is_starred) return false;
-            if (filter === "this-model" && activeModel && t.model !== activeModel) return false;
-            return true;
-        });
-    }, [tasks, filter, activeModel]);
-
+    const allBatches = useMemo(() => groupIntoBatches(tasks).reverse(), [tasks]);
     const batches = useMemo(() => {
-        const out = groupIntoBatches(filteredTasks);
-        if (sort === "model") {
-            return [...out].sort((a, b) =>
-                a.model === b.model
-                    ? b.createdAt - a.createdAt
-                    : a.model.localeCompare(b.model),
-            );
-        }
-        return [...out].sort((a, b) => b.createdAt - a.createdAt);
-    }, [filteredTasks, sort]);
-
-    const totalCount = tasks.length;
-    const starredCount = tasks.filter((t) => t.is_starred).length;
+        // Keep batch identity stable when a filter removes its earliest task.
+        const out = allBatches.map(batch => ({ ...batch, tasks: batch.tasks.filter(task =>
+            filter === "starred" ? task.is_starred : filter !== "this-model" || !activeModel || task.model === activeModel,
+        ) })).filter(batch => batch.tasks.length);
+        return sort === "model" ? out.sort((a, b) => a.model.localeCompare(b.model) || b.createdAt - a.createdAt) : out;
+    }, [allBatches, filter, sort, activeModel]);
     const compareCount = compareSelectedIds.size;
-
-    return (
-        <SectionShell
-            title={t("candidates")}
-            subtitle={totalCount > 0 ? t("candidatesCount", { count: totalCount }) : undefined}
-            open={open}
-            onToggle={() => setOpen(!open)}
-            trailing={
-                <>
-                    {/* Filter chips */}
-                    <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>
-                        {t("filterAll")}
-                    </FilterChip>
-                    <FilterChip
-                        active={filter === "starred"}
-                        onClick={() => setFilter("starred")}
-                    >
-                        <Star size={9} aria-hidden="true" fill={filter === "starred" ? "currentColor" : "none"} />
-                        {starredCount > 0 ? `${starredCount}` : ""}
-                    </FilterChip>
-                    {activeModel ? (
-                        <FilterChip
-                            active={filter === "this-model"}
-                            onClick={() => setFilter("this-model")}
-                            title={t("filterThisModelTitle", { model: activeModel })}
-                        >
-                            <Film size={9} aria-hidden="true" />
-                            {t("filterThisModel")}
-                        </FilterChip>
-                    ) : null}
-                    {/* Sort flipper — text label inline so users know what
-                        the click toggles. Label updates in lockstep with state. */}
-                    <button
-                        type="button"
-                        onClick={() => setSort((s) => (s === "time" ? "model" : "time"))}
-                        title={sort === "time" ? t("sortByModelTitle") : t("sortByTimeTitle")}
-                        aria-label={t("sortAriaLabel", { sort })}
-                        className="btn-tip -m-1 inline-flex h-7 items-center gap-1 rounded px-1.5 text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                    >
-                        {sort === "time" ? (
-                            <Clock size={11} aria-hidden="true" />
-                        ) : (
-                            <Film size={11} aria-hidden="true" />
-                        )}
-                        <span className="font-mono text-chrome-sm font-medium uppercase tracking-tight">
-                            {t(sort === "time" ? "sortByTime" : "sortByModel")}
-                        </span>
-                    </button>
-                </>
-            }
-        >
-            {totalCount === 0 ? (
-                <div className="flex flex-col items-center gap-2 px-3 py-5">
-                    <div className="font-display text-display-sm font-semibold tracking-tight text-foreground">
-                        {t("noCandidatesTitle")}
-                    </div>
-                    <ol className="flex flex-col gap-1 text-center font-mono text-chrome-sm tracking-tight text-text-muted">
-                        <li>{t("noCandidatesHint1")}</li>
-                        <li>{t("noCandidatesHint2")}</li>
-                        <li>{t("noCandidatesHint3")}</li>
-                    </ol>
-                </div>
-            ) : batches.length === 0 ? (
-                <div className="px-2 py-4 text-center font-mono text-chrome-sm font-medium uppercase text-text-muted">
-                    {t("noMatches")}
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {/* Compare callout — promoted to display tier when
-                        ≥2 selected. */}
-                    {compareCount >= 2 ? (
-                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-status-starred-border bg-status-starred-bg px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:gap-3">
-                            <span className="font-display text-display-sm font-semibold tracking-tight text-status-starred-fg">
-                                {t("compareSelected", { count: compareCount })}
-                            </span>
-                            <button
-                                type="button"
-                                onClick={() => onOpenCompare?.()}
-                                disabled={!onOpenCompare}
-                                className="inline-flex items-center gap-1.5 rounded-md bg-status-starred-solid px-3 py-1.5 font-display text-display-sm font-semibold text-on-warm shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-all duration-fast ease-out-quart hover:brightness-110 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-starred-border disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {t("compareGo", { count: compareCount })} →
-                            </button>
-                        </div>
-                    ) : null}
-
-                    {batches.map((batch, batchIdx) => (
-                        <BatchBlock
-                            key={batch.id}
-                            batch={batch}
-                            defaultOpen={batchIdx === 0}
-                            compareSelectedIds={compareSelectedIds}
-                            activeTaskId={activeTaskId}
-                            dubbedVideoUrl={dubbedVideoUrl}
-                            dubbedVideoTaskId={dubbedVideoTaskId}
-                            resolveUrl={resolveUrl}
-                            onClickThumb={onClickThumb}
-                            onToggleStar={onToggleStar}
-                            onSetLabel={onSetLabel}
-                            onSetActive={onSetActive}
-                            onCancel={onCancel}
-                            onRetry={onRetry}
-                            onReuseBatchParams={onReuseBatchParams}
-                        />
-                    ))}
-                </div>
-            )}
-        </SectionShell>
-    );
+    return <SectionShell title={t("candidates")} subtitle={tasks.length ? t("candidatesCount", { count: tasks.length }) : undefined} open={open} onToggle={() => setOpen(!open)}>
+        {tasks.length > 0 && <div className={styles.toolbar}>
+            <SelectField label={t("candidateFilter")} value={filter} onChange={value => setFilter(value as FilterMode)} options={[
+                { id: "all", label: t("filterAll") },
+                { id: "starred", label: t("candidateStarredOnly") },
+                ...(activeModel ? [{ id: "this-model", label: t("filterThisModel") }] : []),
+            ]} />
+            <SelectField label={t("candidateSort")} value={sort} onChange={value => setSort(value as SortMode)} options={[
+                { id: "time", label: t("sortByTime") }, { id: "model", label: t("sortByModel") },
+            ]} />
+        </div>}
+        <div className={styles.selectionFeedback}>{isSelecting && <LoadingState inline label={t("candidateAdopting")} />}</div>
+        {compareCount > 0 && <div className={styles.compare}>
+            <p>{t("compareSelected", { count: compareCount })}<span>{t("candidateCompareLimit")}</span></p>
+            <div>
+                {onClearCompare && <Button variant="quiet" onPress={onClearCompare}>{t("candidateClearCompare")}</Button>}
+                <Button variant="secondary" isDisabled={compareCount < 2 || !onOpenCompare} onPress={onOpenCompare}>{t("compareGo", { count: compareCount })}</Button>
+            </div>
+        </div>}
+        {tasks.length === 0 ? <EmptyState title={t("noCandidatesTitle")} description={t("candidateEmptyHint")} media={<Film size={24} />} />
+            : batches.length === 0 ? <EmptyState title={t("noMatches")} action={<Button variant="quiet" onPress={() => setFilter("all")}>{t("candidateResetFilter")}</Button>} />
+            : <div className={styles.batches}>{batches.map(batch => <BatchBlock key={batch.id} {...props} batch={batch} defaultOpen={batch.id === allBatches[0]?.id} />)}</div>}
+    </SectionShell>;
 }
 
-function FilterChip({
-    children,
-    active,
-    onClick,
-    title,
-}: {
-    children: React.ReactNode;
-    active: boolean;
-    onClick: () => void;
-    title?: string;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            title={title}
-            aria-pressed={active}
-            className={`inline-flex min-h-[24px] items-center gap-1 rounded-full border px-2 py-[2px] font-mono text-chrome-sm font-medium uppercase transition-colors duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
-                active
-                    ? "border-primary/55 bg-primary/15 text-primary"
-                    : "border-glass-border bg-black/20 text-text-muted hover:border-foreground/30 hover:text-foreground"
-            }`}
-        >
-            {children}
-        </button>
-    );
-}
-
-function BatchBlock({
-    batch,
-    defaultOpen,
-    compareSelectedIds,
-    activeTaskId,
-    dubbedVideoUrl,
-    dubbedVideoTaskId,
-    resolveUrl,
-    onClickThumb,
-    onToggleStar,
-    onSetLabel,
-    onSetActive,
-    onCancel,
-    onRetry,
-    onReuseBatchParams,
-}: {
-    batch: BatchSummary;
-    defaultOpen: boolean;
-    compareSelectedIds: Set<string>;
-    activeTaskId?: string | null;
-    dubbedVideoUrl?: string;
-    dubbedVideoTaskId?: string;
-    resolveUrl?: (url: string) => string;
-    onClickThumb: CandidatesSectionProps["onClickThumb"];
-    onToggleStar: CandidatesSectionProps["onToggleStar"];
-    onSetLabel: CandidatesSectionProps["onSetLabel"];
-    onSetActive?: CandidatesSectionProps["onSetActive"];
-    onCancel?: CandidatesSectionProps["onCancel"];
-    onRetry?: CandidatesSectionProps["onRetry"];
-    onReuseBatchParams?: CandidatesSectionProps["onReuseBatchParams"];
-}) {
+function BatchBlock({ batch, defaultOpen, compareSelectedIds, activeTaskId, isPinned, isSelecting, dubbedVideoUrl, dubbedVideoTaskId, resolveUrl, onClickThumb, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry, onReuseBatchParams }: CandidatesSectionProps & { batch: BatchSummary; defaultOpen: boolean }) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = useState(defaultOpen);
-    const failedCount = batch.tasks.filter((t) => t.status === "failed").length;
-    const runningCount = batch.tasks.filter((t) => t.status === "pending" || t.status === "processing").length;
-    const completedCount = batch.tasks.filter((t) => t.status === "completed").length;
-
-    const formatBatchAge = (ts: number): string => {
-        const ageS = Math.max(0, Math.floor(Date.now() / 1000 - ts));
-        if (ageS < 60) return t("batchAgeSeconds", { s: ageS });
-        if (ageS < 3600) return t("batchAgeMinutes", { m: Math.floor(ageS / 60) });
-        if (ageS < 86_400) return t("batchAgeHours", { h: Math.floor(ageS / 3600) });
-        return t("batchAgeDays", { d: Math.floor(ageS / 86_400) });
-    };
-
-    // Restructured batch header (P2-2): left = model + take count
-    // (body tier, the things that disambiguate this batch). Right =
-    // status pips (only when nonzero). Params (negative, resolution,
-    // ratio) demoted to title attribute so the row breathes — they
-    // matter on the rare 复用 click, not on every scan.
-    return (
-        <div className="rounded-[14px] border border-glass-border bg-black/15">
-            <div className="flex items-center gap-2 px-2 py-2">
-                <button
-                    type="button"
-                    onClick={() => setOpen(!open)}
-                    aria-expanded={open}
-                    title={batch.summary}
-                    className="-m-1 flex min-w-0 flex-1 items-center gap-2 rounded p-1 text-left transition-colors duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                >
-                    <span className="text-text-muted">
-                        {open ? (
-                            <ArrowDown size={11} aria-hidden="true" />
-                        ) : (
-                            <ArrowUp size={11} aria-hidden="true" className="rotate-180" />
-                        )}
-                    </span>
-                    <span className="truncate font-sans text-body-sm font-medium text-foreground">
-                        ×{batch.tasks.length}
-                        <span className="ml-1 font-mono text-chrome-sm text-text-muted">{batch.model}</span>
-                    </span>
-                    <span className="truncate font-mono text-chrome-sm tracking-tight text-text-muted">
-                        · {formatBatchAge(batch.createdAt)}
-                    </span>
-                    <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                        {runningCount > 0 ? (
-                            <span className="inline-flex items-center gap-0.5 font-mono text-chrome-sm font-medium text-status-processing-fg">
-                                <span aria-hidden="true">●</span>
-                                <span aria-label={`${runningCount} running`}>{runningCount}</span>
-                            </span>
-                        ) : null}
-                        {completedCount > 0 ? (
-                            <span className="inline-flex items-center gap-0.5 font-mono text-chrome-sm font-medium text-status-completed-fg">
-                                <span aria-hidden="true">✓</span>
-                                <span aria-label={`${completedCount} completed`}>{completedCount}</span>
-                            </span>
-                        ) : null}
-                        {failedCount > 0 ? (
-                            <span className="inline-flex items-center gap-0.5 font-mono text-chrome-sm font-medium text-status-failed-fg">
-                                <span aria-hidden="true">✗</span>
-                                <span aria-label={`${failedCount} failed`}>{failedCount}</span>
-                            </span>
-                        ) : null}
-                    </span>
-                </button>
-                {onReuseBatchParams ? (
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onReuseBatchParams(batch);
-                        }}
-                        title={t("batchReuse")}
-                        aria-label={t("batchReuse")}
-                        className="-m-1 grid h-7 w-7 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                    >
-                        <RotateCw size={11} aria-hidden="true" />
-                    </button>
-                ) : null}
-            </div>
-            {open ? (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(152px,1fr))] gap-2.5 border-t border-glass-border p-2.5">
-                    {batch.tasks.map((task) => (
-                        <CandidateThumb
-                            key={task.id}
-                            task={task}
-                            isCompareSelected={compareSelectedIds.has(task.id)}
-                            isActive={!!activeTaskId && task.id === activeTaskId}
-                            dubbedVideoUrl={task.id === dubbedVideoTaskId ? dubbedVideoUrl : undefined}
-                            resolveUrl={resolveUrl}
-                            onClick={onClickThumb}
-                            onToggleStar={onToggleStar}
-                            onSetLabel={onSetLabel}
-                            onSetActive={onSetActive}
-                            onCancel={onCancel}
-                            onRetry={onRetry}
-                        />
-                    ))}
-                </div>
-            ) : null}
+    const runningCount = batch.tasks.filter(task => task.status === "pending" || task.status === "processing").length;
+    const failedCount = batch.tasks.filter(task => task.status === "failed").length;
+    const ageSeconds = Math.max(0, Math.floor(Date.now() / 1000 - batch.createdAt));
+    const age = ageSeconds < 60 ? t("batchAgeSeconds", { s: ageSeconds }) : ageSeconds < 3600 ? t("batchAgeMinutes", { m: Math.floor(ageSeconds / 60) }) : ageSeconds < 86400 ? t("batchAgeHours", { h: Math.floor(ageSeconds / 3600) }) : t("batchAgeDays", { d: Math.floor(ageSeconds / 86400) });
+    return <section className={styles.batch}>
+        <div className={styles.batchHeader}>
+            <Button variant="quiet" className={styles.batchToggle} aria-expanded={open} onPress={() => setOpen(!open)}>
+                {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <span><strong>{batch.model || t("candidateUnknownModel")}</strong><span>{t("candidatesCount", { count: batch.tasks.length })} · {age}</span></span>
+            </Button>
+            {onReuseBatchParams && <IconButton aria-label={t("batchReuse")} onPress={() => onReuseBatchParams(batch)}><RotateCcw size={16} /></IconButton>}
         </div>
-    );
+        <div className={styles.batchSummary}>
+            {batch.summary && <span>{batch.summary}</span>}
+            {runningCount > 0 && <StatusBadge tone="info">{t("candidateRunningCount", { count: runningCount })}</StatusBadge>}
+            {failedCount > 0 && <StatusBadge tone="danger">{t("candidateFailedCount", { count: failedCount })}</StatusBadge>}
+        </div>
+        {open && <div className={styles.grid}>
+            {batch.tasks.map(task => <CandidateThumb key={task.id} task={task}
+                isCompareSelected={compareSelectedIds.has(task.id)} compareLimitReached={compareSelectedIds.size >= 4}
+                isActive={task.id === activeTaskId} isPinned={isPinned} isSelecting={isSelecting}
+                dubbedVideoUrl={task.id === dubbedVideoTaskId ? dubbedVideoUrl : undefined} resolveUrl={resolveUrl}
+                onClick={onClickThumb} onToggleStar={onToggleStar} onSetLabel={onSetLabel} onSetActive={onSetActive} onCancel={onCancel} onRetry={onRetry} />)}
+        </div>}
+    </section>;
 }
