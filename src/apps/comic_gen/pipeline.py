@@ -394,6 +394,7 @@ class ComicGenPipeline:
             task = next((t for t in tasks if getattr(t, "id", None) == task_id), None)
             if not task:
                 return None
+            previous_star, previous_label = task.is_starred, task.label
             if is_starred is not None:
                 task.is_starred = bool(is_starred)
             if clear_label:
@@ -404,7 +405,8 @@ class ComicGenPipeline:
             try:
                 self._save_data()
             except Exception:
-                logger.warning("annotate_video_task: save failed")
+                task.is_starred, task.label = previous_star, previous_label
+                raise
             return task
 
     _T2I_HISTORY_LIMIT = 10

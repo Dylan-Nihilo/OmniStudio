@@ -2926,13 +2926,17 @@ def annotate_video_task(script_id: str, task_id: str, request: AnnotateVideoTask
     """Set the user's star + label on a video task. Used by Storyboard's
     candidates panel for shortlist marking (multi-select) and short
     free-text notes (≤20 chars, truncated server-side)."""
-    task = pipeline.annotate_video_task(
-        script_id,
-        task_id,
-        is_starred=request.is_starred,
-        label=request.label,
-        clear_label=request.clear_label,
-    )
+    try:
+        task = pipeline.annotate_video_task(
+            script_id,
+            task_id,
+            is_starred=request.is_starred,
+            label=request.label,
+            clear_label=request.clear_label,
+        )
+    except Exception:
+        logger.exception("Could not save candidate annotations")
+        raise HTTPException(status_code=500, detail="Could not save candidate annotations")
     if task is None:
         raise HTTPException(status_code=404, detail="Video task not found")
     return signed_response(task)

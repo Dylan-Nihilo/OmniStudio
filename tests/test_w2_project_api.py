@@ -7,9 +7,10 @@ import pytest
 import src.apps.comic_gen.api as api_module
 from src.apps.comic_gen.auth.service import AuthService
 from src.apps.comic_gen.auth.settings import AuthSettings
-from src.apps.comic_gen.models import Prop
+from src.apps.comic_gen.models import Prop, VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.storage.auth_repository import AuthRepository
+from src.storage.errors import StorageError
 from tests.auth_test_helpers import make_client
 
 
@@ -782,3 +783,45 @@ def test_legacy_get_project_shape_and_source_merge_are_unchanged(api_client):
     assert "script" not in payload
     shared = next(item for item in payload["characters"] if item["id"] == shared_character.json()["id"])
     assert shared["source"] == "series"
+
+
+@pytest.mark.parametrize("operation", ["annotate", "select_video", "auto_select_latest_video", "unpin_video"])
+def test_candidate_save_failure_retains_confirmed_state_and_retry_round_trips(api_client, operation):
+    project = _create_project(api_client, "Candidate save recovery")
+    route = f"/projects/{project['id']}"
+    created = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "A rooftop"})
+    frame_id = created.json()["frames"][0]["id"]
+    # Completed provider results are fixtures; no generation is dispatched.
+    script = api_module.pipeline.scripts[project["id"]]
+    script.video_tasks = [VideoTask(id="take-new", project_id=script.id, frame_id=frame_id,
+        image_url="", prompt="A rooftop", status="completed", video_url="video/new.mp4")]
+    frame = script.frames[0]
+    frame.selected_video_id = "take-old"
+    frame.video_url = "video/old.mp4"
+    frame.is_video_pinned = operation == "unpin_video"
+    api_module.pipeline._save_data()
+    before = api_client.get(route).json()
+    endpoint = route + "/video_tasks/take-new/annotate" if operation == "annotate" else route + f"/frames/{frame_id}/{operation}"
+    method = api_client.patch if operation == "annotate" else api_client.post
+    payload = {"is_starred": True, "label": "Best camera"} if operation == "annotate" else {"video_id": "take-new"} if operation == "select_video" else {}
+    with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=StorageError("simulated write failure")):
+        failed = method(endpoint, json=payload)
+    assert failed.status_code == 500, failed.text
+    unchanged = api_client.get(route).json()
+    assert unchanged["frames"] == before["frames"]
+    assert unchanged["video_tasks"] == before["video_tasks"]
+    saved = method(endpoint, json=payload)
+    assert saved.status_code == 200, saved.text
+    # Reload the isolated repository as a backend restart would, then read via API.
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    restored = api_client.get(route).json()
+    if operation == "annotate":
+        assert restored["video_tasks"][0]["is_starred"] is True
+        assert restored["video_tasks"][0]["label"] == "Best camera"
+    elif operation == "unpin_video":
+        assert restored["frames"][0]["is_video_pinned"] is False
+        assert restored["frames"][0]["video_url"] == "video/old.mp4"
+    else:
+        assert restored["frames"][0]["selected_video_id"] == "take-new"
+        assert restored["frames"][0]["video_url"] == "video/new.mp4"
+        assert restored["frames"][0]["is_video_pinned"] is (operation == "select_video")
