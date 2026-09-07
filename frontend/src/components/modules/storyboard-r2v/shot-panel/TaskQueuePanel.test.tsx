@@ -23,7 +23,7 @@ describe("TaskQueuePanel", () => {
         fireEvent.click(cancel);
         fireEvent.click(cancel);
         expect(onCancel).toHaveBeenCalledOnce();
-        expect(cancel).toBeDisabled();
+        expect(cancel).toHaveAttribute("aria-disabled", "true");
         expect(cancel).toHaveTextContent("queueCanceling");
         await act(async () => { rejectCancel(new Error("network unavailable")); });
         expect(screen.getByRole("alert")).toHaveTextContent("queueActionFailed");
@@ -45,7 +45,7 @@ describe("TaskQueuePanel", () => {
         fireEvent.click(screen.getByRole("button", { name: "queueRefresh" }));
         expect(onRefresh).toHaveBeenCalledOnce();
         view.rerender(<TaskQueuePanel open onClose={vi.fn()} tasks={[]} onJumpToShot={vi.fn()} refreshing onRefresh={onRefresh} />);
-        expect(screen.getByRole("button", { name: "queueRefresh" })).toBeDisabled();
+        expect(screen.getByRole("button", { name: "queueRefresh" })).toHaveAttribute("aria-disabled", "true");
         expect(screen.getByRole("status")).toHaveTextContent("queueRefreshing");
     });
 });

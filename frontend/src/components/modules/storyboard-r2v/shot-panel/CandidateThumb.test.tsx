@@ -15,7 +15,7 @@ it("keeps a note draft on save failure and only dismisses after a successful ret
     const field = screen.getByRole("textbox", { name: "candidateNote" });
     fireEvent.change(field, { target: { value: "Use this camera move" } });
     fireEvent.click(screen.getByRole("button", { name: "save" }));
-    expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "save" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "close" })).toBeDisabled();
     await act(async () => { rejectSave(new Error("save failed")); });
     expect(field).toHaveValue("Use this camera move");

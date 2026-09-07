@@ -41,7 +41,7 @@ it('keeps an unsuccessful save retryable and prevents dismissal while saving', a
   const close = vi.fn();
   render(<DetailPanel generation={generation} allGenerations={[generation]} focusOutputId="b" onClose={close} onNavigate={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'detail.saveToLibrary' }));
-  expect(screen.getByRole('button', { name: 'detail.saving' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'detail.saving' })).toHaveAttribute('aria-disabled', 'true');
   expect(screen.getByRole('button', { name: 'close' })).toBeDisabled();
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   expect(close).not.toHaveBeenCalled();

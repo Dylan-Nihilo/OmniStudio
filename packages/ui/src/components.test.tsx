@@ -42,6 +42,28 @@ it('blocks disabled and pending actions and shows linked field errors', () => {
   expect(input.getAttribute('aria-describedby')?.split(' ').some(id => document.getElementById(id)?.textContent === '请输入项目名称')).toBe(true);
 });
 
+it('keeps a pending button focused while blocking repeated actions and form submission', () => {
+  const onPress = vi.fn();
+  const onSubmit = vi.fn(event => event.preventDefault());
+  const form = (pending: boolean) => <form onSubmit={onSubmit}><Button type="submit" isPending={pending} isDisabled={pending} onPress={onPress}>Save</Button></form>;
+  const {rerender} = render(form(false));
+  const button = screen.getByRole('button', {name:'Save'}) as HTMLButtonElement;
+  button.focus();
+  rerender(form(true));
+  expect(button.disabled).toBe(false);
+  expect(button.getAttribute('aria-disabled')).toBe('true');
+  expect(document.activeElement).toBe(button);
+  fireEvent.click(button);
+  fireEvent.keyDown(button, {key:'Enter'});
+  expect(onPress).not.toHaveBeenCalled();
+  expect(onSubmit).not.toHaveBeenCalled();
+  rerender(form(false));
+  expect(document.activeElement).toBe(button);
+  fireEvent.click(button);
+  expect(onPress).toHaveBeenCalledOnce();
+  expect(onSubmit).toHaveBeenCalledOnce();
+});
+
 it('preserves checkbox values and prevents disabled password toggles', () => {
   const onChange = vi.fn();
   render(<><Checkbox onChange={onChange}>保留原始素材</Checkbox><PasswordField label="密码" isDisabled showPasswordLabel="显示密码" hidePasswordLabel="隐藏密码" /></>);

@@ -12,7 +12,8 @@ export type ButtonProps = Omit<ComponentProps<typeof HeroButton>, 'variant' | 'c
 
 export function Button({ variant = 'primary', className = '', children, ...props }: ButtonProps) {
   return (
-    <HeroButton {...props} aria-busy={props.isPending || undefined} variant={variants[variant]} className={`omni-button ${className}`}>
+    // Pending already blocks interactions in React Aria while retaining keyboard focus.
+    <HeroButton {...props} isDisabled={props.isPending ? false : props.isDisabled} aria-busy={props.isPending || undefined} variant={variants[variant]} className={`omni-button ${className}`}>
       {(state) => <>{state.isPending && <Spinner aria-hidden="true" size="sm" color="current" />}{typeof children === 'function' ? children(state) : children}</>}
     </HeroButton>
   );
