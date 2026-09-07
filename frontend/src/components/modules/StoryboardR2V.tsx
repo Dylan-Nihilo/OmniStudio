@@ -755,6 +755,9 @@ function StoryboardWorkbench() {
                 key = persistedKey;
                 useFirstFrameRequests.setState({ [key]: { pending: true, operation } });
             }
+            // A queued history edit must settle before the server appends a new candidate.
+            if (!await flushDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrentScope()) { clearRequest(key); return; }
             const result = file ? await api.uploadT2IFrame(currentProject.id, frameId, file)
                 : await api.renderFrame(currentProject.id, frameId, {}, cleanPrompt(shot.prompt), 1);
             const rendered = file ? result : result?.frames?.find((frame: { id: string }) => frame.id === frameId);
@@ -775,7 +778,7 @@ function StoryboardWorkbench() {
             useFirstFrameRequests.setState({ [key]: { pending: false, operation, error: String(detail) } });
             if (file) return { code: "network", detail: String(detail) };
         }
-    }, [currentProject, materializeShot, firstFrameKey, firstFrameContext, updateProject, t]);
+    }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, t]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {

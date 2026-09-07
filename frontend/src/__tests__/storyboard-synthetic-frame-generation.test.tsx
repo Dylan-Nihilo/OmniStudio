@@ -119,7 +119,7 @@ vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", () => ({ default
 vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
-vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: ({ onUpload }: { onUpload: (file: File) => Promise<unknown> }) => <button onClick={() => { void onUpload(new File(['image'], 'first-frame.png', { type: 'image/png' })); }}>upload first frame</button> }));
+vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: ({ onUpload, onRemove }: { onUpload: (file: File) => Promise<unknown>; onRemove: (index: number) => void }) => <><button onClick={() => { void onUpload(new File(['image'], 'first-frame.png', { type: 'image/png' })); }}>upload first frame</button><button onClick={() => onRemove(0)}>remove first frame</button></> }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
     default: ({ tasks, onToggleStar, onSetActive, onRetry, retryingTaskIds, isSelecting }: { tasks: VideoTask[]; onToggleStar: (task: VideoTask, next: boolean) => Promise<void>; onSetActive: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string>; isSelecting?: boolean }) => <div><output aria-label="candidate selection state">{isSelecting ? "saving" : "idle"}</output>{tasks.map(task =>
         <div key={task.id}>
@@ -212,6 +212,22 @@ describe("StoryboardR2V synthetic frame generation", () => {
         view.unmount();
         render(<StoryboardR2V />);
         expect(screen.getByLabelText("first frame")).toHaveTextContent("uploaded.png");
+    });
+
+    it("finishes saving a previous first-frame edit before generating its replacement", async () => {
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-render-save", action_description: "Replace image", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], t2i_selected_index: 0 }] } }));
+        let finishSave!: (value: unknown) => void;
+        updateFrameWorkbench.mockReturnValueOnce(new Promise(resolve => { finishSave = resolve; }));
+        renderFrame.mockResolvedValueOnce({ id: "project-1", frames: [{ id: "frame-render-save", rendered_image_url: "replacement.png", t2i_image_urls: ["replacement.png"], t2i_selected_index: 0, status: "completed" }] });
+        render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "remove first frame" }));
+        fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+        await waitFor(() => expect(updateFrameWorkbench).toHaveBeenCalled());
+        const dispatchedBeforeSave = renderFrame.mock.calls.length;
+        await act(async () => finishSave({}));
+        expect(dispatchedBeforeSave).toBe(0);
+        await waitFor(() => expect(screen.getByLabelText("first frame")).toHaveTextContent("replacement.png"));
+        expect(useProjectStore.getState().currentProject!.frames[0].t2i_image_urls).toEqual(["replacement.png"]);
     });
 
     beforeEach(() => {
