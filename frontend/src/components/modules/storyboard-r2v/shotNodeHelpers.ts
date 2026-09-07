@@ -83,6 +83,7 @@ export function extractT2IImageUrl(result: any, frameId: string): string | undef
         ? result.frames.find((candidate: any) => candidate?.id === frameId)
         : undefined;
     if (!frame) return undefined;
+    if (frame.rendered_image_url || frame.image_url) return frame.rendered_image_url || frame.image_url;
     if (Array.isArray(frame.t2i_image_urls) && frame.t2i_image_urls.length > 0) {
         const selectedIndex = typeof frame.t2i_selected_index === "number"
             ? Math.max(0, Math.min(frame.t2i_selected_index, frame.t2i_image_urls.length - 1))

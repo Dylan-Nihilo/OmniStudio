@@ -24,7 +24,7 @@ import AssetDrawer from "./storyboard-r2v/AssetDrawer";
 import { type VideoConfig, DEFAULT_VIDEO_CONFIG } from "./storyboard-r2v/VideoConfigModal";
 import {
     migrateShotNode,
-    appendT2IImage,
+    extractT2IImageUrl,
     setActiveT2IIndex,
     removeT2IImage,
     getActiveT2IImageUrl,
@@ -32,7 +32,7 @@ import {
 } from "./storyboard-r2v/shotNodeHelpers";
 import { overridePanelSectionState } from "./storyboard-r2v/shot-panel/usePanelSectionState";
 import ParamsSection, { type ParamsState } from "./storyboard-r2v/shot-panel/ParamsSection";
-import T2ISubsection from "./storyboard-r2v/shot-panel/T2ISubsection";
+import T2ISubsection, { type T2IUploadError } from "./storyboard-r2v/shot-panel/T2ISubsection";
 import CandidatesSection from "./storyboard-r2v/shot-panel/CandidatesSection";
 import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
@@ -40,6 +40,8 @@ import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
 import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationBanner";
 
 // Pending retries outlive the panel so navigation cannot dispatch the same request twice.
+// ponytail: in-tab request state only; reload recovery must read persisted frame state.
+const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string }>>>(() => ({}));
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
 
@@ -703,44 +705,77 @@ function StoryboardWorkbench() {
         return prompt.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
     };
 
-    // Generate T2I image for a shot (t2i_i2v mode stage 1)
-    const generateT2I = useCallback(async (index: number) => {
-        const shot = shots[index];
-        if (!currentProject || !shot.prompt.trim()) return;
+    const firstFrameRequests = useFirstFrameRequests();
+    const firstFrameContext = useRef({
+        userId: useAuthStore.getState().user?.id,
+        workspaceId: useAuthStore.getState().activeWorkspace?.id,
+    }).current;
+    const firstFrameKey = useCallback((frameId: string) => JSON.stringify([
+        firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id, frameId,
+    ]), [firstFrameContext, currentProject?.id]);
 
-        setShots(prev => prev.map((s, i) =>
-            i === index ? { ...s, t2iStatus: "pending" } : s
-        ));
+    // Reentry observes the same request. Image readback must not replace prompt drafts.
+    useEffect(() => {
+        setShots(previous => previous.map(shot => {
+            const request = firstFrameRequests[firstFrameKey(shot.id)];
+            const frame = currentProject?.frames.find(frame => frame.id === shot.id);
+            const saved = frame ? restoreDraft(frameToShotNode(frame, [])) : shot;
+            const next = {
+                ...shot, imageUrl: saved.imageUrl,
+                t2iImageUrls: saved.t2iImageUrls, t2iSelectedIndex: saved.t2iSelectedIndex,
+                t2iError: request?.error || frame?.image_error || undefined,
+                t2iOperation: request?.operation,
+            };
+            return { ...next, t2iImageUrl: getActiveT2IImageUrl(next),
+                t2iStatus: request?.pending ? "processing" : next.t2iError ? "failed"
+                    : getActiveT2IImageUrl(next) || next.imageUrl ? "completed" : undefined };
+        }));
+    }, [currentProject?.frames, firstFrameRequests, firstFrameKey, restoreDraft]);
 
+    // storyboard/render is a long synchronous request; its Script id is never a task id.
+    const submitFirstFrame = useCallback(async (index: number, file?: File): Promise<T2IUploadError | void> => {
+        const shot = shotsRef.current[index];
+        if (!currentProject || !shot || (!file && !shot.prompt.trim())) return;
+        const operation = file ? "upload" : "generate";
+        let key = firstFrameKey(shot.id);
+        if (useFirstFrameRequests.getState()[key]?.pending) return;
+        const isCurrentScope = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId;
+        const clearRequest = (requestKey: string) => useFirstFrameRequests.setState(state => {
+            const next = { ...state }; delete next[requestKey]; return next;
+        }, true);
+        useFirstFrameRequests.setState({ [key]: { pending: true, operation } });
         try {
             const frameId = await materializeShot(shot, index);
-            const result = await api.renderFrame(
-                currentProject.id,
-                frameId,
-                {},  // compositionData (empty for now)
-                cleanPrompt(shot.prompt),
-                1    // batchSize
-            );
-
-            if (result?.task_id || result?.id) {
-                const taskId = result.task_id || result.id;
-                setShots(prev => prev.map((s, i) =>
-                    i === index ? { ...s, t2iTaskId: taskId, t2iStatus: "processing" } : s
-                ));
-            } else if (result?.image_url || result?.rendered_image_url) {
-                // Immediate result (synchronous render). Append to T2I
-                // history + auto-select so the new image becomes the
-                // active首帧 used by downstream I2V generation.
-                const imageUrl = result.image_url || result.rendered_image_url;
-                updateT2IWorkbench(frameId, s => appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl));
+            if (!isCurrentScope()) { clearRequest(key); return; }
+            const persistedKey = firstFrameKey(frameId);
+            if (persistedKey !== key) {
+                clearRequest(key);
+                if (useFirstFrameRequests.getState()[persistedKey]?.pending) return;
+                key = persistedKey;
+                useFirstFrameRequests.setState({ [key]: { pending: true, operation } });
             }
-        } catch (error) {
+            const result = file ? await api.uploadT2IFrame(currentProject.id, frameId, file)
+                : await api.renderFrame(currentProject.id, frameId, {}, cleanPrompt(shot.prompt), 1);
+            const rendered = file ? result : result?.frames?.find((frame: { id: string }) => frame.id === frameId);
+            const imageUrl = file ? rendered?.t2i_image_urls?.[rendered.t2i_selected_index ?? 0] : extractT2IImageUrl(result, frameId);
+            if ((!file && rendered?.status === "failed") || !imageUrl) throw new Error(rendered?.image_error || t("t2iFailed"));
+            const project = useProjectStore.getState().currentProject;
+            if (isCurrentScope() && project?.id === currentProject.id) {
+                updateProject(project.id, { frames: project.frames.map(frame => frame.id === frameId ? {
+                    ...frame, ...(!file ? { image_url: imageUrl, rendered_image_url: imageUrl } : {}), image_error: null,
+                    t2i_image_urls: rendered?.t2i_image_urls?.length ? rendered.t2i_image_urls : [imageUrl],
+                    t2i_selected_index: rendered?.t2i_selected_index ?? 0,
+                } : frame) });
+            }
+            clearRequest(key);
+        } catch (error: any) {
             debugLog.error("Studio", "Failed to generate T2I for shot:", error);
-            setShots(prev => prev.map((s, i) =>
-                i === index ? { ...s, t2iStatus: "failed" } : s
-            ));
+            const detail = error?.response?.data?.detail || error?.message || t("t2iFailed");
+            useFirstFrameRequests.setState({ [key]: { pending: false, operation, error: String(detail) } });
+            if (file) return { code: "network", detail: String(detail) };
         }
-    }, [shots, currentProject, materializeShot, updateT2IWorkbench]);
+    }, [currentProject, materializeShot, firstFrameKey, firstFrameContext, updateProject, t]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
@@ -1172,41 +1207,6 @@ function StoryboardWorkbench() {
         const timer = window.setInterval(() => { void refreshProject(); }, 5000);
         return () => window.clearInterval(timer);
     }, [hasPendingVideoTasks, taskRefreshNeeded, refreshProject]);
-
-    // Poll only asset-generation tasks through the generic task endpoint.
-    // Video tasks are canonical on currentProject.video_tasks and are refreshed
-    // by the project-level poll above; /tasks/{id} does not expose video tasks.
-    useEffect(() => {
-        const processingShots = shots.filter(s =>
-            (s.t2iTaskId && (s.t2iStatus === "processing" || s.t2iStatus === "pending"))
-        );
-        if (processingShots.length === 0) return;
-
-        const interval = setInterval(async () => {
-            for (const shot of processingShots) {
-                // Poll T2I task
-                if (shot.t2iTaskId && (shot.t2iStatus === "processing" || shot.t2iStatus === "pending")) {
-                    try {
-                        const status = await api.getTaskStatus(shot.t2iTaskId);
-                        if (status.status === "completed") {
-                            const imageUrl = status.image_url || status.video_url || status.result_url;
-                            if (imageUrl) {
-                                updateT2IWorkbench(shot.id, s => appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl));
-                            }
-                        } else if (status.status === "failed") {
-                            setShots(prev => prev.map(s =>
-                                s.id === shot.id ? { ...s, t2iStatus: "failed" } : s
-                            ));
-                        }
-                    } catch (error) {
-                        debugLog.error("Studio", "T2I poll failed for shot:", shot.id, error);
-                    }
-                }
-            }
-        }, 5000);
-
-        return () => clearInterval(interval);
-    }, [shots, updateT2IWorkbench]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1673,7 +1673,7 @@ function StoryboardWorkbench() {
                             onUpdatePrompt={(prompt) => updatePrompt(index, prompt)}
                             onUpdateField={(field, value) => handleUpdateField(index, field, value)}
                             durationEditorConfig={durationEditorCfg}
-                            onGenerateT2I={() => generateT2I(index)}
+                            onGenerateT2I={() => submitFirstFrame(index)}
                             onGenerateVideo={() => generateVideo(index)}
                             structurePending={structurePending || draftSave.materializing}
                             onDelete={() => deleteShot(index)}
@@ -1824,95 +1824,14 @@ function StoryboardWorkbench() {
                                         selectedIndex={shot.t2iSelectedIndex ?? 0}
                                         storyboardFrameUrl={shot.imageUrl || undefined}
                                         promptIsEmpty={!shot.prompt.trim()}
-                                        generating={shot.t2iStatus === "pending" || shot.t2iStatus === "processing"}
-                                        inFlightTaskId={shot.t2iTaskId}
-                                        inFlightStatus={shot.t2iStatus}
+                                        generating={shot.t2iOperation !== "upload" && (shot.t2iStatus === "pending" || shot.t2iStatus === "processing")}
+                                        uploading={shot.t2iOperation === "upload" && shot.t2iStatus === "processing"}
+                                        operation={shot.t2iOperation}
+                                        errorMessage={shot.t2iError}
                                         onSelect={(i) => updateT2IWorkbench(shot.id, s => setActiveT2IIndex(s, i))}
                                         onRemove={(i) => updateT2IWorkbench(shot.id, s => removeT2IImage(s, i))}
-                                        onGenerate={() => generateT2I(index)}
-                                        onUpload={async (file) => {
-                                            // Issue 10: upload an external image as a T2I首帧 candidate.
-                                            // Backend appends + auto-selects; we mirror state from the
-                                            // returned frame (single source of truth for the URL the
-                                            // server actually persisted).
-                                            //
-                                            // Frontend may hold a synthetic shot id (`shot_<ts>_<rand>`)
-                                            // for shots created via the + button that haven't been
-                                            // persisted yet. The backend has no such frame_id → 404.
-                                            // Lazy-create the frame on backend first, then upload.
-                                            if (!currentProject) return { code: "network", detail: "no current project" };
-                                            try {
-                                                let effectiveFrameId = shot.id;
-                                                const isSynthetic = effectiveFrameId.startsWith("shot_");
-                                                if (isSynthetic) {
-                                                    // Materialize the shot on backend before any
-                                                    // frame-scoped op. Send minimum viable payload —
-                                                    // the prompt + tab mode survives via separate
-                                                    // workbench PATCH calls already triggered elsewhere.
-                                                    try {
-                                                        const created = await crudApi.createFrame(currentProject.id, {
-                                                            scene_id: "",
-                                                            action_description: shot.prompt || "",
-                                                            insert_at: index,
-                                                        } as any);
-                                                        // Find the newly inserted frame by index in the response
-                                                        const newFrame = Array.isArray(created?.frames)
-                                                            ? created.frames[Math.min(index, created.frames.length - 1)]
-                                                            : null;
-                                                        if (newFrame?.id) {
-                                                            effectiveFrameId = newFrame.id;
-                                                            // Swap synthetic id → backend id locally so
-                                                            // subsequent ops (workbench persist, generate, etc.)
-                                                            // hit the real frame.
-                                                            setShots(prev => prev.map((s, j) =>
-                                                                j === index ? { ...s, id: newFrame.id } : s,
-                                                            ));
-                                                        }
-                                                    } catch (createErr: any) {
-                                                        debugLog.error("Studio", "Lazy createFrame failed", createErr);
-                                                        const cdetail = createErr?.response?.data?.detail || createErr?.message || "create frame failed";
-                                                        return { code: "server", detail: `先创建镜头失败：${cdetail}` };
-                                                    }
-                                                }
-
-                                                const updatedFrame = await api.uploadT2IFrame(
-                                                    currentProject.id,
-                                                    effectiveFrameId,
-                                                    file,
-                                                );
-                                                if (!updatedFrame) return { code: "network", detail: "empty response" };
-                                                const nextUrls: string[] = updatedFrame.t2i_image_urls ?? [];
-                                                const nextIdx: number = typeof updatedFrame.t2i_selected_index === "number"
-                                                    ? updatedFrame.t2i_selected_index
-                                                    : Math.max(0, nextUrls.length - 1);
-                                                setShots(prev => prev.map((s, j) => {
-                                                    if (j !== index) return s;
-                                                    return {
-                                                        ...s,
-                                                        t2iImageUrls: nextUrls,
-                                                        t2iSelectedIndex: nextIdx,
-                                                        t2iImageUrl: nextUrls[nextIdx],
-                                                        t2iStatus: "completed",
-                                                    };
-                                                }));
-                                                return undefined;
-                                            } catch (err: any) {
-                                                debugLog.error("Studio", "T2I upload failed", err);
-                                                const status = err?.response?.status;
-                                                // Always surface the backend detail string so the
-                                                // user can self-diagnose ("frame not found", "OSS
-                                                // write denied", etc.) instead of "请重试".
-                                                const detail = err?.response?.data?.detail
-                                                    || err?.message
-                                                    || `HTTP ${status ?? "?"}`;
-                                                if (status === 413) return { code: "size", detail: String(detail) };
-                                                if (status === 415) return { code: "type", detail: String(detail) };
-                                                if (status === 404) return { code: "not_found", detail: String(detail) };
-                                                if (status && status >= 500) return { code: "server", detail: String(detail) };
-                                                return { code: "network", detail: String(detail) };
-                                            }
-                                        }}
-                                        resolveUrl={resolveAssetUrl}
+                                        onGenerate={() => submitFirstFrame(index)}
+                                        onUpload={file => submitFirstFrame(index, file)}
                                     />
                                 </div>
                             ) : null}

@@ -9,10 +9,12 @@ import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
 
-const { createFrame, createVideoTask, retryVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     retryVideoTask: vi.fn(),
+    renderFrame: vi.fn(),
+    uploadT2IFrame: vi.fn(),
     getProject: vi.fn(),
     getTaskStatus: vi.fn(),
     toastError: vi.fn(),
@@ -35,9 +37,12 @@ vi.mock("next-intl", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+    API_URL: "http://localhost:17177",
     api: {
         createVideoTask,
         retryVideoTask,
+        renderFrame,
+        uploadT2IFrame,
         getProject,
         getTaskStatus,
         updateFrameWorkbench,
@@ -65,14 +70,17 @@ vi.mock("@/components/shared/StepPageHeader", () => ({
     StepPill: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
 }));
 
-vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
+vi.mock("@/components/modules/storyboard-r2v/ShotCard", async importOriginal => ({
+    ...await importOriginal<typeof import("@/components/modules/storyboard-r2v/ShotCard")>(),
     default: (props: {
         onRefineFrame: () => void;
         onUpdatePrompt: (value: string) => void;
         onGenerateBatch: (count: number) => void;
+        onGenerateT2I: () => void;
         sequence?: React.ReactNode;
         candidates?: React.ReactNode;
-        shot: { id: string; prompt: string; videoUrl?: string };
+        configuration?: React.ReactNode;
+        shot: { id: string; prompt: string; videoUrl?: string; t2iImageUrl?: string; t2iStatus?: string; t2iError?: string };
         onDelete: () => void;
         onMoveDown: () => void;
         onDuplicate: () => void;
@@ -84,6 +92,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
         <div>
             <button onClick={() => props.onUpdatePrompt("A noir station [character1:Lin Xia]")}>set prompt</button>
             <button onClick={() => props.onGenerateBatch(1)}>generate video</button>
+            <button onClick={props.onGenerateT2I}>generate first frame</button>
             <button onClick={props.onDelete}>delete shot</button>
             <button onClick={props.onMoveDown}>move down</button>
             <button onClick={props.onDuplicate}>copy shot</button>
@@ -95,9 +104,13 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
             <p>takes: {props.generateCount}</p>
             <output>{props.shot.id}</output>
             <output aria-label="selected video">{props.shot.videoUrl}</output>
+            <output aria-label="first frame">{props.shot.t2iImageUrl}</output>
+            <output aria-label="first frame state">{props.shot.t2iStatus}</output>
+            <output aria-label="first frame error">{props.shot.t2iError}</output>
             <textarea aria-label="shot prompt" value={props.shot.prompt} onChange={event => props.onUpdatePrompt(event.target.value)} />
             {props.sequence}
             {props.candidates}
+            {props.configuration}
         </div>
     ),
 }));
@@ -106,7 +119,7 @@ vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", () => ({ default
 vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
-vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: () => null }));
+vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: ({ onUpload }: { onUpload: (file: File) => Promise<unknown> }) => <button onClick={() => { void onUpload(new File(['image'], 'first-frame.png', { type: 'image/png' })); }}>upload first frame</button> }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
     default: ({ tasks, onToggleStar, onSetActive, onRetry, retryingTaskIds, isSelecting }: { tasks: VideoTask[]; onToggleStar: (task: VideoTask, next: boolean) => Promise<void>; onSetActive: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string>; isSelecting?: boolean }) => <div><output aria-label="candidate selection state">{isSelecting ? "saving" : "idle"}</output>{tasks.map(task =>
         <div key={task.id}>
@@ -134,6 +147,73 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("adopts the freshly rendered image from a full project response without overwriting new edits", async () => {
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-1", action_description: "First prompt", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], t2i_selected_index: 0 }] } }));
+        let finish!: (value: unknown) => void;
+        renderFrame.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+        await waitFor(() => expect(renderFrame).toHaveBeenCalled());
+        fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "New writing while rendering" } });
+        await act(async () => finish({ id: "project-1", frames: [{ id: "frame-1", action_description: "First prompt", rendered_image_url: "storyboard/new.png", t2i_image_urls: ["old.png", "storyboard/new.png"], t2i_selected_index: 1, status: "completed" }] }));
+        expect(screen.getByLabelText("first frame")).toHaveTextContent("storyboard/new.png");
+        expect(screen.getByLabelText("first frame state")).toHaveTextContent("completed");
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New writing while rendering");
+        expect(useProjectStore.getState().currentProject!.frames[0].t2i_image_urls).toEqual(["old.png", "storyboard/new.png"]);
+        expect(getTaskStatus).not.toHaveBeenCalled();
+    });
+
+    it("keeps first-frame generation pending across navigation without duplicate dispatch or lost output", async () => {
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-render-nav", action_description: "Keep writing", workbench_tab_mode: "t2i_i2v" }] } }));
+        let finish!: (value: unknown) => void;
+        renderFrame.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        const view = render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+        await waitFor(() => expect(renderFrame).toHaveBeenCalledOnce());
+        view.unmount();
+        render(<StoryboardR2V />);
+        expect(screen.getByLabelText("first frame state")).toHaveTextContent("processing");
+        fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+        await act(async () => finish({ id: "project-1", frames: [{ id: "frame-render-nav", rendered_image_url: "returned.png", t2i_image_urls: ["returned.png"], t2i_selected_index: 0, status: "completed" }] }));
+        expect(renderFrame).toHaveBeenCalledOnce();
+        expect(screen.getByLabelText("first frame")).toHaveTextContent("returned.png");
+        expect(screen.getByLabelText("first frame state")).toHaveTextContent("completed");
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Keep writing");
+    });
+
+    it("keeps the previous first frame after an invalid result and isolates a retry from a new workspace", async () => {
+        const auth = useAuthStore.getState();
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-render-scope", action_description: "Old workspace", t2i_image_urls: ["old.png"], t2i_selected_index: 0 }] } }));
+        renderFrame.mockResolvedValueOnce({ id: "project-1", frames: [] });
+        render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+        await waitFor(() => expect(screen.getByLabelText("first frame error")).toHaveTextContent("t2iFailed"));
+        expect(screen.getByLabelText("first frame")).toHaveTextContent("old.png");
+        let finish!: (value: unknown) => void;
+        renderFrame.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+        await waitFor(() => expect(renderFrame).toHaveBeenCalledTimes(2));
+        await act(async () => {
+            useAuthStore.setState({ activeWorkspace: { id: "another-render-workspace" } as never });
+            useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-render-scope", action_description: "New workspace", t2i_image_urls: ["other.png"], t2i_selected_index: 0 }] } }));
+            finish({ id: "project-1", frames: [{ id: "frame-render-scope", rendered_image_url: "late.png", t2i_image_urls: ["late.png"], t2i_selected_index: 0, status: "completed" }] });
+        });
+        expect(screen.getByLabelText("first frame")).toHaveTextContent("other.png");
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New workspace");
+        act(() => useAuthStore.setState({ activeWorkspace: auth.activeWorkspace }));
+    });
+
+    it("keeps an uploaded first frame when reopening the workbench", async () => {
+        useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-upload", action_description: "Upload here", workbench_tab_mode: "t2i_i2v" }] } }));
+        uploadT2IFrame.mockResolvedValueOnce({ id: "frame-upload", t2i_image_urls: ["uploaded.png"], t2i_selected_index: 0 });
+        const view = render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "upload first frame" }));
+        await waitFor(() => expect(screen.getByLabelText("first frame")).toHaveTextContent("uploaded.png"));
+        view.unmount();
+        render(<StoryboardR2V />);
+        expect(screen.getByLabelText("first frame")).toHaveTextContent("uploaded.png");
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
         useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} });
