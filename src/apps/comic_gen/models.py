@@ -183,6 +183,7 @@ class VideoTask(BaseModel):
     prompt: str
     status: str = "pending"  # pending, processing, completed, failed
     error: Optional[str] = Field(None, description="Failure reason, if any (set by pipeline / cancel / orphan recovery)")
+    retry_of_task_id: Optional[str] = Field(None, description="Failed task whose saved inputs were retried")
     video_url: Optional[str] = None
     duration: int = Field(5, description="Video duration in seconds (model-specific range)")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")

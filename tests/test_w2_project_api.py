@@ -825,3 +825,97 @@ def test_candidate_save_failure_retains_confirmed_state_and_retry_round_trips(ap
         assert restored["frames"][0]["selected_video_id"] == "take-new"
         assert restored["frames"][0]["video_url"] == "video/new.mp4"
         assert restored["frames"][0]["is_video_pinned"] is (operation == "select_video")
+
+
+def test_video_retry_preserves_saved_inputs_and_recovers_without_duplicate_dispatch(api_client):
+    project = _create_project(api_client, "Historical retry")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original shot"}).json()["frames"][0]["id"]
+    script = api_module.pipeline.scripts[project["id"]]
+    script.frames[0].dialogue = "Original dialogue"
+    api_module.pipeline._save_data()
+    with patch.object(api_module.pipeline, "process_video_task") as process:
+        created = api_client.post(route + "/video_tasks", json={
+            "frame_id": frame_id, "image_url": "", "prompt": "Original camera move", "model": "wan2.7-r2v",
+            "duration": 8, "resolution": "1080p", "seed": 0, "shot_type": "multi", "generation_mode": "r2v",
+            "generate_audio": True, "audio_url": "audio/original.wav", "prompt_extend": False,
+            "negative_prompt": "Original exclusions", "reference_video_urls": ["video/reference.mp4"],
+            "reference_image_urls": ["assets/original.png"], "ratio": "9:16", "watermark": False,
+            "mode": "pro", "sound": "on", "cfg_scale": 0, "vidu_audio": False,
+            "movement_amplitude": "small", "workbench_tab": "direct_r2v",
+        })
+        assert created.status_code == 200, created.text
+        task_id = created.json()[0]["id"]
+        script = api_module.pipeline.scripts[project["id"]]
+        source = next(task for task in script.video_tasks if task.id == task_id)
+        source.status, source.error = "failed", "Original provider failure"
+        source.provider_name, source.provider_task_id, source.provider_request_id = "dashscope", "old-provider-task", "old-request"
+        source.is_starred, source.label, source.audio_setting = True, "Keep this note", "origin"
+        script.frames[0].dialogue = "Changed dialogue"
+        script.frames[0].action_description = "Changed camera move"
+        api_module.pipeline._save_data()
+        before = api_client.get(route).json()
+        process.reset_mock()
+        endpoint = route + f"/video_tasks/{task_id}/retry"
+        with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=StorageError("write unavailable")):
+            failed = api_client.post(endpoint)
+        assert failed.status_code == 500, failed.text
+        process.assert_not_called()
+        assert api_client.get(route).json()["video_tasks"] == before["video_tasks"]
+        retried = api_client.post(endpoint)
+        assert retried.status_code == 200, retried.text
+        new = retried.json()
+        volatile = {"id", "status", "error", "video_url", "created_at", "provider_name", "provider_task_id", "provider_request_id", "is_starred", "label", "retry_of_task_id"}
+        assert {key: value for key, value in new.items() if key not in volatile} == {key: value for key, value in before["video_tasks"][0].items() if key not in volatile}
+        assert "Original dialogue" in new["prompt"] and "Changed dialogue" not in new["prompt"]
+        assert new["retry_of_task_id"] == task_id and new["id"] != task_id
+        assert new["status"] == "pending" and new["is_starred"] is False
+        assert all(new[key] is None for key in ["error", "video_url", "label", "provider_name", "provider_task_id", "provider_request_id"])
+        process.assert_called_once_with(project["id"], new["id"])
+        assert api_client.post(endpoint).json()["id"] == new["id"]
+        process.assert_called_once()
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    restored = api_client.get(route).json()
+    assert restored["frames"] == before["frames"]
+    assert restored["video_tasks"][0] == before["video_tasks"][0]
+    assert restored["video_tasks"][1] == new
+
+
+@pytest.mark.parametrize("case", ["pending", "completed", "missing-frame", "unknown-task", "foreign-workspace"])
+def test_video_retry_rejects_unavailable_tasks_without_dispatch(api_client, case):
+    project = _create_project(api_client, "Retry scope")
+    script = api_module.pipeline.scripts[project["id"]]
+    script.video_tasks = [VideoTask(id="old-task", project_id=script.id, image_url="", prompt="Saved prompt",
+        status=case if case in {"pending", "completed"} else "failed", frame_id="deleted-frame" if case == "missing-frame" else None)]
+    api_module.pipeline._save_data()
+    headers = {}
+    if case == "foreign-workspace":
+        workspace = api_client.post("/auth/workspaces", json={"name": "Another workspace"}).json()
+        headers = {"X-Workspace-ID": workspace["id"]}
+    task_id = "unknown" if case == "unknown-task" else "old-task"
+    with patch.object(api_module.pipeline, "process_video_task") as process:
+        response = api_client.post(f"/projects/{script.id}/video_tasks/{task_id}/retry", headers=headers)
+        assert response.status_code == (404 if case in {"unknown-task", "foreign-workspace"} else 400), response.text
+        process.assert_not_called()
+    assert len(api_module.pipeline.scripts[script.id].video_tasks) == 1
+
+
+def test_video_retry_reports_processing_failure_and_keeps_original_task(api_client):
+    project = _create_project(api_client, "Retry provider failure")
+    script = api_module.pipeline.scripts[project["id"]]
+    original = VideoTask(id="failed-original", project_id=script.id, image_url="", prompt="Saved camera move",
+        status="failed", error="Original failure", seed=0, prompt_extend=False)
+    script.video_tasks = [original]
+    api_module.pipeline._save_data()
+    # Exercise the real processor while replacing only the provider's generate boundary.
+    generate = api_module.pipeline.video_generator.model.generate
+    generate.side_effect = RuntimeError("Provider temporarily unavailable")
+    response = api_client.post(f"/projects/{script.id}/video_tasks/{original.id}/retry")
+    assert response.status_code == 200, response.text
+    tasks = api_client.get(f"/projects/{script.id}").json()["video_tasks"]
+    assert tasks[0]["error"] == "Original failure"
+    assert tasks[1]["status"] == "failed"
+    assert tasks[1]["error"] == "Provider temporarily unavailable"
+    assert generate.call_args.kwargs["prompt"] == "Saved camera move"
+    assert generate.call_args.kwargs["seed"] == 0
+    assert generate.call_args.kwargs["prompt_extend"] is False

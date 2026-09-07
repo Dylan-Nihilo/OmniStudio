@@ -2444,6 +2444,36 @@ class ComicGenPipeline:
         self._save_data()
         return script, task_id
 
+    def retry_video_task(self, script_id: str, task_id: str) -> Tuple[VideoTask, bool]:
+        """Reuse saved inputs without reassembling prompts from the current frame."""
+        # ponytail: reuse the process write lock; cross-worker deduplication needs database idempotency.
+        with self._save_lock:
+            script = self.get_script(script_id)
+            source = next((task for task in script.video_tasks if task.id == task_id), None) if script else None
+            if source is None or source.project_id != script_id:
+                raise KeyError("Video task not found")
+            if source.status != "failed":
+                raise ValueError("Only failed video tasks can be retried")
+            if source.frame_id and not any(frame.id == source.frame_id for frame in script.frames):
+                raise ValueError("The original frame no longer exists")
+            running = next((task for task in script.video_tasks if task.retry_of_task_id == task_id
+                and task.status in {"pending", "processing"}), None)
+            if running:
+                return running, False
+            task = source.model_copy(deep=True, update={
+                "id": str(uuid.uuid4()), "created_at": time.time(), "retry_of_task_id": task_id,
+                "status": "pending", "error": None, "video_url": None,
+                "provider_name": None, "provider_task_id": None, "provider_request_id": None,
+                "is_starred": False, "label": None,
+            })
+            script.video_tasks.append(task)
+            try:
+                self._save_data()
+            except Exception:
+                script.video_tasks = [existing for existing in script.video_tasks if existing.id != task.id]
+                raise
+            return task, True
+
     def extract_last_frame(self, script_id: str, frame_id: str, video_task_id: str) -> Script:
         """Extract the last frame from a video task and add it as a variant of the frame's rendered_image_asset."""
         from .models import ImageVariant, ImageAsset
@@ -4123,6 +4153,7 @@ class ComicGenPipeline:
             logger.exception("Failed to process video task")
             logger.error(f"Video generation failed: {e}")
             task.status = "failed"
+            task.error = str(e)
             if task.asset_id:
                 self._sync_asset_video_task(script, task)
             

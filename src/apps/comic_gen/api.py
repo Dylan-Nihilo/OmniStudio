@@ -2998,6 +2998,22 @@ def cancel_video_task(script_id: str, task_id: str):
     return signed_response(task)
 
 
+@app.post("/projects/{script_id}/video_tasks/{task_id}/retry", response_model=VideoTask)
+def retry_video_task(script_id: str, task_id: str, background_tasks: BackgroundTasks):
+    try:
+        task, created = pipeline.retry_video_task(script_id, task_id)
+        if created:
+            background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task.id))
+        return signed_response(task)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=error.args[0])
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception:
+        logger.exception("Unable to persist video retry")
+        raise HTTPException(status_code=500, detail="Unable to create video retry")
+
+
 @app.post("/projects/{script_id}/video_tasks", response_model=List[VideoTask])
 def create_video_task(script_id: str, request: CreateVideoTaskRequest, background_tasks: BackgroundTasks):
     """Creates new video generation tasks."""
