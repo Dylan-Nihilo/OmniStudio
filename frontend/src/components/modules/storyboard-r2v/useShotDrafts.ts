@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
-import { api } from '@/lib/api';
+import { api, crudApi } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useProjectStore } from '@/store/projectStore';
 import type { ShotNode } from './ShotCard';
@@ -11,6 +11,7 @@ type Draft = { scope: string; projectId: string; shotId: string; fields: Fields;
 const STORAGE_KEY = 'omni-studio.shot-drafts.v1';
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const requests = new Map<string, Promise<void>>();
+const creations = new Map<string, Promise<string>>();
 const authScope = () => {
     const { user, activeWorkspace } = useAuthStore.getState();
     return JSON.stringify([user?.id ?? null, activeWorkspace?.id ?? null]);
@@ -36,7 +37,8 @@ export const useShotDraftStore = create<{
     errors: Record<string, boolean>;
     saving: Record<string, boolean>;
     storageUnavailable: boolean;
-}>(() => ({ drafts: readDrafts(), errors: {}, saving: {}, storageUnavailable: false }));
+    materializedIds: Record<string, string>;
+}>(() => ({ drafts: readDrafts(), errors: {}, saving: {}, storageUnavailable: false, materializedIds: {} }));
 
 useShotDraftStore.subscribe((state, previous) => {
     if (state.drafts === previous.drafts) return;
@@ -138,6 +140,7 @@ export function useShotDrafts(projectId: string | undefined) {
     const saving = keys.some(key => state.saving[key]);
     const queue = useCallback((shotId: string, channel: 'fields' | 'workbench', patch: Fields | Workbench, delay: number) => {
         if (!projectId) return;
+        shotId = useShotDraftStore.getState().materializedIds[draftKey(scope, projectId, shotId)] ?? shotId;
         const key = draftKey(scope, projectId, shotId);
         useShotDraftStore.setState(state => {
             const draft = state.drafts[key] ?? { scope, projectId, shotId, fields: {}, workbench: {} };
@@ -171,10 +174,10 @@ export function useShotDrafts(projectId: string | undefined) {
         timers.delete(key);
         useShotDraftStore.setState(state => {
             const draft = state.drafts[key];
-            if (!draft) return state;
-            const drafts = { ...state.drafts, [nextKey]: { ...draft, shotId: persistedId } };
+            const drafts = { ...state.drafts };
+            if (draft) drafts[nextKey] = { ...draft, shotId: persistedId };
             delete drafts[key];
-            return { drafts };
+            return { drafts, materializedIds: { ...state.materializedIds, [key]: persistedId } };
         });
     }, [scope, projectId]);
     const markFailed = useCallback((shotId: string) => {
@@ -182,6 +185,45 @@ export function useShotDrafts(projectId: string | undefined) {
         const key = draftKey(scope, projectId, shotId);
         useShotDraftStore.setState(state => ({ errors: { ...state.errors, [key]: true } }));
     }, [scope, projectId]);
+    const materialize = useCallback(async (shot: ShotNode, index: number): Promise<string> => {
+        if (!projectId || scope !== authScope()) throw new Error('Project context changed');
+        if (!shot.id.startsWith('shot_')) return shot.id;
+        const key = draftKey(scope, projectId, shot.id);
+        const persistedId = useShotDraftStore.getState().materializedIds[key];
+        if (persistedId) return persistedId;
+        const running = creations.get(key);
+        if (running) return running;
+        const request = (async () => {
+            useShotDraftStore.setState(state => ({ saving: { ...state.saving, [key]: true } }));
+            try {
+                const created = await crudApi.createFrame(projectId, {
+                    scene_id: '', action_description: shot.prompt || '', insert_at: index,
+                });
+                const frames = Array.isArray(created?.frames) ? created.frames : [];
+                const frame = frames[Math.min(index, frames.length - 1)];
+                if (!frame?.id) throw new Error('Frame creation returned no persisted frame');
+                adopt(shot.id, frame.id);
+                const projectState = useProjectStore.getState();
+                if (scope === authScope() && projectState.currentProject?.id === projectId) {
+                    projectState.updateProject(projectId, { frames });
+                    if (projectState.selectedFrameId === shot.id) projectState.setSelectedFrameId(frame.id);
+                }
+                await flush();
+                return frame.id;
+            } catch (error) {
+                markFailed(shot.id);
+                throw error;
+            } finally {
+                useShotDraftStore.setState(state => ({ saving: { ...state.saving, [key]: false } }));
+            }
+        })();
+        creations.set(key, request);
+        try { return await request; }
+        finally { creations.delete(key); }
+    }, [scope, projectId, adopt, flush, markFailed]);
+    const resolveId = useCallback((shotId: string) => projectId
+        ? state.materializedIds[draftKey(scope, projectId, shotId)] ?? shotId : shotId,
+    [scope, projectId, state.materializedIds]);
     const countFor = useCallback((shotId: string) => projectId
         ? useShotDraftStore.getState().drafts[draftKey(scope, projectId, shotId)]?.workbench.workbench_generate_count
         : undefined, [scope, projectId]);
@@ -220,5 +262,6 @@ export function useShotDrafts(projectId: string | undefined) {
     }, [scope, projectId]);
     const localShots = () => keys.map(key => state.drafts[key]).filter(draft => draft.shotId.startsWith('shot_'))
         .map(draft => restore({ id: draft.shotId, prompt: '', tabMode: 'direct_r2v' }));
-    return { queue, flush, discard, adopt, markFailed, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
+    const materializing = keys.some(key => state.drafts[key].shotId.startsWith('shot_') && state.saving[key]);
+    return { queue, flush, discard, materialize, resolveId, materializing, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
 }

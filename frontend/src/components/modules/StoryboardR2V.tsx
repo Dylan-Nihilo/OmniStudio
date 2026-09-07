@@ -54,7 +54,7 @@ function StoryboardWorkbench() {
     const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
 
     const draftSave = useShotDrafts(currentProject?.id);
-    const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, adopt: adoptDraft, markFailed: markDraftFailed, restore: restoreDraft } = draftSave;
+    const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, materialize, resolveId, restore: restoreDraft } = draftSave;
 
     // Derive shots from project frames. Workbench state (T2I 抽卡
     // history, last-active tab, batch count) now comes from backend-
@@ -75,6 +75,7 @@ function StoryboardWorkbench() {
     shotsRef.current = shots;
     const structurePendingRef = useRef(false);
     const [structurePending, setStructurePending] = useState(false);
+    structurePendingRef.current = structurePending || draftSave.materializing;
     const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
 
     // Global video config (with localStorage persistence for model selection)
@@ -208,48 +209,17 @@ function StoryboardWorkbench() {
         return out;
     });
 
-    const materializingRef = useRef(new Map<string, Promise<string>>());
-    const materializeShot = useCallback(async (shot: ShotNode, index: number): Promise<string> => {
-        if (!shot.id.startsWith("shot_")) return shot.id;
-        if (!currentProject?.id) throw new Error("No current project");
-        const existing = materializingRef.current.get(shot.id);
-        if (existing) return existing;
-        const projectId = currentProject.id;
-        const previousStructurePending = structurePendingRef.current;
-        structurePendingRef.current = true;
-        setStructurePending(true);
-        const request = (async () => {
-            try {
-                const created = await crudApi.createFrame(projectId, {
-                    scene_id: "", action_description: shot.prompt || "", insert_at: index,
-                });
-                const frames = Array.isArray(created?.frames) ? created.frames : [];
-                const frame = frames[Math.min(index, frames.length - 1)];
-                if (!frame?.id) throw new Error("Frame creation returned no persisted frame");
-                adoptDraft(shot.id, frame.id);
-                if (useProjectStore.getState().currentProject?.id === projectId) {
-                    shotsRef.current = shotsRef.current.map(candidate => candidate.id === shot.id ? { ...candidate, id: frame.id } : candidate);
-                    setShots(shotsRef.current);
-                    setShotCounts(prev => prev[shot.id] === undefined ? prev : { ...prev, [frame.id]: prev[shot.id] });
-                    setShotSeeds(prev => prev[shot.id] === undefined ? prev : { ...prev, [frame.id]: prev[shot.id] });
-                    if (useProjectStore.getState().selectedFrameId === shot.id) setSelectedFrameId(frame.id);
-                    updateProject(projectId, { frames });
-                }
-                await flushDrafts();
-                return frame.id;
-            } catch (error) {
-                markDraftFailed(shot.id);
-                throw error;
-            }
-        })();
-        materializingRef.current.set(shot.id, request);
-        try { return await request; }
-        finally {
-            materializingRef.current.delete(shot.id);
-            structurePendingRef.current = previousStructurePending;
-            setStructurePending(previousStructurePending);
-        }
-    }, [currentProject?.id, adoptDraft, flushDrafts, markDraftFailed, updateProject, setSelectedFrameId]);
+    // Creation and ID handoff outlive this panel, just like its drafts.
+    useEffect(() => {
+        setShots(previous => {
+            const next = previous.map(shot => resolveId(shot.id) === shot.id ? shot : { ...shot, id: resolveId(shot.id) });
+            return next.some((shot, index) => shot !== previous[index]) ? next : previous;
+        });
+        setShotCounts(previous => Object.fromEntries(Object.entries(previous).map(([id, count]) => [resolveId(id), count])));
+        setShotSeeds(previous => Object.fromEntries(Object.entries(previous).map(([id, seed]) => [resolveId(id), seed])));
+    }, [resolveId]);
+
+    const materializeShot = materialize;
 
     const saveAllDrafts = useCallback(async () => {
         try {
@@ -1628,7 +1598,7 @@ function StoryboardWorkbench() {
                             durationEditorConfig={durationEditorCfg}
                             onGenerateT2I={() => generateT2I(index)}
                             onGenerateVideo={() => generateVideo(index)}
-                            structurePending={structurePending}
+                            structurePending={structurePending || draftSave.materializing}
                             onDelete={() => deleteShot(index)}
                             onMoveUp={() => moveShot(index, "up")}
                             onMoveDown={() => moveShot(index, "down")}
@@ -1700,7 +1670,7 @@ function StoryboardWorkbench() {
                                         <strong>{item.visualDescription || item.prompt || tStudio("untitledShot")}</strong>
                                     </Button>)}
                                 </div>
-                                <footer><Button variant="quiet" isDisabled={structurePending} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
+                                <footer><Button variant="quiet" isDisabled={structurePending || draftSave.materializing} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
                             </section>}
                             audio={(() => {
                             const frame = currentProject?.frames?.find((f: any) => f.id === shot.id);

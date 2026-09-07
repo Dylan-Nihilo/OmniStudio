@@ -100,7 +100,7 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 describe("StoryboardR2V synthetic frame generation", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false });
+        useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {} });
         updateFrame.mockResolvedValue({});
         updateFrameWorkbench.mockResolvedValue({});
         createFrame.mockResolvedValue({
@@ -133,6 +133,30 @@ describe("StoryboardR2V synthetic frame generation", () => {
                 model_settings: { r2v_model: "wan2.7-r2v" },
             },
         } as never);
+    });
+
+    it.each([100, 900])("keeps one new shot when creation finishes %ims after reopening Studio", async (delay) => {
+        vi.useFakeTimers();
+        let finishCreate!: () => void;
+        createFrame.mockImplementationOnce(() => new Promise(resolve => {
+            finishCreate = () => resolve({ frames: [{ id: "frame-reopened", action_description: "first edit" }] });
+        }));
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "first edit" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+            first.unmount();
+            reopened = render(<StoryboardR2V />);
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "edit after reopening" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(delay); finishCreate(); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+            expect(createFrame).toHaveBeenCalledOnce();
+            expect(screen.getByText("frame-reopened", { selector: "output" })).toBeVisible();
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("edit after reopening");
+            expect(updateFrame).toHaveBeenLastCalledWith("project-1", "frame-reopened", { action_description: "edit after reopening" });
+            expect(screen.getByRole("status", { name: "saveStatus" })).toHaveTextContent("saved");
+        } finally { first.unmount(); reopened?.unmount(); vi.useRealTimers(); }
     });
 
     it("materializes a synthetic shot before submitting its video task", async () => {
