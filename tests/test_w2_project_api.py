@@ -163,13 +163,16 @@ def test_first_frame_start_storage_failure_does_not_dispatch_or_leave_a_pending_
 def test_first_frame_restart_recovery_does_not_treat_audio_processing_as_image_generation(api_client):
     project = _create_project(api_client, "Image recovery")
     route = f"/projects/{project['id']}"
-    for description in ("Interrupted image", "Running audio"):
+    for description in ("Interrupted image", "Running audio", "Interrupted dialogue"):
         api_client.post(route + "/frames", json={"scene_id": "", "action_description": description})
     frames = api_module.pipeline.scripts[project["id"]].frames
     frames[0].image_generation_status = "processing"
     frames[0].image_generation_id = "interrupted-image"
     frames[0].t2i_image_urls = ["previous.png"]
     frames[1].status = "processing"
+    frames[2].audio_generation_status = "processing"
+    frames[2].audio_generation_id = "interrupted-dialogue"
+    frames[2].audio_url = "previous.mp3"
     api_module.pipeline._save_data()
     api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
     api_module.pipeline._recover_orphan_tasks()
@@ -179,6 +182,9 @@ def test_first_frame_restart_recovery_does_not_treat_audio_processing_as_image_g
     assert restored[0]["t2i_image_urls"] == ["previous.png"]
     assert restored[1]["status"] == "processing"
     assert restored[1]["image_generation_status"] is None
+    assert restored[2]["audio_generation_status"] == "failed"
+    assert "restarted" in restored[2]["audio_error"]
+    assert restored[2]["audio_url"] == "previous.mp3"
 
 
 def test_first_frame_upload_reports_storage_failure_and_can_retry(api_client):
@@ -208,6 +214,66 @@ def test_first_frame_upload_reports_storage_failure_and_can_retry(api_client):
     assert Path("output", uploaded["t2i_image_urls"][1]).read_bytes() == b"upload-fixture"
     api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
     assert api_client.get(route).json()["frames"][0]["t2i_image_urls"] == uploaded["t2i_image_urls"]
+
+
+@pytest.mark.parametrize("outcome", ["completed", "failed", "deleted"])
+def test_dialogue_generation_saves_the_current_frame_and_preserves_previous_audio(api_client, outcome):
+    from src.apps.comic_gen.audio import AudioGenerator
+    from src.apps.comic_gen.models import Character, DialogueStructured
+
+    project = _create_project(api_client, "Dialogue workbench")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original"}).json()["frames"][0]["id"]
+    script = api_module.pipeline.scripts[project["id"]]
+    script.characters = [Character(id="silent", name="Silent", description=""), Character(id="speaker", name="Speaker", description="", voice_id="test-voice")]
+    frame = script.frames[0]
+    frame.character_ids = ["silent", "speaker"]
+    frame.dialogue = "Old dialogue"
+    frame.dialogue_structured = DialogueStructured(speaker="Speaker", line="Old dialogue")
+    old_url = f"audio/dialogue/{frame_id}.mp3"
+    frame.audio_url = old_url
+    old_file = Path("output", old_url)
+    old_file.parent.mkdir(parents=True, exist_ok=True)
+    old_file.write_bytes(b"previous-audio")
+    api_module.pipeline._save_data()
+    edited = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "dialogue": "New dialogue"})
+    assert edited.status_code == 200
+    assert edited.json()["frames"][0]["dialogue_structured"]["line"] == "New dialogue"
+
+    def synthesize(text, output_path, **kwargs):
+        assert text == "New dialogue"
+        assert kwargs["voice"] == "test-voice"
+        assert kwargs["instructions"] == ""
+        assert api_client.get(route).status_code == 200
+        assert api_client.post(route + f"/frames/{frame_id}/audio", json={}).status_code == 409
+        api_client.post(route + "/frames/update", json={"frame_id": frame_id, "action_description": "New writing", "dialogue": "Later dialogue"})
+        Path(output_path).write_bytes(b"new-audio")
+        if outcome == "failed":
+            raise RuntimeError("TTS unavailable")
+        if outcome == "deleted":
+            api_client.delete(route + f"/frames/{frame_id}")
+
+    with patch("src.apps.comic_gen.audio.TTSProcessor") as processor:
+        processor.return_value.synthesize.side_effect = synthesize
+        api_module.pipeline.audio_generator = AudioGenerator()
+        response = api_client.post(route + f"/frames/{frame_id}/audio", json={"instructions": ""})
+    assert response.status_code == {"completed": 200, "failed": 502, "deleted": 404}[outcome], response.text
+    assert old_file.read_bytes() == b"previous-audio"
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    restored = api_client.get(route).json()["frames"]
+    if outcome == "deleted":
+        assert restored == []
+        return
+    assert restored[0]["dialogue_structured"]["line"] == "Later dialogue"
+    assert restored[0]["action_description"] == "New writing"
+    if outcome == "failed":
+        assert "TTS unavailable" in restored[0]["audio_error"]
+        assert restored[0]["audio_url"] == old_url
+    else:
+        assert restored[0]["dialogue_snapshot_text"] == "New dialogue"
+        assert restored[0]["dialogue_voice_id"] == "test-voice"
+        assert restored[0]["audio_url"] != old_url
+        assert Path("output", restored[0]["audio_url"]).read_bytes() == b"new-audio"
 
 
 def _add_episode(client, series_id: str, script_id: str, episode_number: int) -> None:

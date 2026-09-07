@@ -35,7 +35,7 @@ from ...storage.schema import MigrationRun
 logger = get_logger(__name__)
 
 class GenerationInProgressError(Exception):
-    """A frame already has an active image render."""
+    """A frame already has an active generation for this media type."""
 
 def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
     """Select an uploaded master in the same container all renderers read."""
@@ -352,6 +352,10 @@ class ComicGenPipeline:
                 if frame.image_generation_status in STUCK:
                     frame.image_generation_status = GenerationStatus.FAILED
                     frame.image_error = frame.image_error or self._ORPHAN_RECOVERY_REASON
+                    recovered += 1
+                if frame.audio_generation_status in STUCK:
+                    frame.audio_generation_status = GenerationStatus.FAILED
+                    frame.audio_error = frame.audio_error or self._ORPHAN_RECOVERY_REASON
                     recovered += 1
             tasks = getattr(script, "video_tasks", None) or []
             for task in tasks:
@@ -1926,6 +1930,8 @@ class ComicGenPipeline:
             frame.visual_description = kwargs['visual_description']
         if kwargs.get('dialogue') is not None:
             frame.dialogue = kwargs['dialogue']
+            if frame.dialogue_structured:
+                frame.dialogue_structured.line = kwargs['dialogue']
         if kwargs.get('camera_angle') is not None:
             frame.camera_angle = kwargs['camera_angle']
         if kwargs.get('scene_id') is not None:
@@ -4421,44 +4427,74 @@ class ComicGenPipeline:
         custom voices (clone/design) we resolve the target_model/family
         override here so generation reuses the registered voice model.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            target = next((f for f in script.frames if f.id == frame_id), None)
+            if not target:
+                raise LookupError("Frame not found")
+            from .audio import _effective_dialogue_text
+            if not _effective_dialogue_text(target).strip():
+                raise ValueError("The dialogue is empty")
+            resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
+            speaker = self._resolve_dialogue_speaker(resolved, target)
+            if not speaker or not speaker.voice_id:
+                raise ValueError("Assign a voice to the speaking character before generating dialogue")
+            # ponytail: process-local exclusion; multiple workers need a database claim.
+            if target.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
+            previous = (target.audio_generation_status, target.audio_generation_id, target.audio_error)
+            generation_id = str(uuid.uuid4())
+            target.audio_generation_status = GenerationStatus.PROCESSING
+            target.audio_generation_id = generation_id
+            target.audio_error = None
+            try:
+                self._save_data()
+            except Exception:
+                target.audio_generation_status, target.audio_generation_id, target.audio_error = previous
+                raise
+            frame = target.model_copy(deep=True)
+            speaker = speaker.model_copy(deep=True)
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
-
-        dialogue_text = (
-            (frame.dialogue_structured.line if frame.dialogue_structured else None)
-            or frame.dialogue
-        )
-        if dialogue_text:
-            speaker = self._resolve_dialogue_speaker(script, frame)
-
-            if speaker:
-                model_override = None
-                family_override = None
-                if speaker.voice_id:
-                    repository = getattr(self, "repository", None)
-                    custom = self.find_custom_voice(
-                        speaker.voice_id,
-                        repository.workspace_for_script(script_id)
-                        if repository is not None
-                        else None,
-                    )
-                    if custom:
-                        model_override = custom.target_model
-                        family_override = custom.family
-                self.audio_generator.generate_dialogue(
-                    frame, speaker, speed, pitch, volume,
-                    instructions=instructions,
-                    model_override=model_override,
-                    family_override=family_override,
-                )
-
-        self._save_data()
-        return script
+        try:
+            repository = getattr(self, "repository", None)
+            custom = self.find_custom_voice(speaker.voice_id, repository.workspace_for_script(script_id) if repository else None)
+            self.audio_generator.generate_dialogue(
+                frame, speaker, speed, pitch, volume, instructions=instructions,
+                model_override=custom.target_model if custom else None,
+                family_override=custom.family if custom else None,
+            )
+            if frame.audio_error or not frame.audio_url:
+                raise RuntimeError(frame.audio_error or "TTS did not produce audio")
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if not target:
+                    raise LookupError("Frame not found")
+                if target.audio_generation_id != generation_id:
+                    return current
+                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_text_hash")
+                previous_output = {name: getattr(target, name) for name in fields}
+                for name in fields:
+                    setattr(target, name, getattr(frame, name))
+                target.audio_generation_status = GenerationStatus.COMPLETED
+                try:
+                    self._save_data()
+                except Exception:
+                    for name, value in previous_output.items():
+                        setattr(target, name, value)
+                    raise
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if target and target.audio_generation_id == generation_id:
+                    target.audio_generation_status = GenerationStatus.FAILED
+                    target.audio_error = str(error)
+                    self._save_data()
+            raise
 
     def bind_voice(self, script_id: str, char_id: str, voice_id: str, voice_name: str) -> Script:
         """Binds a voice to a character."""

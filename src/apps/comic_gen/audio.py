@@ -1,6 +1,7 @@
 import os
 import time
 import hashlib
+import uuid
 from typing import Dict, Any, List, Optional
 from .models import StoryboardFrame, Character, GenerationStatus
 from ...utils import get_logger
@@ -47,7 +48,7 @@ def _effective_dialogue_text(frame: StoryboardFrame) -> str:
 
 def _effective_instructions(frame: StoryboardFrame) -> Optional[str]:
     """Prefer explicit dialogue_instructions; lazy-build from dialogue_structured if missing."""
-    if frame.dialogue_instructions:
+    if frame.dialogue_instructions is not None:
         return frame.dialogue_instructions
     if frame.dialogue_structured:
         parts = []
@@ -175,8 +176,9 @@ class AudioGenerator:
         family_override: Optional[str] = None,
     ) -> StoryboardFrame:
         """Generate dialogue using real TTS."""
+        output_path = None
         try:
-            output_path = os.path.join(self.output_dir, 'dialogue', f"{frame.id}.mp3")
+            output_path = os.path.join(self.output_dir, 'dialogue', f"{frame.id}_{uuid.uuid4().hex}.mp3")
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             voice = character.voice_id
@@ -188,6 +190,8 @@ class AudioGenerator:
                 model_override=model_override,
                 family_override=family_override,
             )
+            if not os.path.isfile(output_path) or not os.path.getsize(output_path):
+                raise RuntimeError("TTS did not produce an audio file")
 
             rel_path = os.path.relpath(output_path, "output")
             frame.audio_url = rel_path
@@ -195,10 +199,16 @@ class AudioGenerator:
             frame.status = GenerationStatus.COMPLETED
             # PR-3j · snapshot for stale detection
             frame.dialogue_voice_id = voice
+            frame.dialogue_snapshot_text = text
             frame.dialogue_instructions = instructions
             frame.dialogue_text_hash = _compute_dialogue_hash(text, voice, instructions)
 
         except Exception as e:
+            if output_path and os.path.exists(output_path):
+                try:
+                    os.unlink(output_path)
+                except OSError:
+                    logger.warning("Could not remove failed dialogue output")
             logger.error(f"TTS generation failed for frame {frame.id}: {e}")
             frame.status = GenerationStatus.FAILED
             frame.audio_error = f"TTS generation failed: {str(e)}"

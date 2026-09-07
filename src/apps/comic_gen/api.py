@@ -3719,6 +3719,14 @@ def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudi
             instructions=request.instructions,
         )
         return signed_response(updated_script)
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
