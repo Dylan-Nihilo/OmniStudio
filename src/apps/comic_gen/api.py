@@ -4062,8 +4062,10 @@ def reorder_frames(script_id: str, request: ReorderFramesRequest):
     try:
         updated_script = pipeline.reorder_frames(script_id, request.frame_ids)
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

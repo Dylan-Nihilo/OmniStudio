@@ -99,6 +99,24 @@ def _create_series(client, title: str = "系列项目") -> dict:
     return response.json()
 
 
+@pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown"])
+def test_reordering_frames_rejects_incomplete_or_repeated_ids_without_losing_shots(api_client, invalid):
+    project = _create_project(api_client, "Storyboard order")
+    route = f"/projects/{project['id']}"
+    for text in ["First shot", "Second shot", "Third shot"]:
+        response = api_client.post(route + "/frames", json={"action_description": text})
+        assert response.status_code == 200, response.text
+    before = api_client.get(route).json()["frames"]
+    ids = [frame["id"] for frame in before]
+    requested = {"missing": ids[:2], "duplicate": [ids[0], ids[0], ids[2]], "unknown": [ids[0], ids[1], "unknown-frame"]}[invalid]
+    response = api_client.put(route + "/frames/reorder", json={"frame_ids": requested})
+    assert response.status_code == 400, response.text
+    assert api_client.get(route).json()["frames"] == before
+    response = api_client.put(route + "/frames/reorder", json={"frame_ids": ids[::-1]})
+    assert response.status_code == 200, response.text
+    assert api_client.get(route).json()["frames"] == before[::-1]
+
+
 @pytest.fixture
 def dub_project(api_client):
     from src.apps.comic_gen.audio import _compute_dialogue_hash

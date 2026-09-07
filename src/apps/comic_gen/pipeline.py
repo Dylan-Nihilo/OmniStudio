@@ -2090,19 +2090,15 @@ class ComicGenPipeline:
         return script
 
     def reorder_frames(self, script_id: str, frame_ids: List[str]) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        frame_map = {f.id: f for f in script.frames}
-        new_frames = []
-        for fid in frame_ids:
-            if fid in frame_map:
-                new_frames.append(frame_map[fid])
-        
-        script.frames = new_frames
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame_map = {frame.id: frame for frame in script.frames}
+            if len(frame_ids) != len(script.frames) or len(set(frame_ids)) != len(frame_ids) or set(frame_ids) != set(frame_map):
+                raise ValueError("分镜列表已变化，排序必须包含每个当前镜头且不重复，请刷新后重试")
+            self._save_fields(script, frames=[frame_map[fid] for fid in frame_ids])
+            return script
 
     def generate_motion_ref(
         self,
