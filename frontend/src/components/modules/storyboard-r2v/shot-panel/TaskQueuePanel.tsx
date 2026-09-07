@@ -1,497 +1,181 @@
 "use client";
-/**
- * TaskQueuePanel — slide-out side panel from the right edge that
- * lists every video task across the entire project (跨 shot 总览).
- * Per grill Q10:
- *   - 360px wide, push main area (caller controls layout)
- *   - Tabs: Active | Done | Failed (default Active)
- *   - Single-line cards: `● Shot X · Batch Y · status · jump → · ×`
- *   - 1-click cancel (no 60s wait — that's the candidate-thumb's job)
- *   - jump-to-shot scrolls + opens that shot's panel
- *
- * The panel takes a flat task list + a shot→title map. It's purely
- * presentational; the host wires which tasks to show and what
- * "jump to shot" does.
- */
-import { useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
-import { X, ArrowRight, Loader2, Copy, Check, RefreshCw, ChevronDown, ChevronRight, ListChecks } from "lucide-react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Modal } from "@heroui/react";
+import { Button, EmptyState, IconButton, LoadingState, StatusBadge, Tabs } from "@omnistudio/ui";
+import { X, ArrowRight, Copy, Check, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import type { VideoTask } from "@/lib/api";
+import { useSettingsStore } from "@/store/settingsStore";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
-import SidePanelHeader from "@/components/shared/SidePanelHeader";
+import styles from "./TaskQueuePanel.module.css";
 
 type TabKey = "active" | "done" | "failed";
-
 interface TaskQueuePanelProps {
     open: boolean;
     onClose: () => void;
     tasks: VideoTask[];
-    /** Map shot.id → human label (e.g. "Shot 2"). Tasks not matching
-     *  any shot still render with their frame_id as fallback. */
+    refreshing?: boolean;
+    refreshError?: boolean;
+    onRefresh?: () => Promise<void> | void;
     shotLabelByFrameId?: Record<string, string>;
     onJumpToShot: (frameId: string) => void;
     onCancel?: (task: VideoTask) => Promise<void> | void;
     onRetry?: (task: VideoTask) => Promise<void> | void;
 }
 
-export default function TaskQueuePanel({
-    open,
-    onClose,
-    tasks,
-    shotLabelByFrameId,
-    onJumpToShot,
-    onCancel,
-    onRetry,
-}: TaskQueuePanelProps) {
+export default function TaskQueuePanel({ open, onClose, tasks, refreshing, refreshError, onRefresh, shotLabelByFrameId, onJumpToShot, onCancel, onRetry }: TaskQueuePanelProps) {
     const t = useTranslations("storyboardR2V");
     const [tab, setTab] = useState<TabKey>("active");
+    const [wide, setWide] = useState(false);
+    const panelRef = useRef<HTMLElement>(null);
+    const reduceMotion = useReducedMotion();
+    const animations = useSettingsStore(state => state.animations);
+    useEffect(() => {
+        const media = window.matchMedia("(min-width: 1280px)");
+        const sync = () => setWide(media.matches);
+        sync();
+        media.addEventListener("change", sync);
+        return () => media.removeEventListener("change", sync);
+    }, []);
+    useEffect(() => {
+        if (!open || !wide) return;
+        const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const frame = requestAnimationFrame(() => panelRef.current?.focus());
+        return () => {
+            cancelAnimationFrame(frame);
+            if (trigger?.isConnected) trigger.focus();
+        };
+    }, [open, wide]);
 
     const buckets = useMemo(() => {
-        const active: VideoTask[] = [];
-        const done: VideoTask[] = [];
-        const failed: VideoTask[] = [];
-        for (const t of tasks) {
-            if (t.status === "pending" || t.status === "processing") active.push(t);
-            else if (t.status === "completed") done.push(t);
-            else if (t.status === "failed") failed.push(t);
-        }
-        // Newest first within each bucket.
-        const byTimeDesc = (a: VideoTask, b: VideoTask) => b.created_at - a.created_at;
-        active.sort(byTimeDesc);
-        done.sort(byTimeDesc);
-        failed.sort(byTimeDesc);
-        return { active, done, failed };
+        const result: Record<TabKey, VideoTask[]> = { active: [], done: [], failed: [] };
+        for (const task of tasks) result[task.status === "completed" ? "done" : task.status === "failed" ? "failed" : "active"].push(task);
+        Object.values(result).forEach(tasks => tasks.sort((a, b) => b.created_at - a.created_at));
+        return result;
     }, [tasks]);
 
-    const visibleTasks = buckets[tab];
+    const body = <>
+        <header className={styles.header}>
+            <div><h2>{t("queueTitle")}</h2><div className={styles.headerStatus}>{refreshing ? <LoadingState inline label={t("queueRefreshing")} /> : <p>{t("queueTotal", { count: tasks.length })}</p>}</div></div>
+            {onRefresh && <IconButton aria-label={t("queueRefresh")} isPending={refreshing} isDisabled={refreshing} onPress={() => { void onRefresh(); }}>{!refreshing && <RefreshCw size={16} />}</IconButton>}
+            <IconButton aria-label={t("close")} onPress={onClose}><X size={16} /></IconButton>
+        </header>
+        <div className={styles.feedback}>
+            {refreshError && <p role="alert">{t("queueRefreshFailed")}</p>}
+        </div>
+        <Tabs aria-label={t("queueTitle")} className={styles.tabs} selectedKey={tab} onSelectionChange={key => setTab(key as TabKey)} items={([
+            ["active", "queueActive", "queueEmptyActive"],
+            ["done", "queueDone", "queueEmptyDone"],
+            ["failed", "queueFailed", "queueEmptyFailed"],
+        ] as const).map(([key, label, empty]) => ({
+            id: key,
+            label: `${t(label)} · ${buckets[key].length}`,
+            content: buckets[key].length ? <ul className={styles.list}>{buckets[key].map(task => <li key={task.id}>
+                <TaskRow task={task} shotLabel={shotLabelByFrameId?.[task.frame_id ?? ""] ?? task.frame_id ?? t("queueUnassigned")}
+                    onJumpToShot={onJumpToShot} onCancel={onCancel} onRetry={task.frame_id && shotLabelByFrameId?.[task.frame_id] ? onRetry : undefined} />
+            </li>)}</ul> : <EmptyState title={t(empty)} className={styles.empty} />,
+        }))} />
+    </>;
 
-    if (!open) return null;
+    if (!wide) return <Modal.Backdrop isOpen={open} onOpenChange={value => { if (!value) onClose(); }} isDismissable className={styles.backdrop}>
+        <Modal.Container className={styles.mobileContainer}>
+            <Modal.Dialog id="studio-task-queue" aria-label={t("queueTitle")} className={styles.mobilePanel}>{body}</Modal.Dialog>
+        </Modal.Container>
+    </Modal.Backdrop>;
 
-    return (
-        <>
-            {/* Backdrop — only renders below xl, where the panel is an
-                overlay rather than a layout-pushing column. Click to
-                dismiss matches the modal idiom for narrower screens. */}
-            <div
-                aria-hidden="true"
-                onClick={onClose}
-                className="absolute inset-0 z-20 bg-black/55 backdrop-blur-[1px] motion-safe:animate-[fadeInBackdrop_180ms_cubic-bezier(0.22,1,0.36,1)_both] xl:hidden"
-            />
-            <aside
-                role="region"
-                aria-label="Task queue"
-                className={[
-                    // Keep the drawer opaque so the responsive backdrop cannot
-                    // tint the queue content through a translucent surface.
-                    "flex h-full shrink-0 flex-col border-l border-glass-border bg-surface",
-                    "motion-safe:animate-[queuePanelIn_280ms_cubic-bezier(0.22,1,0.36,1)_both]",
-                    // ≥xl (1280): push column — mock queue width 344px.
-                    "xl:static xl:w-[344px] xl:shadow-none xl:z-auto",
-                    // md–lg (768–1279): overlay panel. Floats over main
-                    // content rather than pushing it, since narrow
-                    // viewports can't spare 344px of horizontal real
-                    // estate without the shot list becoming unusable.
-                    "absolute inset-y-0 right-0 z-30 w-[340px] max-w-[min(340px,calc(100vw-48px))]",
-                    "shadow-[-12px_0_32px_-12px_rgba(0,0,0,0.55)]",
-                    // <md (768): full-width drawer. Smaller phones get
-                    // the queue as a modal full-screen takeover; the
-                    // close button + backdrop both dismiss.
-                    "max-md:w-screen max-md:max-w-none",
-                ].join(" ")}
-            >
-            <SidePanelHeader
-                icon={<ListChecks />}
-                title={t("queueTitle")}
-                subtitle={t("queueTotal", { count: tasks.length })}
-                trailing={(
-                    <button
-                        type="button"
-                        aria-label="Close queue"
-                        onClick={onClose}
-                        className="p-1.5 hover:bg-hover-bg rounded-md text-text-secondary hover:text-foreground transition-colors"
-                    >
-                        <X size={13} aria-hidden="true" />
-                    </button>
-                )}
-            />
-
-            <div role="tablist" className="flex shrink-0 border-b border-glass-border px-3 py-1.5">
-                {(
-                    [
-                        ["active", "queueActive", buckets.active.length, "text-status-processing-fg"],
-                        ["done", "queueDone", buckets.done.length, "text-status-completed-fg"],
-                        ["failed", "queueFailed", buckets.failed.length, "text-status-failed-fg"],
-                    ] as Array<[TabKey, string, number, string]>
-                ).map(([key, labelKey, count, colorClass]) => (
-                    <button
-                        key={key}
-                        type="button"
-                        role="tab"
-                        aria-selected={tab === key}
-                        onClick={() => setTab(key)}
-                        className={`min-h-[32px] flex-1 rounded-md py-1.5 font-mono text-chrome-sm font-medium uppercase transition-colors duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
-                            tab === key
-                                ? "bg-glass text-foreground"
-                                : "text-text-muted hover:text-foreground"
-                        }`}
-                    >
-                        {t(labelKey)}
-                        {count > 0 ? (
-                            <span className={`ml-1.5 ${colorClass}`}>{count}</span>
-                        ) : null}
-                    </button>
-                ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-2.5 py-2.5">
-                {visibleTasks.length === 0 ? (
-                    <div className="grid h-full place-items-center px-3 text-center font-mono text-chrome-sm font-medium uppercase text-text-muted">
-                        {tab === "active"
-                            ? t("queueEmptyActive")
-                            : tab === "done"
-                                ? t("queueEmptyDone")
-                                : t("queueEmptyFailed")}
-                    </div>
-                ) : (
-                    <ul className="space-y-1">
-                        {visibleTasks.map((task) => (
-                            <li key={task.id}>
-                                <TaskRow
-                                    task={task}
-                                    shotLabel={shotLabelByFrameId?.[task.frame_id ?? ""] ?? task.frame_id ?? "—"}
-                                    onJumpToShot={onJumpToShot}
-                                    onCancel={onCancel}
-                                    onRetry={onRetry}
-                                />
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
-        </aside>
-        </>
-    );
+    return <AnimatePresence>{open && <motion.aside id="studio-task-queue" role="region" aria-label={t("queueTitle")} tabIndex={-1} ref={panelRef}
+        className={styles.panel} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}
+        transition={{ duration: reduceMotion || !animations ? 0 : 0.18 }} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+        {body}
+    </motion.aside>}</AnimatePresence>;
 }
 
-/**
- * TaskRow — two-density card (Issue 17 plan B + Q3b row-expand).
- *
- * Compact (default): status dot + shot label + thumb + clipped prompt
- * + meta line. Optimized for "10 active tasks" panoramic scan.
- *
- * Expanded: full prompt (no clamp), 96×54 thumbs (input + output side
- * by side), full params line including duration/seed, full provider
- * IDs with copy buttons, full error text wrap, retry + copy-diagnose.
- *
- * Failed tasks default-expanded — when something failed, the user
- * always wants the diagnose surface immediately. Active/completed
- * default-collapsed; user toggles via the row-level chevron.
- */
-function TaskRow({
-    task,
-    shotLabel,
-    onJumpToShot,
-    onCancel,
-    onRetry,
-}: {
-    task: VideoTask;
-    shotLabel: string;
-    onJumpToShot: (frameId: string) => void;
-    onCancel?: (task: VideoTask) => Promise<void> | void;
-    onRetry?: (task: VideoTask) => Promise<void> | void;
+function TaskRow({ task, shotLabel, onJumpToShot, onCancel, onRetry }: {
+    task: VideoTask; shotLabel: string;
+    onJumpToShot: TaskQueuePanelProps["onJumpToShot"];
+    onCancel?: TaskQueuePanelProps["onCancel"];
+    onRetry?: TaskQueuePanelProps["onRetry"];
 }) {
     const t = useTranslations("storyboardR2V");
-    const [copiedField, setCopiedField] = useState<"providerId" | "providerRequest" | "diagnose" | null>(null);
-    const [retrying, setRetrying] = useState(false);
-    const isFailed = task.status === "failed";
-    const isCompleted = task.status === "completed";
-    const isInFlight = task.status === "pending" || task.status === "processing";
-    // Failed tasks always come up expanded — user wants the diagnose
-    // surface immediately. Others default collapsed; user toggles.
-    const [expanded, setExpanded] = useState<boolean>(isFailed);
-
-    const dotClass =
-        task.status === "completed"
-            ? "bg-status-completed-fg"
-            : task.status === "failed"
-                ? "bg-status-failed-fg"
-                : task.status === "processing"
-                    ? "bg-status-processing-fg animate-pulse"
-                    : "bg-status-pending-fg";
-
-    const elapsedS = Math.max(0, Math.floor(Date.now() / 1000 - task.created_at));
-    const elapsedLabel = elapsedS < 60
-        ? `${elapsedS}s`
-        : elapsedS < 3600
-            ? `${Math.floor(elapsedS / 60)}m`
-            : `${Math.floor(elapsedS / 3600)}h`;
-
-    const promptPreview = (task.prompt || "").trim().slice(0, 60) || "—";
-
-    // Output (when completed) overrides input thumb; otherwise show input frame.
-    // 48×27 = 16:9 minimum readable scale.
-    const inputThumbUrl = task.image_url || undefined;
-    const outputVideoUrl = task.video_url || undefined;
-
-    // Provider ID display: when provider_name=dashscope, label as "百炼"
-    // (user-friendly Chinese name) since that's the console they'll paste into.
-    const providerLabel =
-        task.provider_name === "dashscope" ? t("providerDashscope")
-            : task.provider_name === "kling" ? t("providerKling")
-                : task.provider_name === "vidu" ? "Vidu"
-                    : task.provider_name === "pixverse" ? "PixVerse"
-                        : task.provider_name || "provider";
-
-    // Build diagnose blob — copy-pasteable into a support ticket.
-    const diagnoseBlob = [
-        `Local task: ${task.id}`,
-        task.provider_name && task.provider_task_id
-            ? `${providerLabel} task: ${task.provider_task_id}`
-            : null,
-        task.provider_request_id
-            ? `${providerLabel} request: ${task.provider_request_id}`
-            : null,
-        `Model: ${task.model || "?"}`,
-        `Status: ${task.status}`,
-        task.error ? `Error: ${task.error}` : null,
-    ].filter(Boolean).join("\n");
-
-    const handleCopy = async (field: "providerId" | "providerRequest" | "diagnose", text: string) => {
+    const locale = useLocale();
+    const [expanded, setExpanded] = useState(task.status === "failed");
+    const [pending, setPending] = useState(false);
+    const pendingRef = useRef(false);
+    const [error, setError] = useState(false);
+    const [copied, setCopied] = useState<string | null>(null);
+    const [copyError, setCopyError] = useState(false);
+    const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+    const inFlight = task.status === "pending" || task.status === "processing";
+    const canceled = task.status === "failed" && task.error === "Canceled by user";
+    const status = canceled ? "queueCanceled" : task.status === "completed" ? "queueDone" : task.status === "failed" ? "queueFailed" : task.status === "pending" ? "queuePending" : "queueProcessing";
+    const statusTone = canceled ? "neutral" : task.status === "failed" ? "danger" : task.status === "completed" ? "success" : "info";
+    const provider = task.provider_name === "dashscope" ? t("providerDashscope") : task.provider_name || "";
+    const diagnose = [`Task: ${task.id}`, `Provider: ${provider}`, `Provider task: ${task.provider_task_id || "—"}`, `Request: ${task.provider_request_id || "—"}`, `Model: ${task.model || "—"}`, `Status: ${task.status}`, `Error: ${task.error || "—"}`].join("\n");
+    const copy = async (field: string, value: string) => {
+        setCopyError(false);
         try {
-            await navigator.clipboard.writeText(text);
-            setCopiedField(field);
-            window.setTimeout(() => setCopiedField(prev => prev === field ? null : prev), 1500);
-        } catch {
-            /* clipboard blocked */
-        }
+            await navigator.clipboard.writeText(value);
+            setCopied(field);
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+            copyTimer.current = setTimeout(() => setCopied(null), 1500);
+        } catch { setCopyError(true); }
     };
-
-    const handleRetry = async () => {
-        if (!onRetry || retrying) return;
-        setRetrying(true);
-        try {
-            await onRetry(task);
-        } finally {
-            // Clear after a short delay even on success — the task disappears
-            // from "failed" bucket once retried, so spinner becomes moot.
-            window.setTimeout(() => setRetrying(false), 800);
-        }
+    const run = async (action: NonNullable<TaskQueuePanelProps["onCancel"]>) => {
+        if (pendingRef.current) return;
+        pendingRef.current = true;
+        setPending(true);
+        setError(false);
+        try { await action(task); } catch { setError(true); }
+        finally { pendingRef.current = false; setPending(false); }
     };
-
-    const fullPrompt = (task.prompt || "").trim();
-
-    return (
-        <div
-            className="group/row space-y-1.5 rounded-md border border-glass-border bg-glass px-2.5 py-2 transition-colors duration-fast ease-out-quart hover:border-foreground/30"
-            title={`Task id: ${task.id}`}
-        >
-            {/* Header row — chevron + status + shot label + actions */}
-            <div className="flex items-center gap-1.5">
-                <button
-                    type="button"
-                    onClick={() => setExpanded(v => !v)}
-                    aria-expanded={expanded}
-                    aria-label={expanded ? "Collapse task details" : "Expand task details"}
-                    title={expanded ? t("queueCollapse") : t("queueExpandDetails")}
-                    className="-m-1 grid h-6 w-6 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                >
-                    {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
-                </button>
-                <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden="true" />
-                <span className="truncate font-sans text-body-sm font-medium text-foreground">
-                    {shotLabel}
-                </span>
-                {isInFlight ? (
-                    <Loader2 size={10} className="animate-spin text-status-processing-fg" aria-hidden="true" />
-                ) : null}
-                <span className="ml-auto flex shrink-0 items-center gap-1">
-                    {task.frame_id ? (
-                        <button
-                            type="button"
-                            aria-label="Jump to shot"
-                            title={t("queueJumpToShot")}
-                            onClick={() => onJumpToShot(task.frame_id!)}
-                            className="-m-1 grid h-7 w-7 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            <ArrowRight size={11} aria-hidden="true" />
-                        </button>
-                    ) : null}
-                    {isInFlight && onCancel ? (
-                        <button
-                            type="button"
-                            aria-label="Cancel task"
-                            title="Cancel"
-                            onClick={() => { void onCancel(task); }}
-                            className="-m-1 grid h-7 w-7 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-status-failed-bg hover:text-status-failed-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-failed-border"
-                        >
-                            <X size={11} aria-hidden="true" />
-                        </button>
-                    ) : null}
-                </span>
-            </div>
-
-            {!expanded ? (
-                /* Compact body — single 64×36 thumb + clipped prompt + meta line */
-                <div className="flex items-start gap-2">
-                    <div className="h-[36px] w-[64px] shrink-0 overflow-hidden rounded border border-glass-border bg-black/40">
-                        {isCompleted && outputVideoUrl ? (
-                            <PreviewVideo src={outputVideoUrl} alt="output" className="h-full w-full" hoverPlay={false} alwaysShowMagnify clickToLightbox />
-                        ) : inputThumbUrl ? (
-                            <PreviewImage src={inputThumbUrl} alt="input" className="h-full w-full" alwaysShowMagnify clickToLightbox />
-                        ) : (
-                            <div className="grid h-full w-full place-items-center font-mono text-[0.5625rem] uppercase text-text-muted">
-                                no thumb
-                            </div>
-                        )}
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-0.5">
-                        <p className="line-clamp-2 font-sans text-body-sm leading-snug text-foreground" title={fullPrompt}>
-                            {promptPreview}
-                        </p>
-                        <p className="truncate font-mono text-chrome-sm tracking-tight text-text-muted">
-                            {task.model || "—"}
-                            {task.resolution ? ` · ${task.resolution}` : ""}
-                            {` · ${elapsedLabel} ago`}
-                        </p>
-                    </div>
-                </div>
-            ) : (
-                /* Expanded body — bigger thumbs side-by-side + full prompt
-                   + full params + provider IDs + error + actions. */
-                <div className="space-y-2">
-                    {/* Thumbs — input always; output added when completed */}
-                    {(inputThumbUrl || (isCompleted && outputVideoUrl)) ? (
-                        <div className="flex flex-wrap items-start gap-2">
-                            {inputThumbUrl ? (
-                                <div className="space-y-0.5">
-                                    <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-text-muted">input</p>
-                                    <div className="h-[68px] w-[120px] overflow-hidden rounded border border-glass-border bg-black/40">
-                                        <PreviewImage src={inputThumbUrl} alt="input" className="h-full w-full" alwaysShowMagnify clickToLightbox />
-                                    </div>
-                                </div>
-                            ) : null}
-                            {isCompleted && outputVideoUrl ? (
-                                <div className="space-y-0.5">
-                                    <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-text-muted">output</p>
-                                    <div className="h-[68px] w-[120px] overflow-hidden rounded border border-glass-border bg-black/40">
-                                        <PreviewVideo src={outputVideoUrl} alt="output" className="h-full w-full" alwaysShowMagnify clickToLightbox />
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-
-                    {/* Full prompt — preserves whitespace, no clamp */}
-                    {fullPrompt ? (
-                        <div className="space-y-0.5">
-                            <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-text-muted">prompt</p>
-                            <p className="whitespace-pre-wrap rounded border border-glass-border/60 bg-surface-inset px-2 py-1.5 font-sans text-body-sm leading-snug text-foreground">
-                                {fullPrompt}
-                            </p>
-                        </div>
-                    ) : null}
-
-                    {/* Full params — model · res · duration · seed · timeAgo · mode */}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-chrome-sm text-text-muted">
-                        <span className="text-text-secondary">{task.model || "—"}</span>
-                        {task.resolution ? <span>· {task.resolution}</span> : null}
-                        {task.duration ? <span>· {task.duration}s</span> : null}
-                        {typeof task.seed === "number" ? <span>· seed {task.seed}</span> : null}
-                        <span>· {elapsedLabel} ago</span>
-                        {task.generation_mode ? <span>· {task.generation_mode}</span> : null}
-                    </div>
-
-                    {/* Failure — full error text wrap */}
-                    {isFailed && task.error ? (
-                        <div className="space-y-0.5">
-                            <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-status-failed-fg/80">error</p>
-                            <p className="whitespace-pre-wrap rounded border border-status-failed-border/40 bg-status-failed-bg/60 px-2 py-1.5 font-mono text-chrome-sm leading-snug text-status-failed-fg">
-                                ⚠ {task.error}
-                            </p>
-                        </div>
-                    ) : null}
-
-                    {/* Provider IDs — full + copy buttons */}
-                    {task.provider_task_id || task.provider_request_id ? (
-                        <div className="space-y-1 rounded border border-glass-border/60 bg-surface-inset px-2 py-1.5">
-                            <p className="font-mono text-[0.5625rem] uppercase tracking-wider text-text-muted">{providerLabel} ids</p>
-                            {task.provider_task_id ? (
-                                <div className="flex items-center gap-1.5">
-                                    <span className="font-mono text-chrome-sm text-text-muted">task:</span>
-                                    <code className="min-w-0 flex-1 truncate font-mono text-chrome-sm text-foreground" title={task.provider_task_id}>
-                                        {task.provider_task_id}
-                                    </code>
-                                    <button
-                                        type="button"
-                                        onClick={() => void handleCopy("providerId", task.provider_task_id!)}
-                                        title={t("queueCopyTaskId")}
-                                        aria-label="Copy task ID"
-                                        className="-m-1 grid h-6 w-6 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    >
-                                        {copiedField === "providerId" ? <Check size={10} /> : <Copy size={10} />}
-                                    </button>
-                                </div>
-                            ) : null}
-                            {task.provider_request_id ? (
-                                <div className="flex items-center gap-1.5">
-                                    <span className="font-mono text-chrome-sm text-text-muted">req:</span>
-                                    <code className="min-w-0 flex-1 truncate font-mono text-chrome-sm text-foreground" title={task.provider_request_id}>
-                                        {task.provider_request_id}
-                                    </code>
-                                    <button
-                                        type="button"
-                                        onClick={() => void handleCopy("providerRequest", task.provider_request_id!)}
-                                        title={t("queueCopyRequestId")}
-                                        aria-label="Copy request ID"
-                                        className="-m-1 grid h-6 w-6 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    >
-                                        {copiedField === "providerRequest" ? <Check size={10} /> : <Copy size={10} />}
-                                    </button>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-
-                    {/* Local task id — for support tickets */}
-                    <div className="flex items-center gap-1.5 font-mono text-chrome-sm text-text-muted">
-                        <span>local:</span>
-                        <code className="truncate text-text-muted/80" title={task.id}>{task.id.slice(0, 18)}…</code>
-                    </div>
-
-                    {/* Actions */}
-                    {(isFailed || isCompleted) ? (
-                        <div className="flex items-center justify-end gap-1 pt-0.5">
-                            <button
-                                type="button"
-                                onClick={() => void handleCopy("diagnose", diagnoseBlob)}
-                                title={t("queueCopyDiagnose")}
-                                className="inline-flex min-h-[24px] items-center gap-1 rounded border border-glass-border bg-surface-inset px-2 py-[2px] font-mono text-chrome-sm font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                            >
-                                {copiedField === "diagnose" ? <Check size={10} /> : <Copy size={10} />}
-                                {copiedField === "diagnose" ? t("queueCopied") : t("queueCopyDiagnoseShort")}
-                            </button>
-                            {isFailed && onRetry ? (
-                                <button
-                                    type="button"
-                                    aria-label="Retry task"
-                                    title="Retry"
-                                    disabled={retrying}
-                                    onClick={() => void handleRetry()}
-                                    className="inline-flex min-h-[24px] items-center gap-1 rounded border border-status-failed-border bg-status-failed-bg px-2 py-[2px] font-mono text-chrome-sm font-medium uppercase text-status-failed-fg transition-colors duration-fast ease-out-quart hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-failed-border disabled:cursor-not-allowed disabled:opacity-70"
-                                >
-                                    {retrying ? (
-                                        <Loader2 size={10} className="animate-spin" />
-                                    ) : (
-                                        <RefreshCw size={10} />
-                                    )}
-                                    {retrying ? "Retrying…" : "Retry"}
-                                </button>
-                            ) : null}
-                        </div>
-                    ) : null}
-                </div>
-            )}
+    const date = Number.isFinite(task.created_at) ? new Date(task.created_at * 1000) : null;
+    return <article className={styles.task}>
+        <div className={styles.rowHeader}>
+            <IconButton aria-label={expanded ? t("queueCollapse") : t("queueExpandDetails")} aria-expanded={expanded} onPress={() => setExpanded(value => !value)}>
+                {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </IconButton>
+            <strong>{shotLabel}</strong>
+            <StatusBadge tone={statusTone}>{t(status)}</StatusBadge>
+            {task.frame_id && <IconButton aria-label={t("queueJumpToShot")} onPress={() => onJumpToShot(task.frame_id!)}><ArrowRight size={16} /></IconButton>}
         </div>
-    );
+        <div className={styles.summary}>
+            {!expanded && (task.image_url || (task.video_url && task.status === "completed")) && <div className={styles.compactPreview}>
+                {task.status === "completed" && task.video_url
+                    ? <PreviewVideo src={task.video_url} alt={t("queueOutput")} className="h-full w-full" hoverPlay={false} alwaysShowMagnify clickToLightbox />
+                    : <PreviewImage src={task.image_url} alt={t("queueInput")} className="h-full w-full" alwaysShowMagnify clickToLightbox />}
+            </div>}
+            <p className={expanded ? styles.prompt : styles.promptPreview}>{task.prompt || "—"}</p>
+        </div>
+        <div className={styles.meta}>
+            {task.model && <span>{task.model}</span>}{task.resolution && <span>{task.resolution}</span>}
+            {task.duration > 0 && <span>{task.duration}s</span>}
+            {date && <time dateTime={date.toISOString()}>{new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)}</time>}
+        </div>
+        {expanded && <div className={styles.details}>
+            {(task.image_url || task.video_url) && <div className={styles.media}>
+                {task.image_url && <figure><PreviewImage src={task.image_url} alt={t("queueInput")} className={styles.preview} alwaysShowMagnify clickToLightbox /><figcaption>{t("queueInput")}</figcaption></figure>}
+                {task.video_url && task.status === "completed" && <figure><PreviewVideo src={task.video_url} alt={t("queueOutput")} className={styles.preview} hoverPlay={false} alwaysShowMagnify clickToLightbox /><figcaption>{t("queueOutput")}</figcaption></figure>}
+            </div>}
+            <div className={styles.meta}>{typeof task.seed === "number" && <span>seed {task.seed}</span>}{task.generation_mode && <span>{task.generation_mode}</span>}{provider && <span>{provider}</span>}</div>
+            {task.error && !canceled && <p className={styles.failure}>{task.error}</p>}
+            <dl className={styles.ids}>
+                {([[t("queueLocalId"), task.id, "local"], [t("queueProviderId"), task.provider_task_id, "provider"], [t("queueRequestId"), task.provider_request_id, "request"]] as const).map(([label, value, field]) => value && <div key={field}>
+                    <dt>{label}</dt><dd><code>{value}</code><IconButton aria-label={t("queueCopyId", { label })} onPress={() => { void copy(field, value); }}>{copied === field ? <Check size={14} /> : <Copy size={14} />}</IconButton></dd>
+                </div>)}
+            </dl>
+        </div>}
+        {inFlight && onCancel && <p className={styles.hint}>{t("queueCancelHint")}</p>}
+        {error && <p role="alert" className={styles.failure}>{t("queueActionFailed")}</p>}
+        {copyError && <p role="alert" className={styles.failure}>{t("queueCopyFailed")}</p>}
+        {copied && <span role="status" className={styles.hint}>{t("queueCopied")}</span>}
+        <div className={styles.actions}>
+            {expanded && <Button variant="quiet" onPress={() => { void copy("diagnose", diagnose); }}><Copy size={14} />{t("queueCopyDiagnoseShort")}</Button>}
+            {inFlight && onCancel && <Button variant="secondary" aria-label={t("queueCancel")} isPending={pending} isDisabled={pending} onPress={() => { void run(onCancel); }}>{pending ? t("queueCanceling") : t("queueCancel")}</Button>}
+            {task.status === "failed" && onRetry && <Button variant="secondary" aria-label={t("retry")} isPending={pending} isDisabled={pending} onPress={() => { void run(onRetry); }}>{!pending && <RefreshCw size={14} />}{pending ? t("queueRetrying") : t("retry")}</Button>}
+        </div>
+    </article>;
 }

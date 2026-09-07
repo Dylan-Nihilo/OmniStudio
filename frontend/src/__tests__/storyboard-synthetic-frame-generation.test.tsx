@@ -8,7 +8,7 @@ import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDr
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 
-const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     getProject: vi.fn(),
@@ -20,6 +20,8 @@ const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, del
     updateFrame: vi.fn(),
     updateFrameWorkbench: vi.fn(),
     refineSingleFrame: vi.fn(),
+    cancelVideoTask: vi.fn(),
+    annotateVideoTask: vi.fn(),
 }));
 
 vi.mock("next-intl", () => ({
@@ -34,6 +36,8 @@ vi.mock("@/lib/api", () => ({
         updateFrameWorkbench,
         updateFrame,
         refineSingleFrame,
+        cancelVideoTask,
+        annotateVideoTask,
     },
     crudApi: { createFrame, deleteFrame, reorderFrames, copyFrame },
 }));
@@ -57,6 +61,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
         onUpdatePrompt: (value: string) => void;
         onGenerateBatch: (count: number) => void;
         sequence?: React.ReactNode;
+        candidates?: React.ReactNode;
         shot: { id: string; prompt: string };
         onDelete: () => void;
         onMoveDown: () => void;
@@ -81,6 +86,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
             <output>{props.shot.id}</output>
             <textarea aria-label="shot prompt" value={props.shot.prompt} onChange={event => props.onUpdatePrompt(event.target.value)} />
             {props.sequence}
+            {props.candidates}
         </div>
     ),
 }));
@@ -90,10 +96,18 @@ vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: () => null }));
-vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({ default: () => null }));
+vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
+    default: ({ tasks, onToggleStar }: { tasks: Array<{ id: string; is_starred?: boolean }>; onToggleStar: (task: { id: string }, next: boolean) => Promise<void> }) => <div>{tasks.map(task =>
+        <button key={task.id} onClick={() => { void onToggleStar(task, true); }}>{task.is_starred ? "starred task" : "star task"}</button>
+    )}</div>,
+}));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CompareModal", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/TaskQueueButton", () => ({ default: () => null }));
-vi.mock("@/components/modules/storyboard-r2v/shot-panel/TaskQueuePanel", () => ({ default: () => null }));
+vi.mock("@/components/modules/storyboard-r2v/shot-panel/TaskQueuePanel", () => ({
+    default: ({ tasks, onCancel }: { tasks: Array<{ id: string }>; onCancel: (task: { id: string }) => Promise<void> }) => <div>{tasks.map(task =>
+        <button key={task.id} onClick={() => { void onCancel(task).catch(() => {}); }}>cancel {task.id}</button>
+    )}</div>,
+}));
 vi.mock("@/components/modules/storyboard-r2v/GenerationBanner", () => ({
     GenerationBanner: () => null,
 }));
@@ -232,6 +246,84 @@ describe("StoryboardR2V synthetic frame generation", () => {
         await waitFor(() => expect(createVideoTask).toHaveBeenCalledTimes(1));
         expect(createFrame).toHaveBeenCalledTimes(1);
         expect(createVideoTask.mock.calls[0][12]).toBe("frame-real-1");
+    });
+
+    it("confirms a star saved during an older task read with a new read", async () => {
+        vi.useFakeTimers();
+        const task = { id: "star-task", frame_id: "frame-star", status: "processing", workbench_tab: "direct_r2v", generation_mode: "r2v" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-star", action_description: "original", workbench_tab_mode: "direct_r2v" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finishRead!: (value: unknown) => void;
+        getProject.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+        getProject.mockResolvedValue({ ...project, video_tasks: [{ ...task, status: "failed", is_starred: true }] });
+        annotateVideoTask.mockResolvedValue({ ...task, is_starred: true });
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "star task" })); });
+            await act(async () => { finishRead({ ...project, video_tasks: [{ ...task, status: "failed" }] }); });
+            expect(screen.getByRole("button", { name: "starred task" })).toBeVisible();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("keeps a failed cancellation unchanged, deduplicates pending requests and applies the returned task on retry", async () => {
+        const task = { id: "cancel-task", frame_id: "frame-cancel", status: "processing" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-cancel", action_description: "original" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let rejectCancel!: (error: Error) => void;
+        cancelVideoTask.mockImplementationOnce(() => new Promise((_, reject) => { rejectCancel = reject; }));
+        const view = render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "cancel cancel-task" }));
+        fireEvent.click(screen.getByRole("button", { name: "cancel cancel-task" }));
+        expect(cancelVideoTask).toHaveBeenCalledOnce();
+        await act(async () => { rejectCancel(new Error("cancel failed")); });
+        expect(useProjectStore.getState().currentProject?.video_tasks?.[0].status).toBe("processing");
+        cancelVideoTask.mockResolvedValueOnce({ ...task, status: "failed", error: "Canceled by user" });
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "cancel cancel-task" })); });
+        expect(useProjectStore.getState().currentProject?.video_tasks?.[0].error).toBe("Canceled by user");
+        view.unmount();
+    });
+
+    it("keeps refreshing tasks while editing, without overlapping reads or replacing saved frame fields", async () => {
+        vi.useFakeTimers();
+        const task = { id: "running-task", frame_id: "frame-poll", status: "processing", created_at: 1 };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-poll", action_description: "original" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finishRead!: (value: unknown) => void;
+        getProject.mockImplementation(() => new Promise(resolve => { finishRead = resolve; }));
+        const view = render(<StoryboardR2V />);
+        try {
+            for (let index = 0; index < 6; index++) {
+                fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: `edit ${index}` } });
+                await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            }
+            expect(getProject).toHaveBeenCalledOnce();
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+            await act(async () => { finishRead({ ...project, video_tasks: [{ ...task, status: "failed", error: "provider unavailable" }] }); });
+            expect(useProjectStore.getState().currentProject?.frames[0].action_description).toBe("edit 5");
+            expect(useProjectStore.getState().currentProject?.video_tasks?.[0].status).toBe("failed");
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("discards an old workspace task response even when the new workspace has the same project ID", async () => {
+        vi.useFakeTimers();
+        const auth = useAuthStore.getState();
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-poll", action_description: "original" }], video_tasks: [{ id: "running-task", status: "processing" }] };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finishRead!: (value: unknown) => void;
+        getProject.mockImplementation(() => new Promise(resolve => { finishRead = resolve; }));
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            act(() => {
+                useAuthStore.setState({ activeWorkspace: { id: "workspace-next" } } as never);
+                useProjectStore.setState({ currentProject: { ...project, title: "New workspace", video_tasks: [] } } as never);
+            });
+            await act(async () => { finishRead(project); });
+            expect(useProjectStore.getState().currentProject?.title).toBe("New workspace");
+            expect(useProjectStore.getState().currentProject?.video_tasks).toEqual([]);
+        } finally { view.unmount(); useAuthStore.setState(auth); vi.useRealTimers(); }
     });
 
     it("uses project refresh instead of the asset-task endpoint for video polling", async () => {

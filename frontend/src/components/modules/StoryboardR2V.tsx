@@ -1086,42 +1086,66 @@ function StoryboardWorkbench() {
         }
     }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot]);
 
-    // Project-level task refresh: when any task on any shot is in
-    // flight, refetch the whole project every 5s. The candidates
-    // panel + queue read from currentProject.video_tasks for canonical
-    // state. Cheap because it's just a GET; cancels when nothing is
-    // in flight. This is independent of the per-shot poll above (the
-    // per-shot poll updates shot.videoStatus / videoUrl which drives
-    // the ShotCard preview; the project refresh fills in candidate
-    // metadata like is_starred / label / error / final video_url).
+    const [refreshingTasks, setRefreshingTasks] = useState(false);
+    const [taskRefreshError, setTaskRefreshError] = useState(false);
+    const taskRefreshRequest = useRef<Promise<void> | null>(null);
+    const taskContext = useRef({
+        active: false,
+        userId: useAuthStore.getState().user?.id,
+        workspaceId: useAuthStore.getState().activeWorkspace?.id,
+    });
     useEffect(() => {
-        if (!currentProject?.id) return;
-        const allTasks: any[] = (currentProject as any).video_tasks ?? [];
-        const anyInFlight = allTasks.some(
-            (t) => t.status === "pending" || t.status === "processing",
-        );
-        // Also poll if any shot's locally-tracked videoTaskId is not
-        // yet reflected in the project record (closes the just-created
-        // window). With the Phase-2 derive-from-tasks model, we only
-        // care about the legacy single-id mirror on the shot.
-        const localInFlight = shots.some((s) => {
-            const id = s.videoTaskId;
-            if (!id) return false;
-            const t = allTasks.find((tt) => tt.id === id);
-            return !t || t.status === "pending" || t.status === "processing";
-        });
-        if (!anyInFlight && !localInFlight) return;
-        const projectId = currentProject.id;
-        const id = window.setInterval(async () => {
+        const context = { ...taskContext.current, active: true };
+        taskContext.current = context;
+        return () => { context.active = false; };
+    }, []);
+
+    const refreshProject = useCallback((afterMutation = false): Promise<void> => {
+        if (taskRefreshRequest.current) {
+            // A read started before a mutation cannot confirm that mutation.
+            return afterMutation ? taskRefreshRequest.current.then(() => refreshProject()) : taskRefreshRequest.current;
+        }
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.resolve();
+        const tasksAtStart = useProjectStore.getState().currentProject?.video_tasks;
+        setRefreshingTasks(true);
+        const request = (async () => {
             try {
                 const fresh = await api.getProject(projectId);
-                updateProject(projectId, fresh);
+                if (!isCurrent()) return;
+                // A task mutation won the race; the next read will reconcile it.
+                if (useProjectStore.getState().currentProject?.video_tasks !== tasksAtStart) return;
+                updateProject(projectId, { video_tasks: fresh.video_tasks ?? [] });
+                setTaskRefreshError(false);
             } catch {
-                /* swallow — network blips are fine, next tick retries */
+                if (isCurrent()) setTaskRefreshError(true);
+            } finally {
+                if (isCurrent()) setRefreshingTasks(false);
+                taskRefreshRequest.current = null;
             }
-        }, 5000);
-        return () => window.clearInterval(id);
-    }, [currentProject?.id, (currentProject as any)?.video_tasks, shots, updateProject]);
+        })();
+        taskRefreshRequest.current = request;
+        return request;
+    }, [currentProject?.id, updateProject]);
+
+    const hasPendingVideoTasks = (currentProject?.video_tasks ?? []).some(task =>
+        task.status === "pending" || task.status === "processing",
+    ) || shots.some(shot => {
+        if (!shot.videoTaskId) return false;
+        const task = currentProject?.video_tasks?.find(task => task.id === shot.videoTaskId);
+        return !task || task.status === "pending" || task.status === "processing";
+    });
+    useEffect(() => {
+        if (!hasPendingVideoTasks) return;
+        // Editing a shot must not postpone task updates. Slow reads share one request.
+        const timer = window.setInterval(() => { void refreshProject(); }, 5000);
+        return () => window.clearInterval(timer);
+    }, [hasPendingVideoTasks, refreshProject]);
 
     // Poll only asset-generation tasks through the generic task endpoint.
     // Video tasks are canonical on currentProject.video_tasks and are refreshed
@@ -1208,9 +1232,9 @@ function StoryboardWorkbench() {
     // Map shot.id → human label for the queue panel's frame column.
     const shotLabelByFrameId = useMemo(() => {
         const out: Record<string, string> = {};
-        shots.forEach((s, i) => { out[s.id] = `Shot ${i + 1}`; });
+        shots.forEach((s, i) => { out[s.id] = `${t("shot")} ${i + 1}`; });
         return out;
-    }, [shots]);
+    }, [shots, t]);
 
     // In-flight aggregate count drives the TaskQueueButton badge.
     const inFlightTaskCount = useMemo(
@@ -1397,19 +1421,11 @@ function StoryboardWorkbench() {
     // backend PATCH endpoint. We refresh the project after each call
     // so the candidate cell re-renders with the new flag without
     // waiting for the 5s polling tick.
-    const refreshProject = useCallback(async () => {
-        if (!currentProject?.id) return;
-        try {
-            const fresh = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, fresh);
-        } catch { /* swallow */ }
-    }, [currentProject?.id, updateProject]);
-
     const handleToggleStar = useCallback(async (task: VideoTask, next: boolean) => {
         if (!currentProject?.id) return;
         try {
             await api.annotateVideoTask(currentProject.id, task.id, { is_starred: next });
-            await refreshProject();
+            await refreshProject(true);
         } catch (err) {
             debugLog.error("Studio", "Failed to toggle star:", err);
         }
@@ -1460,21 +1476,38 @@ function StoryboardWorkbench() {
             } else {
                 await api.annotateVideoTask(currentProject.id, task.id, { label: next });
             }
-            await refreshProject();
+            await refreshProject(true);
         } catch (err) {
             debugLog.error("Studio", "Failed to set label:", err);
         }
     }, [currentProject?.id, refreshProject]);
 
-    const handleCancelTask = useCallback(async (task: VideoTask) => {
-        if (!currentProject?.id) return;
-        try {
-            await api.cancelVideoTask(currentProject.id, task.id);
-            await refreshProject();
-        } catch (err) {
-            debugLog.error("Studio", "Failed to cancel task:", err);
-        }
-    }, [currentProject?.id, refreshProject]);
+    const cancelRequests = useRef(new Map<string, Promise<void>>());
+    const cancelTask = useCallback((taskId: string): Promise<void> => {
+        const existing = cancelRequests.current.get(taskId);
+        if (existing) return existing;
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.resolve();
+        const request = (async () => {
+            try {
+                const updated: VideoTask = await api.cancelVideoTask(projectId, taskId);
+                if (!isCurrent()) return;
+                const tasks = useProjectStore.getState().currentProject?.video_tasks ?? [];
+                updateProject(projectId, { video_tasks: tasks.some(task => task.id === taskId)
+                    ? tasks.map(task => task.id === taskId ? updated : task)
+                    : [...tasks, updated] });
+                setShots(previous => previous.map(shot => shot.videoTaskId === taskId ? { ...shot, videoStatus: updated.status } : shot));
+            } finally { cancelRequests.current.delete(taskId); }
+        })();
+        cancelRequests.current.set(taskId, request);
+        return request;
+    }, [currentProject?.id, updateProject]);
+    const handleCancelTask = useCallback((task: VideoTask) => cancelTask(task.id), [cancelTask]);
 
     // Retry = fire a fresh batch of 1 for the shot owning this task,
     // reusing the task's params as best-effort. After Phase 2 the
@@ -1616,25 +1649,7 @@ function StoryboardWorkbench() {
                                 const tag = `[${type}:${name}]`;
                                 updatePrompt(index, shots[index].prompt + " " + tag);
                             }}
-                            onCancelVideo={
-                                shot.videoTaskId && currentProject
-                                    ? async () => {
-                                        const projectId = currentProject.id;
-                                        const taskId = shot.videoTaskId!;
-                                        try {
-                                            await api.cancelVideoTask(projectId, taskId);
-                                        } finally {
-                                            // Optimistic local flip — backend has
-                                            // already marked failed, but the next
-                                            // refetch may take a beat. Failed state
-                                            // surfaces the existing Retry button.
-                                            setShots(prev => prev.map((s, i) =>
-                                                i === index ? { ...s, videoStatus: "failed" as const } : s,
-                                            ));
-                                        }
-                                    }
-                                    : undefined
-                            }
+                            onCancelVideo={shot.videoTaskId ? () => cancelTask(shot.videoTaskId!) : undefined}
                             /* PR-3c · 闭环生成: ShotCard 内全宽生成行 + count selector.
                                canGenerate: direct_r2v 需 prompt; t2i_i2v 还需 first frame. */
                             generateCount={paramsState.count}
@@ -1918,6 +1933,9 @@ function StoryboardWorkbench() {
             open={queueOpen}
             onClose={() => setQueueOpen(false)}
             tasks={allVideoTasks}
+            refreshing={refreshingTasks}
+            refreshError={taskRefreshError}
+            onRefresh={refreshProject}
             shotLabelByFrameId={shotLabelByFrameId}
             onJumpToShot={handleJumpToShot}
             onCancel={handleCancelTask}
