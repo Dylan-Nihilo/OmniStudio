@@ -1330,18 +1330,19 @@ class ComicGenPipeline:
 
     def toggle_frame_lock(self, script_id: str, frame_id: str) -> Script:
         """Toggle the locked status of a frame."""
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
             
-        target_frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not target_frame:
-            raise ValueError(f"Frame {frame_id} not found")
+            target_frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not target_frame:
+                raise ValueError(f"Frame {frame_id} not found")
             
-        # Toggle the locked status
-        target_frame.locked = not target_frame.locked
-        self._save_data()
-        return script
+            # Toggle the locked status
+            target_frame.locked = not target_frame.locked
+            self._save_data()
+            return script
 
     def update_asset_image(self, script_id: str, asset_id: str, asset_type: str, image_url: str) -> Script:
         """Updates the image URL of an asset manually. Per A2 decision,
@@ -2641,71 +2642,74 @@ class ComicGenPipeline:
         """Manual select: user pins this video as the active take.
 
         Sets is_video_pinned=True so subsequent auto_select_latest_video
-        calls (fired by polling completion) skip this frame and don't
+        calls (at task completion) skip this frame and don't
         overwrite the user's hand-picked choice.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise KeyError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise KeyError("Script not found")
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise KeyError("Frame not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise KeyError("Frame not found")
 
-        video = next((v for v in script.video_tasks if v.id == video_id), None)
-        if not video:
-            raise KeyError("Video task not found")
-        if video.project_id != script_id or video.frame_id != frame_id:
-            raise ValueError("Video task does not belong to this frame")
-        if video.status != GenerationStatus.COMPLETED or not video.video_url:
-            raise ValueError("Video task must be completed with a video before selection")
+            video = next((v for v in script.video_tasks if v.id == video_id), None)
+            if not video:
+                raise KeyError("Video task not found")
+            if video.project_id != script_id or video.frame_id != frame_id:
+                raise ValueError("Video task does not belong to this frame")
+            if video.status != GenerationStatus.COMPLETED or not video.video_url:
+                raise ValueError("Video task must be completed with a video before selection")
 
-        frame.selected_video_id = video_id
-        frame.video_url = video.video_url
-        frame.is_video_pinned = True
+            frame.selected_video_id = video_id
+            frame.video_url = video.video_url
+            frame.is_video_pinned = True
 
-        self._save_data()
-        return script
+            self._save_data()
+            return script
 
-    def auto_select_latest_video(self, script_id: str, frame_id: str) -> Script:
+    def auto_select_latest_video(self, script_id: str, frame_id: str, *, persist: bool = True) -> Script:
         """Auto select: pick the latest completed video task for this frame.
 
         Idempotent. Skips the update entirely if the frame is manually pinned
         (is_video_pinned=True) or asset-locked (locked=True). Both states protect
-        the current selection from latest-wins updates triggered by task polling.
+        the current selection when a new task finishes.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError("Frame not found")
 
-        if frame.is_video_pinned or frame.locked:
-            return script  # manual pin or asset lock protects the current take
+            if frame.is_video_pinned or frame.locked:
+                return script  # manual pin or asset lock protects the current take
 
-        # Newest-created completed task wins. A slower, older task must not
-        # replace a newer take merely because it finished last.
-        frame_tasks = [
-            t for t in script.video_tasks
-            if t.project_id == script_id and t.frame_id == frame_id
-            and t.status == GenerationStatus.COMPLETED
-            and t.video_url
-        ]
-        if not frame_tasks:
-            return script  # nothing to select yet
+            # Newest-created completed task wins. A slower, older task must not
+            # replace a newer take merely because it finished last.
+            frame_tasks = [
+                t for t in script.video_tasks
+                if t.project_id == script_id and t.frame_id == frame_id
+                and t.status == GenerationStatus.COMPLETED
+                and t.video_url
+            ]
+            if not frame_tasks:
+                return script  # nothing to select yet
 
-        latest = max(frame_tasks, key=lambda t: getattr(t, "created_at", 0) or 0)
-        if frame.selected_video_id == latest.id and frame.video_url == latest.video_url:
-            return script  # already selected — no-op
+            latest = max(frame_tasks, key=lambda t: getattr(t, "created_at", 0) or 0)
+            if frame.selected_video_id == latest.id and frame.video_url == latest.video_url:
+                return script  # already selected — no-op
 
-        frame.selected_video_id = latest.id
-        frame.video_url = latest.video_url
-        # is_video_pinned stays False — this is an auto-select
+            frame.selected_video_id = latest.id
+            frame.video_url = latest.video_url
+            # is_video_pinned stays False — this is an auto-select
 
-        self._save_data()
-        return script
+            if persist:
+                self._save_data()
+            return script
 
     def unpin_video(self, script_id: str, frame_id: str) -> Script:
         """Clear the manual pin so auto_select_latest_video resumes.
@@ -2714,20 +2718,21 @@ class ComicGenPipeline:
         user keeps seeing the same take until the next generation runs
         and auto_select picks a newer one.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError("Frame not found")
 
-        if not frame.is_video_pinned:
-            return script  # already unpinned — no-op
+            if not frame.is_video_pinned:
+                return script  # already unpinned — no-op
 
-        frame.is_video_pinned = False
-        self._save_data()
-        return script
+            frame.is_video_pinned = False
+            self._save_data()
+            return script
 
     def _resolve_media_path(self, url: str, suffix: str = "") -> Optional[str]:
         """Resolve a media URL to a local file path.
@@ -3993,8 +3998,13 @@ class ComicGenPipeline:
 
         try:
             # Update status to processing
-            task.status = "processing"
-            self._save_data()
+            with self._save_lock:
+                script = self.get_script(script_id)
+                task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
+                if not task or task.status != "pending":
+                    return
+                task.status = "processing"
+                self._save_data()
             
             # Download image to temp file
             img_path = None
@@ -4107,11 +4117,15 @@ class ComicGenPipeline:
                 # the long polling loop. Lets the user copy them from the queue
                 # panel even mid-generation if the task hangs.
                 def _capture_provider_ids(provider_name: str, ptask_id: Optional[str], preq_id: Optional[str]) -> None:
-                    task.provider_name = provider_name
-                    task.provider_task_id = ptask_id
-                    task.provider_request_id = preq_id
                     try:
-                        self._save_data()
+                        with self._save_lock:
+                            current_script = self.get_script(script_id)
+                            current_task = next((t for t in current_script.video_tasks if t.id == task_id), None) if current_script else None
+                            if current_task:
+                                current_task.provider_name = provider_name
+                                current_task.provider_task_id = ptask_id
+                                current_task.provider_request_id = preq_id
+                                self._save_data()
                     except Exception:
                         logger.warning("Failed to persist provider IDs mid-flight; will retry at task completion")
                 video_path, _ = self.video_generator.model.generate(
@@ -4141,23 +4155,46 @@ class ComicGenPipeline:
                     on_provider_ids=_capture_provider_ids,
                 )
             
-            task.video_url = os.path.relpath(output_path, "output")
-            task.status = "completed"
-            
-            # Sync with asset if this is an asset video
-            if task.asset_id:
-                self._sync_asset_video_task(script, task)
+            # Project reads replace cached objects. Commit onto the current task,
+            # preserving edits and terminal cancellation made during generation.
+            # ponytail: process-local lock; multiple workers need database-level serialization.
+            with self._save_lock:
+                script = self.get_script(script_id)
+                task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
+                if not task or task.status != "processing":
+                    return
+                frame = next((f for f in script.frames if f.id == task.frame_id), None)
+                old_task = task.status, task.error
+                old_selection = (frame.selected_video_id, frame.video_url) if frame else None
+                task.video_url = os.path.relpath(output_path, "output")
+                task.status = "completed"
+                task.error = None
+                if task.asset_id:
+                    self._sync_asset_video_task(script, task)
+                if frame:
+                    self.auto_select_latest_video(script_id, frame.id, persist=False)
+                try:
+                    self._save_data()
+                except Exception:
+                    # Keep the generated file reference even when persisting its
+                    # completion fails, so error recovery does not orphan the media.
+                    task.status, task.error = old_task
+                    if frame:
+                        frame.selected_video_id, frame.video_url = old_selection
+                    raise
             
         except Exception as e:
-            import traceback
             logger.exception("Failed to process video task")
             logger.error(f"Video generation failed: {e}")
-            task.status = "failed"
-            task.error = str(e)
-            if task.asset_id:
-                self._sync_asset_video_task(script, task)
-            
-        self._save_data()
+            with self._save_lock:
+                script = self.get_script(script_id)
+                task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
+                if task and task.status in ("pending", "processing"):
+                    task.status = "failed"
+                    task.error = str(e)
+                    if task.asset_id:
+                        self._sync_asset_video_task(script, task)
+                    self._save_data()
 
     def _sync_asset_video_task(self, script: Script, task: VideoTask):
         """Syncs the updated task status/url back to the asset's video_assets list."""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -953,6 +954,102 @@ def test_video_retry_rejects_unavailable_tasks_without_dispatch(api_client, case
         assert response.status_code == (404 if case in {"unknown-task", "foreign-workspace"} else 400), response.text
         process.assert_not_called()
     assert len(api_module.pipeline.scripts[script.id].video_tasks) == 1
+
+
+def test_video_completion_persists_and_adopts_after_project_read_and_edit_without_a_workbench(api_client):
+    project = _create_project(api_client, "Background completion")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original description"}).json()["frames"][0]["id"]
+
+    def generate(**kwargs):
+        # A real project read replaces the cached project while the provider runs.
+        running = api_client.get(route).json()
+        assert running["video_tasks"][0]["status"] == "processing"
+        kwargs["on_provider_ids"]("dashscope", "provider-task-fixture", "request-fixture")
+        assert api_client.get(route).json()["video_tasks"][0]["provider_task_id"] == "provider-task-fixture"
+        edited = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "action_description": "Edited during generation"})
+        assert edited.status_code == 200, edited.text
+        Path(kwargs["output_path"]).write_bytes(b"provider-result-fixture")
+        return kwargs["output_path"], None
+
+    api_module.pipeline.video_generator.model.generate.side_effect = generate
+    response = api_client.post(route + "/video_tasks", json={"frame_id": frame_id, "image_url": "", "prompt": "Saved camera move", "model": "wan2.7-t2v", "generation_mode": "t2v"})
+    assert response.status_code == 200, response.text
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    restored = api_client.get(route).json()
+    task = restored["video_tasks"][0]
+    frame = restored["frames"][0]
+    assert task["status"] == "completed"
+    assert Path("output", task["video_url"]).read_bytes() == b"provider-result-fixture"
+    assert frame["selected_video_id"] == task["id"]
+    assert frame["video_url"] == task["video_url"]
+    assert frame["is_video_pinned"] is False
+    assert frame["action_description"] == "Edited during generation"
+
+
+@pytest.mark.parametrize("intervention", ["pin", "lock", "cancel", "delete-frame", "provider-error", "save-error"])
+def test_video_completion_preserves_changes_made_while_provider_is_running(api_client, intervention):
+    project = _create_project(api_client, "Completion protections")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Keep this shot"}).json()["frames"][0]["id"]
+    script = api_module.pipeline.scripts[project["id"]]
+    script.video_tasks = [VideoTask(id="previous", project_id=script.id, frame_id=frame_id, image_url="", prompt="Previous", status="completed", video_url="video/previous.mp4", created_at=1)]
+    script.frames[0].selected_video_id = "previous"
+    script.frames[0].video_url = "video/previous.mp4"
+    api_module.pipeline._save_data()
+    saved = api_module.pipeline.repository.save_scripts
+    failed_save = False
+
+    def save_scripts(scripts):
+        nonlocal failed_save
+        task = scripts[project["id"]].video_tasks[-1]
+        if intervention == "save-error" and task.status == "completed" and not failed_save:
+            failed_save = True
+            raise StorageError("simulated completion persistence failure")
+        return saved(scripts)
+
+    def generate(**kwargs):
+        running = api_client.get(route).json()
+        task_id = running["video_tasks"][-1]["id"]
+        if intervention == "pin":
+            response = api_client.post(route + f"/frames/{frame_id}/select_video", json={"video_id": "previous"})
+        elif intervention == "lock":
+            response = api_client.post(route + "/frames/toggle_lock", json={"frame_id": frame_id})
+        elif intervention == "cancel":
+            response = api_client.post(route + f"/video_tasks/{task_id}/cancel")
+        elif intervention == "delete-frame":
+            response = api_client.delete(route + f"/frames/{frame_id}")
+        elif intervention == "provider-error":
+            raise RuntimeError("Provider temporarily unavailable")
+        else:
+            response = None
+        if response is not None:
+            assert response.status_code == 200, response.text
+        Path(kwargs["output_path"]).write_bytes(b"provider-result-fixture")
+        return kwargs["output_path"], None
+
+    api_module.pipeline.video_generator.model.generate.side_effect = generate
+    with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=save_scripts):
+        response = api_client.post(route + "/video_tasks", json={"frame_id": frame_id, "image_url": "", "prompt": "Camera move", "model": "wan2.7-t2v", "generation_mode": "t2v"})
+    assert response.status_code == 200, response.text
+    restored = api_client.get(route).json()
+    task = restored["video_tasks"][-1]
+    if intervention in ("cancel", "provider-error", "save-error"):
+        assert task["status"] == "failed"
+        assert task["error"] == {"cancel": "Canceled by user", "provider-error": "Provider temporarily unavailable", "save-error": "simulated completion persistence failure"}[intervention]
+        if intervention == "save-error":
+            assert task["video_url"]
+            assert Path("output", task["video_url"]).read_bytes() == b"provider-result-fixture"
+    else:
+        assert task["status"] == "completed"
+    if intervention == "delete-frame":
+        assert restored["frames"] == []
+    else:
+        frame = restored["frames"][0]
+        assert frame["selected_video_id"] == "previous"
+        assert frame["video_url"] == "video/previous.mp4"
+        assert frame["is_video_pinned"] is (intervention == "pin")
+        assert frame["locked"] is (intervention == "lock")
 
 
 def test_video_retry_reports_processing_failure_and_keeps_original_task(api_client):

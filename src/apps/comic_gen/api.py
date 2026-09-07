@@ -2040,13 +2040,13 @@ def get_project(script_id: str, request: Request):
     Response model dropped from `Script` because the `source` field
     is a presentation-layer concern (never persisted, derived from
     container membership at read time)."""
-    script = pipeline.repository.load_scripts().get(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Project not found")
-    pipeline.scripts[script_id] = script
-
-    payload = script.model_dump()
-    payload["_revision"] = pipeline.repository.script_revision(script_id)
+    with pipeline._save_lock:
+        script = pipeline.repository.load_scripts().get(script_id)
+        if not script:
+            raise HTTPException(status_code=404, detail="Project not found")
+        pipeline.scripts[script_id] = script
+        payload = script.model_dump()
+        payload["_revision"] = pipeline.repository.script_revision(script_id)
 
     # Episode-local entries always carry source="episode".
     for asset_list in (payload.get("characters", []),
@@ -4100,9 +4100,8 @@ def auto_select_latest_video(script_id: str, frame_id: str):
     """Auto-pick the latest completed video as this frame's active take.
 
     Idempotent; skipped when the frame is pinned (is_video_pinned=True).
-    Frontend calls this on every task-completion poll so the freshly
-    generated take surfaces on the hero — unless the user has explicitly
-    pinned a different take.
+    Task processing now saves adoption with completion. This endpoint remains
+    available for older clients and explicit reconciliation.
     """
     try:
         updated_script = pipeline.auto_select_latest_video(script_id, frame_id)
