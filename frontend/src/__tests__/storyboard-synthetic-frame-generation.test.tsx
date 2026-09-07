@@ -293,46 +293,56 @@ describe("StoryboardR2V synthetic frame generation", () => {
         } finally { view.unmount(); vi.useRealTimers(); }
     });
 
-    it("finishes a manual selection after an earlier automatic selection without losing the manual pin", async () => {
-        const automatic = { id: "take-auto", frame_id: "frame-select", status: "processing", workbench_tab: "direct_r2v" };
-        const manual = { id: "take-manual", frame_id: "frame-select", status: "completed", video_url: "manual.mp4", workbench_tab: "direct_r2v" };
-        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-select", action_description: "original", video_url: "old.mp4", selected_video_id: "take-old", workbench_tab_mode: "direct_r2v" }], video_tasks: [automatic, manual] };
+    it("reads the server-selected candidate without replacing newer prompt edits or issuing selection writes", async () => {
+        vi.useFakeTimers();
+        const task = { id: "finished-away", frame_id: "frame-readback", status: "processing", created_at: 1 };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-readback", action_description: "Original", video_url: "old.mp4", selected_video_id: "old" }], video_tasks: [task] };
         useProjectStore.setState({ currentProject: project } as never);
-        let finishAuto!: (value: unknown) => void;
-        autoSelectLatestVideo.mockImplementationOnce(() => new Promise(resolve => { finishAuto = resolve; }));
-        selectVideo.mockResolvedValueOnce({ ...project, frames: [{ ...project.frames[0], selected_video_id: manual.id, video_url: manual.video_url, is_video_pinned: true }] });
+        let finishRead!: (value: unknown) => void;
+        getProject.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
         const view = render(<StoryboardR2V />);
-        await act(async () => { useProjectStore.setState({ currentProject: { ...project, video_tasks: [{ ...automatic, status: "completed", video_url: "auto.mp4" }, manual] } } as never); });
-        expect(autoSelectLatestVideo).toHaveBeenCalledOnce();
-        fireEvent.click(screen.getByRole("button", { name: "select take-manual" }));
-        expect(selectVideo).not.toHaveBeenCalled();
-        await act(async () => { finishAuto({ ...project, frames: [{ ...project.frames[0], selected_video_id: automatic.id, video_url: "auto.mp4", is_video_pinned: false }] }); });
-        expect(selectVideo).toHaveBeenCalledWith("project-1", "frame-select", "take-manual");
-        expect(screen.getByLabelText("selected video")).toHaveTextContent("manual.mp4");
-        expect(useProjectStore.getState().currentProject?.frames[0].is_video_pinned).toBe(true);
-        view.unmount();
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Keep my new description" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+            await act(async () => { finishRead({ ...project, frames: [{ ...project.frames[0], selected_video_id: task.id, video_url: "finished.mp4" }], video_tasks: [{ ...task, status: "completed", video_url: "finished.mp4" }] }); });
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("finished.mp4");
+            expect(useProjectStore.getState().currentProject!.frames[0].action_description).toBe("Keep my new description");
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Keep my new description");
+            expect(autoSelectLatestVideo).not.toHaveBeenCalled();
+            view.unmount();
+            const reopened = render(<StoryboardR2V />);
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("finished.mp4");
+            reopened.unmount();
+        } finally { view.unmount(); vi.useRealTimers(); }
     });
 
-    it("adopts completed batch candidates even while a different candidate is still being adopted", async () => {
-        const base = { project_id: "project-1", frame_id: "frame-batch", image_url: "", prompt: "Camera", duration: 5, resolution: "720p", generate_audio: false, prompt_extend: false, workbench_tab: "direct_r2v" };
-        const older = { ...base, id: "older", status: "processing" as const, created_at: 1 };
-        const newer = { ...base, id: "newer", status: "processing" as const, created_at: 2 };
-        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-batch", action_description: "Current prompt", video_url: "previous.mp4", selected_video_id: "previous" }], video_tasks: [older, newer] };
-        useProjectStore.setState({ currentProject: project });
-        let finishFirst!: (value: unknown) => void;
-        autoSelectLatestVideo.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }));
-        autoSelectLatestVideo.mockResolvedValueOnce({ ...project, frames: [{ ...project.frames[0], video_url: "newer.mp4", selected_video_id: "newer" }] });
+    it("refreshes again after a selection write overlaps the final task read, preserving the manual pin", async () => {
+        vi.useFakeTimers();
+        const automatic = { id: "take-auto", frame_id: "frame-select", status: "processing", created_at: 2 };
+        const manual = { id: "take-manual", frame_id: "frame-select", status: "completed", video_url: "manual.mp4", workbench_tab: "direct_r2v", created_at: 1 };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-select", action_description: "Original", video_url: "old.mp4", selected_video_id: "old" }], video_tasks: [automatic, manual] };
+        const completed = [{ ...automatic, status: "completed", video_url: "auto.mp4" }, manual];
+        const pinned = { ...project, frames: [{ ...project.frames[0], selected_video_id: manual.id, video_url: manual.video_url, is_video_pinned: true }], video_tasks: completed };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finishRead!: (value: unknown) => void;
+        let finishSelect!: (value: unknown) => void;
+        getProject.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; })).mockResolvedValue(pinned);
+        selectVideo.mockImplementationOnce(() => new Promise(resolve => { finishSelect = resolve; }));
         const view = render(<StoryboardR2V />);
-        const finishedOlder = { ...older, status: "completed" as const, video_url: "older.mp4" };
-        await act(async () => { useProjectStore.setState({ currentProject: { ...project, video_tasks: [finishedOlder, newer] } }); });
-        expect(autoSelectLatestVideo).toHaveBeenCalledOnce();
-        await act(async () => { useProjectStore.setState({ currentProject: { ...project, video_tasks: [finishedOlder, { ...newer, status: "completed", video_url: "newer.mp4" }] } }); });
-        expect(screen.getByLabelText("selected video")).toHaveTextContent("previous.mp4");
-        await act(async () => { finishFirst({ ...project, frames: [{ ...project.frames[0], video_url: "older.mp4", selected_video_id: "older" }] }); });
-        expect(screen.getByLabelText("selected video")).toHaveTextContent("newer.mp4");
-        expect(useProjectStore.getState().currentProject!.frames[0].selected_video_id).toBe("newer");
-        expect(autoSelectLatestVideo).toHaveBeenCalledTimes(2);
-        view.unmount();
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            fireEvent.click(screen.getByRole("button", { name: "select take-manual" }));
+            await act(async () => { finishRead({ ...project, frames: [{ ...project.frames[0], selected_video_id: automatic.id, video_url: "auto.mp4" }], video_tasks: completed }); });
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("old.mp4");
+            await act(async () => { finishSelect(pinned); });
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("manual.mp4");
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(getProject).toHaveBeenCalledTimes(2);
+            expect(screen.getByLabelText("selected video")).toHaveTextContent("manual.mp4");
+            expect(useProjectStore.getState().currentProject!.frames[0].is_video_pinned).toBe(true);
+            expect(autoSelectLatestVideo).not.toHaveBeenCalled();
+        } finally { view.unmount(); vi.useRealTimers(); }
     });
 
     it("preserves pending candidate selection across navigation and applies only selection fields after reopening", async () => {

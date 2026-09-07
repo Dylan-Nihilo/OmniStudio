@@ -1093,6 +1093,7 @@ function StoryboardWorkbench() {
 
     const [refreshingTasks, setRefreshingTasks] = useState(false);
     const [taskRefreshError, setTaskRefreshError] = useState(false);
+    const [taskRefreshNeeded, setTaskRefreshNeeded] = useState(false);
     const taskRefreshRequest = useRef<Promise<void> | null>(null);
     const taskContext = useRef({
         active: false,
@@ -1114,15 +1115,38 @@ function StoryboardWorkbench() {
             && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
             && useProjectStore.getState().currentProject?.id === projectId;
         if (!projectId || !isCurrent()) return Promise.resolve();
-        const tasksAtStart = useProjectStore.getState().currentProject?.video_tasks;
+        const projectAtStart = useProjectStore.getState().currentProject;
+        const selectionsAtStart = useVideoSelectionRequests.getState();
         setRefreshingTasks(true);
         const request = (async () => {
             try {
                 const fresh = await api.getProject(projectId);
                 if (!isCurrent()) return;
                 // A task mutation won the race; the next read will reconcile it.
-                if (useProjectStore.getState().currentProject?.video_tasks !== tasksAtStart) return;
-                updateProject(projectId, { video_tasks: fresh.video_tasks ?? [] });
+                const current = useProjectStore.getState().currentProject!;
+                if (current.video_tasks !== projectAtStart?.video_tasks) {
+                    setTaskRefreshNeeded(true);
+                    return;
+                }
+                let selectionReadNeeded = false;
+                const selectionWriteOccurred = selectionsAtStart !== useVideoSelectionRequests.getState();
+                const frames = current.frames.map(frame => {
+                    const saved = fresh.frames?.find((saved: { id: string }) => saved.id === frame.id);
+                    if (!saved) return frame;
+                    const before = projectAtStart?.frames.find(before => before.id === frame.id);
+                    const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
+                    const fields = ["selected_video_id", "video_url", "is_video_pinned"] as const;
+                    if (fields.every(field => saved[field] === frame[field])) return frame;
+                    if (selectionWriteOccurred || selectionsAtStart[key] || fields.some(field => before?.[field] !== frame[field])) {
+                        selectionReadNeeded = true;
+                        return frame;
+                    }
+                    return { ...frame, selected_video_id: saved.selected_video_id, video_url: saved.video_url, is_video_pinned: saved.is_video_pinned };
+                });
+                // Completion and adoption are saved together by the backend. Do not
+                // replace prompt edits or a selection written while this read ran.
+                updateProject(projectId, { video_tasks: fresh.video_tasks ?? [], frames: frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames });
+                setTaskRefreshNeeded(selectionReadNeeded);
                 setTaskRefreshError(false);
             } catch {
                 if (isCurrent()) setTaskRefreshError(true);
@@ -1143,11 +1167,11 @@ function StoryboardWorkbench() {
         return !task || task.status === "pending" || task.status === "processing";
     });
     useEffect(() => {
-        if (!hasPendingVideoTasks) return;
+        if (!hasPendingVideoTasks && !taskRefreshNeeded) return;
         // Editing a shot must not postpone task updates. Slow reads share one request.
         const timer = window.setInterval(() => { void refreshProject(); }, 5000);
         return () => window.clearInterval(timer);
-    }, [hasPendingVideoTasks, refreshProject]);
+    }, [hasPendingVideoTasks, taskRefreshNeeded, refreshProject]);
 
     // Poll only asset-generation tasks through the generic task endpoint.
     // Video tasks are canonical on currentProject.video_tasks and are refreshed
@@ -1249,7 +1273,7 @@ function StoryboardWorkbench() {
 
     const videoSelectionRequests = useVideoSelectionRequests();
     const selectingVideoFrames = Object.fromEntries(shots.map(shot => [shot.id, !!videoSelectionRequests[JSON.stringify([...retryScope, shot.id])]]));
-    const updateVideoSelection = useCallback((frameId: string, mode: "select" | "auto" | "unpin", taskId?: string): Promise<void> => {
+    const updateVideoSelection = useCallback((frameId: string, mode: "select" | "unpin", taskId?: string): Promise<void> => {
         const projectId = currentProject?.id;
         const context = taskContext.current;
         const isCurrent = () => useAuthStore.getState().user?.id === context.userId
@@ -1264,8 +1288,7 @@ function StoryboardWorkbench() {
         }
         const promise = (async () => {
             try {
-                const updated = mode === "auto" ? await api.autoSelectLatestVideo(projectId, frameId)
-                    : mode === "unpin" ? await api.unpinVideo(projectId, frameId)
+                const updated = mode === "unpin" ? await api.unpinVideo(projectId, frameId)
                     : await api.selectVideo(projectId, frameId, taskId!);
                 if (!isCurrent()) return;
                 const frame = updated.frames?.find((frame: { id: string }) => frame.id === frameId);
@@ -1277,7 +1300,7 @@ function StoryboardWorkbench() {
                 // The response is a project snapshot; only this frame's selection belongs to this operation.
                 updateProject(projectId, { frames: frames.map(current => current.id === frameId ? { ...current, ...selection } : current) });
             } catch (error) {
-                if (!context.active && isCurrent()) toast.error(t(mode === "auto" ? "candidateAdoptFailed" : "candidateSaveFailed"));
+                if (!context.active && isCurrent()) toast.error(t("candidateSaveFailed"));
                 throw error;
             } finally {
                 useVideoSelectionRequests.setState(state => {
@@ -1307,17 +1330,7 @@ function StoryboardWorkbench() {
         });
     }, [currentProject?.frames]);
 
-    const completedVideoIds = useRef(new Set(allVideoTasks.filter(task => task.status === "completed" && task.video_url).map(task => task.id)));
     useEffect(() => {
-        const completed = new Map<string, VideoTask>();
-        for (const task of allVideoTasks) {
-            if (task.status !== "completed" || !task.video_url || !task.frame_id || completedVideoIds.current.has(task.id)) continue;
-            const frame = useProjectStore.getState().currentProject?.frames.find(frame => frame.id === task.frame_id);
-            if (!frame || frame.is_video_pinned || frame.locked) continue;
-            const previous = completed.get(task.frame_id);
-            if (!previous || task.created_at > previous.created_at) completed.set(task.frame_id, task);
-        }
-        completedVideoIds.current = new Set(allVideoTasks.filter(task => task.status === "completed" && task.video_url).map(task => task.id));
         setShots(previous => {
             let changed = false;
             const next = previous.map(shot => {
@@ -1335,13 +1348,7 @@ function StoryboardWorkbench() {
             });
             return changed ? next : previous;
         });
-        const context = taskContext.current;
-        completed.forEach((task, frameId) => {
-            void updateVideoSelection(frameId, "auto", task.id).catch(() => {
-                if (context.active) toast.error(t("candidateAdoptFailed"));
-            });
-        });
-    }, [allVideoTasks, updateVideoSelection, t]);
+    }, [allVideoTasks]);
 
     // Compare modal needs the actual VideoTask objects for the
     // currently-selected ids (in whatever order they were selected).
