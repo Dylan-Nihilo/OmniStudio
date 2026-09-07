@@ -1780,6 +1780,7 @@
     "queueCopied": "已复制",
     "queueCopyDiagnoseShort": "复制诊断",
     "batchDialogueFailed": "对白批量生成失败，请重试",
+    "refiningPrompt": "正在细化",
     "refineDoneToast": "精修完成",
     "unknownErrorFallback": "未知错误",
     "videoGenFailedToast": "视频生成失败：{detail}",

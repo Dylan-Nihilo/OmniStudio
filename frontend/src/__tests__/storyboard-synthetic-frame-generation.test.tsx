@@ -8,7 +8,7 @@ import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDr
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 
-const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     getProject: vi.fn(),
@@ -19,6 +19,7 @@ const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, del
     copyFrame: vi.fn(),
     updateFrame: vi.fn(),
     updateFrameWorkbench: vi.fn(),
+    refineSingleFrame: vi.fn(),
 }));
 
 vi.mock("next-intl", () => ({
@@ -32,6 +33,7 @@ vi.mock("@/lib/api", () => ({
         getTaskStatus,
         updateFrameWorkbench,
         updateFrame,
+        refineSingleFrame,
     },
     crudApi: { createFrame, deleteFrame, reorderFrames, copyFrame },
 }));
@@ -51,6 +53,7 @@ vi.mock("@/components/shared/StepPageHeader", () => ({
 
 vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
     default: (props: {
+        onRefineFrame: () => void;
         onUpdatePrompt: (value: string) => void;
         onGenerateBatch: (count: number) => void;
         sequence?: React.ReactNode;
@@ -69,6 +72,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", () => ({
             <button onClick={props.onDelete}>delete shot</button>
             <button onClick={props.onMoveDown}>move down</button>
             <button onClick={props.onDuplicate}>copy shot</button>
+            <button onClick={props.onRefineFrame}>refine shot</button>
             <button onClick={() => props.onSetTabMode("t2i_i2v")}>use first frame</button>
             <button onClick={() => props.onUpdateField("shotSize", "close-up")}>close-up</button>
             <button onClick={() => props.onUpdateField("transitionHint", null)}>clear transition</button>
@@ -100,7 +104,7 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 describe("StoryboardR2V synthetic frame generation", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {} });
+        useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} });
         updateFrame.mockResolvedValue({});
         updateFrameWorkbench.mockResolvedValue({});
         createFrame.mockResolvedValue({
@@ -133,6 +137,62 @@ describe("StoryboardR2V synthetic frame generation", () => {
                 model_settings: { r2v_model: "wan2.7-r2v" },
             },
         } as never);
+    });
+
+    it("saves a failed draft before refinement and keeps the refined result on reopening", async () => {
+        vi.useFakeTimers();
+        const project = { ...useProjectStore.getState().currentProject!, frames: [
+            { id: "frame-refine", action_description: "coarse", visual_description: "original rich description" },
+        ] };
+        useProjectStore.setState({ currentProject: project });
+        updateFrame.mockRejectedValue(new Error("save failed"));
+        refineSingleFrame.mockResolvedValue({ ...project.frames[0], visual_description: "refined description" });
+        const view = render(<StoryboardR2V />);
+        try {
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "manual draft" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "refine shot" })); });
+            expect(refineSingleFrame).not.toHaveBeenCalled();
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("manual draft");
+            updateFrame.mockResolvedValue({});
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "refine shot" })); });
+            expect(refineSingleFrame).toHaveBeenCalledOnce();
+            expect(updateFrame).toHaveBeenLastCalledWith("project-1", "frame-refine", { visual_description: "manual draft" });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("refined description");
+            view.unmount();
+            render(<StoryboardR2V />);
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("refined description");
+            expect(screen.queryByRole("button", { name: "retrySave" })).not.toBeInTheDocument();
+        } finally { vi.useRealTimers(); }
+    });
+
+    it.each([["success", true], ["success", false], ["failure", true], ["failure", false]])("retains newer edits after refinement %s with rich frame %s", async (outcome, rich) => {
+        vi.useFakeTimers();
+        const project = { ...useProjectStore.getState().currentProject!, frames: [
+            { id: "frame-refining", action_description: "coarse", visual_description: rich ? "original" : undefined },
+        ] };
+        useProjectStore.setState({ currentProject: project });
+        let finishRefine!: () => void;
+        refineSingleFrame.mockImplementationOnce(() => new Promise((resolve, reject) => { finishRefine = () => outcome === "success" ? resolve({ ...project.frames[0], visual_description: "AI result" }) : reject(new Error("refine failed")); }));
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "refine shot" })); });
+            first.unmount();
+            reopened = render(<StoryboardR2V />);
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "refine shot" })); });
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "newer edit" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            expect(refineSingleFrame).toHaveBeenCalledOnce();
+            expect(updateFrame).not.toHaveBeenCalled();
+            await act(async () => { finishRefine(); });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("newer edit");
+            expect(updateFrame).toHaveBeenLastCalledWith("project-1", "frame-refining", outcome === "success" || rich ? { visual_description: "newer edit" } : { action_description: "newer edit" });
+            reopened.unmount();
+            reopened = render(<StoryboardR2V />);
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("newer edit");
+            expect(screen.getByRole("status", { name: "saveStatus" })).toHaveTextContent("saved");
+        } finally { first.unmount(); reopened?.unmount(); vi.useRealTimers(); }
     });
 
     it.each([100, 900])("keeps one new shot when creation finishes %ims after reopening Studio", async (delay) => {

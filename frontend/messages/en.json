@@ -1780,6 +1780,7 @@
     "queueCopied": "Copied",
     "queueCopyDiagnoseShort": "Copy diagnostics",
     "batchDialogueFailed": "Batch dialogue generation failed, please retry",
+    "refiningPrompt": "Refining prompt",
     "refineDoneToast": "Refine complete",
     "unknownErrorFallback": "Unknown error",
     "videoGenFailedToast": "Video generation failed: {detail}",

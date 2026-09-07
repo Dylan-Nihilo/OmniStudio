@@ -32,7 +32,7 @@ import { PendingTaskAffordance } from "@/components/shared/PendingTaskAffordance
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import { useProjectStore } from "@/store/projectStore";
-import { Button, ActionMenu, SelectField } from "@omnistudio/ui";
+import { Button, ActionMenu, SelectField, LoadingState } from "@omnistudio/ui";
 import styles from "./ShotCard.module.css";
 import { selectedVariantUrl } from "@/lib/characterImage";
 
@@ -156,6 +156,7 @@ interface ShotCardProps {
     /** Active in-flight count for label flip (生成 ×N → 生成中 · N). */
     inFlightCount?: number;
     onRefineFrame?: () => void;
+    isRefining?: boolean;
     onUpdateDialogue?: (text: string) => void;
     /** Active-take pin controls. When the user has manually pinned an
      *  active take (shot.isVideoPinned=true), the hero shows a "📌 Pinned"
@@ -192,6 +193,7 @@ export default function ShotCard({
     onGenerateBatch,
     inFlightCount = 0,
     onRefineFrame,
+    isRefining = false,
     onUnpinVideo,
 }: ShotCardProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -606,8 +608,8 @@ export default function ShotCard({
             {audio}
             {sequence}
         </section>
-        <aside className={styles.settings}>
-            <header className={styles.heading}><span>{t("shot")} {String(index + 1).padStart(2, "0")}</span><ShotStatusBadge shot={shot} t={t} /></header>
+        <aside className={styles.settings} aria-busy={isRefining}>
+            <header className={styles.heading}><span>{t("shot")} {String(index + 1).padStart(2, "0")}</span>{isRefining ? <LoadingState inline label={t("refiningPrompt")} /> : <ShotStatusBadge shot={shot} t={t} />}</header>
             <SelectField label={t("generationMode")} value={shot.tabMode} onChange={key => onSetTabMode(String(key) as ShotNode["tabMode"])} options={[{ id: "direct_r2v", label: t("tabDirectR2v") }, { id: "t2i_i2v", label: t("tabT2iI2v") }]} />
             <div className={styles.editor}>
                         {/* Cast avatar group */}
@@ -825,15 +827,15 @@ export default function ShotCard({
             <div className={styles.actions}>
                 <ActionMenu label={t("shotActions")} items={[
                     { id: "assets", label: t("browseAssets"), onAction: onOpenDrawer },
-                    { id: "up", label: t("moveUp"), onAction: onMoveUp, isDisabled: structurePending || index === 0 },
-                    { id: "down", label: t("moveDown"), onAction: onMoveDown, isDisabled: structurePending || index === totalShots - 1 },
-                    { id: "copy", label: t("duplicateShot"), onAction: onDuplicate, isDisabled: structurePending },
-                    ...(onRefineFrame ? [{ id: "refine", label: t("refineFrame"), onAction: onRefineFrame }] : []),
-                    { id: "delete", label: t("deleteShot"), onAction: onDelete, isDisabled: structurePending },
+                    { id: "up", label: t("moveUp"), onAction: onMoveUp, isDisabled: structurePending || isRefining || index === 0 },
+                    { id: "down", label: t("moveDown"), onAction: onMoveDown, isDisabled: structurePending || isRefining || index === totalShots - 1 },
+                    { id: "copy", label: t("duplicateShot"), onAction: onDuplicate, isDisabled: structurePending || isRefining },
+                    ...(onRefineFrame ? [{ id: "refine", label: t("refineFrame"), onAction: onRefineFrame, isDisabled: isRefining || shot.id.startsWith("shot_") }] : []),
+                    { id: "delete", label: t("deleteShot"), onAction: onDelete, isDisabled: structurePending || isRefining },
                 ]} />
                 <SelectField label={t("countLabel")} value={String(generateCount)} onChange={key => onSetGenerateCount?.(Number(key))} options={[1, 2, 4, 6].map(n => ({ id: String(n), label: String(n) }))} />
             </div>
-            <Button className={styles.generate} onPress={() => onGenerateBatch?.(generateCount)} isDisabled={!canGenerate} isPending={inFlightCount > 0}>
+            <Button className={styles.generate} onPress={() => onGenerateBatch?.(generateCount)} isDisabled={!canGenerate || isRefining} isPending={inFlightCount > 0}>
                 {inFlightCount > 0 ? t("genClusterInFlight", { count: inFlightCount }) : t("generateBatch", { count: generateCount })}
             </Button>
             <p className={styles.summary}>{!canGenerate ? (shot.tabMode === "t2i_i2v" ? t("needFirstFrameTooltip") : t("needPromptInputTooltip")) : genSummary}</p>

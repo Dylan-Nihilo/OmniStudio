@@ -12,6 +12,7 @@ const STORAGE_KEY = 'omni-studio.shot-drafts.v1';
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const requests = new Map<string, Promise<void>>();
 const creations = new Map<string, Promise<string>>();
+const refinements = new Map<string, Promise<boolean>>();
 const authScope = () => {
     const { user, activeWorkspace } = useAuthStore.getState();
     return JSON.stringify([user?.id ?? null, activeWorkspace?.id ?? null]);
@@ -38,7 +39,9 @@ export const useShotDraftStore = create<{
     saving: Record<string, boolean>;
     storageUnavailable: boolean;
     materializedIds: Record<string, string>;
-}>(() => ({ drafts: readDrafts(), errors: {}, saving: {}, storageUnavailable: false, materializedIds: {} }));
+    refining: Record<string, boolean>;
+    refinedVersions: Record<string, number>;
+}>(() => ({ drafts: readDrafts(), errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} }));
 
 useShotDraftStore.subscribe((state, previous) => {
     if (state.drafts === previous.drafts) return;
@@ -91,6 +94,7 @@ function acknowledge(key: string, channel: 'fields' | 'workbench', sent: Fields 
 async function saveShot(key: string): Promise<void> {
     clearTimeout(timers.get(key));
     timers.delete(key);
+    if (useShotDraftStore.getState().refining[key]) return;
     const running = requests.get(key);
     if (running) return running;
     const request = (async () => {
@@ -224,6 +228,52 @@ export function useShotDrafts(projectId: string | undefined) {
     const resolveId = useCallback((shotId: string) => projectId
         ? state.materializedIds[draftKey(scope, projectId, shotId)] ?? shotId : shotId,
     [scope, projectId, state.materializedIds]);
+    const refine = useCallback(async (shotId: string): Promise<boolean> => {
+        if (!projectId || scope !== authScope() || shotId.startsWith('shot_')) return false;
+        const key = draftKey(scope, projectId, shotId);
+        const running = refinements.get(key);
+        if (running) return running;
+        const request = (async () => {
+            await saveShot(key);
+            if (useShotDraftStore.getState().drafts[key] || scope !== authScope()) return false;
+            useShotDraftStore.setState(state => ({ refining: { ...state.refining, [key]: true } }));
+            try {
+                const frame = await api.refineSingleFrame(projectId, shotId);
+                if (scope !== authScope()) return false;
+                if (frame?.id !== shotId) throw new Error('Refinement returned no matching frame');
+                // A coarse prompt becomes a visual prompt after the first refinement.
+                useShotDraftStore.setState(state => {
+                    const draft = state.drafts[key];
+                    if (frame.visual_description == null || draft?.fields.action_description === undefined) return state;
+                    const { action_description, ...fields } = draft.fields;
+                    return { drafts: { ...state.drafts, [key]: { ...draft, fields: {
+                        visual_description: action_description, ...fields,
+                    } } } };
+                });
+                const projectState = useProjectStore.getState();
+                if (projectState.currentProject?.id === projectId) {
+                    projectState.updateProject(projectId, {
+                        frames: projectState.currentProject.frames.map(existing => existing.id === shotId ? frame : existing),
+                    });
+                }
+                useShotDraftStore.setState(state => ({ refinedVersions: {
+                    ...state.refinedVersions, [key]: (state.refinedVersions[key] ?? 0) + 1,
+                } }));
+                return true;
+            } finally {
+                useShotDraftStore.setState(state => ({ refining: { ...state.refining, [key]: false } }));
+                // Edits made during refinement are newer than the generated result.
+                await saveShot(key);
+            }
+        })();
+        refinements.set(key, request);
+        try { return await request; }
+        finally { refinements.delete(key); }
+    }, [scope, projectId]);
+    const isRefining = (shotId: string) => !!projectId && !!state.refining[draftKey(scope, projectId, shotId)];
+    const refinedVersion = useCallback((shotId: string) => projectId
+        ? state.refinedVersions[draftKey(scope, projectId, shotId)] ?? 0 : 0,
+    [scope, projectId, state.refinedVersions]);
     const countFor = useCallback((shotId: string) => projectId
         ? useShotDraftStore.getState().drafts[draftKey(scope, projectId, shotId)]?.workbench.workbench_generate_count
         : undefined, [scope, projectId]);
@@ -263,5 +313,5 @@ export function useShotDrafts(projectId: string | undefined) {
     const localShots = () => keys.map(key => state.drafts[key]).filter(draft => draft.shotId.startsWith('shot_'))
         .map(draft => restore({ id: draft.shotId, prompt: '', tabMode: 'direct_r2v' }));
     const materializing = keys.some(key => state.drafts[key].shotId.startsWith('shot_') && state.saving[key]);
-    return { queue, flush, discard, materialize, resolveId, materializing, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
+    return { queue, flush, discard, materialize, resolveId, materializing, refine, isRefining, refinedVersion, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
 }

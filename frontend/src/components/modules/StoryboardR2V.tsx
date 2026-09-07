@@ -54,7 +54,7 @@ function StoryboardWorkbench() {
     const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
 
     const draftSave = useShotDrafts(currentProject?.id);
-    const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, materialize, resolveId, restore: restoreDraft } = draftSave;
+    const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, materialize, resolveId, refine, refinedVersion, restore: restoreDraft } = draftSave;
 
     // Derive shots from project frames. Workbench state (T2I 抽卡
     // history, last-active tab, batch count) now comes from backend-
@@ -430,23 +430,29 @@ function StoryboardWorkbench() {
         }
     }, [currentProject, updateProject, t]);
 
+    const displayedRefinements = useRef<Record<string, number>>({});
+    useEffect(() => {
+        const project = useProjectStore.getState().currentProject;
+        if (!project) return;
+        const next = shotsRef.current.map(shot => {
+            const version = refinedVersion(shot.id);
+            if (!version || displayedRefinements.current[shot.id] === version) return shot;
+            const frame = project.frames.find(frame => frame.id === shot.id);
+            if (!frame) return shot;
+            displayedRefinements.current[shot.id] = version;
+            return restoreDraft({ ...shot, ...frameToShotNode(frame, project.video_tasks ?? [], shot.tabMode) });
+        });
+        setShots(next);
+    }, [refinedVersion, restoreDraft]);
+
     const handleRefineFrame = useCallback(async (frameId: string) => {
-        if (!currentProject?.id) return;
         try {
-            await api.refineSingleFrame(currentProject.id, frameId);
-            const updated = await api.getProject(currentProject.id);
-            if (updated?.frames) {
-                updateProject(currentProject.id, { frames: updated.frames });
-                const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-                const videoTasks: any[] = (updated as any).video_tasks ?? [];
-                setShots(updated.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
-            }
-            toast.success(t("refineDoneToast"));
+            if (await refine(frameId)) toast.success(t("refineDoneToast"));
         } catch (err) {
             toast.error(t("refineFailedToast"));
             debugLog.warn("Studio", "single frame refine failed", err);
         }
-    }, [currentProject, updateProject]);
+    }, [refine, t]);
 
     // Keep the current order visible until the backend confirms the mutation.
     const deleteShot = useCallback(async (index: number) => {
@@ -1559,7 +1565,7 @@ function StoryboardWorkbench() {
                         <span role="status" aria-label={t("saveStatus")} aria-live="polite" data-error={draftSave.hasError || undefined}>
                             {structurePending || draftSave.saving ? t("saving") : draftSave.hasError ? t("saveFailedRetained") : draftSave.pending ? t("unsaved") : t("saved")}
                         </span>
-                        {draftSave.pending && <Button variant="quiet" isDisabled={draftSave.saving} onPress={() => { void saveAllDrafts(); }}>{t(draftSave.hasError ? "retrySave" : "saveNow")}</Button>}
+                        {draftSave.pending && <Button variant="quiet" isDisabled={draftSave.saving || !!(selectedShot && draftSave.isRefining(selectedShot.id))} onPress={() => { void saveAllDrafts(); }}>{t(draftSave.hasError ? "retrySave" : "saveNow")}</Button>}
                         {draftSave.pending && draftSave.storageUnavailable && <span role="alert">{t("draftStorageUnavailable")}</span>}
                     </div>
                     <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
@@ -1649,6 +1655,7 @@ function StoryboardWorkbench() {
                             onGenerateBatch={(n) => generateVideoBatch(index, n, paramsState)}
                             inFlightCount={shotInFlight}
                             onRefineFrame={() => handleRefineFrame(shot.id)}
+                            isRefining={draftSave.isRefining(shot.id)}
                             onUnpinVideo={() => handleUnpinVideo(shot.id)}
                             onUpdateDialogue={async (text: string) => {
                                 if (!currentProject) return;
