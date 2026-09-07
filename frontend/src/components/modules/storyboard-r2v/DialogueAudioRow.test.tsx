@@ -12,6 +12,21 @@ const props = { scriptId: 'dialogue-project', frameId: 'dialogue-frame', dialogu
 describe('Dialogue audio workbench', () => {
     beforeEach(() => { generate.mockReset(); });
 
+    it.each([false, true])('accepts null project audio fields (empty dialogue: %s)', async empty => {
+        generate.mockResolvedValueOnce({ frames: [{ id: 'default-delivery-false', audio_url: 'new.mp3' }] });
+        render(<DialogueAudioRow {...props} frameId={`default-delivery-${empty}`} dialogue={empty ? null : props.dialogue} audioUrl={empty ? undefined : props.audioUrl} snapshotInstructions={null} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen/ }));
+        expect(screen.getByRole('textbox', { name: 'deliveryInstructions' })).toHaveValue('');
+        expect(screen.queryByText('staleHint')).not.toBeInTheDocument();
+        if (empty) {
+            expect(screen.getByPlaceholderText('dialoguePlaceholder')).toHaveValue('');
+            expect(screen.getByRole('button', { name: 'generate' })).toBeDisabled();
+        } else {
+            fireEvent.click(screen.getByRole('button', { name: 'regenerate' }));
+            await waitFor(() => expect(generate).toHaveBeenCalledWith('dialogue-project', 'default-delivery-false', 1, 1, 50, ''));
+        }
+    });
+
     it('saves the displayed dialogue before generating and retains the form when saving fails', async () => {
         let finishSave!: () => void;
         const save = vi.fn().mockReturnValueOnce(new Promise<void>(resolve => { finishSave = resolve; }));

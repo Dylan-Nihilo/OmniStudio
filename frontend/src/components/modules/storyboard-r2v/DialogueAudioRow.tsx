@@ -13,7 +13,7 @@ import { useAuthStore } from "@/store/authStore";
 interface DialogueAudioRowProps {
     scriptId: string;
     frameId: string;
-    dialogue?: string;
+    dialogue?: string | null;
     draftDialogue?: string;
     voiceId?: string;
     audioUrl?: string;
@@ -25,7 +25,7 @@ interface DialogueAudioRowProps {
     onRefresh?: () => void;
     snapshotDialogue?: string;
     snapshotVoiceId?: string;
-    snapshotInstructions?: string;
+    snapshotInstructions?: string | null;
     onAudioUpdated?: (result: any) => void | Promise<void>;
     onUpdateDialogue?: (text: string) => void | Promise<void>;
     onDraftChange?: (text: string) => void;
@@ -51,11 +51,13 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
     return <DialogueWorkbench key={scope} {...props} scope={scope} />;
 }
 
-function DialogueWorkbench({ scriptId, frameId, dialogue = "", draftDialogue, voiceId, audioUrl, audioError, generationStatus, generationId, refreshFailed, refreshing, onRefresh,
-    snapshotDialogue, snapshotVoiceId, snapshotInstructions = "", onAudioUpdated, onUpdateDialogue, onDraftChange,
+function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDialogue, voiceId, audioUrl, audioError, generationStatus, generationId, refreshFailed, refreshing, onRefresh,
+    snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, dubbedVideoUrl, dubOffsetMs = 0, onPreviewDub, onApplyDub, onRevertDub, scope,
 }: DialogueAudioRowProps & { scope: string }) {
     const t = useTranslations("dialogueAudio");
+    const dialogue = savedDialogue ?? "";
+    const snapshotInstructions = savedInstructions ?? "";
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState(draftDialogue ?? dialogue);
     const previousDialogue = useRef(dialogue);
