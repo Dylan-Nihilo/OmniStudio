@@ -111,6 +111,7 @@ async function saveShot(key: string): Promise<void> {
         try {
             let draft: Draft | undefined;
             while ((draft = useShotDraftStore.getState().drafts[key])) {
+                if (useShotDraftStore.getState().refining[key] || useShotDraftStore.getState().batchRefining[key]) break;
                 // A queued request must never borrow another workspace's credentials/header.
                 if (draft.scope !== authScope() || draft.shotId.startsWith('shot_')) break;
                 for (const channel of ['fields', 'workbench'] as const) {
@@ -150,6 +151,8 @@ export function useShotDrafts(projectId: string | undefined) {
         return draft.scope === scope && draft.projectId === projectId;
     });
     const hasError = keys.some(key => state.errors[key]);
+    const hasPendingDrafts = useCallback(() => Object.values(useShotDraftStore.getState().drafts)
+        .some(draft => draft.scope === scope && draft.projectId === projectId), [scope, projectId]);
     const saving = keys.some(key => state.saving[key]);
     const queue = useCallback((shotId: string, channel: 'fields' | 'workbench', patch: Fields | Workbench, delay: number) => {
         if (!projectId) return;
@@ -344,5 +347,5 @@ export function useShotDrafts(projectId: string | undefined) {
     const localShots = () => keys.map(key => state.drafts[key]).filter(draft => draft.shotId.startsWith('shot_'))
         .map(draft => restore({ id: draft.shotId, prompt: '', tabMode: 'direct_r2v' }));
     const materializing = keys.some(key => state.drafts[key].shotId.startsWith('shot_') && state.saving[key]);
-    return { queue, flush, discard, materialize, resolveId, materializing, refine, acceptRefinement, holdRefinements, isRefining, refinedVersion, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
+    return { queue, flush, discard, materialize, resolveId, materializing, refine, acceptRefinement, holdRefinements, hasPendingDrafts, isRefining, refinedVersion, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
 }

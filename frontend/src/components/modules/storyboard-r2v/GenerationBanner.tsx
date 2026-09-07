@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Mic } from "lucide-react";
+import { Mic, Sparkles } from "lucide-react";
 import { Button, LoadingState } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
-import type { DialogueAudioBatch } from "@/lib/api";
+import type { DialogueAudioBatch, StoryboardGeneration } from "@/lib/api";
 
 export type BannerState = "idle" | "phase1" | "phase2" | "dialogue" | "summary";
 export interface GenerationBannerProps {
@@ -19,17 +19,35 @@ export interface GenerationBannerProps {
     refreshFailed?: boolean;
     refreshing?: boolean;
     onRefresh?: () => void;
+    storyboard?: StoryboardGeneration | null;
+    storyboardError?: string;
+    storyboardRecovering?: boolean;
+    refinementCount?: number;
+    onRefine?: () => void;
 }
-export function GenerationBanner({ state, phase1Captions, refineProgress, dialogueProgress, summary, onGenerateDialogue, batch, batchError, refreshFailed, refreshing, onRefresh }: GenerationBannerProps) {
+export function GenerationBanner({ state, phase1Captions, refineProgress, dialogueProgress, summary, onGenerateDialogue, batch, batchError, refreshFailed, refreshing, onRefresh, storyboard, storyboardError, storyboardRecovering, refinementCount = 0, onRefine }: GenerationBannerProps) {
     const t = useTranslations("storyboardR2V");
     const tAudio = useTranslations("dialogueAudio");
-    const [captionIndex, setCaptionIndex] = useState(0);
-    useEffect(() => {
-        setCaptionIndex(0);
-        if (state !== "phase1" || phase1Captions.length < 2) return;
-        const timer = setInterval(() => setCaptionIndex(index => (index + 1) % phase1Captions.length), 3000);
-        return () => clearInterval(timer);
-    }, [state, phase1Captions.length]);
+    if (state === "phase1" || state === "phase2" || storyboardError || refinementCount > 0 || storyboard?.status === "failed") {
+        const pending = state === "phase1" || state === "phase2";
+        const retry = storyboard?.phase === "refine";
+        const error = storyboardError || (!pending && storyboard?.status === "failed" ? storyboard.error || t("storyboardInterrupted") : undefined);
+        const label = storyboardRecovering ? t("storyboardChecking") : state === "phase1"
+            ? phase1Captions[0] || t("genInFlight")
+            : t("bannerRefineProgress", { current: refineProgress?.current ?? 0, total: refineProgress?.total ?? 0 });
+        return <BannerShell>
+            <div className="min-w-0 basis-full space-y-1 text-xs text-text-secondary sm:flex-1 sm:basis-0">
+                {pending ? <LoadingState inline className="justify-start" label={label} />
+                    : refinementCount > 0 && <p role="status">{t(retry ? "storyboardRefinementRemaining" : "storyboardReadyToRefine", { count: refinementCount })}</p>}
+                {error && <p role="alert" className="break-words text-status-failed-fg">{error}</p>}
+                {refreshFailed && <p role="alert">{t("storyboardRefreshFailed")}</p>}
+            </div>
+            {(refreshFailed || storyboardError) && onRefresh && <Button variant="quiet" isPending={refreshing} onPress={onRefresh}>{tAudio("refreshStatus")}</Button>}
+            {(refinementCount > 0 || state === "phase2") && onRefine && <Button variant="quiet" isPending={pending} isDisabled={state === "dialogue"} onPress={onRefine}>
+                {!pending && <Sparkles size={14} aria-hidden="true" />}{t(pending ? "refiningPrompt" : retry ? "storyboardRetryRefinement" : "storyboardContinueRefinement")}
+            </Button>}
+        </BannerShell>;
+    }
     if (state === "idle" && !batch && !batchError) return null;
     if (state === "summary" || state === "dialogue" || state === "idle") {
         const pending = state === "dialogue";
@@ -61,10 +79,7 @@ export function GenerationBanner({ state, phase1Captions, refineProgress, dialog
             </Button>}
         </BannerShell>;
     }
-    const progress = state === "phase2" ? refineProgress : dialogueProgress;
-    const label = state === "phase1" ? phase1Captions[captionIndex] || t("genInFlight")
-        : t(state === "phase2" ? "bannerRefineProgress" : "bannerDialogueProgress", { current: progress?.current ?? 0, total: progress?.total ?? 0 });
-    return <BannerShell key={state}><LoadingState inline label={label} /></BannerShell>;
+    return null;
 }
 function BannerShell({ children }: { children: ReactNode }) {
     const reducedMotion = useReducedMotion();

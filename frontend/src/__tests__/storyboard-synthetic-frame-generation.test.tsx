@@ -3,14 +3,14 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import StoryboardR2V from "@/components/modules/StoryboardR2V";
+import StoryboardR2V, { useStoryboardRequests } from "@/components/modules/StoryboardR2V";
 import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDrafts";
 import { useDialogueAudioRequests } from "@/components/modules/storyboard-r2v/DialogueAudioRow";
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
 
-const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, refineBatchFrames, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     retryVideoTask: vi.fn(),
@@ -19,6 +19,7 @@ const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFram
     getProject: vi.fn(),
     generateDialogueAudioBatch: vi.fn(),
     analyzeToStoryboard: vi.fn(),
+    refineBatchFrames: vi.fn(),
     getTaskStatus: vi.fn(),
     toastError: vi.fn(),
     deleteFrame: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/api", () => ({
         getProject,
         generateDialogueAudioBatch,
         analyzeToStoryboard,
+        refineBatchFrames,
         getTaskStatus,
         updateFrameWorkbench,
         updateFrame,
@@ -159,6 +161,141 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("continues once when status polling observes analysis before its POST response", async () => {
+        vi.useFakeTimers();
+        const project = { ...useProjectStore.getState().currentProject!, originalText: "A radio operator listens for a signal in the dark.".repeat(2), frames: [{ id: "old", action_description: "Original" }] };
+        const analyzed = { ...project, frames: [{ id: "new", action_description: "Generated shot" }], storyboard_generation: { id: "analysis-race", phase: "analyze", status: "completed", frame_ids: ["new"], results: {} } };
+        useProjectStore.setState({ currentProject: project });
+        let finish!: () => void;
+        analyzeToStoryboard.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(analyzed); }));
+        getProject.mockResolvedValue(analyzed);
+        refineBatchFrames.mockRejectedValueOnce({ response: { status: 400, data: { detail: "Refinement unavailable" } } });
+        const view = render(<StoryboardR2V />);
+        try {
+            fireEvent.click(screen.getByRole("button", { name: "genShots" }));
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "confirm storyboard" })); await vi.advanceTimersByTimeAsync(10000); });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Generated shot");
+            expect(screen.getByRole("button", { name: "genInFlight" })).toHaveAttribute("aria-disabled", "true");
+            expect(screen.queryByText("storyboardChangedDuringAnalysis")).not.toBeInTheDocument();
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Edit the generated shot" } });
+            await act(async () => { finish(); });
+            expect(refineBatchFrames).toHaveBeenCalledWith(project.id, expect.any(Function), ["new"]);
+            expect(screen.queryByText("storyboardChangedDuringAnalysis")).not.toBeInTheDocument();
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Edit the generated shot");
+            expect(updateFrame).toHaveBeenLastCalledWith(project.id, "new", { action_description: "Edit the generated shot" });
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("continues confirmed analysis through refinement and preserves edits made during the stream", async () => {
+        vi.useFakeTimers();
+        const project = { ...useProjectStore.getState().currentProject!, originalText: "A radio operator listens for a signal in the dark.".repeat(2), frames: [{ id: "old", action_description: "Original" }] };
+        const frame = { id: "generated", action_description: "Generated coarse shot", audio_url: "keep.wav" };
+        const analyzed = { ...project, frames: [frame], storyboard_generation: { id: "analysis", phase: "analyze", status: "completed", frame_ids: [frame.id], results: {} } };
+        useProjectStore.setState({ currentProject: project });
+        analyzeToStoryboard.mockResolvedValueOnce(analyzed);
+        let finish!: () => void;
+        refineBatchFrames.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ total: 1, success: 1, failed: 0 }); }));
+        getProject.mockResolvedValueOnce({ ...analyzed, frames: [{ ...frame, visual_description: "AI result", audio_url: "stale.wav" }], storyboard_generation: { id: "refinement", phase: "refine", status: "completed", frame_ids: [frame.id], results: { [frame.id]: "completed" } } });
+        const view = render(<StoryboardR2V />);
+        try {
+            fireEvent.click(screen.getByRole("button", { name: "genShots" }));
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "confirm storyboard" })); });
+            expect(refineBatchFrames).toHaveBeenCalledWith(project.id, expect.any(Function), [frame.id]);
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Generated coarse shot");
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "New writing" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            expect(updateFrame).not.toHaveBeenCalled();
+            await act(async () => { finish(); });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New writing");
+            expect(updateFrame).toHaveBeenLastCalledWith(project.id, frame.id, { visual_description: "New writing" });
+            expect(useProjectStore.getState().currentProject!.frames[0].audio_url).toBe("keep.wav");
+            expect(screen.getByRole("button", { name: "genShots" })).toBeEnabled();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it.each([false, true])("queries uncertain analysis before retrying and protects newer writing: %s", async edited => {
+        vi.useFakeTimers();
+        const frame = { id: "uncertain-old", action_description: "Original writing" };
+        const project = { ...useProjectStore.getState().currentProject!, originalText: "A radio operator listens for a signal in the dark.".repeat(2), frames: [frame] };
+        const job = { id: "recovered-analysis", phase: "analyze", status: "processing", frame_ids: [frame.id], results: {} };
+        useProjectStore.setState({ currentProject: project });
+        analyzeToStoryboard.mockRejectedValueOnce(new Error("timeout"));
+        getProject.mockRejectedValueOnce(new Error("offline"))
+            .mockResolvedValueOnce({ ...project, storyboard_generation: job })
+            .mockResolvedValueOnce({ ...project, storyboard_generation: { ...job, status: "completed", frame_ids: ["recovered"] }, frames: [{ id: "recovered", action_description: "Recovered result" }] });
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            fireEvent.click(screen.getByRole("button", { name: "genShots" }));
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "confirm storyboard" })); });
+            expect(screen.getByText("storyboardRefreshFailed")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "genInFlight" })).toHaveAttribute("aria-disabled", "true");
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "refreshStatus" })); });
+            first.unmount();
+            reopened = render(<StoryboardR2V />);
+            if (edited) {
+                fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "New writing" } });
+                await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+                expect(updateFrame).not.toHaveBeenCalled();
+                updateFrame.mockRejectedValueOnce(new Error("Old frame was replaced"));
+            }
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue(edited ? "New writing" : "Recovered result");
+            if (edited) expect(screen.getByText("storyboardChangedDuringAnalysis")).toBeInTheDocument();
+            else expect(screen.getByRole("button", { name: "storyboardContinueRefinement" })).toBeInTheDocument();
+            expect(analyzeToStoryboard).toHaveBeenCalledOnce();
+            expect(refineBatchFrames).not.toHaveBeenCalled();
+        } finally { first.unmount(); reopened?.unmount(); vi.useRealTimers(); }
+    });
+
+    it("reads completed analysis after reload and continues refinement without analyzing again", async () => {
+        vi.useFakeTimers();
+        const job = { id: "analysis-after-reload", phase: "analyze", status: "processing", frame_ids: ["old"], results: {} };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "old", action_description: "Old shot" }], storyboard_generation: job };
+        useProjectStore.setState({ currentProject: project } as never);
+        getProject.mockResolvedValueOnce({ ...project, storyboard_generation: { ...job, status: "completed", frame_ids: ["new"] }, frames: [{ id: "new", action_description: "Recovered shot" }] });
+        refineBatchFrames.mockRejectedValueOnce({ response: { status: 400, data: { detail: "Not available" } } });
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Recovered shot");
+            expect(refineBatchFrames).not.toHaveBeenCalled();
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "storyboardContinueRefinement" })); });
+            expect(refineBatchFrames).toHaveBeenCalledWith(project.id, expect.any(Function), ["new"]);
+            expect(analyzeToStoryboard).not.toHaveBeenCalled();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("retries only unfinished refinement shots without regenerating the storyboard", async () => {
+        vi.useFakeTimers();
+        const frames = [
+            { id: "refined", action_description: "Done", visual_description: "Keep this result" },
+            { id: "failed", action_description: "Needs refinement" },
+            { id: "unprocessed", action_description: "Not started" },
+        ];
+        const job = { id: "partial-refinement", phase: "refine", status: "failed", frame_ids: [...frames.map(frame => frame.id), "deleted"], results: { refined: "completed", failed: "failed" } };
+        const project = { ...useProjectStore.getState().currentProject!, frames, storyboard_generation: job };
+        useProjectStore.setState({ currentProject: project } as never);
+        let finish!: () => void;
+        refineBatchFrames.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ total: 2, success: 2, failed: 0 }); }));
+        getProject.mockResolvedValue({ ...project, storyboard_generation: { ...job, id: "retry-job", status: "completed", frame_ids: ["failed", "unprocessed"], results: { failed: "completed", unprocessed: "completed" } }, frames: [frames[0], { ...frames[1], visual_description: "Refined second" }, { ...frames[2], visual_description: "Refined third" }] });
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "storyboardRetryRefinement" })); });
+            expect(refineBatchFrames).toHaveBeenCalledWith(project.id, expect.any(Function), ["failed", "unprocessed"]);
+            first.unmount();
+            reopened = render(<StoryboardR2V />);
+            expect(screen.getByRole("button", { name: "genInFlight" })).toHaveAttribute("aria-disabled", "true");
+            await act(async () => { finish(); await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.queryByRole("button", { name: "storyboardRetryRefinement" })).not.toBeInTheDocument();
+            expect(useProjectStore.getState().currentProject!.frames[0].visual_description).toBe("Keep this result");
+            expect(useProjectStore.getState().currentProject!.frames[1].visual_description).toBe("Refined second");
+            expect(analyzeToStoryboard).not.toHaveBeenCalled();
+            expect(refineBatchFrames).toHaveBeenCalledOnce();
+        } finally { first.unmount(); reopened?.unmount(); vi.useRealTimers(); }
+    });
+
     it("recovers a refining batch after reentry and saves newer coarse edits as visual descriptions", async () => {
         vi.useFakeTimers();
         const frame = { id: "refine-reload", action_description: "Original", audio_url: "keep.wav" };
@@ -540,7 +677,9 @@ describe("StoryboardR2V synthetic frame generation", () => {
         getProject.mockReset();
         generateDialogueAudioBatch.mockReset();
         analyzeToStoryboard.mockReset();
+        refineBatchFrames.mockReset();
         useDialogueAudioRequests.setState({}, true);
+        useStoryboardRequests.setState({}, true);
         renderFrame.mockReset();
         useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, batchRefining: {}, refinedVersions: {} });
         updateFrame.mockResolvedValue({});

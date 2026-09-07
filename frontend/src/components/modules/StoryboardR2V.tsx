@@ -38,7 +38,7 @@ import CandidatesSection from "./storyboard-r2v/shot-panel/CandidatesSection";
 import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
 import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
-import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationBanner";
+import { GenerationBanner } from "./storyboard-r2v/GenerationBanner";
 
 // Pending retries outlive the panel so navigation cannot dispatch the same request twice.
 // Reload recovery uses the frame's persisted image state; live requests stay in this tab.
@@ -48,6 +48,12 @@ const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_g
 const dubFields = ["preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
+// Live submissions outlive the page; persisted jobs provide full-reload recovery.
+export const useStoryboardRequests = create<Partial<Record<string, {
+    id: string; phase: "analyze" | "refine"; pending?: boolean; submitted?: boolean; recovering?: boolean;
+    previousGenerationId?: string; frameIds?: string[]; progress?: { current: number; total: number }; error?: string;
+    baselineFrames?: any[];
+}>>>(() => ({}));
 
 export default function StoryboardR2V() {
     const projectId = useProjectStore(state => state.currentProject?.id);
@@ -66,6 +72,7 @@ function StoryboardWorkbench() {
 
     const firstFrameRequests = useFirstFrameRequests();
     const dialogueRequests = useDialogueAudioRequests();
+    const storyboardRequests = useStoryboardRequests();
     const firstFrameContext = useRef({
         userId: useAuthStore.getState().user?.id,
         workspaceId: useAuthStore.getState().activeWorkspace?.id,
@@ -319,29 +326,30 @@ function StoryboardWorkbench() {
         }
     }, [currentProject, t, queueDraft, materializeShot]);
 
-    // PR-3 followup · LLM storyboard generation. State + handler live at
-    // the StoryboardR2V level (not in a sub-component) because the toast
-    // lifecycle survives the dialog closing and we need the parent to
-    // setShots() when the new frames come back.
     const [genDialogOpen, setGenDialogOpen] = useState(false);
-    const [locallyGenerating, setGenerating] = useState(false);
-    const [localBannerState, setBannerState] = useState<BannerState>(
-        () => (currentProject?.frames?.length ?? 0) > 0 ? "summary" : "idle"
-    );
-    const [localRefineProgress, setRefineProgress] = useState<{ current: number; total: number } | null>(null);
+    const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
+    const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
     const storyboardRunning = storyboardJob?.status === "processing" || storyboardJob?.status === "pending";
-    const generating = locallyGenerating || storyboardRunning;
-    const bannerState = storyboardRunning ? (storyboardJob.phase === "analyze" ? "phase1" : "phase2") : localBannerState;
+    const storyboardSubmitting = !!storyboardRequest?.pending || !!storyboardRequest?.recovering;
+    const generating = storyboardRunning || storyboardSubmitting;
+    const bannerState = storyboardSubmitting ? (storyboardRequest.phase === "analyze" ? "phase1" : "phase2")
+        : storyboardRunning ? (storyboardJob.phase === "analyze" ? "phase1" : "phase2") : (currentProject?.frames.length ? "summary" : "idle");
     const refineProgress = storyboardRunning && storyboardJob.phase === "refine"
-        ? { current: Object.keys(storyboardJob.results).length, total: storyboardJob.frame_ids.length } : localRefineProgress;
-    const { acceptRefinement, holdRefinements } = draftSave;
+        ? { current: Object.keys(storyboardJob.results).length, total: storyboardJob.frame_ids.length } : storyboardRequest?.progress ?? null;
+    const { acceptRefinement, holdRefinements, hasPendingDrafts } = draftSave;
+    const analysisBaseline = useRef<{ id: string; frames: any[] } | null>(null);
+    if (storyboardRunning && storyboardJob.phase === "analyze" && analysisBaseline.current?.id !== storyboardJob.id) {
+        analysisBaseline.current = { id: storyboardJob.id, frames: currentProject?.frames ?? [] };
+    }
     useEffect(() => {
-        holdRefinements(storyboardRunning && storyboardJob.phase === "refine"
-            ? storyboardJob.frame_ids.filter(id => !storyboardJob.results[id]) : []);
-    }, [storyboardJob, storyboardRunning, holdRefinements]);
+        holdRefinements(storyboardSubmitting && storyboardRequest.submitted ? storyboardRequest.frameIds ?? [] : storyboardRunning
+            ? storyboardJob.frame_ids.filter(id => storyboardJob.phase === "analyze" || !storyboardJob.results[id]) : []);
+    }, [storyboardJob, storyboardRunning, storyboardRequest, storyboardSubmitting, holdRefinements]);
     structurePendingRef.current = structurePending || draftSave.materializing || generating;
-    const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
+    const refinementIds = storyboardJob && (storyboardJob.phase === "refine" || storyboardJob.status === "completed")
+        ? storyboardJob.frame_ids.filter(id => currentProject?.frames.some(frame => frame.id === id)
+            && (storyboardJob.phase === "analyze" || !["completed", "skipped"].includes(storyboardJob.results[id]))) : [];
     const batchRequest = dialogueRequests[batchScope];
     const dialogueBatch = currentProject?.dialogue_audio_batch;
     const batchRunning = dialogueBatch?.status === "processing" || dialogueBatch?.status === "pending";
@@ -355,6 +363,22 @@ function StoryboardWorkbench() {
     }, [firstFrameKey, currentProject?.dialogue_audio_batch]);
 
     const PHASE1_CAPTIONS = useMemo(() => [t("storyboardAnalyzing")], [t]);
+
+    const adoptAnalyzedFrames = useCallback((fresh: any, before: any[] | undefined) => {
+        const current = useProjectStore.getState().currentProject;
+        if (!current || !Array.isArray(fresh.frames) || !fresh.frames.length) return null;
+        // Repeated reads and the POST can observe the same completed analysis.
+        // Keep edits to shots already adopted from that job.
+        if (current.storyboard_generation?.id === fresh.storyboard_generation?.id
+            && current.frames.length === fresh.frames.length
+            && current.frames.every((frame, index) => frame.id === fresh.frames[index].id)) return current.frames;
+        if (current.frames !== before || hasPendingDrafts()) return null;
+        const defaultMode = current.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
+        shotsRef.current = fresh.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, fresh.video_tasks ?? [], defaultMode)));
+        setShots(shotsRef.current);
+        setSelectedFrameId(fresh.frames[0].id);
+        return fresh.frames as any[];
+    }, [hasPendingDrafts, restoreDraft, setSelectedFrameId]);
 
     const bannerSummary = useMemo(() => {
         const frames = currentProject?.frames ?? [];
@@ -373,7 +397,7 @@ function StoryboardWorkbench() {
     const handleBatchDialogue = useCallback(async () => {
         const projectId = currentProject?.id;
         const existing = useDialogueAudioRequests.getState()[batchScope];
-        if (!projectId || existing?.operation || existing?.recovering || batchRunning) return;
+        if (!projectId || existing?.operation || existing?.recovering || batchRunning || generating) return;
         const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
             && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
             && useProjectStore.getState().currentProject?.id === projectId;
@@ -414,70 +438,95 @@ function StoryboardWorkbench() {
             const request = useDialogueAudioRequests.getState()[batchScope];
             if (request?.operation) useDialogueAudioRequests.setState({ [batchScope]: undefined });
         }
-    }, [currentProject?.id, currentProject?.dialogue_audio_batch?.id, batchScope, batchRunning, firstFrameContext, saveAllDrafts, batchInstructions, updateProject, t]);
+    }, [currentProject?.id, currentProject?.dialogue_audio_batch?.id, batchScope, batchRunning, firstFrameContext, saveAllDrafts, batchInstructions, updateProject, t, generating]);
 
-    const handleSmartGenerate = useCallback(async () => {
-        if (!currentProject?.id || batchPending) return;
-        const projectId = currentProject.id;
-        const scriptText = (currentProject as any).original_text ?? currentProject.originalText ?? "";
-        if (!scriptText.trim()) {
-            toast.warning(t("genToastNoScript"));
-            return;
-        }
-        setGenerating(true);
-        setBannerState("phase1");
+    const startRefinement = useCallback(async (frameIds: string[]) => {
+        const projectId = currentProject?.id;
+        const existing = useStoryboardRequests.getState()[batchScope];
+        if (!projectId || !frameIds.length || existing?.pending || existing?.recovering || batchPending || storyboardRunning) return;
         const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
             && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
             && useProjectStore.getState().currentProject?.id === projectId;
+        const request = { id: crypto.randomUUID(), phase: "refine" as const, pending: true, frameIds,
+            previousGenerationId: useProjectStore.getState().currentProject?.storyboard_generation?.id };
+        useStoryboardRequests.setState({ [batchScope]: request });
+        let submitted = false;
         try {
             if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
-            if (!isCurrent()) return;
-            // Phase 1: generate coarse frames
-            const updated = await api.analyzeToStoryboard(projectId, scriptText);
-            if (!isCurrent()) return;
-            const newFrameCount = Array.isArray(updated?.frames) ? updated.frames.length : 0;
-            updateProject(projectId, { frames: updated.frames, storyboard_generation: updated.storyboard_generation });
-            if (Array.isArray(updated?.frames)) {
-                const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-                const videoTasks: any[] = (updated as any).video_tasks ?? [];
-                setShots(updated.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
-            }
-
-            // Phase 2: batch refine (SSE)
-            if (newFrameCount > 0) {
-                setBannerState("phase2");
-                setRefineProgress({ current: 0, total: newFrameCount });
-                const outcome = await api.refineBatchFrames(projectId, (event: RefineSSEEvent) => {
-                    if (isCurrent() && (event.type === "frame_refine_complete" || event.type === "frame_refine_error")) {
-                        setRefineProgress({ current: (event.frame_index ?? 0) + 1, total: event.total ?? newFrameCount });
-                    }
-                });
-                if (!isCurrent()) return;
-                const refreshed = await api.getProject(projectId);
-                if (!isCurrent()) return;
-                if (refreshed?.frames) {
-                    updateProject(projectId, { frames: refreshed.frames, storyboard_generation: refreshed.storyboard_generation });
-                    const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-                    const videoTasks: any[] = (refreshed as any).video_tasks ?? [];
-                    setShots(refreshed.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, defaultMode))));
-                }
-                if (outcome.failed > 0) throw new Error(t("refinePartialFailure", { count: outcome.failed }));
-            }
-            setBannerState("summary");
-            toast.success(t("genToastDone", { count: newFrameCount }));
-        } catch (err: any) {
-            const detail = err?.response?.data?.detail || err?.message || t("genToastErrUnknown");
-            if (isCurrent()) toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
-        } finally {
-            setGenerating(false);
-            setRefineProgress(null);
-            // Determine final banner state based on actual current shots
-            setShots(currentShots => {
-                setBannerState(currentShots.length > 0 ? "summary" : "idle");
-                return currentShots;
-            });
+            if (!isCurrent()) { useStoryboardRequests.setState({ [batchScope]: undefined }); return; }
+            submitted = true;
+            holdRefinements(frameIds);
+            useStoryboardRequests.setState({ [batchScope]: { ...request, submitted, progress: { current: 0, total: frameIds.length } } });
+            await api.refineBatchFrames(projectId, (event: RefineSSEEvent) => {
+                const latest = useStoryboardRequests.getState()[batchScope];
+                if (latest?.id !== request.id || !["frame_refine_complete", "frame_refine_error"].includes(event.type)) return;
+                useStoryboardRequests.setState({ [batchScope]: { ...latest, progress: { current: (event.frame_index ?? 0) + 1, total: event.total ?? frameIds.length } } });
+            }, frameIds);
+            const latest = useStoryboardRequests.getState()[batchScope];
+            if (latest?.id === request.id) useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering: true } });
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const recovering = submitted && (!status || status === 409 || status >= 500);
+            if (useStoryboardRequests.getState()[batchScope]?.id === request.id) useStoryboardRequests.setState({ [batchScope]: {
+                ...request, pending: false, submitted, recovering,
+                error: typeof error?.response?.data?.detail === "string" ? error.response.data.detail : recovering ? t("storyboardUnknown") : error?.message || t("refineFailedToast"),
+            } });
         }
-    }, [currentProject, updateProject, t, batchPending, firstFrameContext, saveAllDrafts]);
+    }, [currentProject?.id, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, t]);
+
+    const handleSmartGenerate = useCallback(async () => {
+        const existing = useStoryboardRequests.getState()[batchScope];
+        if (!currentProject?.id || batchPending || storyboardRunning || existing?.pending || existing?.recovering) return;
+        const projectId = currentProject.id;
+        const scriptText = (currentProject as any).original_text ?? currentProject.originalText ?? "";
+        if (!scriptText.trim()) { toast.warning(t("genToastNoScript")); return; }
+        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        const request = { id: crypto.randomUUID(), phase: "analyze" as const, pending: true,
+            previousGenerationId: currentProject.storyboard_generation?.id };
+        useStoryboardRequests.setState({ [batchScope]: request });
+        let submitted = false;
+        try {
+            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrent()) { useStoryboardRequests.setState({ [batchScope]: undefined }); return; }
+            const baselineFrames = useProjectStore.getState().currentProject!.frames;
+            const frameIds = baselineFrames.map(frame => frame.id);
+            submitted = true;
+            holdRefinements(frameIds);
+            useStoryboardRequests.setState({ [batchScope]: { ...request, submitted, frameIds, baselineFrames } });
+            const updated = await api.analyzeToStoryboard(projectId, scriptText);
+            const latest = useStoryboardRequests.getState()[batchScope];
+            if (latest?.id !== request.id) return;
+            if (updated?.storyboard_generation?.status !== "completed" || !updated.frames?.length) throw new Error(t("storyboardUnknown"));
+            const observedProject = useProjectStore.getState().currentProject;
+            const observedId = observedProject?.storyboard_generation?.id;
+            if (!isCurrent() || !taskContext.current.active
+                || observedId && observedId !== request.previousGenerationId && observedId !== updated.storyboard_generation.id) {
+                useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering: true } });
+                return;
+            }
+            const adopted = adoptAnalyzedFrames(updated, baselineFrames);
+            if (!adopted) {
+                updateProject(projectId, { storyboard_generation: updated.storyboard_generation });
+                useStoryboardRequests.setState({ [batchScope]: { ...request, pending: false, error: t("storyboardChangedDuringAnalysis") } });
+                return;
+            }
+            updateProject(projectId, { frames: adopted, storyboard_generation: updated.storyboard_generation });
+            useStoryboardRequests.setState({ [batchScope]: undefined });
+            holdRefinements([]);
+            // Continue the confirmed generation through the same path as a failed-item retry.
+            await startRefinement(updated.frames.map((frame: { id: string }) => frame.id));
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const recovering = submitted && (!status || status === 409 || status >= 500);
+            const latest = useStoryboardRequests.getState()[batchScope];
+            if (latest?.id !== request.id) return;
+            const detail = typeof error?.response?.data?.detail === "string" ? error.response.data.detail : recovering ? t("storyboardUnknown") : error?.message || t("genToastErrUnknown");
+            useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering, error: detail } });
+            if (isCurrent()) toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
+        }
+    }, [currentProject, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, adoptAnalyzedFrames, updateProject, startRefinement, t]);
 
     const displayedRefinements = useRef<Record<string, number>>({});
     useEffect(() => {
@@ -1187,6 +1236,9 @@ function StoryboardWorkbench() {
     const [taskRefreshNeeded, setTaskRefreshNeeded] = useState(false);
     const taskRefreshRequest = useRef<Promise<void> | null>(null);
     const missingFirstFrameMessage = t("t2iFrameMissing");
+    const storyboardUnknownMessage = t("storyboardUnknown");
+    const storyboardChangedMessage = t("storyboardChangedDuringAnalysis");
+    const refinementDoneMessage = t("refineDoneToast");
     const taskContext = useRef({
         active: false,
         userId: useAuthStore.getState().user?.id,
@@ -1212,6 +1264,7 @@ function StoryboardWorkbench() {
         const imagesAtStart = useFirstFrameRequests.getState();
         const audioAtStart = useDialogueAudioRequests.getState();
         const storyboardAtStart = projectAtStart?.storyboard_generation;
+        const storyboardRequestAtStart = useStoryboardRequests.getState()[batchScope];
         setRefreshingTasks(true);
         const request = (async () => {
             try {
@@ -1230,8 +1283,15 @@ function StoryboardWorkbench() {
                 const watchBatch = batchObserved?.status === "processing" || batchObserved?.status === "pending" || !!batchAtStart?.operation || !!batchAtStart?.recovering;
                 const batchReadSafe = batchAtStart === useDialogueAudioRequests.getState()[batchScope] && batchObserved === current.dialogue_audio_batch;
                 if (watchBatch && !batchReadSafe) selectionReadNeeded = true;
-                const watchStoryboard = storyboardAtStart?.status === "processing" || storyboardAtStart?.status === "pending";
-                const storyboardReadSafe = current.storyboard_generation === storyboardAtStart;
+                const watchStoryboard = storyboardAtStart?.status === "processing" || storyboardAtStart?.status === "pending"
+                    || storyboardRequestAtStart?.submitted && (storyboardRequestAtStart.pending || storyboardRequestAtStart.recovering || !!storyboardRequestAtStart.error);
+                const storyboardReadSafe = current.storyboard_generation === storyboardAtStart
+                    && storyboardRequestAtStart?.id === useStoryboardRequests.getState()[batchScope]?.id;
+                const storyboardObserved = !storyboardRequestAtStart?.submitted
+                    || !!fresh.storyboard_generation?.id && fresh.storyboard_generation.id !== storyboardRequestAtStart.previousGenerationId;
+                const completedAnalysis = watchStoryboard && storyboardReadSafe && storyboardObserved
+                    && fresh.storyboard_generation?.phase === "analyze" && fresh.storyboard_generation.status === "completed";
+                const acceptedAnalysis = completedAnalysis && adoptAnalyzedFrames(fresh, storyboardRequestAtStart?.baselineFrames ?? analysisBaseline.current?.frames ?? projectAtStart?.frames);
                 if (watchStoryboard && !storyboardReadSafe) selectionReadNeeded = true;
                 const refinedFrames: any[] = [];
                 const frames = current.frames.map(frame => {
@@ -1239,7 +1299,7 @@ function StoryboardWorkbench() {
                     const before = projectAtStart?.frames.find(before => before.id === frame.id);
                     const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
                     let next = frame;
-                    if (watchStoryboard && storyboardReadSafe && fresh.storyboard_generation?.phase === "refine"
+                    if (watchStoryboard && storyboardReadSafe && storyboardObserved && fresh.storyboard_generation?.phase === "refine"
                         && fresh.storyboard_generation.results[frame.id] === "completed" && saved) {
                         next = mergeRefinementFields(next, saved, before);
                         refinedFrames.push(next);
@@ -1314,11 +1374,23 @@ function StoryboardWorkbench() {
                     useDialogueAudioRequests.setState({ [batchScope]: observed ? undefined : { ...batchAtStart, recovering: false } });
                 }
                 updateProject(projectId, {
-                    ...(watchStoryboard && storyboardReadSafe ? { storyboard_generation: fresh.storyboard_generation ?? null } : {}),
+                    ...(watchStoryboard && storyboardReadSafe && storyboardObserved ? { storyboard_generation: fresh.storyboard_generation ?? null } : {}),
                     ...(watchBatch && batchReadSafe ? { dialogue_audio_batch: fresh.dialogue_audio_batch ?? null } : {}),
-                    video_tasks: fresh.video_tasks ?? [], frames: frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames,
+                    video_tasks: fresh.video_tasks ?? [], frames: acceptedAnalysis && acceptedAnalysis !== current.frames ? acceptedAnalysis : frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames,
                 });
                 refinedFrames.forEach(acceptRefinement);
+                const refinedJob = fresh.storyboard_generation;
+                if (watchStoryboard && storyboardReadSafe && storyboardObserved && refinedJob?.phase === "refine" && refinedJob.status === "completed"
+                    && (storyboardAtStart?.id !== refinedJob.id || storyboardAtStart?.status !== "completed")
+                    && refinedJob.frame_ids.length > 0 && refinedJob.frame_ids.every((id: string) => ["completed", "skipped"].includes(refinedJob.results[id]))) {
+                    toast.success(refinementDoneMessage);
+                }
+                if (watchStoryboard && storyboardReadSafe && storyboardRequestAtStart && !storyboardRequestAtStart.pending) {
+                    useStoryboardRequests.setState({ [batchScope]: storyboardObserved ? undefined : { ...storyboardRequestAtStart, recovering: false, error: storyboardRequestAtStart.error || storyboardUnknownMessage } });
+                }
+                if (completedAnalysis && !acceptedAnalysis) useStoryboardRequests.setState({ [batchScope]: {
+                    id: storyboardRequestAtStart?.id ?? crypto.randomUUID(), phase: "analyze", error: storyboardChangedMessage,
+                } });
                 setTaskRefreshNeeded(selectionReadNeeded);
                 setTaskRefreshError(false);
             } catch {
@@ -1330,7 +1402,11 @@ function StoryboardWorkbench() {
         })();
         taskRefreshRequest.current = request;
         return request;
-    }, [currentProject?.id, updateProject, missingFirstFrameMessage, batchScope, acceptRefinement]);
+    }, [currentProject?.id, updateProject, missingFirstFrameMessage, batchScope, acceptRefinement, storyboardUnknownMessage, storyboardChangedMessage, refinementDoneMessage, adoptAnalyzedFrames]);
+
+    useEffect(() => {
+        if (storyboardRequest?.recovering) void refreshProject();
+    }, [storyboardRequest?.id, storyboardRequest?.recovering, refreshProject]);
 
     const hasPendingVideoTasks = (currentProject?.video_tasks ?? []).some(task =>
         task.status === "pending" || task.status === "processing",
@@ -1795,7 +1871,12 @@ function StoryboardWorkbench() {
                 onGenerateDialogue={handleBatchDialogue}
                 batch={dialogueBatch}
                 batchError={batchRequest?.error}
-                refreshFailed={taskRefreshError && (batchPending || !!dialogueBatch)}
+                storyboard={storyboardJob}
+                storyboardError={storyboardRequest?.error}
+                storyboardRecovering={storyboardRequest?.recovering}
+                refinementCount={refinementIds.length}
+                onRefine={() => { void startRefinement(refinementIds); }}
+                refreshFailed={taskRefreshError && (generating || !!storyboardJob || batchPending || !!dialogueBatch)}
                 refreshing={refreshingTasks}
                 onRefresh={() => { void refreshProject(); }}
             />
@@ -1899,7 +1980,7 @@ function StoryboardWorkbench() {
                                         audioUrl={frame.audio_url}
                                         audioError={frame.audio_error}
                                         generationStatus={frame.audio_generation_status}
-                                        batchPending={batchPending}
+                                        batchPending={batchPending || generating}
                                         generationId={frame.audio_generation_id}
                                         refreshFailed={taskRefreshError}
                                         refreshing={refreshingTasks}

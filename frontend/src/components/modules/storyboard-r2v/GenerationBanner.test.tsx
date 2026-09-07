@@ -35,3 +35,23 @@ it('keeps the focused batch action mounted while pending, then presents retry an
     expect(generate).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledOnce();
 });
+
+it('keeps the refinement retry focused during recovery and exposes a failed status read', () => {
+    const refine = vi.fn(), refresh = vi.fn();
+    const storyboard = { id: 'refinement', phase: 'refine' as const, status: 'failed' as const, frame_ids: ['one', 'two'], results: { one: 'completed' as const, two: 'failed' as const } };
+    const props = { storyboard, refinementCount: 1, phase1Captions: [], onRefine: refine, onRefresh: refresh };
+    const { rerender } = render(<GenerationBanner {...props} state="summary" />);
+    const retry = screen.getByRole('button', { name: 'storyboardRetryRefinement' });
+    retry.focus();
+    fireEvent.click(retry);
+    expect(refine).toHaveBeenCalledOnce();
+    rerender(<GenerationBanner {...props} state="phase2" storyboardRecovering refreshFailed />);
+    expect(retry).toHaveFocus();
+    expect(retry).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('storyboardChecking')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('storyboardRefreshFailed');
+    fireEvent.click(retry);
+    expect(refine).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'refreshStatus' }));
+    expect(refresh).toHaveBeenCalledOnce();
+});
