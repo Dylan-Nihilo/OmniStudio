@@ -8,7 +8,7 @@ import { Plus, Film, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
-import { useShotDrafts } from "./storyboard-r2v/useShotDrafts";
+import { useShotDrafts, mergeRefinementFields } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi, type VideoTask, type RefineSSEEvent } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
@@ -324,11 +324,23 @@ function StoryboardWorkbench() {
     // lifecycle survives the dialog closing and we need the parent to
     // setShots() when the new frames come back.
     const [genDialogOpen, setGenDialogOpen] = useState(false);
-    const [generating, setGenerating] = useState(false);
-    const [bannerState, setBannerState] = useState<BannerState>(
+    const [locallyGenerating, setGenerating] = useState(false);
+    const [localBannerState, setBannerState] = useState<BannerState>(
         () => (currentProject?.frames?.length ?? 0) > 0 ? "summary" : "idle"
     );
-    const [refineProgress, setRefineProgress] = useState<{ current: number; total: number } | null>(null);
+    const [localRefineProgress, setRefineProgress] = useState<{ current: number; total: number } | null>(null);
+    const storyboardJob = currentProject?.storyboard_generation;
+    const storyboardRunning = storyboardJob?.status === "processing" || storyboardJob?.status === "pending";
+    const generating = locallyGenerating || storyboardRunning;
+    const bannerState = storyboardRunning ? (storyboardJob.phase === "analyze" ? "phase1" : "phase2") : localBannerState;
+    const refineProgress = storyboardRunning && storyboardJob.phase === "refine"
+        ? { current: Object.keys(storyboardJob.results).length, total: storyboardJob.frame_ids.length } : localRefineProgress;
+    const { acceptRefinement, holdRefinements } = draftSave;
+    useEffect(() => {
+        holdRefinements(storyboardRunning && storyboardJob.phase === "refine"
+            ? storyboardJob.frame_ids.filter(id => !storyboardJob.results[id]) : []);
+    }, [storyboardJob, storyboardRunning, holdRefinements]);
+    structurePendingRef.current = structurePending || draftSave.materializing || generating;
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const batchRequest = dialogueRequests[batchScope];
     const dialogueBatch = currentProject?.dialogue_audio_batch;
@@ -1199,6 +1211,7 @@ function StoryboardWorkbench() {
         const selectionsAtStart = useVideoSelectionRequests.getState();
         const imagesAtStart = useFirstFrameRequests.getState();
         const audioAtStart = useDialogueAudioRequests.getState();
+        const storyboardAtStart = projectAtStart?.storyboard_generation;
         setRefreshingTasks(true);
         const request = (async () => {
             try {
@@ -1217,11 +1230,20 @@ function StoryboardWorkbench() {
                 const watchBatch = batchObserved?.status === "processing" || batchObserved?.status === "pending" || !!batchAtStart?.operation || !!batchAtStart?.recovering;
                 const batchReadSafe = batchAtStart === useDialogueAudioRequests.getState()[batchScope] && batchObserved === current.dialogue_audio_batch;
                 if (watchBatch && !batchReadSafe) selectionReadNeeded = true;
+                const watchStoryboard = storyboardAtStart?.status === "processing" || storyboardAtStart?.status === "pending";
+                const storyboardReadSafe = current.storyboard_generation === storyboardAtStart;
+                if (watchStoryboard && !storyboardReadSafe) selectionReadNeeded = true;
+                const refinedFrames: any[] = [];
                 const frames = current.frames.map(frame => {
                     const saved = fresh.frames?.find((saved: { id: string }) => saved.id === frame.id);
                     const before = projectAtStart?.frames.find(before => before.id === frame.id);
                     const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
                     let next = frame;
+                    if (watchStoryboard && storyboardReadSafe && fresh.storyboard_generation?.phase === "refine"
+                        && fresh.storyboard_generation.results[frame.id] === "completed" && saved) {
+                        next = mergeRefinementFields(next, saved, before);
+                        refinedFrames.push(next);
+                    }
                     for (const kind of ["audio", "dub"] as const) {
                         const fields = kind === "audio" ? audioFields : dubFields;
                         const statusField = `${kind}_generation_status` as const;
@@ -1291,7 +1313,12 @@ function StoryboardWorkbench() {
                     const observed = fresh.dialogue_audio_batch?.id && fresh.dialogue_audio_batch.id !== batchAtStart.previousGenerationId;
                     useDialogueAudioRequests.setState({ [batchScope]: observed ? undefined : { ...batchAtStart, recovering: false } });
                 }
-                updateProject(projectId, { ...(watchBatch && batchReadSafe ? { dialogue_audio_batch: fresh.dialogue_audio_batch ?? null } : {}), video_tasks: fresh.video_tasks ?? [], frames: frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames });
+                updateProject(projectId, {
+                    ...(watchStoryboard && storyboardReadSafe ? { storyboard_generation: fresh.storyboard_generation ?? null } : {}),
+                    ...(watchBatch && batchReadSafe ? { dialogue_audio_batch: fresh.dialogue_audio_batch ?? null } : {}),
+                    video_tasks: fresh.video_tasks ?? [], frames: frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames,
+                });
+                refinedFrames.forEach(acceptRefinement);
                 setTaskRefreshNeeded(selectionReadNeeded);
                 setTaskRefreshError(false);
             } catch {
@@ -1303,7 +1330,7 @@ function StoryboardWorkbench() {
         })();
         taskRefreshRequest.current = request;
         return request;
-    }, [currentProject?.id, updateProject, missingFirstFrameMessage, batchScope]);
+    }, [currentProject?.id, updateProject, missingFirstFrameMessage, batchScope, acceptRefinement]);
 
     const hasPendingVideoTasks = (currentProject?.video_tasks ?? []).some(task =>
         task.status === "pending" || task.status === "processing",
@@ -1317,11 +1344,11 @@ function StoryboardWorkbench() {
     const hasPendingDialogueMedia = batchPending || currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing")
         || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.operation === "preview" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
     useEffect(() => {
-        if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingDialogueMedia && !taskRefreshNeeded) return;
+        if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingDialogueMedia && !generating && !taskRefreshNeeded) return;
         // Editing a shot must not postpone task updates. Slow reads share one request.
         const timer = window.setInterval(() => { void refreshProject(); }, 5000);
         return () => window.clearInterval(timer);
-    }, [hasPendingVideoTasks, hasPendingImages, hasPendingDialogueMedia, taskRefreshNeeded, refreshProject]);
+    }, [hasPendingVideoTasks, hasPendingImages, hasPendingDialogueMedia, generating, taskRefreshNeeded, refreshProject]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1795,7 +1822,7 @@ function StoryboardWorkbench() {
                             durationEditorConfig={durationEditorCfg}
                             onGenerateT2I={() => submitFirstFrame(index)}
                             onGenerateVideo={() => generateVideo(index)}
-                            structurePending={structurePending || draftSave.materializing}
+                            structurePending={structurePending || draftSave.materializing || generating}
                             onDelete={() => deleteShot(index)}
                             onMoveUp={() => moveShot(index, "up")}
                             onMoveDown={() => moveShot(index, "down")}
@@ -1851,7 +1878,7 @@ function StoryboardWorkbench() {
                                         <strong>{item.visualDescription || item.prompt || tStudio("untitledShot")}</strong>
                                     </Button>)}
                                 </div>
-                                <footer><Button variant="quiet" isDisabled={structurePending || draftSave.materializing} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
+                                <footer><Button variant="quiet" isDisabled={structurePending || draftSave.materializing || generating} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
                             </section>}
                             audio={(() => {
                             const frame = currentProject?.frames?.find((f: any) => f.id === shot.id);

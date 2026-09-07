@@ -159,6 +159,34 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("recovers a refining batch after reentry and saves newer coarse edits as visual descriptions", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "refine-reload", action_description: "Original", audio_url: "keep.wav" };
+        const job = { id: "refining-batch", phase: "refine", status: "processing", frame_ids: [frame.id], results: {} };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame], storyboard_generation: job };
+        useProjectStore.setState({ currentProject: project } as never);
+        getProject.mockResolvedValueOnce({ ...project, storyboard_generation: { ...job, status: "completed", results: { [frame.id]: "completed" } }, frames: [{ ...frame, visual_description: "AI result", audio_url: "stale.wav" }] });
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            expect(screen.getByRole("button", { name: "genInFlight" })).toHaveAttribute("aria-disabled", "true");
+            expect(screen.getByText("bannerRefineProgress")).toBeInTheDocument();
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "New writing" } });
+            await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            expect(updateFrame).not.toHaveBeenCalled();
+            first.unmount();
+            reopened = render(<StoryboardR2V />);
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New writing");
+            expect(updateFrame).toHaveBeenLastCalledWith(project.id, frame.id, { visual_description: "New writing" });
+            expect(useProjectStore.getState().currentProject!.frames[0]).toMatchObject({ audio_url: "keep.wav", visual_description: "New writing" });
+            expect(screen.getByRole("button", { name: "genShots" })).toBeEnabled();
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+            expect(analyzeToStoryboard).not.toHaveBeenCalled();
+        } finally { first.unmount(); reopened?.unmount(); vi.useRealTimers(); }
+    });
+
     it("keeps existing storyboard shots when replacement generation fails", async () => {
         const frame = { id: "original-shot", action_description: "Keep the original shot" };
         useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, originalText: "A radio operator listens for a signal in the dark.".repeat(2), frames: [frame] } }));
@@ -514,7 +542,7 @@ describe("StoryboardR2V synthetic frame generation", () => {
         analyzeToStoryboard.mockReset();
         useDialogueAudioRequests.setState({}, true);
         renderFrame.mockReset();
-        useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} });
+        useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, batchRefining: {}, refinedVersions: {} });
         updateFrame.mockResolvedValue({});
         updateFrameWorkbench.mockResolvedValue({});
         createFrame.mockResolvedValue({

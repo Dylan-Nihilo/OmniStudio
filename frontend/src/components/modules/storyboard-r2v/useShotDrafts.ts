@@ -18,6 +18,13 @@ const authScope = () => {
     return JSON.stringify([user?.id ?? null, activeWorkspace?.id ?? null]);
 };
 const draftKey = (scope: string, projectId: string, shotId: string) => JSON.stringify([scope, projectId, shotId]);
+const refinementFields = ['visual_description', 'shot_size', 'camera_angle', 'duration', 'transition_hint', 'camera_movement_structured', 'blocking', 'dialogue_structured', 'dialogue', 'speaker', 'dialogue_instructions', 'audio_note', 'lighting', 'assembled_prompt', 'updated_at'] as const;
+
+export function mergeRefinementFields(current: any, saved: any, before: any) {
+    return { ...current, ...Object.fromEntries(refinementFields
+        .filter(field => field in saved && current[field] === before?.[field])
+        .map(field => [field, saved[field]])) };
+}
 
 function readDrafts(): Record<string, Draft> {
     try {
@@ -40,8 +47,9 @@ export const useShotDraftStore = create<{
     storageUnavailable: boolean;
     materializedIds: Record<string, string>;
     refining: Record<string, boolean>;
+    batchRefining: Record<string, boolean>;
     refinedVersions: Record<string, number>;
-}>(() => ({ drafts: readDrafts(), errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} }));
+}>(() => ({ drafts: readDrafts(), errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, batchRefining: {}, refinedVersions: {} }));
 
 useShotDraftStore.subscribe((state, previous) => {
     if (state.drafts === previous.drafts) return;
@@ -95,7 +103,7 @@ function acknowledge(key: string, channel: 'fields' | 'workbench', sent: Fields 
 async function saveShot(key: string): Promise<void> {
     clearTimeout(timers.get(key));
     timers.delete(key);
-    if (useShotDraftStore.getState().refining[key]) return;
+    if (useShotDraftStore.getState().refining[key] || useShotDraftStore.getState().batchRefining[key]) return;
     const running = requests.get(key);
     if (running) return running;
     const request = (async () => {
@@ -229,6 +237,36 @@ export function useShotDrafts(projectId: string | undefined) {
     const resolveId = useCallback((shotId: string) => projectId
         ? state.materializedIds[draftKey(scope, projectId, shotId)] ?? shotId : shotId,
     [scope, projectId, state.materializedIds]);
+    const acceptRefinement = useCallback((frame: any) => {
+        if (!projectId || scope !== authScope()) return;
+        const key = draftKey(scope, projectId, frame.id);
+        useShotDraftStore.setState(state => {
+            const draft = state.drafts[key];
+            // The first refinement changes which field owns the visible prompt.
+            let drafts = state.drafts;
+            if (frame.visual_description != null && draft?.fields.action_description !== undefined) {
+                const { action_description, ...fields } = draft.fields;
+                drafts = { ...drafts, [key]: { ...draft, fields: { visual_description: action_description, ...fields } } };
+            }
+            return { drafts, refinedVersions: { ...state.refinedVersions, [key]: (state.refinedVersions[key] ?? 0) + 1 } };
+        });
+    }, [scope, projectId]);
+    const holdRefinements = useCallback((frameIds: string[]) => {
+        if (!projectId || scope !== authScope()) return;
+        const held = new Set(frameIds.map(id => draftKey(scope, projectId, id)));
+        const released: string[] = [];
+        useShotDraftStore.setState(state => {
+            const next = { ...state.batchRefining };
+            for (const key of Object.keys(next)) {
+                const [savedScope, savedProject] = JSON.parse(key);
+                if (savedScope === scope && savedProject === projectId && !held.has(key)) { delete next[key]; released.push(key); }
+            }
+            const changed = released.length || [...held].some(key => !next[key]);
+            for (const key of held) next[key] = true;
+            return changed ? { batchRefining: next } : state;
+        });
+        for (const key of released) void saveShot(key);
+    }, [scope, projectId]);
     const refine = useCallback(async (shotId: string): Promise<boolean> => {
         if (!projectId || scope !== authScope() || shotId.startsWith('shot_')) return false;
         const key = draftKey(scope, projectId, shotId);
@@ -237,29 +275,20 @@ export function useShotDrafts(projectId: string | undefined) {
         const request = (async () => {
             await saveShot(key);
             if (useShotDraftStore.getState().drafts[key] || scope !== authScope()) return false;
+            if (useShotDraftStore.getState().batchRefining[key]) return false;
+            const before = useProjectStore.getState().currentProject?.frames.find(frame => frame.id === shotId);
             useShotDraftStore.setState(state => ({ refining: { ...state.refining, [key]: true } }));
             try {
                 const frame = await api.refineSingleFrame(projectId, shotId);
                 if (scope !== authScope()) return false;
                 if (frame?.id !== shotId) throw new Error('Refinement returned no matching frame');
-                // A coarse prompt becomes a visual prompt after the first refinement.
-                useShotDraftStore.setState(state => {
-                    const draft = state.drafts[key];
-                    if (frame.visual_description == null || draft?.fields.action_description === undefined) return state;
-                    const { action_description, ...fields } = draft.fields;
-                    return { drafts: { ...state.drafts, [key]: { ...draft, fields: {
-                        visual_description: action_description, ...fields,
-                    } } } };
-                });
                 const projectState = useProjectStore.getState();
                 if (projectState.currentProject?.id === projectId) {
                     projectState.updateProject(projectId, {
-                        frames: projectState.currentProject.frames.map(existing => existing.id === shotId ? frame : existing),
+                        frames: projectState.currentProject.frames.map(existing => existing.id === shotId ? mergeRefinementFields(existing, frame, before) : existing),
                     });
                 }
-                useShotDraftStore.setState(state => ({ refinedVersions: {
-                    ...state.refinedVersions, [key]: (state.refinedVersions[key] ?? 0) + 1,
-                } }));
+                acceptRefinement(frame);
                 return true;
             } finally {
                 useShotDraftStore.setState(state => ({ refining: { ...state.refining, [key]: false } }));
@@ -270,8 +299,8 @@ export function useShotDrafts(projectId: string | undefined) {
         refinements.set(key, request);
         try { return await request; }
         finally { refinements.delete(key); }
-    }, [scope, projectId]);
-    const isRefining = (shotId: string) => !!projectId && !!state.refining[draftKey(scope, projectId, shotId)];
+    }, [scope, projectId, acceptRefinement]);
+    const isRefining = (shotId: string) => !!projectId && !!(state.refining[draftKey(scope, projectId, shotId)] || state.batchRefining[draftKey(scope, projectId, shotId)]);
     const refinedVersion = useCallback((shotId: string) => projectId
         ? state.refinedVersions[draftKey(scope, projectId, shotId)] ?? 0 : 0,
     [scope, projectId, state.refinedVersions]);
@@ -315,5 +344,5 @@ export function useShotDrafts(projectId: string | undefined) {
     const localShots = () => keys.map(key => state.drafts[key]).filter(draft => draft.shotId.startsWith('shot_'))
         .map(draft => restore({ id: draft.shotId, prompt: '', tabMode: 'direct_r2v' }));
     const materializing = keys.some(key => state.drafts[key].shotId.startsWith('shot_') && state.saving[key]);
-    return { queue, flush, discard, materialize, resolveId, materializing, refine, isRefining, refinedVersion, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
+    return { queue, flush, discard, materialize, resolveId, materializing, refine, acceptRefinement, holdRefinements, isRefining, refinedVersion, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
 }
