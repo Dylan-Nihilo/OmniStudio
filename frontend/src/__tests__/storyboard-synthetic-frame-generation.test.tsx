@@ -147,6 +147,74 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("recovers a persisted first-frame render after reload without duplicate requests or lost edits", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "frame-render-reload", action_description: "Original", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], t2i_selected_index: 0, image_generation_status: "processing", image_generation_id: "render-reload" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame] };
+        useProjectStore.setState({ currentProject: project });
+        let finishRead!: (value: unknown) => void;
+        getProject.mockImplementation(() => new Promise(resolve => { finishRead = resolve; }));
+        const view = render(<StoryboardR2V />);
+        try {
+            expect(screen.getByLabelText("first frame state")).toHaveTextContent("processing");
+            fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+            for (let index = 0; index < 6; index++) {
+                fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: `New edit ${index}` } });
+                await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            }
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+            expect(renderFrame).not.toHaveBeenCalled();
+            await act(async () => finishRead({ ...project, frames: [{ ...frame, image_generation_status: "completed", rendered_image_url: "recovered.png", t2i_image_urls: ["old.png", "recovered.png"], t2i_selected_index: 1 }] }));
+            expect(screen.getByLabelText("first frame")).toHaveTextContent("recovered.png");
+            expect(screen.getByLabelText("first frame state")).toHaveTextContent("completed");
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New edit 5");
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("checks server state after an image request times out and retains the image until completion", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "frame-render-timeout", action_description: "Original", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], t2i_selected_index: 0 };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame] };
+        useProjectStore.setState({ currentProject: project });
+        renderFrame.mockRejectedValueOnce(Object.assign(new Error("timeout"), { code: "ECONNABORTED" }));
+        getProject.mockResolvedValueOnce({ ...project, frames: [{ ...frame, image_generation_status: "processing", image_generation_id: "render-timeout" }] });
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { fireEvent.click(screen.getByRole("button", { name: "generate first frame" })); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByLabelText("first frame state")).toHaveTextContent("processing");
+            expect(screen.getByLabelText("first frame")).toHaveTextContent("old.png");
+            fireEvent.click(screen.getByRole("button", { name: "generate first frame" }));
+            getProject.mockResolvedValueOnce({ ...project, frames: [{ ...frame, image_generation_status: "completed", image_generation_id: "render-timeout", rendered_image_url: "finished.png", t2i_image_urls: ["finished.png"] }] });
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByLabelText("first frame")).toHaveTextContent("finished.png");
+            expect(screen.getByLabelText("first frame state")).toHaveTextContent("completed");
+            expect(screen.getByLabelText("first frame error")).toBeEmptyDOMElement();
+            expect(renderFrame).toHaveBeenCalledOnce();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
+    it("stops waiting if a rendering frame was deleted elsewhere while preserving the local content", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "frame-render-deleted", action_description: "Keep my writing", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], image_generation_status: "processing", image_generation_id: "deleted-render" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame] };
+        useProjectStore.setState({ currentProject: project });
+        getProject.mockResolvedValueOnce({ ...project, frames: [] });
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByLabelText("first frame state")).toHaveTextContent("failed");
+            expect(screen.getByLabelText("first frame error")).toHaveTextContent("t2iFrameMissing");
+            expect(screen.getByLabelText("first frame")).toHaveTextContent("old.png");
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Keep my writing");
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+        } finally { view.unmount(); vi.useRealTimers(); }
+    });
+
     it("adopts the freshly rendered image from a full project response without overwriting new edits", async () => {
         useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!, frames: [{ id: "frame-1", action_description: "First prompt", workbench_tab_mode: "t2i_i2v", t2i_image_urls: ["old.png"], t2i_selected_index: 0 }] } }));
         let finish!: (value: unknown) => void;
@@ -232,6 +300,8 @@ describe("StoryboardR2V synthetic frame generation", () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        getProject.mockReset();
+        renderFrame.mockReset();
         useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, refinedVersions: {} });
         updateFrame.mockResolvedValue({});
         updateFrameWorkbench.mockResolvedValue({});

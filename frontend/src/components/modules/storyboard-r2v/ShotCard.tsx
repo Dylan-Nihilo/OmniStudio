@@ -48,6 +48,7 @@ export interface ShotNode {
     t2iTaskId?: string;
     t2iError?: string;
     t2iOperation?: "generate" | "upload";
+    t2iRecovering?: boolean;
     t2iStatus?: "pending" | "processing" | "completed" | "failed";
     /** Ordered list of every T2I image URL this shot has produced.
      *  Newest at the end. Active one is at t2iSelectedIndex (defaults

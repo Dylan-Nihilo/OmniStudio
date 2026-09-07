@@ -32,6 +32,10 @@ interface T2ISubsectionProps {
     uploading?: boolean;
     operation?: "generate" | "upload";
     errorMessage?: string;
+    checking?: boolean;
+    refreshFailed?: boolean;
+    refreshing?: boolean;
+    onRefresh?: () => void;
     onSelect: (index: number) => void;
     onRemove: (index: number) => void;
     onGenerate: () => void;
@@ -40,7 +44,7 @@ interface T2ISubsectionProps {
 
 export default function T2ISubsection({
     imageUrls, selectedIndex, storyboardFrameUrl, promptIsEmpty, generating, uploading: externalUploading = false, operation, errorMessage,
-    onSelect, onRemove, onGenerate, onUpload,
+    checking, refreshFailed, refreshing, onRefresh, onSelect, onRemove, onGenerate, onUpload,
 }: T2ISubsectionProps) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = useState(true);
@@ -103,7 +107,7 @@ export default function T2ISubsection({
                         isDisabled={promptIsEmpty || uploading}
                         onPress={() => { setUploadError(null); onGenerate(); }}>
                         {activeUrl ? <RefreshCw size={14} aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
-                        {generating ? t("t2iGenerating") : errorMessage && operation !== "upload" ? t("retry") : activeUrl ? t("t2iCompactReroll") : t("t2iHeroGenerateLabel")}
+                        {generating ? t(checking ? "t2iChecking" : "t2iGenerating") : errorMessage && operation !== "upload" ? t("retry") : activeUrl ? t("t2iCompactReroll") : t("t2iHeroGenerateLabel")}
                     </Button>
                     <Button variant="secondary" isPending={uploading} isDisabled={generating}
                         onPress={() => inputRef.current?.click()}>
@@ -150,7 +154,13 @@ export default function T2ISubsection({
             </SectionShell>
             <input ref={inputRef} type="file" accept={ALLOWED_UPLOAD_TYPES.join(",")} hidden
                 onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
-            {busy && <div className="px-3 pb-3"><LoadingState inline label={uploading ? t("t2iHeroUploadingLabel") : t("t2iGenerating")} /></div>}
+            {busy && <div className="space-y-2 px-3 pb-3">
+                <LoadingState inline label={uploading ? t("t2iHeroUploadingLabel") : t(checking ? "t2iChecking" : "t2iGenerating")} />
+                {refreshFailed && <>
+                    <p role="alert" className="text-sm text-status-failed-fg">{t("t2iStatusUnavailable")}</p>
+                    <Button variant="secondary" isPending={refreshing} onPress={onRefresh}>{t("t2iRefreshStatus")}</Button>
+                </>}
+            </div>}
             {error && !busy && <div className="space-y-2 px-3 pb-3">
                 <p role="alert" className="break-words text-sm text-status-failed-fg">{error}</p>
                 {uploadError && retryFile.current && <Button variant="secondary" onPress={() => { if (retryFile.current) void upload(retryFile.current); }}>{t("retry")}</Button>}

@@ -40,8 +40,9 @@ import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
 import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationBanner";
 
 // Pending retries outlive the panel so navigation cannot dispatch the same request twice.
-// ponytail: in-tab request state only; reload recovery must read persisted frame state.
-const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string }>>>(() => ({}));
+// Reload recovery uses the frame's persisted image state; live requests stay in this tab.
+const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string; recovering?: boolean; previousGenerationId?: string }>>>(() => ({}));
+const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
 
@@ -725,9 +726,10 @@ function StoryboardWorkbench() {
                 t2iImageUrls: saved.t2iImageUrls, t2iSelectedIndex: saved.t2iSelectedIndex,
                 t2iError: request?.error || frame?.image_error || undefined,
                 t2iOperation: request?.operation,
+                t2iRecovering: request?.recovering,
             };
             return { ...next, t2iImageUrl: getActiveT2IImageUrl(next),
-                t2iStatus: request?.pending ? "processing" : next.t2iError ? "failed"
+                t2iStatus: request?.pending || frame?.image_generation_status === "processing" ? "processing" : next.t2iError ? "failed"
                     : getActiveT2IImageUrl(next) || next.imageUrl ? "completed" : undefined };
         }));
     }, [currentProject?.frames, firstFrameRequests, firstFrameKey, restoreDraft]);
@@ -738,13 +740,16 @@ function StoryboardWorkbench() {
         if (!currentProject || !shot || (!file && !shot.prompt.trim())) return;
         const operation = file ? "upload" : "generate";
         let key = firstFrameKey(shot.id);
-        if (useFirstFrameRequests.getState()[key]?.pending) return;
+        if (useFirstFrameRequests.getState()[key]?.pending || currentProject.frames.find(frame => frame.id === shot.id)?.image_generation_status === "processing") return;
         const isCurrentScope = () => useAuthStore.getState().user?.id === firstFrameContext.userId
             && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId;
         const clearRequest = (requestKey: string) => useFirstFrameRequests.setState(state => {
             const next = { ...state }; delete next[requestKey]; return next;
         }, true);
-        useFirstFrameRequests.setState({ [key]: { pending: true, operation } });
+        const requestState = { pending: true, operation, previousGenerationId: currentProject.frames.find(frame => frame.id === shot.id)?.image_generation_id } as const;
+        useFirstFrameRequests.setState({ [key]: requestState });
+        let dispatched = false;
+        let received = false;
         try {
             const frameId = await materializeShot(shot, index);
             if (!isCurrentScope()) { clearRequest(key); return; }
@@ -753,13 +758,15 @@ function StoryboardWorkbench() {
                 clearRequest(key);
                 if (useFirstFrameRequests.getState()[persistedKey]?.pending) return;
                 key = persistedKey;
-                useFirstFrameRequests.setState({ [key]: { pending: true, operation } });
+                useFirstFrameRequests.setState({ [key]: requestState });
             }
             // A queued history edit must settle before the server appends a new candidate.
             if (!await flushDrafts()) throw new Error(t("saveFailed"));
             if (!isCurrentScope()) { clearRequest(key); return; }
+            dispatched = true;
             const result = file ? await api.uploadT2IFrame(currentProject.id, frameId, file)
                 : await api.renderFrame(currentProject.id, frameId, {}, cleanPrompt(shot.prompt), 1);
+            received = true;
             const rendered = file ? result : result?.frames?.find((frame: { id: string }) => frame.id === frameId);
             const imageUrl = file ? rendered?.t2i_image_urls?.[rendered.t2i_selected_index ?? 0] : extractT2IImageUrl(result, frameId);
             if ((!file && rendered?.status === "failed") || !imageUrl) throw new Error(rendered?.image_error || t("t2iFailed"));
@@ -767,6 +774,8 @@ function StoryboardWorkbench() {
             if (isCurrentScope() && project?.id === currentProject.id) {
                 updateProject(project.id, { frames: project.frames.map(frame => frame.id === frameId ? {
                     ...frame, ...(!file ? { image_url: imageUrl, rendered_image_url: imageUrl } : {}), image_error: null,
+                    image_generation_status: rendered?.image_generation_status ?? null,
+                    image_generation_id: rendered?.image_generation_id ?? null,
                     t2i_image_urls: rendered?.t2i_image_urls?.length ? rendered.t2i_image_urls : [imageUrl],
                     t2i_selected_index: rendered?.t2i_selected_index ?? 0,
                 } : frame) });
@@ -775,7 +784,8 @@ function StoryboardWorkbench() {
         } catch (error: any) {
             debugLog.error("Studio", "Failed to generate T2I for shot:", error);
             const detail = error?.response?.data?.detail || error?.message || t("t2iFailed");
-            useFirstFrameRequests.setState({ [key]: { pending: false, operation, error: String(detail) } });
+            const recovering = !file && dispatched && !received && (!error?.response || error.response.status === 409 || error.response.status >= 500);
+            useFirstFrameRequests.setState({ [key]: { ...requestState, pending: recovering, recovering, error: String(detail) } });
             if (file) return { code: "network", detail: String(detail) };
         }
     }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, t]);
@@ -1133,6 +1143,7 @@ function StoryboardWorkbench() {
     const [taskRefreshError, setTaskRefreshError] = useState(false);
     const [taskRefreshNeeded, setTaskRefreshNeeded] = useState(false);
     const taskRefreshRequest = useRef<Promise<void> | null>(null);
+    const missingFirstFrameMessage = t("t2iFrameMissing");
     const taskContext = useRef({
         active: false,
         userId: useAuthStore.getState().user?.id,
@@ -1155,6 +1166,7 @@ function StoryboardWorkbench() {
         if (!projectId || !isCurrent()) return Promise.resolve();
         const projectAtStart = useProjectStore.getState().currentProject;
         const selectionsAtStart = useVideoSelectionRequests.getState();
+        const imagesAtStart = useFirstFrameRequests.getState();
         setRefreshingTasks(true);
         const request = (async () => {
             try {
@@ -1170,16 +1182,41 @@ function StoryboardWorkbench() {
                 const selectionWriteOccurred = selectionsAtStart !== useVideoSelectionRequests.getState();
                 const frames = current.frames.map(frame => {
                     const saved = fresh.frames?.find((saved: { id: string }) => saved.id === frame.id);
-                    if (!saved) return frame;
                     const before = projectAtStart?.frames.find(before => before.id === frame.id);
                     const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
+                    let next = frame;
+                    const imageRequest = imagesAtStart[key];
+                    if (before?.image_generation_status === "processing" || (imageRequest?.operation === "generate" && imageRequest.pending)) {
+                        if (imageRequest !== useFirstFrameRequests.getState()[key] || firstFrameFields.some(field => before?.[field] !== frame[field])) {
+                            selectionReadNeeded = true;
+                        } else {
+                            if (!saved) {
+                                useFirstFrameRequests.setState(state => {
+                                    const requests = { ...state }; delete requests[key]; return requests;
+                                }, true);
+                                return { ...frame, image_generation_status: "failed", image_error: missingFirstFrameMessage };
+                            }
+                            // Never replace prompt drafts or a history selection written during this read.
+                            next = { ...frame, ...Object.fromEntries(firstFrameFields.map(field => [field, saved[field]])) };
+                            if (imageRequest?.recovering) {
+                                const observed = saved.image_generation_id && saved.image_generation_id !== imageRequest.previousGenerationId;
+                                useFirstFrameRequests.setState(state => {
+                                    const requests = { ...state };
+                                    if (observed) delete requests[key];
+                                    else requests[key] = { ...imageRequest, pending: false, recovering: false };
+                                    return requests;
+                                }, true);
+                            }
+                        }
+                    }
+                    if (!saved) return next;
                     const fields = ["selected_video_id", "video_url", "is_video_pinned"] as const;
-                    if (fields.every(field => saved[field] === frame[field])) return frame;
+                    if (fields.every(field => saved[field] === frame[field])) return next;
                     if (selectionWriteOccurred || selectionsAtStart[key] || fields.some(field => before?.[field] !== frame[field])) {
                         selectionReadNeeded = true;
-                        return frame;
+                        return next;
                     }
-                    return { ...frame, selected_video_id: saved.selected_video_id, video_url: saved.video_url, is_video_pinned: saved.is_video_pinned };
+                    return { ...next, selected_video_id: saved.selected_video_id, video_url: saved.video_url, is_video_pinned: saved.is_video_pinned };
                 });
                 // Completion and adoption are saved together by the backend. Do not
                 // replace prompt edits or a selection written while this read ran.
@@ -1195,7 +1232,7 @@ function StoryboardWorkbench() {
         })();
         taskRefreshRequest.current = request;
         return request;
-    }, [currentProject?.id, updateProject]);
+    }, [currentProject?.id, updateProject, missingFirstFrameMessage]);
 
     const hasPendingVideoTasks = (currentProject?.video_tasks ?? []).some(task =>
         task.status === "pending" || task.status === "processing",
@@ -1204,12 +1241,14 @@ function StoryboardWorkbench() {
         const task = currentProject?.video_tasks?.find(task => task.id === shot.videoTaskId);
         return !task || task.status === "pending" || task.status === "processing";
     });
+    const hasPendingImages = currentProject?.frames.some(frame => frame.image_generation_status === "processing")
+        || shots.some(shot => firstFrameRequests[firstFrameKey(shot.id)]?.pending);
     useEffect(() => {
-        if (!hasPendingVideoTasks && !taskRefreshNeeded) return;
+        if (!hasPendingVideoTasks && !hasPendingImages && !taskRefreshNeeded) return;
         // Editing a shot must not postpone task updates. Slow reads share one request.
         const timer = window.setInterval(() => { void refreshProject(); }, 5000);
         return () => window.clearInterval(timer);
-    }, [hasPendingVideoTasks, taskRefreshNeeded, refreshProject]);
+    }, [hasPendingVideoTasks, hasPendingImages, taskRefreshNeeded, refreshProject]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1831,6 +1870,10 @@ function StoryboardWorkbench() {
                                         uploading={shot.t2iOperation === "upload" && shot.t2iStatus === "processing"}
                                         operation={shot.t2iOperation}
                                         errorMessage={shot.t2iError}
+                                        checking={shot.t2iRecovering}
+                                        refreshFailed={taskRefreshError}
+                                        refreshing={refreshingTasks}
+                                        onRefresh={() => { void refreshProject(); }}
                                         onSelect={(i) => updateT2IWorkbench(shot.id, s => setActiveT2IIndex(s, i))}
                                         onRemove={(i) => updateT2IWorkbench(shot.id, s => removeT2IImage(s, i))}
                                         onGenerate={() => submitFirstFrame(index)}

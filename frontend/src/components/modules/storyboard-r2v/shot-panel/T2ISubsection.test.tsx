@@ -22,6 +22,13 @@ describe('First-frame controls', () => {
         fireEvent.click(retry);
         expect(onGenerate).toHaveBeenCalledOnce();
         expect(screen.getByRole('status')).toHaveTextContent('t2iGenerating');
+        const onRefresh = vi.fn();
+        view.rerender(<T2ISubsection {...props} errorMessage={undefined} generating checking refreshFailed onRefresh={onRefresh} />);
+        expect(screen.getByRole('status')).toHaveTextContent('t2iChecking');
+        expect(screen.getByRole('alert')).toHaveTextContent('t2iStatusUnavailable');
+        fireEvent.click(screen.getByRole('button', { name: 't2iRefreshStatus' }));
+        expect(onRefresh).toHaveBeenCalledOnce();
+        expect(onGenerate).toHaveBeenCalledOnce();
         view.rerender(<T2ISubsection {...props} errorMessage={undefined} />);
         fireEvent.click(screen.getByRole('button', { name: 't2iRemoveCandidate 1' }));
         expect(onRemove).toHaveBeenCalledWith(0);
