@@ -33,6 +33,7 @@ def _video_task(
 ):
     return SimpleNamespace(
         id=task_id,
+        project_id="script-1",
         frame_id="frame-1",
         status=status,
         video_url=video_url or f"video/{task_id}.mp4",

@@ -827,6 +827,61 @@ def test_candidate_save_failure_retains_confirmed_state_and_retry_round_trips(ap
         assert restored["frames"][0]["is_video_pinned"] is (operation == "select_video")
 
 
+def test_video_selection_rejects_unusable_or_unrelated_candidates_without_changing_the_frame(api_client):
+    project = _create_project(api_client, "Candidate ownership")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Target shot"}).json()["frames"][0]["id"]
+    other_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Other shot"}).json()["frames"][1]["id"]
+    script = api_module.pipeline.scripts[project["id"]]
+    base = dict(project_id=script.id, frame_id=frame_id, image_url="", prompt="Candidate", status="completed", video_url="video/new.mp4")
+    script.video_tasks = [VideoTask(id="usable", **base)] + [
+        VideoTask(id=name, **{**base, **changes}) for name, changes in [
+            ("pending", {"status": "pending"}), ("processing", {"status": "processing"}),
+            ("failed", {"status": "failed"}), ("no-media", {"video_url": None}),
+            ("other-frame", {"frame_id": other_id}), ("unassigned", {"frame_id": None}),
+            ("other-project", {"project_id": "another-project"}),
+        ]
+    ]
+    script.frames[0].selected_video_id = "previous"
+    script.frames[0].video_url = "video/previous.mp4"
+    api_module.pipeline._save_data()
+    before = api_client.get(route).json()["frames"]
+    endpoint = route + f"/frames/{frame_id}/select_video"
+    for task in script.video_tasks[1:]:
+        response = api_client.post(endpoint, json={"video_id": task.id})
+        assert response.status_code == 400, (task.id, response.text)
+        assert api_client.get(route).json()["frames"] == before
+    missing = api_client.post(endpoint, json={"video_id": "missing"})
+    assert missing.status_code == 404
+    saved = api_client.post(endpoint, json={"video_id": "usable"})
+    assert saved.status_code == 200, saved.text
+    frame = api_client.get(route).json()["frames"][0]
+    assert frame["selected_video_id"] == "usable"
+    assert frame["video_url"] == "video/new.mp4"
+    assert frame["is_video_pinned"] is True
+
+
+def test_automatic_selection_uses_creation_order_and_ignores_unrelated_tasks(api_client):
+    project = _create_project(api_client, "Automatic candidates")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Target shot"}).json()["frames"][0]["id"]
+    script = api_module.pipeline.scripts[project["id"]]
+    base = dict(project_id=script.id, frame_id=frame_id, image_url="", prompt="Candidate", status="completed")
+    script.video_tasks = [
+        VideoTask(id="newer", video_url="video/newer.mp4", created_at=200, **base),
+        VideoTask(id="older-finished-last", video_url="video/older.mp4", created_at=100, **base),
+        VideoTask(id="wrong-project", video_url="video/wrong.mp4", created_at=300, **{**base, "project_id": "other-project"}),
+        VideoTask(id="missing-media", created_at=400, **base),
+    ]
+    api_module.pipeline._save_data()
+    response = api_client.post(route + f"/frames/{frame_id}/auto_select_latest_video")
+    assert response.status_code == 200, response.text
+    frame = api_client.get(route).json()["frames"][0]
+    assert frame["selected_video_id"] == "newer"
+    assert frame["video_url"] == "video/newer.mp4"
+    assert frame["is_video_pinned"] is False
+
+
 def test_video_retry_preserves_saved_inputs_and_recovers_without_duplicate_dispatch(api_client):
     project = _create_project(api_client, "Historical retry")
     route = f"/projects/{project['id']}"

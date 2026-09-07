@@ -4087,8 +4087,10 @@ def select_video(script_id: str, frame_id: str, request: SelectVideoRequest):
     try:
         updated_script = pipeline.select_video_for_frame(script_id, frame_id, request.video_id)
         return signed_response(updated_script)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e.args[0]))
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -2646,15 +2646,19 @@ class ComicGenPipeline:
         """
         script = self.scripts.get(script_id)
         if not script:
-            raise ValueError("Script not found")
+            raise KeyError("Script not found")
 
         frame = next((f for f in script.frames if f.id == frame_id), None)
         if not frame:
-            raise ValueError("Frame not found")
+            raise KeyError("Frame not found")
 
         video = next((v for v in script.video_tasks if v.id == video_id), None)
         if not video:
-            raise ValueError("Video task not found")
+            raise KeyError("Video task not found")
+        if video.project_id != script_id or video.frame_id != frame_id:
+            raise ValueError("Video task does not belong to this frame")
+        if video.status != GenerationStatus.COMPLETED or not video.video_url:
+            raise ValueError("Video task must be completed with a video before selection")
 
         frame.selected_video_id = video_id
         frame.video_url = video.video_url
@@ -2681,15 +2685,11 @@ class ComicGenPipeline:
         if frame.is_video_pinned or frame.locked:
             return script  # manual pin or asset lock protects the current take
 
-        # Latest completed task wins. VideoTask carries created_at
-        # (default_factory=time.time); we use it as the "completion order"
-        # proxy. Backend doesn't track per-task completion time, but tasks
-        # in the same batch are queued at roughly the same created_at and
-        # complete in arrival order — close enough for "show me what just
-        # came out" UX.
+        # Newest-created completed task wins. A slower, older task must not
+        # replace a newer take merely because it finished last.
         frame_tasks = [
             t for t in script.video_tasks
-            if t.frame_id == frame_id
+            if t.project_id == script_id and t.frame_id == frame_id
             and t.status == GenerationStatus.COMPLETED
             and t.video_url
         ]
