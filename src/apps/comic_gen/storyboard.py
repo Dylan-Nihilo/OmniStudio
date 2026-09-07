@@ -42,6 +42,7 @@ class StoryboardGenerator:
     def generate_frame(self, frame: StoryboardFrame, characters: List[Character], scene: Scene, ref_image_path: str = None, ref_image_paths: List[str] = None, prompt: str = None, batch_size: int = 1, size: str = None, model_name: str = None) -> StoryboardFrame:
         """Generates a storyboard frame image."""
         frame.status = GenerationStatus.PROCESSING
+        frame.image_error = None
         
         # Default size for storyboard (landscape)
         effective_size = size or "1024*576"
@@ -236,5 +237,6 @@ class StoryboardGenerator:
         except Exception as e:
             logger.error(f"Failed to generate frame {frame.id}: {e}")
             frame.status = GenerationStatus.FAILED
+            frame.image_error = str(e)
             
         return frame

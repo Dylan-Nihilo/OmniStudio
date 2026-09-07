@@ -96,6 +96,50 @@ def _create_series(client, title: str = "系列项目") -> dict:
     return response.json()
 
 
+@pytest.mark.parametrize("outcome", ["completed", "provider-error", "deleted"])
+def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history(api_client, outcome):
+    from src.apps.comic_gen.storyboard import StoryboardGenerator
+
+    project = _create_project(api_client, "First frame render")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original prompt"}).json()["frames"][0]["id"]
+    response = api_client.patch(route + f"/frames/{frame_id}/workbench", json={"t2i_image_urls": ["storyboard/previous.png"], "t2i_selected_index": 0})
+    assert response.status_code == 200, response.text
+
+    def generate(prompt, output_path, **kwargs):
+        assert api_client.get(route).status_code == 200
+        edited = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "action_description": "Edited while image was rendering"})
+        assert edited.status_code == 200, edited.text
+        if outcome == "provider-error":
+            raise RuntimeError("Image provider unavailable")
+        if outcome == "deleted":
+            assert api_client.delete(route + f"/frames/{frame_id}").status_code == 200
+        Path(output_path).write_bytes(b"image-provider-fixture")
+
+    with patch("src.apps.comic_gen.storyboard.WanxImageModel") as model, patch("src.utils.oss_utils.OSSImageUploader") as uploader:
+        model.return_value.generate.side_effect = generate
+        uploader.return_value.is_configured = False
+        api_module.pipeline.storyboard_generator = StoryboardGenerator()
+        response = api_client.post(route + "/storyboard/render", json={"frame_id": frame_id, "prompt": "A station in the rain"})
+    assert response.status_code == {"completed": 200, "provider-error": 500, "deleted": 404}[outcome], response.text
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    if outcome == "deleted":
+        assert api_client.get(route).json()["frames"] == []
+        return
+    restored = api_client.get(route).json()["frames"][0]
+    if outcome == "provider-error":
+        assert restored["status"] == "failed"
+        assert restored["image_error"] == "Image provider unavailable"
+        assert restored["t2i_image_urls"] == ["storyboard/previous.png"]
+        assert restored["action_description"] == "Edited while image was rendering"
+        return
+    assert restored["status"] == "completed"
+    assert restored["action_description"] == "Edited while image was rendering"
+    assert restored["t2i_image_urls"] == ["storyboard/previous.png", restored["rendered_image_url"]]
+    assert restored["t2i_selected_index"] == 1
+    assert Path("output", restored["rendered_image_url"]).read_bytes() == b"image-provider-fixture"
+
+
 def _add_episode(client, series_id: str, script_id: str, episode_number: int) -> None:
     response = client.post(
         f"/series/{series_id}/episodes",

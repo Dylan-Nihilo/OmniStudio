@@ -406,6 +406,7 @@ class StoryboardFrame(BaseModel):
     image_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Storyboard image asset container")
     rendered_image_url: Optional[str] = Field(None, description="URL of the high-fidelity rendered image (Legacy)")
     rendered_image_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Rendered image asset container")
+    image_error: Optional[str] = Field(None, description="Image generation error message")
     
     video_prompt: Optional[str] = Field(None, description="Optimized prompt for I2V")
     video_url: Optional[str] = Field(None, description="URL of the generated video clip")

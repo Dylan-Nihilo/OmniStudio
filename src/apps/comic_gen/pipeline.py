@@ -2189,20 +2189,23 @@ class ComicGenPipeline:
 
     def generate_storyboard_render(self, script_id: str, frame_id: str, composition_data: Optional[Dict[str, Any]], prompt: str, batch_size: int = 1) -> Script:
         """Step 3b: Render a specific frame from composition data."""
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-            
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-            
-        frame.status = GenerationStatus.PROCESSING
-        if composition_data:
-            frame.composition_data = composition_data
-        frame.image_prompt = prompt
-        self._save_data()
-        
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError(f"Frame {frame_id} not found")
+            frame.status = GenerationStatus.PROCESSING
+            frame.image_error = None
+            if composition_data:
+                frame.composition_data = composition_data
+            frame.image_prompt = prompt
+            self._save_data()
+            # The generator mutates its input. Keep those writes separate from concurrent edits.
+            frame = frame.model_copy(deep=True)
+            original_variant_ids = {v.id for v in frame.rendered_image_asset.variants} if frame.rendered_image_asset else set()
+
         try:
             # Extract reference image URL from composition data if available
             ref_image_url = None
@@ -2276,31 +2279,44 @@ class ComicGenPipeline:
                 model_name=i2i_model
             )
             
-            self._save_data()
-            return script
-        except Exception as e:
-            frame.status = GenerationStatus.FAILED
-            self._save_data()
-            raise e
-            # 1. Take the composition_data (positions of assets)
-            # 2. Construct a composite image (ControlNet input)
-            # 3. Call Img2Img with the composite + prompt
-            
-            logger.debug(f"Rendering frame {frame_id} with prompt: {prompt}")
-            time.sleep(1.5) # Simulate processing
-            
-            # Mock Result
-            mock_url = f"https://placehold.co/1280x720/2a2a2a/FFF?text=Rendered+Frame+{frame_id}"
-            frame.rendered_image_url = mock_url
-            frame.image_url = mock_url # Update main image too
-            frame.status = GenerationStatus.COMPLETED
-            
-        except Exception as e:
-            logger.error(f"Frame rendering failed: {e}")
-            frame.status = GenerationStatus.FAILED
-            
-        self._save_data()
-        return script
+            with self._save_lock:
+                # Project reads replace the cached Script while the provider is running.
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if not target:
+                    raise ValueError(f"Frame {frame_id} not found")
+                target.status = frame.status
+                target.image_error = frame.image_error
+                target.image_prompt = frame.image_prompt
+                generated = [v for v in frame.rendered_image_asset.variants if v.id not in original_variant_ids] if frame.rendered_image_asset else []
+                if generated:
+                    if target.rendered_image_asset is None:
+                        target.rendered_image_asset = frame.rendered_image_asset.model_copy(deep=True)
+                    else:
+                        known_ids = {v.id for v in target.rendered_image_asset.variants}
+                        target.rendered_image_asset.variants.extend(v for v in generated if v.id not in known_ids)
+                        target.rendered_image_asset.selected_id = generated[-1].id
+                    target.rendered_image_url = target.image_url = generated[-1].url
+                    target.updated_at = frame.updated_at
+                    urls = list(target.t2i_image_urls)
+                    for variant in generated:
+                        if variant.url not in urls:
+                            urls.append(variant.url)
+                    target.t2i_image_urls = urls[-self._T2I_HISTORY_LIMIT:]
+                    target.t2i_selected_index = target.t2i_image_urls.index(generated[-1].url)
+                self._save_data()
+                if frame.status == GenerationStatus.FAILED:
+                    raise RuntimeError(frame.image_error or "Image generation failed")
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if target:
+                    target.status = GenerationStatus.FAILED
+                    target.image_error = str(error)
+                    self._save_data()
+            raise
 
     def generate_video(self, script_id: str) -> Script:
         """Step 4: Generate video clips."""
