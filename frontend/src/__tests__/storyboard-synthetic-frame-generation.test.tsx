@@ -108,7 +108,7 @@ vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () 
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
-    default: ({ tasks, onToggleStar, onSetActive, onRetry, retryingTaskIds }: { tasks: VideoTask[]; onToggleStar: (task: VideoTask, next: boolean) => Promise<void>; onSetActive: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string> }) => <div>{tasks.map(task =>
+    default: ({ tasks, onToggleStar, onSetActive, onRetry, retryingTaskIds, isSelecting }: { tasks: VideoTask[]; onToggleStar: (task: VideoTask, next: boolean) => Promise<void>; onSetActive: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string>; isSelecting?: boolean }) => <div><output aria-label="candidate selection state">{isSelecting ? "saving" : "idle"}</output>{tasks.map(task =>
         <div key={task.id}>
             <button onClick={() => { void onToggleStar(task, true).catch(candidateError); }}>{task.is_starred ? "starred task" : "star task"}</button>
             <button onClick={() => { void onSetActive(task).catch(() => {}); }}>select {task.id}</button>
@@ -311,6 +311,50 @@ describe("StoryboardR2V synthetic frame generation", () => {
         expect(screen.getByLabelText("selected video")).toHaveTextContent("manual.mp4");
         expect(useProjectStore.getState().currentProject?.frames[0].is_video_pinned).toBe(true);
         view.unmount();
+    });
+
+    it("adopts completed batch candidates even while a different candidate is still being adopted", async () => {
+        const base = { project_id: "project-1", frame_id: "frame-batch", image_url: "", prompt: "Camera", duration: 5, resolution: "720p", generate_audio: false, prompt_extend: false, workbench_tab: "direct_r2v" };
+        const older = { ...base, id: "older", status: "processing" as const, created_at: 1 };
+        const newer = { ...base, id: "newer", status: "processing" as const, created_at: 2 };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-batch", action_description: "Current prompt", video_url: "previous.mp4", selected_video_id: "previous" }], video_tasks: [older, newer] };
+        useProjectStore.setState({ currentProject: project });
+        let finishFirst!: (value: unknown) => void;
+        autoSelectLatestVideo.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }));
+        autoSelectLatestVideo.mockResolvedValueOnce({ ...project, frames: [{ ...project.frames[0], video_url: "newer.mp4", selected_video_id: "newer" }] });
+        const view = render(<StoryboardR2V />);
+        const finishedOlder = { ...older, status: "completed" as const, video_url: "older.mp4" };
+        await act(async () => { useProjectStore.setState({ currentProject: { ...project, video_tasks: [finishedOlder, newer] } }); });
+        expect(autoSelectLatestVideo).toHaveBeenCalledOnce();
+        await act(async () => { useProjectStore.setState({ currentProject: { ...project, video_tasks: [finishedOlder, { ...newer, status: "completed", video_url: "newer.mp4" }] } }); });
+        expect(screen.getByLabelText("selected video")).toHaveTextContent("previous.mp4");
+        await act(async () => { finishFirst({ ...project, frames: [{ ...project.frames[0], video_url: "older.mp4", selected_video_id: "older" }] }); });
+        expect(screen.getByLabelText("selected video")).toHaveTextContent("newer.mp4");
+        expect(useProjectStore.getState().currentProject!.frames[0].selected_video_id).toBe("newer");
+        expect(autoSelectLatestVideo).toHaveBeenCalledTimes(2);
+        view.unmount();
+    });
+
+    it("preserves pending candidate selection across navigation and applies only selection fields after reopening", async () => {
+        const task: VideoTask = { id: "reopen-take", project_id: "project-1", frame_id: "frame-reopen-selection", image_url: "", prompt: "Candidate", duration: 5, resolution: "720p", generate_audio: false, prompt_extend: false, status: "completed", video_url: "reopened.mp4", created_at: 1, workbench_tab: "direct_r2v" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: task.frame_id!, action_description: "Original description", video_url: "previous.mp4", selected_video_id: "previous" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project });
+        let finish!: (value: unknown) => void;
+        selectVideo.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        const view = render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "select reopen-take" }));
+        view.unmount();
+        const reopened = render(<StoryboardR2V />);
+        expect(screen.getByLabelText("candidate selection state")).toHaveTextContent("saving");
+        fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Continue editing" } });
+        fireEvent.click(screen.getByRole("button", { name: "select reopen-take" }));
+        expect(selectVideo).toHaveBeenCalledOnce();
+        await act(async () => { finish({ ...project, frames: [{ ...project.frames[0], selected_video_id: task.id, video_url: task.video_url, is_video_pinned: true }] }); });
+        expect(screen.getByLabelText("candidate selection state")).toHaveTextContent("idle");
+        expect(screen.getByLabelText("selected video")).toHaveTextContent("reopened.mp4");
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Continue editing");
+        expect(useProjectStore.getState().currentProject!.frames[0].is_video_pinned).toBe(true);
+        reopened.unmount();
     });
 
     it("reports a failed annotation to the candidate and retains its previous value until retry succeeds", async () => {
