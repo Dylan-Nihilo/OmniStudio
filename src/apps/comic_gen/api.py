@@ -41,7 +41,7 @@ import traceback
 import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
-from .pipeline import ComicGenPipeline, LibraryAssetInUseError, _resolve_export_settings
+from .pipeline import ComicGenPipeline, GenerationInProgressError, LibraryAssetInUseError, _resolve_export_settings
 from .models import (
     ArtDirection,
     PromptConfig,
@@ -4070,6 +4070,8 @@ def render_frame(script_id: str, request: RenderFrameRequest):
             request.batch_size
         )
         return signed_response(updated_script)
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -4262,6 +4264,8 @@ async def upload_t2i_frame(script_id: str, frame_id: str, request: Request, file
         return signed_response(frame)
     except HTTPException:
         raise
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception("upload_t2i_frame unexpected error")
         raise HTTPException(status_code=500, detail=str(e))

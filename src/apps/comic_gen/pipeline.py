@@ -34,6 +34,9 @@ from ...storage.schema import MigrationRun
 
 logger = get_logger(__name__)
 
+class GenerationInProgressError(Exception):
+    """A frame already has an active image render."""
+
 def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
     """Select an uploaded master in the same container all renderers read."""
     from .models import AssetUnit, ImageAsset, ImageVariant
@@ -323,7 +326,7 @@ class ComicGenPipeline:
     )
 
     def _recover_orphan_tasks(self) -> None:
-        """Sweep persisted state for video tasks left in pending/processing.
+        """Sweep persisted state for image/video work left in pending/processing.
 
         FastAPI's BackgroundTasks queue lives entirely in process memory:
         if uvicorn restarts (dev --reload, OOM, OS reboot, ctrl-C) every
@@ -345,6 +348,11 @@ class ComicGenPipeline:
         recovered = 0
 
         for script in self.scripts.values():
+            for frame in script.frames:
+                if frame.image_generation_status in STUCK:
+                    frame.image_generation_status = GenerationStatus.FAILED
+                    frame.image_error = frame.image_error or self._ORPHAN_RECOVERY_REASON
+                    recovered += 1
             tasks = getattr(script, "video_tasks", None) or []
             for task in tasks:
                 if getattr(task, "status", None) in STUCK:
@@ -504,7 +512,9 @@ class ComicGenPipeline:
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
-            previous = (frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.updated_at)
+            if frame.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("A first-frame image is already being generated. Refresh its status before uploading.")
+            previous = (frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.updated_at)
             current = list(getattr(frame, "t2i_image_urls", None) or [])
             current.append(file_path)
             # Same FIFO cap as update_frame_workbench so uploads can't grow
@@ -517,11 +527,13 @@ class ComicGenPipeline:
             frame.t2i_selected_index = len(current) - 1
             frame.status = GenerationStatus.COMPLETED
             frame.image_error = None
+            frame.image_generation_status = None
+            frame.image_generation_id = None
             frame.updated_at = time.time()
             try:
                 self._save_data()
             except Exception:
-                frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.updated_at = previous
+                frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.updated_at = previous
                 raise
             return frame
 
@@ -2200,12 +2212,23 @@ class ComicGenPipeline:
             frame = next((f for f in script.frames if f.id == frame_id), None)
             if not frame:
                 raise ValueError(f"Frame {frame_id} not found")
+            # ponytail: one-process exclusion; multiple workers need a database claim.
+            if frame.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("A first-frame image is already being generated. Refresh its status before retrying.")
+            previous = (frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.image_prompt, frame.composition_data)
+            generation_id = str(uuid.uuid4())
+            frame.image_generation_status = GenerationStatus.PROCESSING
+            frame.image_generation_id = generation_id
             frame.status = GenerationStatus.PROCESSING
             frame.image_error = None
             if composition_data:
                 frame.composition_data = composition_data
             frame.image_prompt = prompt
-            self._save_data()
+            try:
+                self._save_data()
+            except Exception:
+                frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.image_prompt, frame.composition_data = previous
+                raise
             # The generator mutates its input. Keep those writes separate from concurrent edits.
             frame = frame.model_copy(deep=True)
             original_variant_ids = {v.id for v in frame.rendered_image_asset.variants} if frame.rendered_image_asset else set()
@@ -2289,7 +2312,10 @@ class ComicGenPipeline:
                 target = next((f for f in current.frames if f.id == frame_id), None) if current else None
                 if not target:
                     raise ValueError(f"Frame {frame_id} not found")
+                if target.image_generation_id != generation_id:
+                    return current
                 target.status = frame.status
+                target.image_generation_status = frame.status
                 target.image_error = frame.image_error
                 target.image_prompt = frame.image_prompt
                 generated = [v for v in frame.rendered_image_asset.variants if v.id not in original_variant_ids] if frame.rendered_image_asset else []
@@ -2316,8 +2342,9 @@ class ComicGenPipeline:
             with self._save_lock:
                 current = self.scripts.get(script_id)
                 target = next((f for f in current.frames if f.id == frame_id), None) if current else None
-                if target:
+                if target and target.image_generation_id == generation_id:
                     target.status = GenerationStatus.FAILED
+                    target.image_generation_status = GenerationStatus.FAILED
                     target.image_error = str(error)
                     self._save_data()
             raise

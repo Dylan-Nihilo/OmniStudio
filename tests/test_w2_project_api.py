@@ -107,7 +107,14 @@ def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history
     assert response.status_code == 200, response.text
 
     def generate(prompt, output_path, **kwargs):
-        assert api_client.get(route).status_code == 200
+        running = api_client.get(route).json()["frames"][0]
+        assert running["image_generation_status"] == "processing"
+        assert running["image_generation_id"]
+        duplicate = api_client.post(route + "/storyboard/render", json={"frame_id": frame_id, "prompt": "Duplicate"})
+        assert duplicate.status_code == 409, duplicate.text
+        upload = api_client.post(route + f"/frames/{frame_id}/upload_t2i", files={"file": ("duplicate.png", b"image", "image/png")})
+        assert upload.status_code == 409, upload.text
+        assert list(Path("output/uploads").rglob("t2i_*.png")) == []
         edited = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "action_description": "Edited while image was rendering"})
         assert edited.status_code == 200, edited.text
         if outcome == "provider-error":
@@ -127,6 +134,7 @@ def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history
         assert api_client.get(route).json()["frames"] == []
         return
     restored = api_client.get(route).json()["frames"][0]
+    assert restored["image_generation_status"] == ("failed" if outcome == "provider-error" else "completed")
     if outcome == "provider-error":
         assert restored["status"] == "failed"
         assert restored["image_error"] == "Image provider unavailable"
@@ -140,11 +148,49 @@ def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history
     assert Path("output", restored["rendered_image_url"]).read_bytes() == b"image-provider-fixture"
 
 
+def test_first_frame_start_storage_failure_does_not_dispatch_or_leave_a_pending_render(api_client):
+    project = _create_project(api_client, "Image save failure")
+    route = f"/projects/{project['id']}"
+    frame = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Keep prompt"}).json()["frames"][0]
+    with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=StorageError("Unavailable")):
+        response = api_client.post(route + "/storyboard/render", json={"frame_id": frame["id"], "prompt": "New image"})
+    assert response.status_code == 500
+    api_module.pipeline.storyboard_generator.generate_frame.assert_not_called()
+    assert api_module.pipeline.scripts[project["id"]].frames[0].image_generation_status is None
+    assert api_client.get(route).json()["frames"][0] == frame
+
+
+def test_first_frame_restart_recovery_does_not_treat_audio_processing_as_image_generation(api_client):
+    project = _create_project(api_client, "Image recovery")
+    route = f"/projects/{project['id']}"
+    for description in ("Interrupted image", "Running audio"):
+        api_client.post(route + "/frames", json={"scene_id": "", "action_description": description})
+    frames = api_module.pipeline.scripts[project["id"]].frames
+    frames[0].image_generation_status = "processing"
+    frames[0].image_generation_id = "interrupted-image"
+    frames[0].t2i_image_urls = ["previous.png"]
+    frames[1].status = "processing"
+    api_module.pipeline._save_data()
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    api_module.pipeline._recover_orphan_tasks()
+    restored = api_client.get(route).json()["frames"]
+    assert restored[0]["image_generation_status"] == "failed"
+    assert "restarted" in restored[0]["image_error"]
+    assert restored[0]["t2i_image_urls"] == ["previous.png"]
+    assert restored[1]["status"] == "processing"
+    assert restored[1]["image_generation_status"] is None
+
+
 def test_first_frame_upload_reports_storage_failure_and_can_retry(api_client):
     project = _create_project(api_client, "First frame upload")
     route = f"/projects/{project['id']}"
     frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Keep the first frame"}).json()["frames"][0]["id"]
     api_client.patch(route + f"/frames/{frame_id}/workbench", json={"t2i_image_urls": ["previous.png"], "t2i_selected_index": 0})
+    frame = api_module.pipeline.scripts[project["id"]].frames[0]
+    frame.image_generation_status = "failed"
+    frame.image_generation_id = "previous-failure"
+    frame.image_error = "Previous generation failed"
+    api_module.pipeline._save_data()
     before = api_client.get(route).json()["frames"][0]
     files = {"file": ("first-frame.png", b"upload-fixture", "image/png")}
     with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=StorageError("Upload storage unavailable")):
@@ -157,6 +203,7 @@ def test_first_frame_upload_reports_storage_failure_and_can_retry(api_client):
     uploaded = response.json()
     assert uploaded["status"] == "completed"
     assert uploaded["image_error"] is None
+    assert uploaded["image_generation_status"] is None
     assert uploaded["t2i_image_urls"][0] == "previous.png"
     assert Path("output", uploaded["t2i_image_urls"][1]).read_bytes() == b"upload-fixture"
     api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
