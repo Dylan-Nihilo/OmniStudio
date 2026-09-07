@@ -14,6 +14,8 @@ export interface CandidateThumbProps {
     isActive?: boolean;
     isPinned?: boolean;
     isSelecting?: boolean;
+    isRetrying?: boolean;
+    hasActiveRetry?: boolean;
     compareLimitReached?: boolean;
     dubbedVideoUrl?: string;
     resolveUrl?: (url: string) => string;
@@ -26,7 +28,7 @@ export interface CandidateThumbProps {
 }
 
 type Action = "star" | "label" | "select" | "cancel" | "retry";
-export default function CandidateThumb({ task, isCompareSelected, isActive = false, isPinned = false, isSelecting = false, compareLimitReached = false, dubbedVideoUrl, resolveUrl, onClick, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry }: CandidateThumbProps) {
+export default function CandidateThumb({ task, isCompareSelected, isActive = false, isPinned = false, isSelecting = false, isRetrying = false, hasActiveRetry = false, compareLimitReached = false, dubbedVideoUrl, resolveUrl, onClick, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry }: CandidateThumbProps) {
     const t = useTranslations("storyboardR2V");
     const [editingLabel, setEditingLabel] = useState(false);
     const [labelDraft, setLabelDraft] = useState("");
@@ -73,7 +75,7 @@ export default function CandidateThumb({ task, isCompareSelected, isActive = fal
             </Button>}
             {videoUrl && <Checkbox isSelected={isCompareSelected} isDisabled={!isCompareSelected && compareLimitReached} onChange={() => onClick(task, { shift: true, meta: false })}>{t("candidateCompare")}</Checkbox>}
             {inFlight && onCancel && <Button variant="secondary" isPending={pending === "cancel"} isDisabled={!!pending} onPress={() => { void run("cancel", () => onCancel(task)); }}>{t(pending === "cancel" ? "queueCanceling" : "queueCancel")}</Button>}
-            {task.status === "failed" && onRetry && <Button variant="secondary" isPending={pending === "retry"} isDisabled={!!pending} onPress={() => { void run("retry", () => onRetry(task)); }}>{pending !== "retry" && <RefreshCw size={14} />}{t(pending === "retry" ? "queueRetrying" : "retry")}</Button>}
+            {task.status === "failed" && onRetry && <Button variant="secondary" isPending={pending === "retry" || isRetrying} isDisabled={!!pending || isRetrying || hasActiveRetry} onPress={() => { void run("retry", () => onRetry(task)); }}>{pending !== "retry" && !isRetrying && !hasActiveRetry && <RefreshCw size={14} />}{t(pending === "retry" || isRetrying ? "queueRetrying" : hasActiveRetry ? "retryInProgress" : "retry")}</Button>}
         </div>
         {inFlight && onCancel && <p className={styles.hint}>{t("queueCancelHint")}</p>}
         <Button variant="quiet" className={styles.note} aria-label={t("candidateEditNote")} isDisabled={!!pending} onPress={() => { setLabelDraft(task.label || ""); setError(null); setEditingLabel(true); }}><Pencil size={14} /><span>{task.label || t("candidateAddNote")}</span></Button>

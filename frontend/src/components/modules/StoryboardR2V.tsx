@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { create } from "zustand";
 import { Button, EmptyState } from "@omnistudio/ui";
 import styles from "./StoryboardR2V.module.css";
 import { Plus, Film, Sparkles } from "lucide-react";
@@ -37,6 +38,9 @@ import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
 import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
 import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationBanner";
+
+// Pending retries outlive the panel so navigation cannot dispatch the same request twice.
+const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 
 export default function StoryboardR2V() {
     const projectId = useProjectStore(state => state.currentProject?.id);
@@ -1219,6 +1223,9 @@ function StoryboardWorkbench() {
         () => ((currentProject as any)?.video_tasks ?? []) as VideoTask[],
         [currentProject],
     );
+    const retryRequests = useVideoRetryRequests();
+    const retryScope = [taskContext.current.userId, taskContext.current.workspaceId, currentProject?.id];
+    const retryingTaskIds = new Set(allVideoTasks.filter(task => retryRequests[JSON.stringify([...retryScope, task.id])]).map(task => task.id));
 
     const tasksById = useMemo(() => {
         const map = new Map<string, VideoTask>();
@@ -1290,6 +1297,13 @@ function StoryboardWorkbench() {
             let changed = false;
             const next = previous.map(shot => {
                 const task = allVideoTasks.find(task => task.id === shot.videoTaskId);
+                const retry = allVideoTasks.filter(candidate => candidate.retry_of_task_id && candidate.frame_id === shot.id
+                    && (candidate.status === "pending" || candidate.status === "processing"))
+                    .sort((a, b) => b.created_at - a.created_at)[0];
+                if (retry && retry.id !== shot.videoTaskId && (!shot.videoTaskId || (task && retry.created_at >= task.created_at))) {
+                    changed = true;
+                    return { ...shot, videoTaskId: retry.id, videoStatus: retry.status };
+                }
                 if (!task || (task.status !== "completed" && task.status !== "failed") || task.status === shot.videoStatus) return shot;
                 changed = true;
                 return { ...shot, videoStatus: task.status };
@@ -1489,17 +1503,38 @@ function StoryboardWorkbench() {
     }, [currentProject?.id, updateProject]);
     const handleCancelTask = useCallback((task: VideoTask) => cancelTask(task.id), [cancelTask]);
 
-    // Retry = fire a fresh batch of 1 for the shot owning this task,
-    // reusing the task's params as best-effort. After Phase 2 the
-    // task→shot mapping is direct via task.frame_id; falls back to
-    // current ParamsSection state if we can't find the owner.
-    const handleRetryTask = useCallback(async (task: VideoTask) => {
-        const ownerIdx = task.frame_id
-            ? shots.findIndex((s) => s.id === task.frame_id)
-            : -1;
-        if (ownerIdx < 0) return;
-        await generateVideoBatch(ownerIdx, 1);
-    }, [shots, generateVideoBatch]);
+    const handleRetryTask = useCallback((task: VideoTask): Promise<void> => {
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.reject(new Error("Task context changed"));
+        const key = JSON.stringify([context.userId, context.workspaceId, projectId, task.id]);
+        const existing = useVideoRetryRequests.getState()[key];
+        if (existing) return existing;
+        const request = (async () => {
+            try {
+                const created = await api.retryVideoTask(projectId, task.id);
+                if (!created.id || created.project_id !== projectId || created.retry_of_task_id !== task.id) throw new Error("Retry returned an unrelated task");
+                if (!isCurrent()) return;
+                const tasks = useProjectStore.getState().currentProject?.video_tasks ?? [];
+                // A poll may already have the new task's processing/completed state.
+                if (!tasks.some(existing => existing.id === created.id)) updateProject(projectId, { video_tasks: [...tasks, created] });
+            } catch (error) {
+                if (!context.active && isCurrent()) toast.error(t("queueActionFailed"));
+                throw error;
+            } finally {
+                useVideoRetryRequests.setState(state => {
+                    const remaining = { ...state };
+                    delete remaining[key];
+                    return remaining;
+                }, true);
+            }
+        })();
+        useVideoRetryRequests.setState({ [key]: request });
+        return request;
+    }, [currentProject?.id, updateProject, t]);
 
     const handleCandidateClick = useCallback((task: VideoTask, mods: { shift: boolean; meta: boolean }) => {
         if (!mods.shift || task.status !== "completed" || !task.video_url || task.frame_id !== selectedShot?.id) return;
@@ -1882,6 +1917,7 @@ function StoryboardWorkbench() {
                                     onClearCompare={() => setCompareSelectedIds(new Set())}
                                     onCancel={handleCancelTask}
                                     onRetry={handleRetryTask}
+                                    retryingTaskIds={retryingTaskIds}
                                     onReuseBatchParams={handleReuseBatchParams}
                                     onOpenCompare={() => setCompareModalOpen(true)}
                                     resolveUrl={resolveAssetUrl}
@@ -1915,6 +1951,7 @@ function StoryboardWorkbench() {
             onJumpToShot={handleJumpToShot}
             onCancel={handleCancelTask}
             onRetry={handleRetryTask}
+            retryingTaskIds={retryingTaskIds}
         />
         {/* Keep the shared dialog mounted for its closing transition. */}
         <CompareModal

@@ -1837,6 +1837,7 @@
     "queueCanceled": "Stopped waiting",
     "queueCancelHint": "Stops this local task. The provider may continue generating.",
     "queueRetrying": "Submitting",
+    "retryInProgress": "Retry in progress",
     "queueActionFailed": "Action failed. Please try again.",
     "queueCopyFailed": "Could not copy. Please try again.",
     "queuePending": "Queued",

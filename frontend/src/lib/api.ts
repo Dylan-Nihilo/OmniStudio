@@ -154,6 +154,7 @@ export interface VideoTask {
     ratio?: string;
     /** Failure reason set by pipeline / cancel / orphan recovery. */
     error?: string | null;
+    retry_of_task_id?: string | null;
     /** User-starred shortlist flag (multi-select per shot) — set via
      *  PATCH /annotate. Optional on the wire so older task records
      *  parse unchanged. */
@@ -521,6 +522,11 @@ export const api = {
         const res = await apiClient.post(
             `${API_URL}/projects/${scriptId}/video_tasks/${taskId}/cancel`,
         );
+        return res.data;
+    },
+
+    retryVideoTask: async (scriptId: string, taskId: string): Promise<VideoTask> => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/video_tasks/${taskId}/retry`);
         return res.data;
     },
 

@@ -1837,6 +1837,7 @@
     "queueCanceled": "已停止等待",
     "queueCancelHint": "停止等待会结束本地任务；服务商可能仍在生成。",
     "queueRetrying": "正在提交",
+    "retryInProgress": "重试任务进行中",
     "queueActionFailed": "操作失败，请重试。",
     "queueCopyFailed": "复制失败，请重试。",
     "queuePending": "排队中",

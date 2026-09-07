@@ -7,10 +7,12 @@ import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDrafts";
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
+import type { VideoTask } from "@/lib/api";
 
-const { createFrame, createVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, getProject, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
+    retryVideoTask: vi.fn(),
     getProject: vi.fn(),
     getTaskStatus: vi.fn(),
     toastError: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock("next-intl", () => ({
 vi.mock("@/lib/api", () => ({
     api: {
         createVideoTask,
+        retryVideoTask,
         getProject,
         getTaskStatus,
         updateFrameWorkbench,
@@ -105,18 +108,22 @@ vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () 
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
-    default: ({ tasks, onToggleStar, onSetActive }: { tasks: Array<{ id: string; is_starred?: boolean }>; onToggleStar: (task: { id: string }, next: boolean) => Promise<void>; onSetActive: (task: { id: string }) => Promise<void> }) => <div>{tasks.map(task =>
+    default: ({ tasks, onToggleStar, onSetActive, onRetry, retryingTaskIds }: { tasks: VideoTask[]; onToggleStar: (task: VideoTask, next: boolean) => Promise<void>; onSetActive: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string> }) => <div>{tasks.map(task =>
         <div key={task.id}>
             <button onClick={() => { void onToggleStar(task, true).catch(candidateError); }}>{task.is_starred ? "starred task" : "star task"}</button>
             <button onClick={() => { void onSetActive(task).catch(() => {}); }}>select {task.id}</button>
+            <button disabled={retryingTaskIds?.has(task.id)} onClick={() => { void onRetry(task).catch(candidateError); }}>candidate retry {task.id}</button>
         </div>
     )}</div>,
 }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CompareModal", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/TaskQueueButton", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/TaskQueuePanel", () => ({
-    default: ({ tasks, onCancel }: { tasks: Array<{ id: string }>; onCancel: (task: { id: string }) => Promise<void> }) => <div>{tasks.map(task =>
-        <button key={task.id} onClick={() => { void onCancel(task).catch(() => {}); }}>cancel {task.id}</button>
+    default: ({ tasks, onCancel, onRetry, retryingTaskIds }: { tasks: VideoTask[]; onCancel: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string> }) => <div>{tasks.map(task =>
+        <div key={task.id}>
+            <button onClick={() => { void onCancel(task).catch(() => {}); }}>cancel {task.id}</button>
+            <button disabled={retryingTaskIds?.has(task.id)} onClick={() => { void onRetry(task).catch(candidateError); }}>queue retry {task.id}</button>
+        </div>
     )}</div>,
 }));
 vi.mock("@/components/modules/storyboard-r2v/GenerationBanner", () => ({
@@ -442,6 +449,48 @@ describe("StoryboardR2V synthetic frame generation", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("retries the saved task once across both entrances and navigation without changing current edits", async () => {
+        const task: VideoTask = { id: "failed-history", project_id: "project-1", frame_id: "frame-retry", image_url: "old.png", prompt: "Historical prompt", model: "old-model", status: "failed", duration: 8, seed: 0, resolution: "1080p", generate_audio: false, prompt_extend: false, created_at: 1, workbench_tab: "direct_r2v" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [{ id: "frame-retry", action_description: "Current edit" }], video_tasks: [task] };
+        useProjectStore.setState({ currentProject: project, selectedFrameId: "frame-retry" });
+        let finish!: (value: VideoTask) => void;
+        retryVideoTask.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        const view = render(<StoryboardR2V />);
+        fireEvent.click(screen.getByRole("button", { name: "candidate retry failed-history" }));
+        fireEvent.click(screen.getByRole("button", { name: "queue retry failed-history" }));
+        expect(retryVideoTask).toHaveBeenCalledOnce();
+        expect(retryVideoTask).toHaveBeenCalledWith("project-1", "failed-history");
+        expect(createVideoTask).not.toHaveBeenCalled();
+        fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "Typing during retry" } });
+        view.unmount();
+        const reopened = render(<StoryboardR2V />);
+        expect(screen.getByRole("button", { name: "queue retry failed-history" })).toBeDisabled();
+        const retried = { ...task, id: "retry-new", retry_of_task_id: task.id, status: "pending" as const, created_at: 2 };
+        await act(async () => { finish(retried); });
+        expect(useProjectStore.getState().currentProject!.video_tasks).toEqual([task, retried]);
+        expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("Typing during retry");
+        reopened.unmount();
+    });
+
+    it("keeps failed retry requests recoverable and ignores responses from another workspace", async () => {
+        const task: VideoTask = { id: "retry-scoped", project_id: "project-1", image_url: "", prompt: "Saved prompt", status: "failed", duration: 5, resolution: "720p", generate_audio: false, prompt_extend: false, created_at: 1 };
+        useProjectStore.setState({ currentProject: { ...useProjectStore.getState().currentProject!, video_tasks: [task] } });
+        retryVideoTask.mockRejectedValueOnce(new Error("offline"));
+        const view = render(<StoryboardR2V />);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "queue retry retry-scoped" })); });
+        expect(candidateError).toHaveBeenCalledWith(expect.objectContaining({ message: "offline" }));
+        expect(screen.getByRole("button", { name: "queue retry retry-scoped" })).toBeEnabled();
+        let finish!: (value: VideoTask) => void;
+        retryVideoTask.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+        fireEvent.click(screen.getByRole("button", { name: "queue retry retry-scoped" }));
+        const workspace = useAuthStore.getState().activeWorkspace;
+        try {
+            await act(async () => { useAuthStore.setState({ activeWorkspace: { id: "other-retry-workspace", name: "Other", slug: null, role: "member" } }); });
+            await act(async () => { finish({ ...task, id: "foreign-new", retry_of_task_id: task.id, status: "pending" }); });
+            expect(useProjectStore.getState().currentProject!.video_tasks).toEqual([task]);
+        } finally { view.unmount(); useAuthStore.setState({ activeWorkspace: workspace }); }
     });
 
     it("shows a save error when adding a shot cannot be persisted", async () => {

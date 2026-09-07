@@ -26,6 +26,7 @@ interface CandidatesSectionProps {
     isSelecting?: boolean;
     onCancel?: (task: VideoTask) => Promise<void> | void;
     onRetry?: (task: VideoTask) => Promise<void> | void;
+    retryingTaskIds?: ReadonlySet<string>;
     onReuseBatchParams?: (batch: BatchSummary) => void;
     onOpenCompare?: () => void;
     onClearCompare?: () => void;
@@ -126,7 +127,7 @@ export default function CandidatesSection(props: CandidatesSectionProps) {
     </SectionShell>;
 }
 
-function BatchBlock({ batch, defaultOpen, compareSelectedIds, activeTaskId, isPinned, isSelecting, dubbedVideoUrl, dubbedVideoTaskId, resolveUrl, onClickThumb, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry, onReuseBatchParams }: CandidatesSectionProps & { batch: BatchSummary; defaultOpen: boolean }) {
+function BatchBlock({ batch, defaultOpen, tasks, compareSelectedIds, activeTaskId, isPinned, isSelecting, retryingTaskIds, dubbedVideoUrl, dubbedVideoTaskId, resolveUrl, onClickThumb, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry, onReuseBatchParams }: CandidatesSectionProps & { batch: BatchSummary; defaultOpen: boolean }) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = useState(defaultOpen);
     const runningCount = batch.tasks.filter(task => task.status === "pending" || task.status === "processing").length;
@@ -149,7 +150,8 @@ function BatchBlock({ batch, defaultOpen, compareSelectedIds, activeTaskId, isPi
         {open && <div className={styles.grid}>
             {batch.tasks.map(task => <CandidateThumb key={task.id} task={task}
                 isCompareSelected={compareSelectedIds.has(task.id)} compareLimitReached={compareSelectedIds.size >= 4}
-                isActive={task.id === activeTaskId} isPinned={isPinned} isSelecting={isSelecting}
+                isActive={task.id === activeTaskId} isPinned={isPinned} isSelecting={isSelecting} isRetrying={retryingTaskIds?.has(task.id)}
+                hasActiveRetry={tasks.some(retry => retry.retry_of_task_id === task.id && (retry.status === "pending" || retry.status === "processing"))}
                 dubbedVideoUrl={task.id === dubbedVideoTaskId ? dubbedVideoUrl : undefined} resolveUrl={resolveUrl}
                 onClick={onClickThumb} onToggleStar={onToggleStar} onSetLabel={onSetLabel} onSetActive={onSetActive} onCancel={onCancel} onRetry={onRetry} />)}
         </div>}

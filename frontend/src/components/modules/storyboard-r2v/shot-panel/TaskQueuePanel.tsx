@@ -24,9 +24,10 @@ interface TaskQueuePanelProps {
     onJumpToShot: (frameId: string) => void;
     onCancel?: (task: VideoTask) => Promise<void> | void;
     onRetry?: (task: VideoTask) => Promise<void> | void;
+    retryingTaskIds?: ReadonlySet<string>;
 }
 
-export default function TaskQueuePanel({ open, onClose, tasks, refreshing, refreshError, onRefresh, shotLabelByFrameId, onJumpToShot, onCancel, onRetry }: TaskQueuePanelProps) {
+export default function TaskQueuePanel({ open, onClose, tasks, refreshing, refreshError, onRefresh, shotLabelByFrameId, onJumpToShot, onCancel, onRetry, retryingTaskIds }: TaskQueuePanelProps) {
     const t = useTranslations("storyboardR2V");
     const [tab, setTab] = useState<TabKey>("active");
     const [wide, setWide] = useState(false);
@@ -75,7 +76,8 @@ export default function TaskQueuePanel({ open, onClose, tasks, refreshing, refre
             label: `${t(label)} · ${buckets[key].length}`,
             content: buckets[key].length ? <ul className={styles.list}>{buckets[key].map(task => <li key={task.id}>
                 <TaskRow task={task} shotLabel={shotLabelByFrameId?.[task.frame_id ?? ""] ?? task.frame_id ?? t("queueUnassigned")}
-                    onJumpToShot={onJumpToShot} onCancel={onCancel} onRetry={task.frame_id && shotLabelByFrameId?.[task.frame_id] ? onRetry : undefined} />
+                    hasActiveRetry={tasks.some(retry => retry.retry_of_task_id === task.id && (retry.status === "pending" || retry.status === "processing"))}
+                    onJumpToShot={onJumpToShot} onCancel={onCancel} onRetry={onRetry} isRetrying={retryingTaskIds?.has(task.id)} />
             </li>)}</ul> : <EmptyState title={t(empty)} className={styles.empty} />,
         }))} />
     </>;
@@ -93,11 +95,13 @@ export default function TaskQueuePanel({ open, onClose, tasks, refreshing, refre
     </motion.aside>}</AnimatePresence>;
 }
 
-function TaskRow({ task, shotLabel, onJumpToShot, onCancel, onRetry }: {
+function TaskRow({ task, shotLabel, onJumpToShot, onCancel, onRetry, isRetrying, hasActiveRetry }: {
     task: VideoTask; shotLabel: string;
     onJumpToShot: TaskQueuePanelProps["onJumpToShot"];
     onCancel?: TaskQueuePanelProps["onCancel"];
     onRetry?: TaskQueuePanelProps["onRetry"];
+    isRetrying?: boolean;
+    hasActiveRetry?: boolean;
 }) {
     const t = useTranslations("storyboardR2V");
     const locale = useLocale();
@@ -175,7 +179,7 @@ function TaskRow({ task, shotLabel, onJumpToShot, onCancel, onRetry }: {
         <div className={styles.actions}>
             {expanded && <Button variant="quiet" onPress={() => { void copy("diagnose", diagnose); }}><Copy size={14} />{t("queueCopyDiagnoseShort")}</Button>}
             {inFlight && onCancel && <Button variant="secondary" aria-label={t("queueCancel")} isPending={pending} isDisabled={pending} onPress={() => { void run(onCancel); }}>{pending ? t("queueCanceling") : t("queueCancel")}</Button>}
-            {task.status === "failed" && onRetry && <Button variant="secondary" aria-label={t("retry")} isPending={pending} isDisabled={pending} onPress={() => { void run(onRetry); }}>{!pending && <RefreshCw size={14} />}{pending ? t("queueRetrying") : t("retry")}</Button>}
+            {task.status === "failed" && onRetry && <Button variant="secondary" aria-label={t(hasActiveRetry ? "retryInProgress" : "retry")} isPending={pending || isRetrying} isDisabled={pending || isRetrying || hasActiveRetry} onPress={() => { void run(onRetry); }}>{!pending && !isRetrying && !hasActiveRetry && <RefreshCw size={14} />}{t(pending || isRetrying ? "queueRetrying" : hasActiveRetry ? "retryInProgress" : "retry")}</Button>}
         </div>
     </article>;
 }
