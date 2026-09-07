@@ -120,8 +120,9 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", async importOriginal => 
 
 vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", async importOriginal => ({
     ...await importOriginal<typeof import("@/components/modules/storyboard-r2v/DialogueAudioRow")>(),
-    default: ({ frameId, voiceId, generationStatus, onUpdateDialogue, onAudioUpdated }: { frameId: string; voiceId?: string; generationStatus?: string; onUpdateDialogue: (text: string) => Promise<void>; onAudioUpdated: (result: unknown) => void }) => <>
+    default: ({ frameId, voiceId, generationStatus, dubGenerationStatus, onUpdateDialogue, onAudioUpdated }: { frameId: string; voiceId?: string; generationStatus?: string; dubGenerationStatus?: string; onUpdateDialogue: (text: string) => Promise<void>; onAudioUpdated: (result: unknown) => void }) => <>
         <output aria-label="dialogue voice">{voiceId}</output><output aria-label="audio state">{generationStatus}</output>
+        <output aria-label="dub state">{dubGenerationStatus}</output>
         <button onClick={() => { void onUpdateDialogue("Saved dialogue").catch(candidateError); }}>save dialogue</button>
         <button onClick={() => onAudioUpdated({ frames: [{ id: frameId, action_description: "Stale prompt", dialogue: "Stale dialogue", audio_url: "new-audio.mp3", dialogue_snapshot_text: "Saved dialogue", audio_generation_status: "completed" }] })}>audio completed</button>
     </>,
@@ -157,6 +158,25 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("recovers a persisted dub preview without replacing current audio or text", async () => {
+        vi.useFakeTimers();
+        const frame = { id: "dub-reload", action_description: "New writing", dialogue: "Current dialogue", audio_url: "current.wav", dub_generation_status: "processing", dub_generation_id: "new-dub" };
+        const project = { ...useProjectStore.getState().currentProject!, frames: [frame] };
+        const auth = useAuthStore.getState();
+        const key = JSON.stringify([auth.user?.id, auth.activeWorkspace?.id, project.id, frame.id]);
+        useProjectStore.setState({ currentProject: project });
+        useDialogueAudioRequests.setState({ [key]: { recovering: true, recoveryKind: "dub", previousGenerationId: "old-dub" } });
+        getProject.mockResolvedValue({ ...project, frames: [{ ...frame, audio_url: "stale.wav", action_description: "Old writing", dub_generation_status: "completed", preview_video_url: "preview.mp4", preview_audio_url: "current.wav" }] });
+        const view = render(<StoryboardR2V />);
+        try {
+            await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+            expect(screen.getByLabelText("dub state")).toHaveTextContent("completed");
+            expect(useProjectStore.getState().currentProject!.frames[0]).toMatchObject({ audio_url: "current.wav", action_description: "New writing", preview_video_url: "preview.mp4" });
+            await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+            expect(getProject).toHaveBeenCalledOnce();
+        } finally { view.unmount(); useDialogueAudioRequests.setState({}, true); vi.useRealTimers(); }
+    });
+
     it("uses the explicit speaker and merges audio without replacing dialogue or other edits", async () => {
         useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!,
             characters: [{ id: "silent", name: "Silent" }, { id: "speaker", name: "Speaker", voice_id: "speaker-voice" }],

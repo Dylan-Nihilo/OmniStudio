@@ -12,6 +12,31 @@ const props = { scriptId: 'dialogue-project', frameId: 'dialogue-frame', dialogu
 describe('Dialogue audio workbench', () => {
     beforeEach(() => { generate.mockReset(); });
 
+    it('recognizes renewed OSS signatures while retaining media version checks', () => {
+        const current = 'https://media.example.test/voice.mp3?OSSAccessKeyId=test&Expires=20&Signature=new&version=1';
+        const dub = { ...props, frameId: 'dub-signed', audioUrl: current, videoUrl: 'take.mp4', videoTaskId: 'take', previewVideoUrl: 'preview.mp4', previewAudioUrl: current.replace('20', '10').replace('new', 'old'), previewSourceVideoUrl: 'take.mp4', previewVideoTaskId: 'take', previewOffsetMs: 0, onPreviewDub: vi.fn(), onApplyDub: vi.fn() };
+        const view = render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        expect(screen.getByRole('button', { name: 'applyOverride' })).toBeEnabled();
+        view.rerender(<DialogueAudioRow {...dub} audioUrl={current.replace('version=1', 'version=2')} />);
+        expect(screen.getByRole('button', { name: 'applyOverride' })).toBeDisabled();
+    });
+
+    it('invalidates a preview after audio replacement and supports earlier audio offsets', async () => {
+        const dub = { ...props, frameId: 'dub-source', videoUrl: 'take.mp4', videoTaskId: 'take', previewVideoUrl: 'preview.mp4', previewAudioUrl: 'old.mp3', previewSourceVideoUrl: 'take.mp4', previewVideoTaskId: 'take', previewOffsetMs: 0, onPreviewDub: vi.fn(), onApplyDub: vi.fn() };
+        const view = render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const apply = screen.getByRole('button', { name: 'applyOverride' });
+        expect(apply).toBeEnabled();
+        view.rerender(<DialogueAudioRow {...dub} audioUrl="replacement.mp3" />);
+        expect(apply).toBeDisabled();
+        const video = screen.getByRole('dialog').querySelector('video')!;
+        Object.defineProperty(video, 'duration', { value: 1 });
+        fireEvent.loadedMetadata(video);
+        fireEvent.click(screen.getByRole('button', { name: 'earlier' }));
+        expect(screen.getByRole('textbox', { name: 'audioPosition (ms)' })).toHaveValue('-50');
+    });
+
     it.each([false, true])('accepts null project audio fields (empty dialogue: %s)', async empty => {
         generate.mockResolvedValueOnce({ frames: [{ id: 'default-delivery-false', audio_url: 'new.mp3' }] });
         render(<DialogueAudioRow {...props} frameId={`default-delivery-${empty}`} dialogue={empty ? null : props.dialogue} audioUrl={empty ? undefined : props.audioUrl} snapshotInstructions={null} />);

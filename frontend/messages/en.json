@@ -92,6 +92,7 @@
     "previewTextDefault": "Hi, this is a voice preview. Something interesting happened today — let me tell you all about it."
   },
   "dialogueAudio": {
+    "checkingPreview": "Checking dub preview status…",
     "checking": "Checking audio generation status…",
     "statusUnavailable": "Unable to read the generation status. Your previous audio is kept; reconnect to check the result.",
     "refreshStatus": "Refresh status",

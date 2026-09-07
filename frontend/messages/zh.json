@@ -92,6 +92,7 @@
     "previewTextDefault": "你好，这是音色试听。今天遇到件有趣的事，让我慢慢说给你听。"
   },
   "dialogueAudio": {
+    "checkingPreview": "正在确认配音预听状态…",
     "checking": "正在确认语音生成状态…",
     "statusUnavailable": "暂时无法读取生成状态，原音频已保留，连接恢复后将继续查询。",
     "refreshStatus": "刷新状态",

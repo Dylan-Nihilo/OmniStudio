@@ -44,7 +44,7 @@ import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationB
 const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string; recovering?: boolean; previousGenerationId?: string }>>>(() => ({}));
 const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
 const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash"] as const;
-const dubFields = ["preview_video_url", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
+const dubFields = ["preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
 
@@ -1200,19 +1200,26 @@ function StoryboardWorkbench() {
                     const before = projectAtStart?.frames.find(before => before.id === frame.id);
                     const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
                     let next = frame;
-                    if (before?.audio_generation_status === "processing" || audioAtStart[key]?.operation === "generate" || audioAtStart[key]?.recovering) {
-                        if (audioAtStart[key] !== useDialogueAudioRequests.getState()[key] || audioFields.some(field => before?.[field] !== frame[field])) {
+                    for (const kind of ["audio", "dub"] as const) {
+                        const fields = kind === "audio" ? audioFields : dubFields;
+                        const statusField = `${kind}_generation_status` as const;
+                        const generationField = `${kind}_generation_id` as const;
+                        const errorField = kind === "audio" ? "audio_error" : "dub_error";
+                        const request = audioAtStart[key];
+                        const recovering = request?.recovering && (request.recoveryKind ?? "audio") === kind;
+                        if (before?.[statusField] !== "processing" && request?.operation !== (kind === "audio" ? "generate" : "preview") && !recovering) continue;
+                        if (audioAtStart[key] !== useDialogueAudioRequests.getState()[key] || fields.some(field => before?.[field] !== frame[field])) {
                             selectionReadNeeded = true;
                         } else if (!saved) {
                             useDialogueAudioRequests.setState({ [key]: { instructions: audioAtStart[key]?.instructions } });
-                            next = { ...next, audio_generation_status: "failed", audio_error: missingFirstFrameMessage };
+                            next = { ...next, [statusField]: "failed", [errorField]: missingFirstFrameMessage };
                         } else {
-                            next = { ...next, ...Object.fromEntries(audioFields.map(field => [field, saved[field]])) };
-                            if (audioAtStart[key]?.recovering) {
+                            next = { ...next, ...Object.fromEntries(fields.map(field => [field, saved[field]])) };
+                            if (recovering) {
                                 useDialogueAudioRequests.setState(state => {
                                     const requests = { ...state };
-                                    if (saved.audio_generation_id && saved.audio_generation_id !== audioAtStart[key]?.previousGenerationId) {
-                                        if (saved.audio_generation_status === "failed") requests[key] = { instructions: audioAtStart[key]?.instructions };
+                                    if (saved[generationField] && saved[generationField] !== audioAtStart[key]?.previousGenerationId) {
+                                        if (saved[statusField] === "failed") requests[key] = { instructions: audioAtStart[key]?.instructions };
                                         else delete requests[key];
                                     }
                                     else requests[key] = { ...audioAtStart[key], recovering: false };
@@ -1279,14 +1286,14 @@ function StoryboardWorkbench() {
     });
     const hasPendingImages = currentProject?.frames.some(frame => frame.image_generation_status === "processing")
         || shots.some(shot => firstFrameRequests[firstFrameKey(shot.id)]?.pending);
-    const hasPendingAudio = currentProject?.frames.some(frame => frame.audio_generation_status === "processing")
-        || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
+    const hasPendingDialogueMedia = currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing")
+        || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.operation === "preview" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
     useEffect(() => {
-        if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingAudio && !taskRefreshNeeded) return;
+        if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingDialogueMedia && !taskRefreshNeeded) return;
         // Editing a shot must not postpone task updates. Slow reads share one request.
         const timer = window.setInterval(() => { void refreshProject(); }, 5000);
         return () => window.clearInterval(timer);
-    }, [hasPendingVideoTasks, hasPendingImages, hasPendingAudio, taskRefreshNeeded, refreshProject]);
+    }, [hasPendingVideoTasks, hasPendingImages, hasPendingDialogueMedia, taskRefreshNeeded, refreshProject]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1861,6 +1868,14 @@ function StoryboardWorkbench() {
                                                 (t: any) => t.frame_id === frame.id && t.status === "completed"
                                             )?.id}
                                         previewVideoUrl={frame.preview_video_url}
+                                        previewAudioUrl={frame.preview_audio_url}
+                                        previewVideoTaskId={frame.preview_video_task_id}
+                                        previewSourceVideoUrl={frame.preview_source_video_url}
+                                        previewOffsetMs={frame.preview_offset_ms}
+                                        dubGenerationStatus={frame.dub_generation_status}
+                                        dubGenerationId={frame.dub_generation_id}
+                                        dubError={frame.dub_error}
+                                        dubbedVideoTaskId={frame.dubbed_video_task_id}
                                         dubbedVideoUrl={frame.dubbed_video_url}
                                         dubOffsetMs={frame.dub_offset_ms ?? 0}
                                         onPreviewDub={async (videoTaskId: string, offsetMs: number) => {

@@ -32,7 +32,15 @@ interface DialogueAudioRowProps {
     videoUrl?: string;
     videoTaskId?: string;
     previewVideoUrl?: string;
+    previewAudioUrl?: string;
+    previewVideoTaskId?: string;
+    previewSourceVideoUrl?: string;
+    previewOffsetMs?: number | null;
+    dubGenerationStatus?: string;
+    dubGenerationId?: string;
+    dubError?: string | null;
     dubbedVideoUrl?: string;
+    dubbedVideoTaskId?: string;
     dubOffsetMs?: number;
     onPreviewDub?: (videoTaskId: string, offsetMs: number) => Promise<void>;
     onApplyDub?: () => Promise<void>;
@@ -40,9 +48,20 @@ interface DialogueAudioRowProps {
 }
 
 const EMOTIONS = ["neutral", "happy", "sad", "angry", "surprised", "calm", "gentle", "serious"];
+function mediaIdentity(value?: string) {
+    if (!value) return value;
+    try {
+        const url = new URL(value);
+        // OSS display signatures expire; other query parameters can identify a media version.
+        if (url.searchParams.has("OSSAccessKeyId") && url.searchParams.has("Signature")) {
+            for (const key of ["OSSAccessKeyId", "Signature", "Expires", "security-token"]) url.searchParams.delete(key);
+        }
+        return url.href;
+    } catch { return value; }
+}
 type Operation = "generate" | "save" | "preview" | "apply" | "revert";
 // Live operations outlive their dialog; persisted audio state is read by the workbench.
-export const useDialogueAudioRequests = create<Partial<Record<string, { operation?: Operation; error?: string; recovering?: boolean; previousGenerationId?: string; instructions?: string }>>>(() => ({}));
+export const useDialogueAudioRequests = create<Partial<Record<string, { operation?: Operation; error?: string; recovering?: boolean; recoveryKind?: "audio" | "dub"; previousGenerationId?: string; instructions?: string }>>>(() => ({}));
 
 export default function DialogueAudioRow(props: DialogueAudioRowProps) {
     const userId = useAuthStore(state => state.user?.id);
@@ -53,7 +72,8 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
 
 function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDialogue, voiceId, audioUrl, audioError, generationStatus, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, onAudioUpdated, onUpdateDialogue, onDraftChange,
-    videoUrl, videoTaskId, previewVideoUrl, dubbedVideoUrl, dubOffsetMs = 0, onPreviewDub, onApplyDub, onRevertDub, scope,
+    videoUrl, videoTaskId, previewVideoUrl, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
+    dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, onPreviewDub, onApplyDub, onRevertDub, scope,
 }: DialogueAudioRowProps & { scope: string }) {
     const t = useTranslations("dialogueAudio");
     const dialogue = savedDialogue ?? "";
@@ -69,7 +89,8 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
     }, [request?.instructions, snapshotInstructions]);
     const [emotion, setEmotion] = useState(parsedInstructions[0]);
     const [freeText, setFreeText] = useState(parsedInstructions[1]);
-    const [offset, setOffset] = useState(dubOffsetMs);
+    const savedOffset = previewVideoUrl ? previewOffsetMs ?? 0 : dubOffsetMs;
+    const [offset, setOffset] = useState(savedOffset);
     const [duration, setDuration] = useState(0);
     const [videoLoading, setVideoLoading] = useState(true);
     const [videoError, setVideoError] = useState(false);
@@ -79,15 +100,16 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const playRequest = useRef(0);
-    const busy = !!request?.operation || !!request?.recovering || generationStatus === "processing";
-    const generating = request?.operation === "generate" || request?.recovering || generationStatus === "processing";
+    const previewing = request?.operation === "preview" || (request?.recovering && request.recoveryKind === "dub") || dubGenerationStatus === "processing";
+    const busy = !!request?.operation || !!request?.recovering || generationStatus === "processing" || !!previewing;
+    const generating = request?.operation === "generate" || request?.recovering || generationStatus === "processing" || previewing;
     const instructions = [emotion, freeText.trim()].filter(Boolean).join("; ");
     const dirty = draft !== dialogue;
     const stale = !!audioUrl && (snapshotDialogue !== draft || snapshotVoiceId !== voiceId || snapshotInstructions !== instructions);
-    const error = request?.error || audioError;
-    const displayVideo = previewVideoUrl || dubbedVideoUrl || videoUrl;
+    const error = request?.error || dubError || audioError;
+    const displayVideo = (previewVideoTaskId === videoTaskId && previewVideoUrl) || (dubbedVideoTaskId === videoTaskId && dubbedVideoUrl) || videoUrl;
     const canDub = !!(audioUrl && videoUrl && videoTaskId && onPreviewDub);
-    const previewChanged = offset !== dubOffsetMs || stale;
+    const previewChanged = offset !== previewOffsetMs || stale || mediaIdentity(previewAudioUrl) !== mediaIdentity(audioUrl) || previewVideoTaskId !== videoTaskId || mediaIdentity(previewSourceVideoUrl) !== mediaIdentity(videoUrl);
     const status = generating ? "generating" : error ? "error" : stale ? "stale" : audioUrl ? "ready" : "empty";
     const changeInstructions = (nextEmotion: string, nextText: string) => {
         setEmotion(nextEmotion); setFreeText(nextText);
@@ -99,7 +121,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
         setDraft(current => current === previous ? dialogue : current);
         previousDialogue.current = dialogue;
     }, [dialogue]);
-    useEffect(() => { if (!open) { setEmotion(parsedInstructions[0]); setFreeText(parsedInstructions[1]); setOffset(dubOffsetMs); } }, [open, parsedInstructions, dubOffsetMs]);
+    useEffect(() => { if (!open) { setEmotion(parsedInstructions[0]); setFreeText(parsedInstructions[1]); setOffset(savedOffset); } }, [open, parsedInstructions, savedOffset]);
     useEffect(() => { setDuration(0); setVideoLoading(true); setVideoError(false); }, [displayVideo]);
 
     const bindAudio = useCallback((node: HTMLAudioElement | null) => {
@@ -119,7 +141,10 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
 
     async function run(operation: Operation, action: () => Promise<void>) {
         if (useDialogueAudioRequests.getState()[scope]?.operation || busy) return;
-        useDialogueAudioRequests.setState({ [scope]: { operation, previousGenerationId: generationId, instructions } });
+        stopPlayback();
+        const previousGenerationId = operation === "preview" ? dubGenerationId : generationId;
+        const recoveryKind = operation === "preview" ? "dub" : "audio";
+        useDialogueAudioRequests.setState({ [scope]: { operation, recoveryKind, previousGenerationId, instructions } });
         try {
             await action();
             useDialogueAudioRequests.setState(state => {
@@ -129,8 +154,8 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
                 return next;
             }, true);
         } catch (failure: any) {
-            const recovering = operation === "generate" && ((!failure?.response && (failure?.isAxiosError || failure?.code)) || failure?.response?.status === 409 || failure?.response?.status >= 500);
-            useDialogueAudioRequests.setState({ [scope]: { instructions, recovering: !!recovering, previousGenerationId: generationId, error: String(failure?.response?.data?.detail || failure?.message || t("generateFailed")) } });
+            const recovering = (operation === "generate" || operation === "preview") && ((!failure?.response && (failure?.isAxiosError || failure?.code)) || failure?.response?.status === 409 || failure?.response?.status >= 500);
+            useDialogueAudioRequests.setState({ [scope]: { instructions, recovering: !!recovering, recoveryKind, previousGenerationId, error: String(failure?.response?.data?.detail || failure?.message || t("generateFailed")) } });
         }
     }
     async function saveDialogue() {
@@ -165,7 +190,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
         catch { if (id === playRequest.current) setPlayError(true); }
         finally { if (id === playRequest.current) setStarting(false); }
     }
-    const setPosition = (value: number) => setOffset(Math.max(0, Math.min(duration, Number.isFinite(value) ? Math.round(value) : 0)));
+    const setPosition = (value: number) => setOffset(Math.max(-10000, Math.min(10000, Number.isFinite(value) ? Math.round(value) : 0)));
 
     return <>
         <Button variant="quiet" className="h-auto w-full whitespace-normal rounded-lg border border-glass-border px-3 py-3 text-left" onPress={() => setOpen(true)}>
@@ -223,7 +248,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
                         <TextField label={`${t("audioPosition")} (ms)`} value={String(offset)} onChange={value => setPosition(Number(value))} inputMode="numeric" isDisabled={busy || !duration} className="min-w-0 flex-1" />
                         <IconButton variant="secondary" aria-label={t("later")} isDisabled={busy || !duration} onPress={() => setPosition(offset + 50)}><ChevronRight size={16} /></IconButton>
                     </div>
-                    <Slider value={offset} minValue={0} maxValue={duration || 1} step={50} onChange={value => setPosition(typeof value === "number" ? value : value[0])} isDisabled={busy || !duration}>
+                    <Slider value={offset} minValue={-10000} maxValue={10000} step={50} onChange={value => setPosition(typeof value === "number" ? value : value[0])} isDisabled={busy || !duration}>
                         <Label>{t("audioPosition")}</Label><Slider.Track><Slider.Fill /><Slider.Thumb /></Slider.Track>
                     </Slider>
                     <div className="flex flex-wrap gap-2">
@@ -236,7 +261,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
                     </div>
                     {previewVideoUrl && <p className="text-xs text-text-secondary">{t(previewChanged ? "previewChanged" : "previewHintBody")}</p>}
                 </section>}
-                {busy && <LoadingState inline label={t(request?.recovering ? "checking" : generating ? "state.generating" : request?.operation === "preview" ? "generatingPreview" : "saving")} />}
+                {busy && <LoadingState inline label={t(request?.recovering ? (request.recoveryKind === "dub" ? "checkingPreview" : "checking") : previewing ? "generatingPreview" : generating ? "state.generating" : "saving")} />}
                 {generating && refreshFailed && <div className="space-y-2"><p role="alert" className="text-status-failed-fg">{t("statusUnavailable")}</p>
                     <Button variant="secondary" isPending={refreshing} onPress={onRefresh}>{t("refreshStatus")}</Button></div>}
                 {error && <p role="alert" className="break-words text-status-failed-fg">{error}</p>}
