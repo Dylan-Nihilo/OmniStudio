@@ -1916,16 +1916,13 @@ function StoryboardWorkbench() {
             onCancel={handleCancelTask}
             onRetry={handleRetryTask}
         />
-        {/* Compare modal — portaled to body to escape clipped/transformed
-            ancestors. Shows once user has shift-selected ≥2 and clicked
-            the floating Compare button in any CandidatesSection. */}
-        {compareModalOpen && compareTasks.length >= 2 ? (
-            <CompareModal
-                tasks={compareTasks}
-                onClose={() => setCompareModalOpen(false)}
-                resolveUrl={resolveAssetUrl}
-            />
-        ) : null}
+        {/* Keep the shared dialog mounted for its closing transition. */}
+        <CompareModal
+            isOpen={compareModalOpen && compareTasks.length >= 2}
+            tasks={compareTasks}
+            onClose={() => setCompareModalOpen(false)}
+            resolveUrl={resolveAssetUrl}
+        />
         {/* LLM-generate frames dialog */}
         <StoryboardGenerateDialog
             isOpen={genDialogOpen}
