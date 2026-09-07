@@ -3831,9 +3831,13 @@ def preview_dub(script_id: str, frame_id: str, request: DubPreviewRequest):
             offset_ms=request.offset_ms,
         )
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except RuntimeError as e:
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3843,8 +3847,14 @@ def apply_dub(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.apply_dub(script_id, frame_id)
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/projects/{script_id}/frames/{frame_id}/dub")
@@ -3853,8 +3863,14 @@ def revert_frame_dub(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.revert_dub(script_id, frame_id)
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/projects/{script_id}/dialogue_audio/batch")

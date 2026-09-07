@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
+import subprocess
+import wave
 from unittest.mock import patch
 
 import pytest
@@ -96,6 +99,166 @@ def _create_series(client, title: str = "系列项目") -> dict:
     return response.json()
 
 
+@pytest.fixture
+def dub_project(api_client):
+    from src.apps.comic_gen.audio import _compute_dialogue_hash
+    from src.apps.comic_gen.models import Character
+    from src.utils.system_check import get_ffmpeg_path
+
+    project = _create_project(api_client, "Local dubbing")
+    route = f"/projects/{project['id']}"
+    frame = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original"}).json()["frames"][0]
+    video = Path("output/video/source.mp4")
+    video.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([get_ffmpeg_path(), "-v", "error", "-f", "lavfi", "-i", "color=c=navy:s=160x90:r=10", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)], check=True, capture_output=True)
+    audio = Path("output/audio/voice.wav")
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(audio), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(b"\x10\x00" * 8000)
+    shutil.copyfile(video, video.parent / "old-dub.mp4")
+    script = api_module.pipeline.scripts[project["id"]]
+    script.characters = [Character(id="speaker", name="Speaker", description="", voice_id="voice")]
+    script.frames[0].character_ids = ["speaker"]
+    script.frames[0].dialogue = "Current dialogue"
+    script.frames[0].dialogue_voice_id = "voice"
+    script.frames[0].dialogue_snapshot_text = "Current dialogue"
+    script.frames[0].dialogue_text_hash = _compute_dialogue_hash("Current dialogue", "voice", None)
+    script.frames[0].audio_url = "audio/voice.wav"
+    script.frames[0].selected_video_id = "take"
+    script.frames[0].dubbed_video_url = "video/old-dub.mp4"
+    script.frames[0].dubbed_video_task_id = "take"
+    script.video_tasks = [VideoTask(id="take", project_id=project["id"], frame_id=frame["id"], image_url="", prompt="Local video", status="completed", video_url="video/source.mp4", model="wan2.7-r2v")]
+    api_module.pipeline._save_data()
+    return route, frame["id"]
+
+
+@pytest.mark.parametrize("cached_background", [False, True])
+def test_dub_preview_survives_project_reads_and_keeps_media_through_apply_and_revert(api_client, dub_project, cached_background):
+    from src.utils.system_check import get_ffprobe_path
+
+    route, fid = dub_project
+    if cached_background:
+        frame = api_module.pipeline.scripts[route.split('/')[-1]].frames[0]
+        frame.bg_audio_url = "audio/voice.wav"
+        frame.bg_audio_source_video = "video/source.mp4"
+        api_module.pipeline._save_data()
+    original_run = subprocess.run
+    def render_with_read(command, **kwargs):
+        result = original_run(command, **kwargs)
+        if str(command[-1]).endswith(".mp4") and "preview_" in str(command[-1]):
+            assert api_client.get(route).json()["frames"][0]["dub_generation_status"] == "processing"
+            assert api_client.post(route + f"/frames/{fid}/dub/preview", json={"video_task_id": "take"}).status_code == 409
+            assert api_client.post(route + f"/frames/{fid}/dub/apply").status_code == 409
+            api_client.post(route + "/frames/update", json={"frame_id": fid, "action_description": "Edited during preview"})
+        return result
+
+    with patch("src.apps.comic_gen.pipeline.subprocess.run", side_effect=render_with_read):
+        response = api_client.post(route + f"/frames/{fid}/dub/preview", json={"video_task_id": "take", "offset_ms": 150})
+    assert response.status_code == 200, response.text
+    preview_url = response.json()["frames"][0]["preview_video_url"]
+    assert preview_url
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    frame = api_client.get(route).json()["frames"][0]
+    assert frame["preview_video_url"] == preview_url
+    assert frame["action_description"] == "Edited during preview"
+    assert frame["preview_audio_url"] == "audio/voice.wav"
+    assert frame["preview_video_task_id"] == "take"
+    assert frame["dubbed_video_task_id"] == "take"
+    probe = original_run([get_ffprobe_path(), "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(Path("output", preview_url))], capture_output=True, text=True, check=True)
+    assert {"audio", "video"} <= set(probe.stdout.split())
+    applied = api_client.post(route + f"/frames/{fid}/dub/apply")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["frames"][0]["dubbed_video_url"] == preview_url
+    assert Path("output/video/old-dub.mp4").exists()
+    reverted = api_client.delete(route + f"/frames/{fid}/dub")
+    assert reverted.status_code == 200, reverted.text
+    assert reverted.json()["frames"][0]["dubbed_video_url"] is None
+    assert Path("output", preview_url).exists()
+
+
+@pytest.mark.parametrize("operation", ["preview", "apply", "revert"])
+def test_dub_storage_failure_keeps_selection_and_files_and_can_retry(api_client, dub_project, operation):
+    route, fid = dub_project
+    dub = route + f"/frames/{fid}/dub"
+    assert api_client.post(dub + "/preview", json={"video_task_id": "take"}).status_code == 200
+    previous = api_client.get(route).json()["frames"][0]
+    save = api_module.pipeline._save_data
+    failed = False
+    def fail_once():
+        nonlocal failed
+        frame = api_module.pipeline.scripts[route.split('/')[-1]].frames[0]
+        if not failed and (operation != "preview" or frame.preview_video_url != previous["preview_video_url"]):
+            failed = True
+            raise StorageError("Dub storage unavailable")
+        save()
+    def send():
+        if operation == "revert":
+            return api_client.delete(dub)
+        return api_client.post(dub + "/" + operation, json={"video_task_id": "take", "offset_ms": 250} if operation == "preview" else None)
+    with patch.object(api_module.pipeline, "_save_data", side_effect=fail_once):
+        response = send()
+    assert failed and response.status_code == 500, response.text
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    restored = api_client.get(route).json()["frames"][0]
+    for field in ("preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"):
+        assert restored[field] == previous[field], field
+    assert Path("output", previous["preview_video_url"]).exists()
+    assert Path("output", previous["dubbed_video_url"]).exists()
+    retry = send()
+    assert retry.status_code == 200, retry.text
+
+
+@pytest.mark.parametrize("changed", ["audio", "video", "selection"])
+def test_dub_rejects_a_preview_whose_source_changed(api_client, dub_project, changed):
+    route, fid = dub_project
+    dub = route + f"/frames/{fid}/dub"
+    assert api_client.post(dub + "/preview", json={"video_task_id": "take"}).status_code == 200
+    script = api_module.pipeline.scripts[route.split('/')[-1]]
+    if changed == "audio":
+        shutil.copyfile("output/audio/voice.wav", "output/audio/new-voice.wav")
+        script.frames[0].audio_url = "audio/new-voice.wav"
+    elif changed == "video":
+        shutil.copyfile("output/video/source.mp4", "output/video/new-source.mp4")
+        script.video_tasks[0].video_url = "video/new-source.mp4"
+    else:
+        script.frames[0].selected_video_id = "different-take"
+    api_module.pipeline._save_data()
+    response = api_client.post(dub + "/apply")
+    assert response.status_code == 400, response.text
+    assert "preview" in response.json()["detail"].lower()
+    assert api_client.get(route).json()["frames"][0]["dubbed_video_url"] == "video/old-dub.mp4"
+
+
+@pytest.mark.parametrize("outcome", ["failed", "deleted", "wrong-frame"])
+def test_dub_preview_failure_keeps_existing_media(api_client, dub_project, outcome):
+    route, fid = dub_project
+    dub = route + f"/frames/{fid}/dub"
+    first = api_client.post(dub + "/preview", json={"video_task_id": "take"}).json()["frames"][0]
+    original_run = subprocess.run
+    def fail_render(command, **kwargs):
+        if str(command[-1]).endswith(".mp4") and "preview_" in str(command[-1]):
+            if outcome == "failed":
+                Path(command[-1]).write_bytes(b"partial")
+                raise subprocess.CalledProcessError(1, command, stderr=b"Controlled mux failure")
+            api_client.delete(route + f"/frames/{fid}")
+        return original_run(command, **kwargs)
+    if outcome == "wrong-frame":
+        api_module.pipeline.scripts[route.split('/')[-1]].video_tasks[0].frame_id = "different-frame"
+        api_module.pipeline._save_data()
+    with patch("src.apps.comic_gen.pipeline.subprocess.run", side_effect=fail_render):
+        response = api_client.post(dub + "/preview", json={"video_task_id": "take"})
+    assert response.status_code == {"failed": 500, "deleted": 404, "wrong-frame": 400}[outcome], response.text
+    restored = api_client.get(route).json()["frames"]
+    if outcome == "deleted":
+        assert restored == []
+    else:
+        assert restored[0]["preview_video_url"] == first["preview_video_url"]
+        assert restored[0]["dubbed_video_url"] == "video/old-dub.mp4"
+    assert Path("output", first["preview_video_url"]).exists()
+    assert Path("output/video/old-dub.mp4").exists()
+
+
 @pytest.mark.parametrize("outcome", ["completed", "provider-error", "deleted"])
 def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history(api_client, outcome):
     from src.apps.comic_gen.storyboard import StoryboardGenerator
@@ -173,6 +336,8 @@ def test_first_frame_restart_recovery_does_not_treat_audio_processing_as_image_g
     frames[2].audio_generation_status = "processing"
     frames[2].audio_generation_id = "interrupted-dialogue"
     frames[2].audio_url = "previous.mp3"
+    frames[2].dub_generation_status = "processing"
+    frames[2].preview_video_url = "video/previous-preview.mp4"
     api_module.pipeline._save_data()
     api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
     api_module.pipeline._recover_orphan_tasks()
@@ -185,6 +350,9 @@ def test_first_frame_restart_recovery_does_not_treat_audio_processing_as_image_g
     assert restored[2]["audio_generation_status"] == "failed"
     assert "restarted" in restored[2]["audio_error"]
     assert restored[2]["audio_url"] == "previous.mp3"
+    assert restored[2]["dub_generation_status"] == "failed"
+    assert "restarted" in restored[2]["dub_error"]
+    assert restored[2]["preview_video_url"] == "video/previous-preview.mp4"
 
 
 def test_first_frame_upload_reports_storage_failure_and_can_retry(api_client):

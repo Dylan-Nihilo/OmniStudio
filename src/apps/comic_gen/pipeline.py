@@ -357,6 +357,10 @@ class ComicGenPipeline:
                     frame.audio_generation_status = GenerationStatus.FAILED
                     frame.audio_error = frame.audio_error or self._ORPHAN_RECOVERY_REASON
                     recovered += 1
+                if frame.dub_generation_status in STUCK:
+                    frame.dub_generation_status = GenerationStatus.FAILED
+                    frame.dub_error = frame.dub_error or self._ORPHAN_RECOVERY_REASON
+                    recovered += 1
             tasks = getattr(script, "video_tasks", None) or []
             for task in tasks:
                 if getattr(task, "status", None) in STUCK:
@@ -2917,7 +2921,7 @@ class ComicGenPipeline:
         """Ensure background audio is separated and cached for this frame's video.
 
         Returns absolute path to bg audio WAV, or None if video has no audio.
-        Caches result to output/audio/bg_{frame_id}.wav — only re-runs Demucs
+        Caches result to a unique output/audio/bg_*.wav file — only re-runs Demucs
         if video source changed.
         """
         if frame.bg_audio_url and frame.bg_audio_source_video == video_url:
@@ -2936,7 +2940,7 @@ class ComicGenPipeline:
                 frame.bg_audio_source_video = video_url
                 return None
 
-            cache_filename = f"bg_{frame.id}.wav"
+            cache_filename = f"bg_{frame.id}_{uuid.uuid4().hex}.wav"
             cache_path = _safe_resolve_path(os.path.join("output", "audio"), cache_filename)
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
             shutil.copy2(bg_path, cache_path)
@@ -2948,60 +2952,91 @@ class ComicGenPipeline:
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
+    def _save_dub_fields(self, frame: StoryboardFrame, **changes) -> None:
+        """Save a media selection atomically; callers hold the project save lock."""
+        previous = {field: getattr(frame, field) for field in changes}
+        for field, value in changes.items():
+            setattr(frame, field, value)
+        try:
+            self._save_data()
+        except Exception:
+            for field, value in previous.items():
+                setattr(frame, field, value)
+            raise
+
+    def _validate_dub_audio(self, script: Script, frame: StoryboardFrame) -> None:
+        from .audio import dialogue_audio_is_stale
+        if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+            raise GenerationInProgressError("Dialogue audio is still being generated")
+        resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
+        if not frame.audio_url or dialogue_audio_is_stale(frame, self._resolve_dialogue_speaker(resolved, frame)):
+            raise ValueError("Generate current dialogue audio before previewing or applying a dub")
+
     def preview_dub(self, script_id: str, frame_id: str, video_task_id: str, offset_ms: int = 0) -> "Script":
-        """Generate a preview dubbed video (Demucs cached + offset+amix+mux).
-
-        Replaces any existing preview_video_url (lazy cleanup).
-        Does NOT touch dubbed_video_url.
-        """
         _validate_safe_id(script_id, "script_id")
-        # Force a bounded numeric type so FFmpeg filter strings stay shell-safe.
         offset_ms = _validate_dub_offset_ms(offset_ms)
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if not frame:
+                raise LookupError("Frame not found")
+            self._validate_dub_audio(script, frame)
+            task = next((task for task in script.video_tasks if task.id == video_task_id), None)
+            if not task or task.frame_id != frame_id or task.status != "completed" or not task.video_url:
+                raise ValueError("Select a completed video belonging to this shot")
+            # ponytail: process-local claim; use a database claim for multiple workers.
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("A dub preview is already being generated")
+            generation_id = str(uuid.uuid4())
+            self._save_dub_fields(frame, dub_generation_status=GenerationStatus.PROCESSING, dub_generation_id=generation_id, dub_error=None)
+            source = frame.model_copy(deep=True)
+            video_url = task.video_url
+        try:
+            preview_url = self._render_dub_preview(source, video_url, offset_ms)
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if not target:
+                    raise LookupError("Frame not found")
+                task = next((task for task in current.video_tasks if task.id == video_task_id), None)
+                if target.dub_generation_id != generation_id or target.audio_url != source.audio_url or not task or task.frame_id != frame_id or task.status != "completed" or task.video_url != video_url:
+                    raise ValueError("The source media changed. Generate a new dub preview")
+                self._save_dub_fields(target, preview_video_url=preview_url, preview_audio_url=source.audio_url,
+                    preview_video_task_id=video_task_id, preview_source_video_url=video_url, preview_offset_ms=offset_ms,
+                    bg_audio_url=source.bg_audio_url, bg_audio_source_video=source.bg_audio_source_video,
+                    dub_generation_status=GenerationStatus.COMPLETED, dub_error=None)
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if target and target.dub_generation_id == generation_id:
+                    self._save_dub_fields(target, dub_generation_status=GenerationStatus.FAILED, dub_error=str(error))
+            raise
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-
-        if not frame.audio_url:
-            raise ValueError("Frame has no TTS audio (audio_url). Generate dialogue audio first.")
-
-        video_task = next((t for t in script.video_tasks if t.id == video_task_id), None)
-        if not video_task or not video_task.video_url:
-            raise ValueError(f"Video task {video_task_id} not found or has no video_url")
-
+    def _render_dub_preview(self, frame: StoryboardFrame, video_url: str, offset_ms: int) -> str:
+        """Render a unique file from a detached frame; publication happens after rendering."""
         ffmpeg_path = get_ffmpeg_path()
         if not ffmpeg_path:
             raise RuntimeError("FFmpeg is required for audio dubbing but was not found.")
 
-        video_path = self._resolve_media_path(video_task.video_url, suffix=".mp4")
+        video_path = self._resolve_media_path(video_url, suffix=".mp4")
         tts_path = self._resolve_media_path(frame.audio_url, suffix=".mp3")
 
         if not video_path or not os.path.exists(video_path):
-            raise ValueError(f"Video file not found: {video_task.video_url}")
+            raise ValueError(f"Video file not found: {video_url}")
         if not tts_path or not os.path.exists(tts_path):
             raise ValueError(f"Audio file not found: {frame.audio_url}")
         if os.path.getsize(tts_path) < 1000:
             raise ValueError("TTS audio file is invalid or empty. Please regenerate dialogue audio.")
 
-        # Delete old preview (lazy cleanup)
-        if frame.preview_video_url:
-            old_preview = _safe_resolve_path("output", frame.preview_video_url)
-            if os.path.exists(old_preview):
-                try:
-                    os.remove(old_preview)
-                except OSError:
-                    pass
-
         # frame.id comes from the store (== frame_id), keeping ffmpeg args taint-free.
-        output_filename = f"preview_{frame.id}_{int(time.time())}.mp4"
+        output_filename = f"preview_{frame.id}_{uuid.uuid4().hex}.mp4"
         output_path = _safe_resolve_path(os.path.join("output", "video"), output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         # Ensure background audio is cached (Demucs runs only on first call or video change)
-        bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_task.video_url)
+        bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_url)
 
         video_input_args = ["-i", video_path]
         if offset_ms < 0:
@@ -3086,7 +3121,14 @@ class ComicGenPipeline:
                 logger.info(f"[DUB] Simple replacement ({offset_note})")
                 subprocess.run(cmd, check=True, capture_output=True, timeout=120)
 
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
+            if os.path.exists(output_path):
+                try:
+                    os.unlink(output_path)
+                except OSError:
+                    logger.warning("Could not remove failed dub preview output")
+            if not isinstance(e, subprocess.CalledProcessError):
+                raise
             stderr_msg = e.stderr.decode() if e.stderr else "No error output"
             logger.error(f"[DUB] FFmpeg failed: {stderr_msg[:400]}")
             raise RuntimeError(f"Audio dubbing failed: {stderr_msg[:200]}")
@@ -3094,73 +3136,45 @@ class ComicGenPipeline:
             import shutil
             shutil.rmtree(work_dir, ignore_errors=True)
 
-        if not os.path.exists(output_path):
+        if not os.path.exists(output_path) or not os.path.getsize(output_path):
             raise RuntimeError("Preview video was not created")
 
-        frame.preview_video_url = f"video/{output_filename}"
-        frame.dubbed_video_task_id = video_task_id
-        frame.dub_offset_ms = offset_ms
-        self._save_data()
-
-        logger.info(f"[DUB] Preview generated: {output_filename}")
-        return script
+        return f"video/{output_filename}"
 
     def apply_dub(self, script_id: str, frame_id: str) -> "Script":
-        """Promote preview_video_url to dubbed_video_url."""
         _validate_safe_id(script_id, "script_id")
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-
-        if not frame.preview_video_url:
-            raise ValueError("No preview to apply. Generate a preview first.")
-
-        # Delete old dubbed file
-        if frame.dubbed_video_url:
-            old_path = _safe_resolve_path("output", frame.dubbed_video_url)
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except OSError:
-                    pass
-
-        frame.dubbed_video_url = frame.preview_video_url
-        frame.preview_video_url = None
-        self._save_data()
-
-        logger.info(f"[DUB] Applied: {frame.dubbed_video_url}")
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if not frame:
+                raise LookupError("Frame not found")
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Wait for the dub preview to finish")
+            self._validate_dub_audio(script, frame)
+            task = next((task for task in script.video_tasks if task.id == frame.preview_video_task_id), None)
+            if not frame.preview_video_url or not task or task.frame_id != frame_id or task.status != "completed" or frame.selected_video_id not in (None, task.id) or frame.preview_audio_url != frame.audio_url or frame.preview_source_video_url != task.video_url:
+                raise ValueError("The preview no longer matches the selected audio and video. Generate a new preview")
+            if not os.path.isfile(_safe_resolve_path("output", frame.preview_video_url)):
+                raise ValueError("The preview file is missing. Generate a new preview")
+            # ponytail: retain replaced files; cleanup needs reference-aware media GC.
+            self._save_dub_fields(frame, dubbed_video_url=frame.preview_video_url, dubbed_video_task_id=task.id,
+                dub_offset_ms=frame.preview_offset_ms or 0, preview_video_url=None, preview_audio_url=None,
+                preview_video_task_id=None, preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
+            return script
 
     def revert_dub(self, script_id: str, frame_id: str) -> "Script":
-        """Revert dubbing — clear dubbed and preview, keep bg cache."""
         _validate_safe_id(script_id, "script_id")
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-
-        for url_field in ("dubbed_video_url", "preview_video_url"):
-            url = getattr(frame, url_field)
-            if url:
-                path = _safe_resolve_path("output", url)
-                if os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
-                setattr(frame, url_field, None)
-
-        frame.dub_offset_ms = 0
-        frame.dubbed_video_task_id = None
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if not frame:
+                raise LookupError("Frame not found")
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Wait for the dub preview to finish")
+            self._save_dub_fields(frame, dubbed_video_url=None, dubbed_video_task_id=None, dub_offset_ms=0,
+                preview_video_url=None, preview_audio_url=None, preview_video_task_id=None,
+                preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
+            return script
 
     def precheck_merge(self, script_id: str) -> dict:
         """Check merge inputs and disk capacity before starting an export."""

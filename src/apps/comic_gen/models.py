@@ -432,6 +432,13 @@ class StoryboardFrame(BaseModel):
     bg_audio_url: Optional[str] = Field(None, description="Cached background audio (Demucs no_vocals) path")
     bg_audio_source_video: Optional[str] = Field(None, description="Video URL that bg_audio_url was separated from (cache key)")
     preview_video_url: Optional[str] = Field(None, description="Current preview dubbed video (temporary, not committed)")
+    preview_audio_url: Optional[str] = None
+    preview_video_task_id: Optional[str] = None
+    preview_source_video_url: Optional[str] = None
+    preview_offset_ms: Optional[int] = None
+    dub_generation_status: Optional[GenerationStatus] = None
+    dub_generation_id: Optional[str] = None
+    dub_error: Optional[str] = None
 
     selected_video_id: Optional[str] = Field(None, description="ID of the selected VideoTask for this frame")
     is_video_pinned: bool = Field(False, description="True when the user has manually pinned an active video take; auto_select_latest_video skips pinned frames so newly generated takes don't overwrite a hand-picked selection")
