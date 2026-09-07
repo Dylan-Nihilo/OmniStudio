@@ -474,6 +474,8 @@ def _workspace_for_resource_path(path: str, repository, source_repository=None) 
     if resource_type == "series":
         return repository.workspace_for_series(resource_id)
     if resource_type == "sources":
+        if resource_id == "import" and len(parts) >= 4 and parts[2] == "previews":
+            return source_repository.workspace_for_import_preview(parts[3]) if source_repository else None
         return source_repository.workspace_for_source(resource_id) if source_repository else None
     if resource_type == "episodes":
         return source_repository.workspace_for_episode(resource_id) if source_repository else None
@@ -608,13 +610,14 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 parts = [part for part in request.url.path.strip("/").split("/") if part]
                 is_domain_collection = parts == ["projects", "domain"]
                 is_series_import = parts[:2] == ["series", "import"]
+                is_source_import_create = parts == ["sources", "import", "preview"]
                 is_missing_domain_project = (
                     len(parts) >= 3
                     and parts[0] == "projects"
                     and parts[2] == "episodes"
                     and not repository.project_exists(parts[1])
                 )
-                if not is_domain_collection and not is_series_import and not is_missing_domain_project:
+                if not is_domain_collection and not is_series_import and not is_source_import_create and not is_missing_domain_project:
                     resource_workspace = _workspace_for_resource_path(
                         request.url.path,
                         repository,

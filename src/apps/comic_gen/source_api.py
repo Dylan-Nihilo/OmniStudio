@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
+from pathlib import Path
 
 from fastapi import APIRouter, Request
+from pydantic import ValidationError
 
 from .source_models import (
     SourceChapterCreate,
@@ -15,12 +18,25 @@ from .source_models import (
     SourceDocumentRead,
     SourceEpisodeList,
     SourceLinkResponse,
+    SourceImportBoundaryPatch,
+    SourceImportConfirmResponse,
+    SourceImportPreviewRead,
+    SourceImportRequest,
     SourceRevisionCreate,
     SourceRevisionList,
     SourceRevisionRead,
 )
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
 from .audit import record_request_event
+from .source_import import (
+    MAX_IMPORT_BYTES,
+    SourceImportError,
+    decode_text,
+    extract_docx,
+    identify_chapters,
+    normalize_proposals,
+    summarize,
+)
 
 
 router = APIRouter(tags=["sources"])
@@ -59,6 +75,120 @@ def source_error_payload(request: Request, error: SourceRepositoryError) -> dict
             "request_id": str(getattr(request.state, "request_id", "") or f"req_{uuid.uuid4().hex}"),
         }
     }
+
+
+def _import_error(error: Exception) -> SourceRepositoryError:
+    if isinstance(error, SourceImportError):
+        return SourceRepositoryError(error.code, error.message, status_code=error.status_code)
+    if isinstance(error, ValidationError):
+        return SourceRepositoryError("SOURCE_IMPORT_INVALID_INPUT", "导入参数无效", status_code=422)
+    return SourceRepositoryError("SOURCE_IMPORT_INVALID_INPUT", "导入参数无效", status_code=422)
+
+
+async def _read_import_request(request: Request) -> tuple[str, str, str | None, str, str, str]:
+    """Accept JSON paste requests and multipart TXT/DOCX requests on one endpoint."""
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        uploaded = form.get("file")
+        if uploaded is None or not hasattr(uploaded, "read"):
+            raise SourceImportError("SOURCE_IMPORT_FILE_REQUIRED", "请上传 TXT 或 DOCX 文件")
+        filename = str(getattr(uploaded, "filename", "") or "").strip()
+        raw = await uploaded.read()
+        if len(raw) > MAX_IMPORT_BYTES:
+            raise SourceImportError("SOURCE_IMPORT_TOO_LARGE", "导入文件不能超过 10 MB", status_code=413)
+        suffix = Path(filename).suffix.lower()
+        requested_type = str(form.get("source_type") or "").strip().lower()
+        if suffix == ".docx" or requested_type == "docx":
+            decoded = extract_docx(raw)
+            source_type = "docx"
+        elif suffix in {".txt", ".text", ".md", ".markdown"} or requested_type in {"txt", "text", "markdown"}:
+            decoded = decode_text(raw)
+            source_type = "markdown" if suffix in {".md", ".markdown"} or requested_type == "markdown" else "txt"
+        else:
+            raise SourceImportError("SOURCE_IMPORT_FILE_TYPE", "仅支持 TXT、Markdown 或 DOCX 文件")
+        title = str(form.get("title") or Path(filename).stem or "未命名来源").strip()
+        if not title:
+            raise SourceImportError("SOURCE_IMPORT_INVALID_INPUT", "导入标题不能为空")
+        return source_type, title, filename or None, decoded.encoding, decoded.content, summarize(decoded.content)
+
+    try:
+        raw_payload = await request.json()
+        payload = SourceImportRequest.model_validate(raw_payload)
+    except (ValueError, ValidationError) as exc:
+        raise _import_error(exc) from exc
+    if len(payload.content.encode("utf-8")) > MAX_IMPORT_BYTES:
+        raise SourceImportError("SOURCE_IMPORT_TOO_LARGE", "导入正文不能超过 10 MB", status_code=413)
+    return payload.source_type, payload.title.strip(), payload.original_filename, "utf-8", payload.content, summarize(payload.content)
+
+
+@router.post("/sources/import/preview", response_model=SourceImportPreviewRead, status_code=201)
+async def preview_source_import(request: Request):
+    try:
+        source_type, title, filename, encoding, content, summary = await _read_import_request(request)
+        proposals = normalize_proposals(content, identify_chapters(content))
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        result = _repository(request).create_import_preview(
+            workspace_id=_workspace_id(request),
+            source_type=source_type,
+            title=title,
+            original_filename=filename,
+            encoding=encoding,
+            content=content,
+            summary=summary,
+            proposals=proposals,
+            user_id=_user_id(request),
+            content_sha256=digest,
+        )
+    except SourceRepositoryError:
+        raise
+    except (SourceImportError, ValidationError, ValueError) as exc:
+        raise _import_error(exc) from exc
+    record_request_event(request, action="source.import.preview", object_type="source_import_preview", object_id=result["id"])
+    return result
+
+
+@router.get("/sources/import/previews/{preview_id}", response_model=SourceImportPreviewRead)
+def get_source_import_preview(preview_id: str, request: Request):
+    return _repository(request).get_import_preview(_workspace_id(request), preview_id)
+
+
+@router.patch("/sources/import/previews/{preview_id}/boundaries", response_model=SourceImportPreviewRead)
+async def patch_source_import_boundaries(preview_id: str, request: Request):
+    try:
+        body = await request.json()
+        raw_proposals = body.get("proposals", body.get("chapters")) if isinstance(body, dict) else None
+        patch = SourceImportBoundaryPatch.model_validate({"proposals": raw_proposals})
+        repository = _repository(request)
+        content = repository.get_import_preview_content(_workspace_id(request), preview_id)
+        proposals = normalize_proposals(content, [item.model_dump() for item in patch.proposals])
+        result = _repository(request).update_import_preview_boundaries(
+            workspace_id=_workspace_id(request), preview_id=preview_id, proposals=proposals
+        )
+    except SourceRepositoryError:
+        raise
+    except (SourceImportError, ValidationError, ValueError) as exc:
+        raise _import_error(exc) from exc
+    record_request_event(request, action="source.import.boundaries.update", object_type="source_import_preview", object_id=preview_id)
+    return result
+
+
+@router.post("/sources/import/previews/{preview_id}/confirm", response_model=SourceImportConfirmResponse)
+def confirm_source_import(preview_id: str, request: Request):
+    result = _repository(request).confirm_import_preview(
+        workspace_id=_workspace_id(request), preview_id=preview_id, user_id=_user_id(request)
+    )
+    record_request_event(request, action="source.import.confirm", object_type="source_document", object_id=result["id"], metadata={"preview_id": preview_id})
+    return {"preview_id": preview_id, "status": "confirmed", "source_document": result}
+
+
+@router.post("/sources/import/previews/{preview_id}/cancel", response_model=SourceImportPreviewRead)
+def cancel_source_import(preview_id: str, request: Request):
+    result = _repository(request).cancel_import_preview(
+        workspace_id=_workspace_id(request), preview_id=preview_id
+    )
+    record_request_event(request, action="source.import.cancel", object_type="source_import_preview", object_id=preview_id)
+    return result
 
 
 @router.post("/sources", response_model=SourceDocumentRead, status_code=201)

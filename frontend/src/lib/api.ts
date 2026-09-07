@@ -179,6 +179,7 @@ export interface SourceDocument {
     encoding: string;
     summary: string;
     metadata: Record<string, unknown>;
+    imported_at: number | null;
     chapter_count: number;
     linked_episode_count: number;
     created_at: number;
@@ -199,6 +200,48 @@ export interface SourceLinkResponse {
     linked: boolean;
 }
 
+export interface SourceImportChapterProposal {
+    chapter_number: number;
+    title: string;
+    volume: string;
+    start_line: number;
+    end_line: number;
+    content: string;
+}
+
+export interface SourceImportPreview {
+    id: string;
+    workspace_id: string;
+    source_type: SourceType;
+    title: string;
+    original_filename: string | null;
+    encoding: string;
+    content: string;
+    summary: string;
+    content_sha256: string;
+    proposals: SourceImportChapterProposal[];
+    status: "previewing" | "confirmed" | "canceled";
+    source_document_id: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceImportRequest {
+    title: string;
+    source_type?: "text" | "txt" | "markdown" | "paste";
+    content: string;
+    original_filename?: string | null;
+}
+
+export interface SourceImportBoundaryProposal {
+    chapter_number?: number;
+    title?: string;
+    volume?: string;
+    start_line: number;
+    end_line: number;
+    content?: string;
+}
+
 export const sourceApi = {
     list: () => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/sources`).then((response) => response.data),
     get: (sourceId: string) => apiClient.get<SourceDocument>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
@@ -211,6 +254,11 @@ export const sourceApi = {
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     listForEpisode: (episodeId: string) => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/episodes/${episodeId}/sources`).then((response) => response.data),
+    previewImport: (payload: SourceImportRequest | FormData) => apiClient.post<SourceImportPreview>(`${API_URL}/sources/import/preview`, payload).then((response) => response.data),
+    getImportPreview: (previewId: string) => apiClient.get<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}`).then((response) => response.data),
+    updateImportBoundaries: (previewId: string, proposals: SourceImportBoundaryProposal[]) => apiClient.patch<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/boundaries`, { proposals }).then((response) => response.data),
+    confirmImport: (previewId: string) => apiClient.post<{ preview_id: string; status: "confirmed"; source_document: SourceDocument }>(`${API_URL}/sources/import/previews/${previewId}/confirm`).then((response) => response.data),
+    cancelImport: (previewId: string) => apiClient.post<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/cancel`).then((response) => response.data),
 };
 
 // R2V v2 Phase 4 — Cross-episode reconcile types

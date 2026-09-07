@@ -530,6 +530,57 @@ class SourceEpisodeLink(Base):
     )
 
 
+class SourceImportPreview(Base):
+    """Durable workspace-scoped draft for the Source import preview flow."""
+
+    __tablename__ = "source_import_previews"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    original_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encoding: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="previewing")
+    source_document_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('text', 'txt', 'markdown', 'docx', 'paste')",
+            name="ck_source_import_previews_type",
+        ),
+        CheckConstraint(
+            "status IN ('previewing', 'confirmed', 'canceled')",
+            name="ck_source_import_previews_status",
+        ),
+        CheckConstraint("length(trim(title)) > 0", name="ck_source_import_previews_title"),
+        CheckConstraint("length(trim(content)) > 0", name="ck_source_import_previews_content"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_import_previews_sha256"),
+        CheckConstraint("json_valid(proposals_json)", name="ck_source_import_previews_proposals_json"),
+        Index("ix_source_import_previews_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_source_import_previews_status", "workspace_id", "status", "updated_at"),
+    )
+
+
 class Script(Base):
     __tablename__ = "scripts"
 
@@ -719,6 +770,7 @@ __all__ = [
     "SourceChapter",
     "SourceRevision",
     "SourceEpisodeLink",
+    "SourceImportPreview",
     "Script",
     "ScriptEditLease",
     "Job",

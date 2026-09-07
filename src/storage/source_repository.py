@@ -18,6 +18,7 @@ from .schema import (
     SourceChapter,
     SourceDocument,
     SourceEpisodeLink,
+    SourceImportPreview,
     SourceRevision,
 )
 
@@ -77,8 +78,20 @@ class SourceRepository:
             raise SourceRepositoryError("SOURCE_CHAPTER_NOT_FOUND", "来源章节不存在", status_code=404)
         return row
 
+    def _preview_row(self, connection, preview_id: str, workspace_id: str):
+        row = connection.execute(
+            select(SourceImportPreview.__table__).where(
+                SourceImportPreview.id == self._id(preview_id, "preview_id"),
+                SourceImportPreview.workspace_id == self._id(workspace_id, "workspace_id"),
+            )
+        ).mappings().first()
+        if row is None:
+            raise SourceRepositoryError("SOURCE_IMPORT_PREVIEW_NOT_FOUND", "导入预览不存在", status_code=404)
+        return row
+
     @staticmethod
     def _document_payload(row: Mapping[str, Any], chapter_count: int, episode_count: int) -> dict[str, Any]:
+        metadata = _metadata(str(row["metadata_json"]))
         return {
             "id": str(row["id"]),
             "workspace_id": str(row["workspace_id"]),
@@ -87,7 +100,8 @@ class SourceRepository:
             "original_filename": row["original_filename"],
             "encoding": str(row["encoding"]),
             "summary": str(row["summary"]),
-            "metadata": _metadata(str(row["metadata_json"])),
+            "metadata": metadata,
+            "imported_at": float(metadata["imported_at"]) if metadata.get("imported_at") is not None else None,
             "chapter_count": int(chapter_count),
             "linked_episode_count": int(episode_count),
             "created_at": float(row["created_at"]),
@@ -183,6 +197,235 @@ class SourceRepository:
                     select(SourceDocument.__table__).where(SourceDocument.id == source_id)
                 ).mappings().one()
         return self._document_payload(row, 0, 0) | {"chapters": [], "episodes": []}
+
+    @staticmethod
+    def _preview_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(row["id"]),
+            "workspace_id": str(row["workspace_id"]),
+            "source_type": str(row["source_type"]),
+            "title": str(row["title"]),
+            "original_filename": row["original_filename"],
+            "encoding": str(row["encoding"]),
+            "content": str(row["content"]),
+            "summary": str(row["summary"]),
+            "content_sha256": str(row["content_sha256"]),
+            "proposals": json.loads(str(row["proposals_json"])),
+            "status": str(row["status"]),
+            "source_document_id": row["source_document_id"],
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+        }
+
+    def create_import_preview(
+        self,
+        *,
+        workspace_id: str,
+        source_type: str,
+        title: str,
+        original_filename: str | None,
+        encoding: str,
+        content: str,
+        summary: str,
+        proposals: list[Mapping[str, Any]],
+        user_id: str | None,
+        content_sha256: str,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        workspace_id = self._id(workspace_id, "workspace_id")
+        title = str(title).strip()
+        content = str(content)
+        if not title or not content.strip() or not proposals:
+            raise SourceRepositoryError("SOURCE_IMPORT_INVALID_INPUT", "导入标题、正文和章节提案不能为空", status_code=422)
+        timestamp = time.time() if now is None else float(now)
+        preview_id = str(uuid.uuid4())
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                connection.execute(
+                    SourceImportPreview.__table__.insert().values(
+                        id=preview_id,
+                        workspace_id=workspace_id,
+                        source_type=source_type,
+                        title=title,
+                        original_filename=original_filename,
+                        encoding=encoding,
+                        content=content,
+                        content_sha256=content_sha256,
+                        summary=summary,
+                        proposals_json=json.dumps(proposals, ensure_ascii=False, separators=(",", ":")),
+                        status="previewing",
+                        source_document_id=None,
+                        created_by_user_id=user_id,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+                row = connection.execute(
+                    select(SourceImportPreview.__table__).where(SourceImportPreview.id == preview_id)
+                ).mappings().one()
+        return self._preview_payload(row)
+
+    def get_import_preview(self, workspace_id: str, preview_id: str) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            return self._preview_payload(self._preview_row(connection, preview_id, workspace_id))
+
+    def get_import_preview_content(self, workspace_id: str, preview_id: str) -> str:
+        with self.engine.connect() as connection:
+            return str(self._preview_row(connection, preview_id, workspace_id)["content"])
+
+    def workspace_for_import_preview(self, preview_id: str) -> str | None:
+        if not isinstance(preview_id, str) or not preview_id.strip():
+            return None
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(SourceImportPreview.workspace_id).where(SourceImportPreview.id == preview_id)
+            ).first()
+        return str(row[0]) if row else None
+
+    def update_import_preview_boundaries(
+        self,
+        *,
+        workspace_id: str,
+        preview_id: str,
+        proposals: list[Mapping[str, Any]],
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = self._preview_row(connection, preview_id, workspace_id)
+                if row["status"] != "previewing":
+                    raise SourceRepositoryError("SOURCE_IMPORT_PREVIEW_CLOSED", "该导入预览已关闭，不能修正边界", status_code=409)
+                connection.execute(
+                    update(SourceImportPreview)
+                    .where(SourceImportPreview.id == preview_id)
+                    .values(
+                        proposals_json=json.dumps(proposals, ensure_ascii=False, separators=(",", ":")),
+                        updated_at=timestamp,
+                    )
+                )
+                updated = connection.execute(
+                    select(SourceImportPreview.__table__).where(SourceImportPreview.id == preview_id)
+                ).mappings().one()
+        return self._preview_payload(updated)
+
+    def cancel_import_preview(
+        self, *, workspace_id: str, preview_id: str, now: float | None = None
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = self._preview_row(connection, preview_id, workspace_id)
+                if row["status"] == "confirmed":
+                    raise SourceRepositoryError("SOURCE_IMPORT_PREVIEW_CLOSED", "已确认的导入不能取消", status_code=409)
+                if row["status"] == "previewing":
+                    connection.execute(
+                        update(SourceImportPreview)
+                        .where(SourceImportPreview.id == preview_id)
+                        .values(status="canceled", updated_at=timestamp)
+                    )
+                canceled = connection.execute(
+                    select(SourceImportPreview.__table__).where(SourceImportPreview.id == preview_id)
+                ).mappings().one()
+        return self._preview_payload(canceled)
+
+    def confirm_import_preview(
+        self, *, workspace_id: str, preview_id: str, user_id: str | None, now: float | None = None
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = self._preview_row(connection, preview_id, workspace_id)
+                if row["status"] == "canceled":
+                    raise SourceRepositoryError("SOURCE_IMPORT_PREVIEW_CANCELED", "导入预览已取消，不能确认", status_code=409)
+                if row["status"] == "confirmed" and row["source_document_id"]:
+                    source_row = self._source_row(connection, str(row["source_document_id"]), workspace_id)
+                    chapters = connection.execute(
+                        select(SourceChapter.__table__).where(SourceChapter.source_document_id == source_row["id"])
+                        .order_by(SourceChapter.chapter_number, SourceChapter.id)
+                    ).mappings().all()
+                    return self._document_payload(
+                        source_row,
+                        len(chapters),
+                        connection.execute(select(func.count()).select_from(SourceEpisodeLink).where(SourceEpisodeLink.source_document_id == source_row["id"])).scalar_one(),
+                    ) | {"chapters": [self._chapter_payload(connection, chapter) for chapter in chapters], "episodes": []}
+
+                proposals = json.loads(str(row["proposals_json"]))
+                if not isinstance(proposals, list) or not proposals:
+                    raise SourceRepositoryError("SOURCE_IMPORT_NO_CHAPTERS", "至少需要一个章节提案", status_code=422)
+                source_id = str(uuid.uuid4())
+                connection.execute(
+                    SourceDocument.__table__.insert().values(
+                        id=source_id,
+                        workspace_id=workspace_id,
+                        title=row["title"],
+                        source_type=row["source_type"],
+                        original_filename=row["original_filename"],
+                        encoding=row["encoding"],
+                        summary=row["summary"],
+                        metadata_json=_json({
+                            "imported_at": timestamp,
+                            "content_sha256": row["content_sha256"],
+                            "import_preview_id": preview_id,
+                        }),
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+                for chapter_number, proposal in enumerate(proposals, start=1):
+                    if not isinstance(proposal, Mapping):
+                        raise SourceRepositoryError("SOURCE_IMPORT_BOUNDARY_INVALID", "章节提案格式无效", status_code=422)
+                    title = str(proposal.get("title") or f"第 {chapter_number} 章").strip()
+                    content = str(proposal.get("content") or "").strip()
+                    if not title or not content:
+                        raise SourceRepositoryError("SOURCE_IMPORT_BOUNDARY_INVALID", "章节标题和正文不能为空", status_code=422)
+                    chapter_id = str(uuid.uuid4())
+                    revision_id = str(uuid.uuid4())
+                    connection.execute(
+                        SourceChapter.__table__.insert().values(
+                            id=chapter_id,
+                            source_document_id=source_id,
+                            chapter_number=chapter_number,
+                            title=title,
+                            current_revision_id=None,
+                            created_at=timestamp,
+                            updated_at=timestamp,
+                        )
+                    )
+                    connection.execute(
+                        SourceRevision.__table__.insert().values(
+                            id=revision_id,
+                            source_document_id=source_id,
+                            chapter_id=chapter_id,
+                            revision_number=1,
+                            content=content,
+                            content_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                            created_by_user_id=user_id,
+                            metadata_json=_json({"import_preview_id": preview_id, "volume": proposal.get("volume", "")}),
+                            created_at=timestamp,
+                        )
+                    )
+                    connection.execute(
+                        update(SourceChapter)
+                        .where(SourceChapter.id == chapter_id)
+                        .values(current_revision_id=revision_id)
+                    )
+                connection.execute(
+                    update(SourceImportPreview)
+                    .where(SourceImportPreview.id == preview_id)
+                    .values(status="confirmed", source_document_id=source_id, updated_at=timestamp)
+                )
+                source_row = connection.execute(
+                    select(SourceDocument.__table__).where(SourceDocument.id == source_id)
+                ).mappings().one()
+                chapters = connection.execute(
+                    select(SourceChapter.__table__).where(SourceChapter.source_document_id == source_id)
+                    .order_by(SourceChapter.chapter_number, SourceChapter.id)
+                ).mappings().all()
+                return self._document_payload(source_row, len(chapters), 0) | {
+                    "chapters": [self._chapter_payload(connection, chapter) for chapter in chapters],
+                    "episodes": [],
+                }
 
     def list_documents(self, workspace_id: str) -> list[dict[str, Any]]:
         workspace_id = self._id(workspace_id, "workspace_id")
