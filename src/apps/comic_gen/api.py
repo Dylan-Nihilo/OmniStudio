@@ -4239,10 +4239,18 @@ async def upload_t2i_frame(script_id: str, frame_id: str, request: Request, file
         # block the event loop for the ~50ms write. Matches the pattern
         # used by create_project / reparse_project / analyze_script_for_styles.
         loop = asyncio.get_event_loop()
-        frame = await loop.run_in_executor(
-            None,
-            _context_call(pipeline.upload_t2i_frame, script_id, frame_id, rel_path),
-        )
+        try:
+            frame = await loop.run_in_executor(
+                None,
+                _context_call(pipeline.upload_t2i_frame, script_id, frame_id, rel_path),
+            )
+        except Exception:
+            # No frame reference was saved; remove only this request's uploaded file.
+            try:
+                os.unlink(abs_path)
+            except OSError:
+                pass
+            raise
         if frame is None:
             # Roll back the file — frame/script gone, no reference will exist
             if os.path.exists(abs_path):

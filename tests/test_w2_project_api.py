@@ -140,6 +140,29 @@ def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history
     assert Path("output", restored["rendered_image_url"]).read_bytes() == b"image-provider-fixture"
 
 
+def test_first_frame_upload_reports_storage_failure_and_can_retry(api_client):
+    project = _create_project(api_client, "First frame upload")
+    route = f"/projects/{project['id']}"
+    frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Keep the first frame"}).json()["frames"][0]["id"]
+    api_client.patch(route + f"/frames/{frame_id}/workbench", json={"t2i_image_urls": ["previous.png"], "t2i_selected_index": 0})
+    before = api_client.get(route).json()["frames"][0]
+    files = {"file": ("first-frame.png", b"upload-fixture", "image/png")}
+    with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=StorageError("Upload storage unavailable")):
+        response = api_client.post(route + f"/frames/{frame_id}/upload_t2i", files=files)
+    assert response.status_code == 500, response.text
+    assert api_client.get(route).json()["frames"][0] == before
+    assert list(Path("output/uploads").glob("t2i_*.png")) == []
+    response = api_client.post(route + f"/frames/{frame_id}/upload_t2i", files=files)
+    assert response.status_code == 200, response.text
+    uploaded = response.json()
+    assert uploaded["status"] == "completed"
+    assert uploaded["image_error"] is None
+    assert uploaded["t2i_image_urls"][0] == "previous.png"
+    assert Path("output", uploaded["t2i_image_urls"][1]).read_bytes() == b"upload-fixture"
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    assert api_client.get(route).json()["frames"][0]["t2i_image_urls"] == uploaded["t2i_image_urls"]
+
+
 def _add_episode(client, series_id: str, script_id: str, episode_number: int) -> None:
     response = client.post(
         f"/series/{series_id}/episodes",

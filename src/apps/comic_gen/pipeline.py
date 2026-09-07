@@ -504,6 +504,7 @@ class ComicGenPipeline:
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
+            previous = (frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.updated_at)
             current = list(getattr(frame, "t2i_image_urls", None) or [])
             current.append(file_path)
             # Same FIFO cap as update_frame_workbench so uploads can't grow
@@ -514,11 +515,14 @@ class ComicGenPipeline:
             # Newly uploaded image becomes the active首帧 — Issue 10 design
             # requires the upload immediately unlocks Step 2.
             frame.t2i_selected_index = len(current) - 1
+            frame.status = GenerationStatus.COMPLETED
+            frame.image_error = None
             frame.updated_at = time.time()
             try:
                 self._save_data()
             except Exception:
-                logger.warning("upload_t2i_frame: save failed")
+                frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.updated_at = previous
+                raise
             return frame
 
     def mark_video_task_failed(
