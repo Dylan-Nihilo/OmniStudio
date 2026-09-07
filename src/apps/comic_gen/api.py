@@ -65,6 +65,19 @@ from .auth.service import AuthError, AuthService
 from .auth.dependencies import get_current_user
 from .auth.routes import require_csrf
 from .auth.settings import AuthSettings
+from .source_models import (
+    SourceChapterCreate,
+    SourceChapterList,
+    SourceDocumentCreate,
+    SourceDocumentList,
+    SourceDocumentRead,
+    SourceEpisodeList,
+    SourceLinkResponse,
+    SourceRevisionCreate,
+    SourceRevisionList,
+    SourceRevisionRead,
+)
+from .source_api import router as source_router, source_error_payload
 from .collaboration_context import (
     WorkspacePermissionError,
     current_workspace_role,
@@ -75,6 +88,7 @@ from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
 from ...storage.job_repository import JobRepository
 from ...storage.legacy_claim import LegacyClaimService
+from ...storage.source_repository import SourceRepository, SourceRepositoryError
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
@@ -248,6 +262,11 @@ _CORS_ALLOW_HEADERS = [
 app.add_exception_handler(AuthError, auth_exception_handler)
 
 
+@app.exception_handler(SourceRepositoryError)
+def source_repository_error_handler(request: Request, exc: SourceRepositoryError):
+    return JSONResponse(status_code=exc.status_code, content=source_error_payload(request, exc))
+
+
 @app.exception_handler(WorkspacePermissionError)
 def workspace_permission_error_handler(request: Request, exc: WorkspacePermissionError):
     return auth_exception_handler(
@@ -268,7 +287,9 @@ app.state.legacy_claim_service = LegacyClaimService(
     projects_path=pipeline.data_file,
     series_path=pipeline.series_data_file,
 )
+app.state.source_repository = SourceRepository(pipeline.storage_engine)
 app.include_router(auth_router)
+app.include_router(source_router)
 
 
 def _iter_media_strings(value, field: str = ""):
@@ -438,7 +459,7 @@ _DEVELOPMENT_ROUTE_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
-def _workspace_for_resource_path(path: str, repository) -> str | None:
+def _workspace_for_resource_path(path: str, repository, source_repository=None) -> str | None:
     """Resolve the Workspace for a project or series resource path."""
     parts = [part for part in path.strip("/").split("/") if part]
     if len(parts) < 2:
@@ -452,6 +473,10 @@ def _workspace_for_resource_path(path: str, repository) -> str | None:
         return repository.workspace_for_script(resource_id)
     if resource_type == "series":
         return repository.workspace_for_series(resource_id)
+    if resource_type == "sources":
+        return source_repository.workspace_for_source(resource_id) if source_repository else None
+    if resource_type == "episodes":
+        return source_repository.workspace_for_episode(resource_id) if source_repository else None
     return None
 
 
@@ -576,6 +601,10 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 )
             repository = getattr(pipeline, "repository", None)
             if repository is not None:
+                source_repository = getattr(request.app.state, "source_repository", None)
+                if source_repository is None or source_repository.engine is not request.app.state.storage_engine:
+                    source_repository = SourceRepository(request.app.state.storage_engine)
+                    request.app.state.source_repository = source_repository
                 parts = [part for part in request.url.path.strip("/").split("/") if part]
                 is_domain_collection = parts == ["projects", "domain"]
                 is_series_import = parts[:2] == ["series", "import"]
@@ -589,11 +618,12 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                     resource_workspace = _workspace_for_resource_path(
                         request.url.path,
                         repository,
+                        source_repository,
                     )
                     if (
                         resource_workspace != context.workspace.id
                         and len(parts) >= 2
-                        and parts[0] in {"projects", "series"}
+                        and parts[0] in {"projects", "series", "sources", "episodes"}
                     ):
                         raise AuthError("AUTH_RESOURCE_NOT_FOUND", "资源不存在", status_code=404)
             if request.method.upper() in _MUTATING_METHODS:

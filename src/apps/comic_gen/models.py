@@ -5,6 +5,17 @@ from pydantic import BaseModel, Field
 
 from ...utils.model_catalog import get_default_model_settings
 
+# Source-domain contracts live in their own module to keep this large legacy
+# model file focused, while remaining importable from the public model module.
+from .source_models import (
+    SourceChapter,
+    SourceChapterCreate,
+    SourceDocument,
+    SourceDocumentCreate,
+    SourceRevision,
+    SourceRevisionCreate,
+)
+
 
 _DEFAULT_MODEL_SETTINGS = get_default_model_settings()
 

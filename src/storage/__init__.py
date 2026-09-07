@@ -14,6 +14,7 @@ from .db import (
 from .auth_repository import AuthRepository, OwnerSetupResult, RotateResult
 from .errors import LegacyDataError, MigrationError, StorageError
 from .repository import Repository, SQLiteRepository
+from .source_repository import SourceRepository, SourceRepositoryError
 from .schema import (
     Base,
     Episode,
@@ -23,6 +24,10 @@ from .schema import (
     Script,
     Session,
     Series,
+    SourceChapter,
+    SourceDocument,
+    SourceEpisodeLink,
+    SourceRevision,
     User,
     Workspace,
 )
@@ -55,4 +60,10 @@ __all__ = [
     "Episode",
     "Script",
     "Session",
+    "SourceDocument",
+    "SourceChapter",
+    "SourceRevision",
+    "SourceEpisodeLink",
+    "SourceRepository",
+    "SourceRepositoryError",
 ]

@@ -114,6 +114,105 @@ export const legacyClaimApi = {
         apiClient.post<LegacyClaimStatus>(`${AUTH_API_URL}/auth/legacy-claim/rollback`).then((response) => response.data),
 };
 
+export type SourceType = "text" | "txt" | "markdown" | "docx" | "paste";
+
+export interface SourceDocumentCreate {
+    title: string;
+    source_type?: SourceType;
+    original_filename?: string | null;
+    encoding?: string;
+    summary?: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface SourceRevisionCreate {
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface SourceChapterCreate {
+    chapter_number: number;
+    title: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface SourceRevision {
+    id: string;
+    source_document_id: string;
+    chapter_id: string;
+    revision_number: number;
+    content: string;
+    content_sha256: string;
+    created_by_user_id: string | null;
+    metadata: Record<string, unknown>;
+    created_at: number;
+}
+
+export interface SourceChapter {
+    id: string;
+    source_document_id: string;
+    chapter_number: number;
+    title: string;
+    current_revision_id: string | null;
+    revision_count: number;
+    current_revision: SourceRevision | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceEpisode {
+    id: string;
+    project_id: string;
+    title: string;
+    episode_number: number | null;
+    status: string;
+    linked_at: number;
+}
+
+export interface SourceDocument {
+    id: string;
+    workspace_id: string;
+    title: string;
+    source_type: SourceType;
+    original_filename: string | null;
+    encoding: string;
+    summary: string;
+    metadata: Record<string, unknown>;
+    chapter_count: number;
+    linked_episode_count: number;
+    created_at: number;
+    updated_at: number;
+    chapters?: SourceChapter[];
+    episodes?: SourceEpisode[];
+}
+
+export interface SourceList<T> {
+    items: T[];
+    total: number;
+}
+
+export interface SourceLinkResponse {
+    source_document_id: string;
+    episode_id: string;
+    created: boolean;
+    linked: boolean;
+}
+
+export const sourceApi = {
+    list: () => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/sources`).then((response) => response.data),
+    get: (sourceId: string) => apiClient.get<SourceDocument>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
+    create: (payload: SourceDocumentCreate) => apiClient.post<SourceDocument>(`${API_URL}/sources`, payload).then((response) => response.data),
+    listChapters: (sourceId: string) => apiClient.get<SourceList<SourceChapter>>(`${API_URL}/sources/${sourceId}/chapters`).then((response) => response.data),
+    createChapter: (sourceId: string, payload: SourceChapterCreate) => apiClient.post<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters`, payload).then((response) => response.data),
+    listRevisions: (sourceId: string, chapterId: string) => apiClient.get<SourceList<SourceRevision>>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`).then((response) => response.data),
+    createRevision: (sourceId: string, chapterId: string, payload: SourceRevisionCreate) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`, payload).then((response) => response.data),
+    listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
+    linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
+    unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
+    listForEpisode: (episodeId: string) => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/episodes/${episodeId}/sources`).then((response) => response.data),
+};
+
 // R2V v2 Phase 4 — Cross-episode reconcile types
 export interface ReconcileSuggestion {
     local_id: string;
