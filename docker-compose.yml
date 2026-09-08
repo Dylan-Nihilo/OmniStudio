@@ -26,7 +26,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       secrets:
-        - heroui_auth_token
+        - heroui_key
     container_name: omni-studio-frontend
     ports:
       - "3000:80"
@@ -41,5 +41,5 @@ services:
     restart: unless-stopped
 
 secrets:
-  heroui_auth_token:
-    environment: HEROUI_AUTH_TOKEN
+  heroui_key:
+    environment: HEROUI_KEY

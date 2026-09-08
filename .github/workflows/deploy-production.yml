@@ -65,12 +65,12 @@ jobs:
 
       - name: Build and activate release
         env:
-          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+          HEROUI_KEY: ${{ secrets.HEROUI_KEY }}
         run: |
-          test -n "$HEROUI_AUTH_TOKEN"
-          printf '%s\n' "$HEROUI_AUTH_TOKEN" | \
+          test -n "$HEROUI_KEY"
+          printf '%s\n' "$HEROUI_KEY" | \
             ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "IFS= read -r HEROUI_AUTH_TOKEN && export HEROUI_AUTH_TOKEN && cd /opt/omnistudio/app && bash scripts/deploy_production.sh '$DEPLOY_SHA'"
+            "IFS= read -r HEROUI_KEY && export HEROUI_KEY && cd /opt/omnistudio/app && bash scripts/deploy_production.sh '$DEPLOY_SHA'"
 
       - name: Verify public routes
         run: |

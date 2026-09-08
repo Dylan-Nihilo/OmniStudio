@@ -12,9 +12,13 @@ npm test
 python3 tests/browser_check.py  # 需先启动预览；使用 Python Playwright
 ```
 
-新机器需先完成 HeroUI Pro 官方 CLI 登录，再运行 `npm ci` 获取授权依赖。此次本机验证复用了已有项目中完整安装的 Pro beta.6 runtime；未验证全新机器的授权下载安装流程。Pro 源码、授权凭据及 node_modules 均不进入 Git。
+组件开发使用项目配置的 `hpmcp` 和 `heroui-react-pro` / `heroui-pro-design-taste` skills；基础组件来自 `@heroui/react`，Pro 组件来自 `@heroui-pro/react`。本地 Pro runtime 最初复用自 `kaizo-saas`，安装沿用该项目的 `hpsetup` 分发渠道。
 
-GitHub Actions 使用仓库 Secret `HEROUI_AUTH_TOKEN` 完成非交互安装；本地 Docker 构建使用同名环境变量，由 Compose/BuildKit 作为构建 secret 传入。不要通过 build arg 或提交文件传递令牌。安装方式见 [HeroUI 官方说明](https://heroui.pro/docs/react/getting-started/installation)。
+新机器在 `frontend/` 或 `packages/ui/` 运行 `npm ci`，再设置已有的 `HEROUI_KEY` 环境变量并运行 `npm run heroui:setup`。npm 包提供安装入口；真实 Pro runtime 由锁定的 `hpsetup` 下载器补齐，版本必须与本项目声明一致。安装脚本不调用 CLI 的自动升级流程。Pro 源码、授权凭据及 node_modules 均不进入 Git。
+
+`npm run dev` / `npm run build` 会检查已安装的 Pro runtime；完整且版本匹配时直接使用，否则调用同一安装脚本。根目录的统一开发入口也经过此前端检查。安装检查测试：`cd packages/ui && npm run test:install`。
+
+GitHub Actions 使用仓库 Secret `HEROUI_KEY`；本地 Docker 使用同名环境变量，由 Compose/BuildKit 作为构建 secret 传入。MCP 的 Personal Token 与安装 key 分别配置，不要求官方 CLI 登录或 `HEROUI_AUTH_TOKEN`。不要通过 build arg 或提交文件传递凭据。
 
 ## 使用
 

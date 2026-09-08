@@ -6,9 +6,9 @@ WORKDIR /app/frontend
 
 COPY packages/ui/ /app/packages/ui/
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
-RUN --mount=type=secret,id=heroui_auth_token,required=true \
-    HEROUI_AUTH_TOKEN="$(cat /run/secrets/heroui_auth_token)" npm ci && \
-    test -s node_modules/@heroui-pro/react/dist/index.js
+RUN npm ci
+RUN --mount=type=secret,id=heroui_key,required=true \
+    HEROUI_KEY="$(cat /run/secrets/heroui_key)" npm run heroui:setup
 
 COPY frontend/ .
 

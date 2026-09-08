@@ -1,6 +1,6 @@
 {
   "name": "@omnistudio/ui",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "exports": {
@@ -11,7 +11,11 @@
     "dev": "vite --host 127.0.0.1 --port 3018 --strictPort",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "heroui:setup": "node scripts/install-pro.mjs",
+    "test:install": "node --test tests/install-pro.test.mjs",
+    "predev": "node scripts/install-pro.mjs --if-missing",
+    "prebuild": "node scripts/install-pro.mjs --if-missing"
   },
   "peerDependencies": {
     "@heroui-pro/react": "1.0.0-beta.6",
@@ -45,10 +49,12 @@
     "tailwindcss": "^4.1.0",
     "typescript": "^5.0.0",
     "vite": "^7.3.5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "hpsetup": "4.7.0"
   },
   "files": [
-    "src"
+    "src",
+    "scripts/install-pro.mjs"
   ],
   "overrides": {
     "tar": "7.5.22"
