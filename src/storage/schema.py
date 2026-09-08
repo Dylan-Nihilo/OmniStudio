@@ -502,6 +502,128 @@ class SourceRevision(Base):
     )
 
 
+class SourceRevisionImpact(Base):
+    """Durable impact event emitted when a Source chapter revision changes."""
+
+    __tablename__ = "source_revision_impacts"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    previous_revision_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_revision_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    change_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="open")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "change_type IN ('chapter_edit', 'revision_restore')",
+            name="ck_source_revision_impacts_change_type",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved')",
+            name="ck_source_revision_impacts_status",
+        ),
+        CheckConstraint("revision_number > 0", name="ck_source_revision_impacts_revision_number"),
+        CheckConstraint(
+            "previous_revision_number IS NULL OR previous_revision_number > 0",
+            name="ck_source_revision_impacts_previous_revision_number",
+        ),
+        Index("ix_source_revision_impacts_workspace_created", "workspace_id", "created_at"),
+        Index("ix_source_revision_impacts_source_created", "source_document_id", "created_at"),
+        Index("ix_source_revision_impacts_revision", "revision_id"),
+    )
+
+
+class SourceImpactTarget(Base):
+    """Snapshot of one downstream target that needs review after a revision."""
+
+    __tablename__ = "source_impact_targets"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    impact_event_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_revision_impacts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_stage: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="needs_review")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "target_type IN ('script', 'shot', 'downstream')",
+            name="ck_source_impact_targets_type",
+        ),
+        CheckConstraint(
+            "status IN ('needs_review', 'resolved')",
+            name="ck_source_impact_targets_status",
+        ),
+        CheckConstraint("length(trim(target_id)) > 0", name="ck_source_impact_targets_id"),
+        CheckConstraint("length(trim(target_stage)) > 0", name="ck_source_impact_targets_stage"),
+        CheckConstraint("json_valid(metadata_json)", name="ck_source_impact_targets_metadata_json"),
+        UniqueConstraint(
+            "impact_event_id",
+            "episode_id",
+            "target_type",
+            "target_id",
+            "target_stage",
+            name="uq_source_impact_targets_target",
+        ),
+        Index("ix_source_impact_targets_event_status", "impact_event_id", "status"),
+        Index("ix_source_impact_targets_workspace_created", "workspace_id", "created_at"),
+        Index("ix_source_impact_targets_target", "target_type", "target_id", "status"),
+    )
+
+
 class SourceEpisodeLink(Base):
     """Many-to-many relationship between source documents and episodes."""
 
@@ -578,6 +700,205 @@ class SourceImportPreview(Base):
         CheckConstraint("json_valid(proposals_json)", name="ck_source_import_previews_proposals_json"),
         Index("ix_source_import_previews_workspace_updated", "workspace_id", "updated_at"),
         Index("ix_source_import_previews_status", "workspace_id", "status", "updated_at"),
+    )
+
+
+class SourceEpisodeSplitPreview(Base):
+    """Durable AI episode-split draft; confirmation is the only write path."""
+
+    __tablename__ = "source_episode_split_previews"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_episodes: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="previewing")
+    series_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode_ids_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("length(trim(title)) > 0", name="ck_source_episode_split_previews_title"),
+        CheckConstraint("length(trim(content)) > 0", name="ck_source_episode_split_previews_content"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_episode_split_previews_sha256"),
+        CheckConstraint("suggested_episodes BETWEEN 1 AND 50", name="ck_source_episode_split_previews_count"),
+        CheckConstraint(
+            "status IN ('previewing', 'confirmed', 'canceled')",
+            name="ck_source_episode_split_previews_status",
+        ),
+        CheckConstraint("json_valid(proposals_json)", name="ck_source_episode_split_previews_proposals_json"),
+        CheckConstraint("json_valid(episode_ids_json)", name="ck_source_episode_split_previews_episode_ids_json"),
+        Index("ix_source_episode_split_previews_source_updated", "source_document_id", "updated_at"),
+        Index("ix_source_episode_split_previews_status", "workspace_id", "status", "updated_at"),
+    )
+
+
+class SourceChapterAnalysis(Base):
+    """Immutable analysis attempt for one Source chapter revision."""
+
+    __tablename__ = "source_chapter_analyses"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    events_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    retry_of: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    finished_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('processing', 'succeeded', 'failed')",
+            name="ck_source_chapter_analyses_status",
+        ),
+        CheckConstraint("revision_number > 0", name="ck_source_chapter_analyses_revision_number"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_chapter_analyses_sha256"),
+        CheckConstraint("attempt > 0", name="ck_source_chapter_analyses_attempt"),
+        CheckConstraint("json_valid(events_json)", name="ck_source_chapter_analyses_events_json"),
+        Index("ix_source_chapter_analyses_chapter_created", "chapter_id", "created_at"),
+        Index("ix_source_chapter_analyses_source_status", "source_document_id", "status", "updated_at"),
+        Index("ix_source_chapter_analyses_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
+class SourceAnalysisBatch(Base):
+    """Durable batch envelope for chapter event analysis."""
+
+    __tablename__ = "source_analysis_batches"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="processing")
+    requested_chapter_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    succeeded: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('processing', 'succeeded', 'partially_succeeded', 'failed', 'skipped')",
+            name="ck_source_analysis_batches_status",
+        ),
+        CheckConstraint("json_valid(requested_chapter_ids_json)", name="ck_source_analysis_batches_chapters_json"),
+        CheckConstraint("total >= 0 AND succeeded >= 0 AND failed >= 0 AND skipped >= 0", name="ck_source_analysis_batches_counts"),
+        Index("ix_source_analysis_batches_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_source_analysis_batches_source_updated", "source_document_id", "updated_at"),
+    )
+
+
+class SourceAnalysisBatchItem(Base):
+    """Per-chapter result ledger for a Source analysis batch."""
+
+    __tablename__ = "source_analysis_batch_items"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_analysis_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    analysis_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_chapter_analyses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'succeeded', 'failed', 'skipped')",
+            name="ck_source_analysis_batch_items_status",
+        ),
+        CheckConstraint("attempt >= 0", name="ck_source_analysis_batch_items_attempt"),
+        UniqueConstraint("batch_id", "chapter_id", name="uq_source_analysis_batch_items_chapter"),
+        Index("ix_source_analysis_batch_items_batch_status", "batch_id", "status"),
+        Index("ix_source_analysis_batch_items_workspace_updated", "workspace_id", "updated_at"),
     )
 
 
@@ -769,8 +1090,14 @@ __all__ = [
     "SourceDocument",
     "SourceChapter",
     "SourceRevision",
+    "SourceRevisionImpact",
+    "SourceImpactTarget",
     "SourceEpisodeLink",
     "SourceImportPreview",
+    "SourceEpisodeSplitPreview",
+    "SourceChapterAnalysis",
+    "SourceAnalysisBatch",
+    "SourceAnalysisBatchItem",
     "Script",
     "ScriptEditLease",
     "Job",

@@ -17,8 +17,11 @@ from src.storage.schema import (
     SourceChapter,
     SourceDocument,
     SourceEpisodeLink,
-    SourceImportPreview,
-    SourceRevision,
+        SourceEpisodeSplitPreview,
+        SourceImpactTarget,
+        SourceImportPreview,
+        SourceRevision,
+        SourceRevisionImpact,
     User,
     Workspace,
 )
@@ -65,6 +68,12 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_revisions",
         "source_episode_links",
         "source_import_previews",
+        "source_episode_split_previews",
+        "source_chapter_analyses",
+        "source_analysis_batches",
+        "source_analysis_batch_items",
+        "source_revision_impacts",
+        "source_impact_targets",
     }
 
     expected_indexes = {
@@ -126,6 +135,33 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_source_import_previews_workspace_updated",
             "ix_source_import_previews_status",
         },
+        "source_episode_split_previews": {
+            "ix_source_episode_split_previews_source_updated",
+            "ix_source_episode_split_previews_status",
+        },
+        "source_chapter_analyses": {
+            "ix_source_chapter_analyses_chapter_created",
+            "ix_source_chapter_analyses_source_status",
+            "ix_source_chapter_analyses_workspace_updated",
+        },
+        "source_analysis_batches": {
+            "ix_source_analysis_batches_workspace_updated",
+            "ix_source_analysis_batches_source_updated",
+        },
+        "source_analysis_batch_items": {
+            "ix_source_analysis_batch_items_batch_status",
+            "ix_source_analysis_batch_items_workspace_updated",
+        },
+        "source_revision_impacts": {
+            "ix_source_revision_impacts_workspace_created",
+            "ix_source_revision_impacts_source_created",
+            "ix_source_revision_impacts_revision",
+        },
+        "source_impact_targets": {
+            "ix_source_impact_targets_event_status",
+            "ix_source_impact_targets_workspace_created",
+            "ix_source_impact_targets_target",
+        },
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -155,6 +191,12 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_revisions",
         "source_episode_links",
         "source_import_previews",
+        "source_episode_split_previews",
+        "source_chapter_analyses",
+        "source_analysis_batches",
+        "source_analysis_batch_items",
+        "source_revision_impacts",
+        "source_impact_targets",
     }
 
 
