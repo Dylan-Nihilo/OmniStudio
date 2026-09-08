@@ -173,6 +173,40 @@ export interface SourceRevision {
     created_at: number;
 }
 
+export interface SourceImpactTarget {
+    id: string;
+    impact_event_id: string;
+    target_type: "script" | "shot" | "downstream";
+    target_id: string;
+    episode_id: string | null;
+    target_stage: string;
+    status: "needs_review" | "resolved";
+    metadata: Record<string, unknown>;
+    created_at: number;
+}
+
+export interface SourceRevisionImpact {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    chapter_id: string;
+    revision_id: string;
+    previous_revision_id: string | null;
+    revision_number: number;
+    previous_revision_number: number | null;
+    change_type: "chapter_edit" | "revision_restore";
+    status: "open" | "resolved";
+    target_count: number;
+    targets: SourceImpactTarget[];
+    created_by_user_id: string | null;
+    created_at: number;
+}
+
+export interface SourceRevisionImpactList {
+    items: SourceRevisionImpact[];
+    total: number;
+}
+
 export interface SourceChapter {
     id: string;
     source_document_id: string;
@@ -199,6 +233,142 @@ export interface SourceEpisode {
     episode_number: number | null;
     status: string;
     linked_at: number;
+}
+
+export interface SourceEpisodeSplitProposal {
+    episode_number: number;
+    title: string;
+    summary: string;
+    start_marker: string;
+    end_marker: string;
+    estimated_duration: string;
+}
+
+export interface SourceEpisodeSplitPreviewRequest {
+    suggested_episodes?: number;
+}
+
+export interface SourceEpisodeSplitPatch {
+    proposals: SourceEpisodeSplitProposal[];
+}
+
+export interface SourceEpisodeSplitConfirmRequest {
+    title?: string;
+    description?: string;
+}
+
+export interface SourceEpisodeSplitPreview {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    title: string;
+    content_sha256: string;
+    suggested_episodes: number;
+    proposals: SourceEpisodeSplitProposal[];
+    status: "previewing" | "confirmed" | "canceled";
+    series_id: string | null;
+    episode_ids: string[];
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceEpisodeSplitCreatedEpisode {
+    id: string;
+    title: string;
+    episode_number: number;
+    text_length: number;
+}
+
+export interface SourceEpisodeSplitConfirmResponse {
+    preview_id: string;
+    status: "confirmed";
+    source_document_id: string;
+    series_id: string;
+    episode_ids: string[];
+    episodes: SourceEpisodeSplitCreatedEpisode[];
+}
+
+export interface SourceChapterEvent {
+    sequence: number;
+    event_type: string;
+    description: string;
+    characters: string[];
+    location: string;
+    importance: "low" | "medium" | "high";
+    source_excerpt: string;
+}
+
+export interface SourceChapterAnalysisRequest {
+    force?: boolean;
+}
+
+export interface SourceChapterAnalysis {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    chapter_id: string;
+    chapter_number: number;
+    chapter_title: string;
+    revision_id: string;
+    revision_number: number;
+    content_sha256: string;
+    status: "processing" | "succeeded" | "failed";
+    events: SourceChapterEvent[];
+    error_code: string | null;
+    error_message: string | null;
+    attempt: number;
+    retry_of: string | null;
+    created_at: number;
+    updated_at: number;
+    finished_at: number | null;
+    reused: boolean;
+}
+
+export interface SourceChapterAnalysisHistory {
+    items: SourceChapterAnalysis[];
+    total: number;
+}
+
+export interface SourceAnalysisBatchRequest {
+    chapter_ids?: string[];
+    force?: boolean;
+}
+
+export interface SourceAnalysisBatchRetryRequest {
+    chapter_ids?: string[];
+}
+
+export interface SourceAnalysisBatchItem {
+    id: string;
+    batch_id: string;
+    chapter_id: string;
+    chapter_number: number;
+    chapter_title: string;
+    status: "pending" | "processing" | "succeeded" | "failed" | "skipped";
+    analysis_id: string | null;
+    attempt: number;
+    error_code: string | null;
+    error_message: string | null;
+    skip_reason: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceAnalysisBatch {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    status: "processing" | "succeeded" | "partially_succeeded" | "failed" | "skipped";
+    total: number;
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    items: SourceAnalysisBatchItem[];
+    success_items: SourceAnalysisBatchItem[];
+    failed_items: SourceAnalysisBatchItem[];
+    skipped_items: SourceAnalysisBatchItem[];
+    created_at: number;
+    updated_at: number;
 }
 
 export interface SourceDocument {
@@ -284,6 +454,20 @@ export const sourceApi = {
     listRevisions: (sourceId: string, chapterId: string) => apiClient.get<SourceList<SourceRevision>>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`).then((response) => response.data),
     createRevision: (sourceId: string, chapterId: string, payload: SourceRevisionCreate) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`, payload).then((response) => response.data),
     restoreRevision: (sourceId: string, chapterId: string, revisionId: string) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions/${revisionId}/restore`).then((response) => response.data),
+    previewEpisodeSplit: (sourceId: string, payload?: SourceEpisodeSplitPreviewRequest) => apiClient.post<SourceEpisodeSplitPreview>(`${API_URL}/sources/${sourceId}/episode-splits/preview`, payload ?? {}).then((response) => response.data),
+    getEpisodeSplitPreview: (previewId: string) => apiClient.get<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}`).then((response) => response.data),
+    updateEpisodeSplitPreview: (previewId: string, payload: SourceEpisodeSplitPatch) => apiClient.patch<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}`, payload).then((response) => response.data),
+    cancelEpisodeSplitPreview: (previewId: string) => apiClient.post<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}/cancel`).then((response) => response.data),
+    confirmEpisodeSplit: (previewId: string, payload?: SourceEpisodeSplitConfirmRequest) => apiClient.post<SourceEpisodeSplitConfirmResponse>(`${API_URL}/sources/episode-split-previews/${previewId}/confirm`, payload ?? {}).then((response) => response.data),
+    analyzeChapterEvents: (sourceId: string, chapterId: string, payload?: SourceChapterAnalysisRequest) => apiClient.post<SourceChapterAnalysis>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis`, payload ?? {}).then((response) => response.data),
+    retryChapterAnalysis: (sourceId: string, chapterId: string) => apiClient.post<SourceChapterAnalysis>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis/retry`).then((response) => response.data),
+    getChapterAnalysis: (sourceId: string, chapterId: string) => apiClient.get<SourceChapterAnalysis>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis`).then((response) => response.data),
+    listChapterAnalysisHistory: (sourceId: string, chapterId: string) => apiClient.get<SourceChapterAnalysisHistory>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis/history`).then((response) => response.data),
+    analyzeSourceBatch: (sourceId: string, payload?: SourceAnalysisBatchRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batch`, payload ?? {}).then((response) => response.data),
+    getSourceAnalysisBatch: (sourceId: string, batchId: string) => apiClient.get<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}`).then((response) => response.data),
+    retrySourceAnalysisBatch: (sourceId: string, batchId: string, payload?: SourceAnalysisBatchRetryRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}/retry`, payload ?? {}).then((response) => response.data),
+    listRevisionImpacts: (sourceId: string, params?: { chapter_id?: string; revision_id?: string }) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/impact-events`, { params }).then((response) => response.data),
+    listChapterRevisionImpacts: (sourceId: string, chapterId: string) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/impact-events`).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
