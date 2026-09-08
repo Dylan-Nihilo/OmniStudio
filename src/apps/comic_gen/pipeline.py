@@ -21,6 +21,7 @@ from .audio import AudioGenerator
 from .export import ExportManager
 from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
+from ...utils.model_catalog import load_generated_model_catalog
 from ...utils.provider_registry import resolve_provider_backend
 from ...utils.system_check import get_ffmpeg_path, get_ffprobe_path, get_ffmpeg_install_instructions
 from ...utils.workspace_env import workspace_getenv
@@ -34,6 +35,14 @@ from ...storage.migration import (
 from ...storage.schema import MigrationRun
 
 logger = get_logger(__name__)
+
+
+def _model_supports_capability(model_name: str, capability: str) -> bool:
+    try:
+        model = load_generated_model_catalog().get("models", {}).get(model_name, {})
+        return capability in model.get("capabilities", [])
+    except Exception:
+        return False
 
 EPISODE_DEFAULT_SECTIONS = (
     "model_settings",
@@ -277,6 +286,7 @@ class ComicGenPipeline:
         self._kling_model = None
         self._vidu_model = None
         self._mulerouter_video_model = None
+        self._moma_video_model = None
 
         # Pre-download Demucs model in background so first dub request is fast
         self._demucs_ready = threading.Event()
@@ -2324,7 +2334,13 @@ class ComicGenPipeline:
         # If R2V mode is selected, use the appropriate R2V model
         if generation_mode == "r2v":
             # Skip auto-switch if user already selected an R2V model directly
-            if not (model and model.endswith("-r2v")):
+            if not (
+                model
+                and (
+                    model.endswith("-r2v")
+                    or _model_supports_capability(model, "r2v")
+                )
+            ):
                 if model and model.startswith("happyhorse-"):
                     model = "happyhorse-1.1-r2v"
                 elif model and model.startswith("wan2.7-"):
@@ -2354,7 +2370,9 @@ class ComicGenPipeline:
         # now match on the "-r2v" suffix so new R2V families inherit
         # the check automatically. Only wan2.6-r2v (legacy) takes
         # video refs; everything else takes image refs.
-        is_r2v_model = isinstance(model, str) and model.endswith("-r2v")
+        is_r2v_model = generation_mode == "r2v" or (
+            isinstance(model, str) and model.endswith("-r2v")
+        )
         if is_r2v_model:
             needs_video_refs = model == "wan2.6-r2v"
             refs = (
@@ -4015,8 +4033,24 @@ class ComicGenPipeline:
             use_mulerouter = backend == "mulerouter" and (
                 model_name_lower.startswith("seedance")
             )
+            use_moma = backend == "moma" and model_name_lower.startswith("minimax")
 
-            if use_mulerouter:
+            if use_moma:
+                if self._moma_video_model is None:
+                    from ...models.moma import MomaVideoModel
+                    self._moma_video_model = MomaVideoModel({})
+                video_path, _ = self._moma_video_model.generate(
+                    prompt=task.prompt,
+                    output_path=output_path,
+                    model=task.model,
+                    image_urls=([img_url] if img_url else []) + list(task.reference_image_urls),
+                    video_urls=list(task.reference_video_urls),
+                    audio_urls=[final_audio_url] if final_audio_url else [],
+                    resolution=task.resolution,
+                    duration=task.duration,
+                    ratio=task.ratio or "16:9",
+                )
+            elif use_mulerouter:
                 if self._mulerouter_video_model is None:
                     from ...models.mulerouter import MuleRouterVideoModel
                     self._mulerouter_video_model = MuleRouterVideoModel({})

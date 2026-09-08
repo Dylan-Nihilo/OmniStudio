@@ -43,6 +43,7 @@ class PlaygroundService:
         self._kling_model = None
         self._vidu_model = None
         self._mulerouter_video_model = None
+        self._moma_video_model = None
         self._mulerouter_image_model = None
 
     # ------------------------------------------------------------------
@@ -351,6 +352,8 @@ class PlaygroundService:
             try:
                 if model_lower.startswith("seedance"):
                     self._generate_video_mulerouter(gen, out_path)
+                elif model_lower.startswith("minimax"):
+                    self._generate_video_moma(gen, out_path)
                 elif model_lower.startswith("kling"):
                     self._generate_video_kling(gen, out_path)
                 elif model_lower.startswith("vidu") or model_lower.startswith("viduq"):
@@ -445,6 +448,32 @@ class PlaygroundService:
             img_url=img_url,
             img_path=img_path,
             **kwargs,
+        )
+
+    def _generate_video_moma(self, gen: PlaygroundGeneration, out_path: str) -> None:
+        """Delegate to :class:`MomaVideoModel` (MiniMax H3 via MOMA)."""
+        from ...models.moma import MomaVideoModel
+
+        if self._moma_video_model is None:
+            self._moma_video_model = MomaVideoModel({})
+
+        params = gen.parameters
+        image_inputs = []
+        video_inputs = []
+        if gen.mode in (PlaygroundMode.I2V, PlaygroundMode.R2V):
+            image_inputs = list(gen.input_media)
+        elif gen.mode == PlaygroundMode.V2V:
+            video_inputs = list(gen.input_media)
+        self._moma_video_model.generate(
+            prompt=gen.prompt,
+            output_path=out_path,
+            model=gen.model_id,
+            image_urls=image_inputs,
+            video_urls=video_inputs,
+            audio_urls=[params["audio_url"]] if params.get("audio_url") else [],
+            resolution=params.get("resolution", "2K"),
+            duration=params.get("duration", 5),
+            ratio=params.get("ratio", params.get("aspect_ratio", "16:9")),
         )
 
     def _generate_video_kling(self, gen: PlaygroundGeneration, out_path: str) -> None:

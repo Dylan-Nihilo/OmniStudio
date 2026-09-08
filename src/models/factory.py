@@ -18,5 +18,8 @@ class ModelFactory:
         elif model_name in ('seedance', 'seedance-2.0'):
             from .mulerouter import MuleRouterVideoModel
             return MuleRouterVideoModel(config.get('model') or {})
+        elif model_name in ('minimax', 'minimax/minimax-h3'):
+            from .moma import MomaVideoModel
+            return MomaVideoModel(config.get('model') or {})
         else:
             raise ValueError(f"Unknown model: {model_name}")

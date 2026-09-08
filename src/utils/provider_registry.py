@@ -4,7 +4,7 @@ from typing import Dict, Mapping, Optional, Sequence, Tuple
 from .model_catalog import build_provider_family_configs, load_generated_model_catalog
 from .workspace_env import workspace_getenv
 
-SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter")
+SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma")
 
 
 @dataclass

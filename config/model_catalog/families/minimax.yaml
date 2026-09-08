@@ -1,0 +1,67 @@
+family: minimax
+display_name: MiniMax
+provider: moma
+routing_prefixes:
+  - minimax/minimax-
+  - minimax-
+supported_backends:
+  - moma
+default_backend: moma
+credential_sources:
+  moma:
+    - MOMA_API_KEY
+supported_modalities:
+  - t2v
+  - i2v
+  - r2v
+  - v2v
+transport:
+  image_input_mode:
+    moma: moma_content_image_url
+  audio_input_mode:
+    moma: moma_content_audio_url
+  reference_video_input_mode:
+    moma: moma_content_video_url
+docs:
+  official_snapshot_ids:
+    - moma/minimax-h3/2026-09-07
+models:
+  - id: minimax/minimax-h3
+    model_line_id: minimax/minimax-h3
+    display_name: MiniMax H3 Video
+    description: MiniMax H3 multimodal video generation through the MOMA gateway
+    status: active
+    release_stage: preview
+    capabilities: [i2v, r2v, t2v, v2v]
+    runtime:
+      moma:
+        gateway: moma
+        api_model_id: minimax/minimax-h3
+    docs:
+      context_hub_doc_ids:
+        - moma/minimax-h3-api
+    ui:
+      selection_group: i2v
+      visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+      order: 100
+      badges: [new]
+    duration:
+      type: slider
+      min: 1
+      max: 10
+      step: 1
+      default: 5
+    params:
+      resolution:
+        options: [1K, 2K]
+        default: 2K
+      ratio:
+        options: ["16:9", "9:16", "1:1", "4:3", "3:4"]
+        default: "16:9"
+      negativePrompt: false
+      promptExtend: false
+      watermark: false
+    inputs:
+      reference_images:
+        max: 1
+        reference_type: image
