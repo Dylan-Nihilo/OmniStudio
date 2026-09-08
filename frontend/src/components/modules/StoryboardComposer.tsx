@@ -1,7 +1,7 @@
 "use client";
 
 import { SelectField, LoadingState } from "@omnistudio/ui";
-import { useState, useRef, useEffect } from "react";
+import { Fragment, useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -358,8 +358,8 @@ export default function StoryboardComposer() {
                 title={tStep("storyboardComposerTitle")}
                 subtitle={tStep("storyboardComposerSubtitle")}
                 trailing={(
-                    <div className="flex items-center gap-2">
-                        {structure.pending && <LoadingState inline label={tSave("saving")} />}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {structure.pending && <LoadingState inline className="shrink-0 whitespace-nowrap" label={tSave("saving")} />}
                         <span className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted">
                             <span className="text-foreground font-medium">{currentProject?.frames?.length || 0}</span>
                             <span className="ml-1.5">frames</span>
@@ -389,7 +389,7 @@ export default function StoryboardComposer() {
             />
 
             {/* Frame List — full width */}
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8">
                 <div className="max-w-4xl mx-auto space-y-6">
                         {/* Add Frame Button (Top) */}
                         <div className="flex justify-center">
@@ -403,12 +403,11 @@ export default function StoryboardComposer() {
                         </div>
 
                         {currentProject?.frames?.map((frame: any, index: number) => (
-                            <>
+                            <Fragment key={frame.id}>
                                 <motion.div
-                                    key={frame.id}
                                     layoutId={frame.id}
                                     onClick={() => setSelectedFrameId(frame.id)}
-                                    className={`group relative flex gap-6 p-4 rounded-xl border transition-all cursor-pointer ${selectedFrameId === frame.id
+                                    className={`group relative flex flex-col xl:flex-row gap-4 p-4 rounded-xl border transition-all cursor-pointer ${selectedFrameId === frame.id
                                         ? "bg-glass border-primary ring-1 ring-primary"
                                         : "bg-surface border-border-subtle hover:border-glass-border"
                                         }`}
@@ -419,7 +418,7 @@ export default function StoryboardComposer() {
                                     </div>
 
                                     {/* Image Preview */}
-                                    <div className="w-64 aspect-video bg-surface rounded-lg border border-border-subtle overflow-hidden flex-shrink-0 relative">
+                                    <div className="w-full xl:w-64 aspect-video bg-surface rounded-lg border border-border-subtle overflow-hidden flex-shrink-0 relative">
                                         {frame.rendered_image_url || frame.image_url ? (
                                             <ImageWithRetry
                                                 key={frame.id + (frame.updated_at || 0)} // Force remount on refresh
@@ -431,7 +430,7 @@ export default function StoryboardComposer() {
                                         ) : (
                                             <div className="w-full h-full flex flex-col items-center justify-center text-text-muted gap-2">
                                                 <ImageIcon size={24} className="opacity-20" />
-                                                <span className="text-[0.625rem]">{t("noImage", { defaultMessage: "No Image" })}</span>
+                                                <span className="text-[0.625rem]">{t("noImage")}</span>
                                             </div>
                                         )
 
@@ -489,7 +488,7 @@ export default function StoryboardComposer() {
                                     </div>
 
                                     {/* Content */}
-                                    <div className="flex-1 flex flex-col gap-3">
+                                    <div className="min-w-0 flex-1 flex flex-col gap-3">
                                         <div className="flex items-start justify-between">
                                             <div className="space-y-1">
                                                 <div className="flex items-center gap-2">
@@ -514,7 +513,7 @@ export default function StoryboardComposer() {
                                         )}
 
                                         {/* Frame Actions */}
-                                        <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-border-subtle">
+                                        <div className="flex flex-wrap justify-end gap-2 mt-2 pt-2 border-t border-border-subtle">
                                             <div className="flex items-center gap-1 mr-auto">
                                                 <button
                                                     onClick={(e) => handleMoveFrame(index, 'up', e)}
@@ -591,7 +590,7 @@ export default function StoryboardComposer() {
                                         <Plus size={16} />
                                     </button>
                                 </div>
-                            </>
+                            </Fragment>
                         ))}
                 </div>
             </div>

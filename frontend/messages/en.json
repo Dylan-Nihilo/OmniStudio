@@ -424,6 +424,8 @@
     "noMatchHint": "Try adjusting filters or search keywords",
     "clearFilters": "Clear filters",
     "dismiss": "Dismiss",
+    "copied": "Copied",
+    "copyFailed": "Copy failed. Select the details to copy them.",
     "copyErrorDetails": "Copy error details",
     "offlineBannerText": "You're offline — you can continue once reconnected"
   },
@@ -1088,6 +1090,7 @@
     "lockFrame": "Lock",
     "unlockFrame": "Unlock",
     "originalScript": "Original Script",
+    "noImage": "No image yet",
     "noScriptContent": "No script content yet",
     "storyboardFrames": "Storyboard Frames",
     "insertFrameAtStart": "Insert Frame at Start",

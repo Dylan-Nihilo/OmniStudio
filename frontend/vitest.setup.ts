@@ -10,3 +10,11 @@ afterEach(() => {
 if (typeof Element !== 'undefined' && !Element.prototype.getAnimations) {
     Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] });
 }
+
+if (typeof window !== 'undefined' && !window.matchMedia) {
+    window.matchMedia = query => ({
+        media: query, matches: false, onchange: null,
+        addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {},
+        dispatchEvent: () => false,
+    });
+}

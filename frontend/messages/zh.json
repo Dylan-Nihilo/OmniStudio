@@ -424,6 +424,8 @@
     "noMatchHint": "试试调整筛选条件或搜索关键词",
     "clearFilters": "清除筛选",
     "dismiss": "关闭",
+    "copied": "已复制",
+    "copyFailed": "复制失败，请选择详情手动复制。",
     "copyErrorDetails": "复制错误详情",
     "offlineBannerText": "网络已断开 — 重新连接后可继续操作"
   },
@@ -1088,6 +1090,7 @@
     "lockFrame": "锁定",
     "unlockFrame": "解锁",
     "originalScript": "原始脚本",
+    "noImage": "暂无画面",
     "noScriptContent": "暂无脚本内容",
     "storyboardFrames": "分镜帧",
     "insertFrameAtStart": "在开头插入帧",

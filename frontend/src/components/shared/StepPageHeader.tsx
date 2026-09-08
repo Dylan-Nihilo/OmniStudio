@@ -1,15 +1,5 @@
 "use client";
-/**
- * StepPageHeader — unified mock-aligned page header for every R2V workflow
- * step. Replaces the old Charcoal StepHeader with the Atelier "wb-head"
- * pattern: mono eyebrow (STEP 0N · NAME) + Fraunces display title +
- * optional info pills + subtitle + trailing actions slot.
- *
- * Used by ScriptProcessor / ArtDirection / Cast / StoryboardR2V /
- * VideoAssembly so the whole pipeline reads as one coherent surface.
- *
- * Mock ref: docs/design/tasty-sam/storyboard-r2v-unified.html `.wb-head`.
- */
+// Shared editorial heading for both production workflows.
 import type { ReactNode } from "react";
 
 export interface StepPageHeaderProps {
@@ -17,7 +7,7 @@ export interface StepPageHeaderProps {
     stepNumber: number;
     /** English chrome name (e.g. "Script" / "Storyboard R2V"). */
     englishName: string;
-    /** Localized title (Fraunces display). */
+    /** Localized title. */
     title: string;
     /** Localized subtitle one-liner. */
     subtitle: string;
@@ -38,9 +28,9 @@ export default function StepPageHeader({
 }: StepPageHeaderProps) {
     const stepStr = String(stepNumber).padStart(2, "0");
     return (
-        <header className="shrink-0 border-b border-border-subtle px-7 pt-[22px] pb-4">
-            <div className="flex items-start gap-5">
-                <div className="flex-1 min-w-0">
+        <header className="shrink-0 border-b border-border-default bg-surface px-4 py-5 sm:px-7">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex-1 min-w-[min(100%,16rem)]">
                     <div className="font-mono text-[0.59375rem] font-normal uppercase tracking-[0.22em] text-text-muted">
                         <span>STEP</span>
                         <span className="ml-1.5 font-medium text-primary">{stepStr}</span>
@@ -48,7 +38,7 @@ export default function StepPageHeader({
                         <span>{englishName}</span>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-baseline gap-3.5">
-                        <h1 className="font-display text-[2.125rem] font-semibold leading-[1.05] tracking-[-0.02em] text-foreground">
+                        <h1 className="font-sans text-xl font-semibold leading-7 text-foreground">
                             {title}
                         </h1>
                         {pills ? <div className="flex items-center gap-2">{pills}</div> : null}
@@ -56,7 +46,7 @@ export default function StepPageHeader({
                     <p className="mt-1.5 text-[0.8125rem] text-text-secondary">{subtitle}</p>
                 </div>
                 {trailing ? (
-                    <div className="flex items-center gap-2 shrink-0 pt-1">{trailing}</div>
+                    <div className="flex max-w-full flex-wrap items-center gap-2">{trailing}</div>
                 ) : null}
             </div>
         </header>
@@ -67,7 +57,7 @@ export default function StepPageHeader({
  *  info chip so all steps share one visual. */
 export function StepPill({ label, value }: { label: string; value: ReactNode }) {
     return (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-glass-border bg-surface-inset px-2.5 py-1 font-mono text-[0.59375rem] text-text-secondary">
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border-default bg-surface-inset px-2.5 py-1 font-mono text-[0.59375rem] text-text-secondary">
             <span className="text-text-muted">{label}</span>
             <span className="text-primary">{value}</span>
         </span>
