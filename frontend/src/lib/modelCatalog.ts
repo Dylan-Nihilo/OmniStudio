@@ -235,6 +235,16 @@ function getVisibleModels(group: SelectionGroup, surface: VisibilitySurface): Ca
     // capability. Without this, resolveModelId() always falls through to
     // catalog defaults — meaning user-picked t2i/i2i selections silently
     // revert on the next render. (See PR-3* assembly model picker bug.)
+    if (group === 'r2v') {
+        const directIds = new Set(direct.map((model) => model.id));
+        const multimodal = SORTED_MODEL_ENTRIES.filter(
+            (model) =>
+                !directIds.has(model.id) &&
+                model.capabilities.includes('r2v') &&
+                isVisibleModel(model, surface)
+        );
+        return [...direct, ...multimodal];
+    }
     if (direct.length > 0 || (group !== 't2i' && group !== 'i2i')) {
         return direct;
     }
@@ -421,15 +431,14 @@ export function isR2vSelectionModel(modelId: string): boolean {
 /** Map from family name to R2V route model ID. */
 const R2V_ROUTE_MAP: Record<string, string> = {};
 for (const model of SORTED_MODEL_ENTRIES) {
-    if (model.capabilities.includes('r2v') && model.ui.selection_group === 'r2v') {
+    if (model.capabilities.includes('r2v')) {
         if (!R2V_ROUTE_MAP[model.family]) {
             R2V_ROUTE_MAP[model.family] = model.id;
         }
     }
 }
 
-export const VIDEO_R2V_MODELS: I2VModelConfig[] = SORTED_MODEL_ENTRIES
-    .filter((model) => model.ui.selection_group === 'r2v' && isVisibleModel(model, 'video_sidebar'))
+export const VIDEO_R2V_MODELS: I2VModelConfig[] = getVisibleModels('r2v', 'video_sidebar')
     .map(toI2VModel);
 export const DEFAULT_R2V_MODEL_ID = VIDEO_R2V_MODELS[0]?.id ?? R2V_SELECTION_MODEL_ID;
 
@@ -452,5 +461,6 @@ export function isR2vImageBased(modelId: string): boolean {
     const family = model?.family;
     if (family === 'wan' && modelId === 'wan2.6-r2v') return false;
     return family === 'happyhorse' || family === 'wan' || family === 'kling'
-        || family === 'pixverse' || family === 'vidu' || family === 'seedance';
+        || family === 'pixverse' || family === 'vidu' || family === 'seedance'
+        || family === 'minimax';
 }

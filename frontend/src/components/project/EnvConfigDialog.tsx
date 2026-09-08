@@ -34,6 +34,7 @@ type EnvConfig = EnvConfigPayload & {
   KLING_SECRET_KEY: string;
   VIDU_API_KEY: string;
   MULEROUTER_API_KEY: string;
+  MOMA_API_KEY: string;
   MULERUN_CLI_LOGGED_IN?: boolean;
   endpoint_overrides: Record<string, string>;
 };
@@ -43,6 +44,7 @@ const ENDPOINT_PROVIDERS = [
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
   { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },
+  { key: "MOMA_BASE_URL", label: "MOMA / MiniMax", placeholder: "https://moma.cmecloud.cn/v1" },
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
@@ -67,6 +69,7 @@ const DEFAULT_CONFIG: EnvConfig = {
   KLING_SECRET_KEY: "",
   VIDU_API_KEY: "",
   MULEROUTER_API_KEY: "",
+  MOMA_API_KEY: "",
   endpoint_overrides: {},
 };
 
@@ -542,6 +545,21 @@ export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }:
                         />
                       </div>
                     )}
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t border-glass-border">
+                  <h4 className="text-sm font-medium text-text-secondary">MOMA / MiniMax H3</h4>
+                  <p className="text-xs text-text-secondary/60">用于 MiniMax H3 多模态视频生成</p>
+                  <div>
+                    <label className="block text-xs text-text-secondary mb-1">MOMA_API_KEY</label>
+                    <input
+                      type="password"
+                      value={config.MOMA_API_KEY}
+                      onChange={(e) => handleChange("MOMA_API_KEY", e.target.value)}
+                      placeholder="MOMA API Key"
+                      className={inputClass}
+                    />
                   </div>
                 </div>
 

@@ -7,6 +7,8 @@ import {
     GLOBAL_I2V_MODELS,
     GLOBAL_IMAGE_MODELS,
     GLOBAL_T2I_MODELS,
+    VIDEO_I2V_MODELS,
+    VIDEO_R2V_MODELS,
     R2V_ROUTE_MODEL_ID,
     R2V_SELECTION_MODEL_ID,
     getCanonicalDefaults,
@@ -16,6 +18,7 @@ import {
     getMaxReferenceImages,
     getModelLineEntry,
     getModeGateway,
+    isR2vImageBased,
     resolveModelSettings,
 } from '@/lib/modelCatalog';
 
@@ -33,6 +36,12 @@ afterEach(() => {
 });
 
 describe('model catalog selectors', () => {
+    it('exposes MiniMax H3 in both storyboard image and reference video flows', () => {
+        expect(VIDEO_I2V_MODELS.map((model) => model.id)).toContain('minimax/minimax-h3');
+        expect(VIDEO_R2V_MODELS.map((model) => model.id)).toContain('minimax/minimax-h3');
+        expect(isR2vImageBased('minimax/minimax-h3')).toBe(true);
+    });
+
     it('derives visible model selectors from catalog defaults', () => {
         // Defaults follow the catalog upgrade to wan2.7 (Phase 2, 2026-Q1).
         // The unified `image_model` surface replaces the per-mode t2i/i2i
@@ -55,6 +64,7 @@ describe('model catalog selectors', () => {
         expect(GLOBAL_I2V_MODELS.map((model) => model.id)).toEqual([
             'happyhorse-1.1-i2v',
             'kling-v3-i2v',
+            'minimax/minimax-h3',
             'pixverse/pixverse-v6-video',
             'seedance-2.0-i2v',
             'pixverse-c1-i2v',

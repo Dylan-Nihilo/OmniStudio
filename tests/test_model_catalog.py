@@ -101,6 +101,13 @@ class TestModelCatalog:
 
         assert first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
 
+    def test_generated_catalog_uses_lf_line_endings_on_windows(self, tmp_path):
+        output = tmp_path / "model-catalog.json"
+
+        write_generated_catalog(output)
+
+        assert b"\r\n" not in output.read_bytes()
+
     def test_frontend_generated_catalog_matches_backend_catalog(self, tmp_path):
         frontend_catalog_path = tmp_path / "frontend" / "src" / "generated" / "modelCatalog.json"
 

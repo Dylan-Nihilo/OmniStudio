@@ -55,6 +55,7 @@ type EnvConfig = EnvConfigPayload & {
   KLING_SECRET_KEY: string;
   VIDU_API_KEY: string;
   MULEROUTER_API_KEY: string;
+  MOMA_API_KEY: string;
   MULERUN_CLI_LOGGED_IN?: boolean;
   endpoint_overrides: Record<string, string>;
 };
@@ -64,6 +65,7 @@ const ENDPOINT_PROVIDERS = [
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
   { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },
+  { key: "MOMA_BASE_URL", label: "MOMA / MiniMax", placeholder: "https://moma.cmecloud.cn/v1" },
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
@@ -89,6 +91,7 @@ const DEFAULT_CONFIG: EnvConfig = {
   KLING_SECRET_KEY: "",
   VIDU_API_KEY: "",
   MULEROUTER_API_KEY: "",
+  MOMA_API_KEY: "",
   endpoint_overrides: {},
 };
 
@@ -932,6 +935,15 @@ export default function SettingsPage() {
                 <p className="text-[0.6875rem] text-text-muted mt-1">{t("mulerunKeyHint")}</p>
               </div>
             </details>
+          </FormRow>
+
+          <FormRow label="MOMA / MiniMax H3" hint="MiniMax H3 多模态视频网关">
+            <FieldLabel>MOMA_API_KEY</FieldLabel>
+            <KeyField
+              value={config.MOMA_API_KEY}
+              onChange={(v) => setConfig((c) => ({ ...c, MOMA_API_KEY: v }))}
+              placeholder="MOMA API Key"
+            />
           </FormRow>
 
           <FormRow label={t("advancedEndpointsLabel")} hint={t("advancedEndpointsHint")}>

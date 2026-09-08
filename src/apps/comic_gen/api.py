@@ -124,6 +124,8 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "MULEROUTER_API_KEY",
     "MULEROUTER_BASE_URL",
     "MULEROUTER_SITE",
+    "MOMA_API_KEY",
+    "MOMA_BASE_URL",
     "IMAGE_PROVIDER",
 }
 
@@ -2498,6 +2500,7 @@ class EnvConfig(ProviderRoutingConfig):
     KLING_SECRET_KEY: Optional[str] = None
     VIDU_API_KEY: Optional[str] = None
     MULEROUTER_API_KEY: Optional[str] = None
+    MOMA_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -5610,6 +5613,7 @@ SECRET_FIELDS = {
     "KLING_SECRET_KEY",
     "VIDU_API_KEY",
     "MULEROUTER_API_KEY",
+    "MOMA_API_KEY",
 }
 
 # Bullet sentinel: never appears in a real key, so the save path can detect an
@@ -5664,6 +5668,7 @@ def get_env_config():
             "KLING_SECRET_KEY": _mask_secret(workspace_getenv("KLING_SECRET_KEY")),
             "VIDU_API_KEY": _mask_secret(workspace_getenv("VIDU_API_KEY")),
             "MULEROUTER_API_KEY": _mask_secret(workspace_getenv("MULEROUTER_API_KEY")),
+            "MOMA_API_KEY": _mask_secret(workspace_getenv("MOMA_API_KEY")),
             # Non-secret config.
             "OSS_BUCKET_NAME": workspace_getenv("OSS_BUCKET_NAME", ""),
             "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),
