@@ -223,7 +223,7 @@ function AuthenticatedHome() {
   const tp = useTranslations("project");
   const [projectAction, setProjectAction] = useState<ActionDialogProps | null>(null);
   const actionRequest = useRef(0);
-  useEffect(() => { actionRequest.current += 1; setProjectAction(null); }, [activeWorkspaceId]);
+  useEffect(() => { actionRequest.current += 1; setProjectAction(null); }, [activeWorkspaceId, currentView, projectId, seriesId]);
 
   const prepareProjectAction = async (project: Project, kind: "rename" | "archive" | "purge" | "convert") => {
     const request = ++actionRequest.current;
@@ -526,7 +526,7 @@ function AuthenticatedHome() {
       { id: "completed", label: t("filterCompleted"), count: wsStatusCounts.completed },
       { id: "processing", label: t("filterProcessing"), count: wsStatusCounts.processing },
       { id: "pending", label: t("filterDraft"), count: wsStatusCounts.pending },
-      { id: "archived", label: "已归档", count: wsStatusCounts.archived },
+      { id: "archived", label: tp("archived"), count: wsStatusCounts.archived },
     ];
     // Precompute filtered groups once — single source of truth for the grid render
     // and the filtered-empty count below (avoids the two diverging).
@@ -662,7 +662,7 @@ function AuthenticatedHome() {
                       >
                         {s.title}
                       </button>
-                      {s.archived && <span className="rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">项目已归档</span>}
+                      {s.archived && <span className="rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">{tp("archived")}</span>}
                       <span className="font-mono text-[0.625rem] uppercase tracking-wider text-text-muted">
                         {t("series")} · {t("frames", { count: eps.length })}
                       </span>

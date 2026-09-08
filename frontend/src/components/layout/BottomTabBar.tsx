@@ -42,7 +42,7 @@ export default function BottomTabBar({
             )}
           >
             <span className="relative"><Icon size={19} strokeWidth={1.8} />{id === "tasks" && !!taskBadge && <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-status-failed-fg px-1 text-[0.5625rem] leading-4 text-white">{taskBadge > 9 ? "9+" : taskBadge}</span>}</span>
-            <span className="max-w-full truncate text-[0.5625rem] font-medium leading-none">{t(id)}</span>
+            <span className="max-w-full truncate text-[0.625rem] font-medium leading-none">{t(id)}</span>
           </button>
         );
       })}
