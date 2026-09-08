@@ -1,4 +1,4 @@
-"""Pydantic contracts for the Source domain (SRC-00 through SRC-06)."""
+"""Pydantic contracts for the Source domain (SRC-00 through SRC-08)."""
 
 from __future__ import annotations
 
@@ -259,6 +259,105 @@ class SourceEpisodeSplitConfirmResponse(BaseModel):
     episodes: list[SourceEpisodeSplitCreatedEpisode] = Field(min_length=1)
 
 
+class SourceChapterEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    event_type: str = Field(min_length=1, max_length=64)
+    description: str = Field(min_length=1, max_length=2000)
+    characters: list[str] = Field(default_factory=list, max_length=50)
+    location: str = Field(default="", max_length=200)
+    importance: Literal["low", "medium", "high"] = "medium"
+    source_excerpt: str = Field(default="", max_length=1000)
+
+
+class SourceChapterAnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    force: bool = False
+
+
+class SourceChapterAnalysisRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    workspace_id: str
+    source_document_id: str
+    chapter_id: str
+    chapter_number: int = Field(gt=0)
+    chapter_title: str
+    revision_id: str
+    revision_number: int = Field(gt=0)
+    content_sha256: str = Field(min_length=64, max_length=64)
+    status: Literal["processing", "succeeded", "failed"]
+    events: list[SourceChapterEvent] = Field(default_factory=list)
+    error_code: str | None = None
+    error_message: str | None = None
+    attempt: int = Field(ge=1)
+    retry_of: str | None = None
+    created_at: float
+    updated_at: float
+    finished_at: float | None = None
+    reused: bool = False
+
+
+class SourceChapterAnalysisHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[SourceChapterAnalysisRead] = Field(default_factory=list)
+    total: int = Field(ge=0)
+
+
+class SourceAnalysisBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chapter_ids: list[str] | None = Field(default=None, min_length=1, max_length=100)
+    force: bool = False
+
+
+class SourceAnalysisBatchRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chapter_ids: list[str] | None = Field(default=None, min_length=1, max_length=100)
+
+
+class SourceAnalysisBatchItemRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    batch_id: str
+    chapter_id: str
+    chapter_number: int = Field(gt=0)
+    chapter_title: str
+    status: Literal["pending", "processing", "succeeded", "failed", "skipped"]
+    analysis_id: str | None = None
+    attempt: int = Field(ge=0)
+    error_code: str | None = None
+    error_message: str | None = None
+    skip_reason: str | None = None
+    created_at: float
+    updated_at: float
+
+
+class SourceAnalysisBatchRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    workspace_id: str
+    source_document_id: str
+    status: Literal["processing", "succeeded", "partially_succeeded", "failed", "skipped"]
+    total: int = Field(ge=0)
+    succeeded: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
+    success_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
+    failed_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
+    skipped_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
+    created_at: float
+    updated_at: float
+
+
 class SourceImportBoundaryPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -283,7 +382,15 @@ SourceRevision = SourceRevisionRead
 
 
 __all__ = [
+    "SourceAnalysisBatchItemRead",
+    "SourceAnalysisBatchRead",
+    "SourceAnalysisBatchRequest",
+    "SourceAnalysisBatchRetryRequest",
     "SourceChapterCreate",
+    "SourceChapterAnalysisHistory",
+    "SourceChapterAnalysisRead",
+    "SourceChapterAnalysisRequest",
+    "SourceChapterEvent",
     "SourceChapterUpdate",
     "SourceEpisodeSplitConfirmRequest",
     "SourceEpisodeSplitConfirmResponse",

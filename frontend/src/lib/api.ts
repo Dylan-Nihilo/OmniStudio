@@ -254,6 +254,89 @@ export interface SourceEpisodeSplitConfirmResponse {
     episodes: SourceEpisodeSplitCreatedEpisode[];
 }
 
+export interface SourceChapterEvent {
+    sequence: number;
+    event_type: string;
+    description: string;
+    characters: string[];
+    location: string;
+    importance: "low" | "medium" | "high";
+    source_excerpt: string;
+}
+
+export interface SourceChapterAnalysisRequest {
+    force?: boolean;
+}
+
+export interface SourceChapterAnalysis {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    chapter_id: string;
+    chapter_number: number;
+    chapter_title: string;
+    revision_id: string;
+    revision_number: number;
+    content_sha256: string;
+    status: "processing" | "succeeded" | "failed";
+    events: SourceChapterEvent[];
+    error_code: string | null;
+    error_message: string | null;
+    attempt: number;
+    retry_of: string | null;
+    created_at: number;
+    updated_at: number;
+    finished_at: number | null;
+    reused: boolean;
+}
+
+export interface SourceChapterAnalysisHistory {
+    items: SourceChapterAnalysis[];
+    total: number;
+}
+
+export interface SourceAnalysisBatchRequest {
+    chapter_ids?: string[];
+    force?: boolean;
+}
+
+export interface SourceAnalysisBatchRetryRequest {
+    chapter_ids?: string[];
+}
+
+export interface SourceAnalysisBatchItem {
+    id: string;
+    batch_id: string;
+    chapter_id: string;
+    chapter_number: number;
+    chapter_title: string;
+    status: "pending" | "processing" | "succeeded" | "failed" | "skipped";
+    analysis_id: string | null;
+    attempt: number;
+    error_code: string | null;
+    error_message: string | null;
+    skip_reason: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceAnalysisBatch {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    status: "processing" | "succeeded" | "partially_succeeded" | "failed" | "skipped";
+    total: number;
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    items: SourceAnalysisBatchItem[];
+    success_items: SourceAnalysisBatchItem[];
+    failed_items: SourceAnalysisBatchItem[];
+    skipped_items: SourceAnalysisBatchItem[];
+    created_at: number;
+    updated_at: number;
+}
+
 export interface SourceDocument {
     id: string;
     workspace_id: string;
@@ -342,6 +425,13 @@ export const sourceApi = {
     updateEpisodeSplitPreview: (previewId: string, payload: SourceEpisodeSplitPatch) => apiClient.patch<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}`, payload).then((response) => response.data),
     cancelEpisodeSplitPreview: (previewId: string) => apiClient.post<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}/cancel`).then((response) => response.data),
     confirmEpisodeSplit: (previewId: string, payload?: SourceEpisodeSplitConfirmRequest) => apiClient.post<SourceEpisodeSplitConfirmResponse>(`${API_URL}/sources/episode-split-previews/${previewId}/confirm`, payload ?? {}).then((response) => response.data),
+    analyzeChapterEvents: (sourceId: string, chapterId: string, payload?: SourceChapterAnalysisRequest) => apiClient.post<SourceChapterAnalysis>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis`, payload ?? {}).then((response) => response.data),
+    retryChapterAnalysis: (sourceId: string, chapterId: string) => apiClient.post<SourceChapterAnalysis>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis/retry`).then((response) => response.data),
+    getChapterAnalysis: (sourceId: string, chapterId: string) => apiClient.get<SourceChapterAnalysis>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis`).then((response) => response.data),
+    listChapterAnalysisHistory: (sourceId: string, chapterId: string) => apiClient.get<SourceChapterAnalysisHistory>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/analysis/history`).then((response) => response.data),
+    analyzeSourceBatch: (sourceId: string, payload?: SourceAnalysisBatchRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batch`, payload ?? {}).then((response) => response.data),
+    getSourceAnalysisBatch: (sourceId: string, batchId: string) => apiClient.get<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}`).then((response) => response.data),
+    retrySourceAnalysisBatch: (sourceId: string, batchId: string, payload?: SourceAnalysisBatchRetryRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}/retry`, payload ?? {}).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),

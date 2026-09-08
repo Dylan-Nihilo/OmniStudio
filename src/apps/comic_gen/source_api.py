@@ -1,4 +1,4 @@
-"""HTTP API for the Source domain (SRC-00 through SRC-06)."""
+"""HTTP API for the Source domain (SRC-00 through SRC-08)."""
 
 from __future__ import annotations
 
@@ -12,8 +12,15 @@ from pydantic import ValidationError
 
 from .source_models import (
     SourceChapterCreate,
+    SourceChapterAnalysisHistory,
+    SourceChapterAnalysisRead,
+    SourceChapterAnalysisRequest,
     SourceChapterList,
     SourceChapterRead,
+    SourceChapterEvent,
+    SourceAnalysisBatchRead,
+    SourceAnalysisBatchRequest,
+    SourceAnalysisBatchRetryRequest,
     SourceChapterUpdate,
     SourceDocumentCreate,
     SourceDocumentList,
@@ -102,6 +109,54 @@ def _normalize_episode_split_proposals(
     return sorted(normalized, key=lambda item: int(item["episode_number"]))
 
 
+class _ChapterAnalysisFailure(Exception):
+    def __init__(self, code: str, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+def _normalize_chapter_events(raw: object) -> list[dict[str, object]]:
+    if isinstance(raw, dict):
+        raw = raw.get("events")
+    if not isinstance(raw, list):
+        raise _ChapterAnalysisFailure("SOURCE_CHAPTER_ANALYSIS_INVALID", "AI 未返回有效的事件列表")
+    if len(raw) > 100:
+        raise _ChapterAnalysisFailure("SOURCE_CHAPTER_ANALYSIS_INVALID", "AI 返回的事件数量超过限制")
+    normalized: list[dict[str, object]] = []
+    for index, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            raise _ChapterAnalysisFailure("SOURCE_CHAPTER_ANALYSIS_INVALID", "AI 返回的事件格式无效")
+        event_type = item.get("event_type", item.get("type", item.get("event", "other")))
+        description = item.get("description", item.get("summary", item.get("content", "")))
+        characters = item.get("characters", item.get("participants", []))
+        if isinstance(characters, str):
+            characters = [characters]
+        if not isinstance(characters, list):
+            characters = []
+        importance = str(item.get("importance", "medium")).lower()
+        if importance in {"critical", "major", "重要", "高"}:
+            importance = "high"
+        elif importance in {"minor", "低"}:
+            importance = "low"
+        elif importance not in {"low", "medium", "high"}:
+            importance = "medium"
+        candidate = {
+            "sequence": item.get("sequence", index),
+            "event_type": str(event_type or "other"),
+            "description": str(description or "").strip(),
+            "characters": [str(value).strip() for value in characters if str(value).strip()],
+            "location": str(item.get("location", item.get("scene", "")) or "").strip(),
+            "importance": importance,
+            "source_excerpt": str(item.get("source_excerpt", item.get("excerpt", "")) or "").strip(),
+        }
+        try:
+            normalized.append(SourceChapterEvent.model_validate(candidate).model_dump())
+        except ValidationError as exc:
+            raise _ChapterAnalysisFailure("SOURCE_CHAPTER_ANALYSIS_INVALID", "AI 返回的事件字段无效") from exc
+    return sorted(normalized, key=lambda item: int(item["sequence"]))
+
+
 def _repository(request: Request) -> SourceRepository:
     repository = getattr(request.app.state, "source_repository", None)
     engine = getattr(request.app.state, "storage_engine", None)
@@ -125,6 +180,156 @@ def _workspace_id(request: Request) -> str:
 def _user_id(request: Request) -> str | None:
     user = getattr(getattr(request.state, "auth_context", None), "user", None)
     return str(user.id) if getattr(user, "id", None) else None
+
+
+def _run_chapter_analysis(
+    request: Request,
+    repository: SourceRepository,
+    *,
+    workspace_id: str,
+    source_id: str,
+    chapter_id: str,
+    force: bool = False,
+) -> tuple[dict[str, object], str]:
+    context, content = repository.get_chapter_analysis_input(
+        workspace_id, source_id, chapter_id
+    )
+    latest = repository.get_latest_chapter_analysis(workspace_id, source_id, chapter_id)
+    if (
+        latest
+        and latest["status"] == "succeeded"
+        and latest["revision_id"] == context["revision_id"]
+        and not force
+    ):
+        return {**latest, "reused": True}, "skipped"
+
+    attempt = int(latest["attempt"]) + 1 if latest else 1
+    retry_of = str(latest["id"]) if latest and latest["status"] == "failed" else None
+    try:
+        raw_events = _pipeline(request).analyze_source_chapter_events(
+            str(context["chapter_title"]), content
+        )
+        events = _normalize_chapter_events(raw_events)
+    except _ChapterAnalysisFailure as exc:
+        failure_code, failure_message = exc.code, exc.message
+        events = []
+    except ValueError:
+        failure_code = "SOURCE_CHAPTER_ANALYSIS_UNAVAILABLE"
+        failure_message = "AI 分析服务不可用，请检查配置后重试"
+        events = []
+    except Exception:
+        logger.exception("Source chapter analysis failed")
+        failure_code = "SOURCE_CHAPTER_ANALYSIS_FAILED"
+        failure_message = "章节事件分析失败，请稍后重试"
+        events = []
+    else:
+        result = repository.record_chapter_analysis(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            chapter_id=chapter_id,
+            expected_revision_id=str(context["revision_id"]),
+            expected_content_sha256=str(context["content_sha256"]),
+            status="succeeded",
+            events=events,
+            error_code=None,
+            error_message=None,
+            attempt=attempt,
+            retry_of=retry_of,
+            user_id=_user_id(request),
+        )
+        return result, "succeeded"
+
+    result = repository.record_chapter_analysis(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        chapter_id=chapter_id,
+        expected_revision_id=str(context["revision_id"]),
+        expected_content_sha256=str(context["content_sha256"]),
+        status="failed",
+        events=events,
+        error_code=failure_code,
+        error_message=failure_message,
+        attempt=attempt,
+        retry_of=retry_of,
+        user_id=_user_id(request),
+    )
+    return result, "failed"
+
+
+def _process_analysis_batch(
+    request: Request,
+    repository: SourceRepository,
+    *,
+    workspace_id: str,
+    source_id: str,
+    batch_id: str,
+    chapter_ids: list[str] | None = None,
+    force: bool = False,
+) -> dict[str, object]:
+    batch = repository.get_analysis_batch(workspace_id, batch_id)
+    selected = set(chapter_ids or [str(item["chapter_id"]) for item in batch["items"]])
+    for item in batch["items"]:
+        chapter_id = str(item["chapter_id"])
+        if chapter_id not in selected or item["status"] not in {"pending", "processing"}:
+            continue
+        repository.update_analysis_batch_item(
+            workspace_id=workspace_id,
+            batch_id=batch_id,
+            chapter_id=chapter_id,
+            status="processing",
+            attempt=int(item["attempt"]) + 1,
+        )
+        try:
+            analysis, outcome = _run_chapter_analysis(
+                request,
+                repository,
+                workspace_id=workspace_id,
+                source_id=source_id,
+                chapter_id=chapter_id,
+                force=force,
+            )
+        except SourceRepositoryError as exc:
+            repository.update_analysis_batch_item(
+                workspace_id=workspace_id,
+                batch_id=batch_id,
+                chapter_id=chapter_id,
+                status="failed",
+                attempt=int(item["attempt"]) + 1,
+                error_code=exc.code,
+                error_message=exc.message,
+            )
+            continue
+        if outcome == "skipped":
+            repository.update_analysis_batch_item(
+                workspace_id=workspace_id,
+                batch_id=batch_id,
+                chapter_id=chapter_id,
+                status="skipped",
+                analysis_id=str(analysis["id"]),
+                attempt=int(analysis["attempt"]),
+                skip_reason="already_analyzed",
+            )
+        elif outcome == "succeeded":
+            repository.update_analysis_batch_item(
+                workspace_id=workspace_id,
+                batch_id=batch_id,
+                chapter_id=chapter_id,
+                status="succeeded",
+                analysis_id=str(analysis["id"]),
+                attempt=int(analysis["attempt"]),
+            )
+        else:
+            repository.update_analysis_batch_item(
+                workspace_id=workspace_id,
+                batch_id=batch_id,
+                chapter_id=chapter_id,
+                status="failed",
+                analysis_id=str(analysis["id"]),
+                attempt=int(analysis["attempt"]),
+                error_code=analysis["error_code"],
+                error_message=analysis["error_message"],
+            )
+    return repository.get_analysis_batch(workspace_id, batch_id)
 
 
 def source_error_payload(request: Request, error: SourceRepositoryError) -> dict[str, object]:
@@ -470,6 +675,203 @@ def confirm_source_episode_split(
         "episode_ids": episode_ids,
         "episodes": episodes,
     }
+
+
+@router.post(
+    "/sources/{source_id}/chapters/{chapter_id}/analysis",
+    response_model=SourceChapterAnalysisRead,
+)
+@router.post(
+    "/sources/{source_id}/chapters/{chapter_id}/analyze",
+    response_model=SourceChapterAnalysisRead,
+)
+def analyze_source_chapter(
+    source_id: str,
+    chapter_id: str,
+    request: Request,
+    payload: SourceChapterAnalysisRequest | None = None,
+):
+    repository = _repository(request)
+    workspace_id = _workspace_id(request)
+    result, outcome = _run_chapter_analysis(
+        request,
+        repository,
+        workspace_id=workspace_id,
+        source_id=source_id,
+        chapter_id=chapter_id,
+        force=bool(payload and payload.force),
+    )
+    if outcome == "failed":
+        raise SourceRepositoryError(
+            str(result["error_code"] or "SOURCE_CHAPTER_ANALYSIS_FAILED"),
+            str(result["error_message"] or "章节事件分析失败，请稍后重试"),
+            status_code=502,
+        )
+    record_request_event(
+        request,
+        action="source.chapter.analysis",
+        object_type="source_chapter_analysis",
+        object_id=result["id"],
+        metadata={"source_document_id": source_id, "chapter_id": chapter_id, "reused": result["reused"]},
+    )
+    return result
+
+
+@router.post(
+    "/sources/{source_id}/chapters/{chapter_id}/analysis/retry",
+    response_model=SourceChapterAnalysisRead,
+)
+def retry_source_chapter_analysis(source_id: str, chapter_id: str, request: Request):
+    repository = _repository(request)
+    workspace_id = _workspace_id(request)
+    result, outcome = _run_chapter_analysis(
+        request,
+        repository,
+        workspace_id=workspace_id,
+        source_id=source_id,
+        chapter_id=chapter_id,
+        force=True,
+    )
+    if outcome == "failed":
+        raise SourceRepositoryError(
+            str(result["error_code"] or "SOURCE_CHAPTER_ANALYSIS_FAILED"),
+            str(result["error_message"] or "章节事件分析失败，请稍后重试"),
+            status_code=502,
+        )
+    record_request_event(
+        request,
+        action="source.chapter.analysis.retry",
+        object_type="source_chapter_analysis",
+        object_id=result["id"],
+        metadata={"source_document_id": source_id, "chapter_id": chapter_id, "retry_of": result["retry_of"]},
+    )
+    return result
+
+
+@router.get(
+    "/sources/{source_id}/chapters/{chapter_id}/analysis",
+    response_model=SourceChapterAnalysisRead,
+)
+def get_source_chapter_analysis(source_id: str, chapter_id: str, request: Request):
+    result = _repository(request).get_latest_chapter_analysis(
+        _workspace_id(request), source_id, chapter_id
+    )
+    if result is None:
+        raise SourceRepositoryError(
+            "SOURCE_CHAPTER_ANALYSIS_NOT_FOUND", "章节尚未分析", status_code=404
+        )
+    return result
+
+
+@router.get(
+    "/sources/{source_id}/chapters/{chapter_id}/analysis/history",
+    response_model=SourceChapterAnalysisHistory,
+)
+def list_source_chapter_analysis_history(source_id: str, chapter_id: str, request: Request):
+    items = _repository(request).list_chapter_analysis_history(
+        _workspace_id(request), source_id, chapter_id
+    )
+    return {"items": items, "total": len(items)}
+
+
+@router.post(
+    "/sources/{source_id}/analysis/batch",
+    response_model=SourceAnalysisBatchRead,
+    status_code=201,
+)
+@router.post(
+    "/sources/{source_id}/chapters/analysis/batch",
+    response_model=SourceAnalysisBatchRead,
+    status_code=201,
+)
+def analyze_source_batch(
+    source_id: str,
+    request: Request,
+    payload: SourceAnalysisBatchRequest | None = None,
+):
+    repository = _repository(request)
+    workspace_id = _workspace_id(request)
+    options = payload or SourceAnalysisBatchRequest()
+    batch = repository.create_analysis_batch(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        chapter_ids=options.chapter_ids,
+        user_id=_user_id(request),
+    )
+    result = _process_analysis_batch(
+        request,
+        repository,
+        workspace_id=workspace_id,
+        source_id=source_id,
+        batch_id=str(batch["id"]),
+        force=options.force,
+    )
+    record_request_event(
+        request,
+        action="source.analysis.batch",
+        object_type="source_analysis_batch",
+        object_id=result["id"],
+        metadata={"source_document_id": source_id, "total": result["total"]},
+    )
+    return result
+
+
+@router.get(
+    "/sources/{source_id}/analysis/batches/{batch_id}",
+    response_model=SourceAnalysisBatchRead,
+)
+def get_source_analysis_batch(source_id: str, batch_id: str, request: Request):
+    result = _repository(request).get_analysis_batch(_workspace_id(request), batch_id)
+    if result["source_document_id"] != source_id:
+        raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_FOUND", "分析批次不存在", status_code=404)
+    return result
+
+
+@router.get(
+    "/sources/analysis-batches/{batch_id}",
+    response_model=SourceAnalysisBatchRead,
+)
+def get_source_analysis_batch_alias(batch_id: str, request: Request):
+    return _repository(request).get_analysis_batch(_workspace_id(request), batch_id)
+
+
+@router.post(
+    "/sources/{source_id}/analysis/batches/{batch_id}/retry",
+    response_model=SourceAnalysisBatchRead,
+)
+def retry_source_analysis_batch(
+    source_id: str,
+    batch_id: str,
+    request: Request,
+    payload: SourceAnalysisBatchRetryRequest | None = None,
+):
+    repository = _repository(request)
+    workspace_id = _workspace_id(request)
+    batch = repository.get_analysis_batch(workspace_id, batch_id)
+    if batch["source_document_id"] != source_id:
+        raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_FOUND", "分析批次不存在", status_code=404)
+    chapter_ids = repository.reset_failed_analysis_batch_items(
+        workspace_id=workspace_id,
+        batch_id=batch_id,
+        chapter_ids=payload.chapter_ids if payload else None,
+    )
+    result = _process_analysis_batch(
+        request,
+        repository,
+        workspace_id=workspace_id,
+        source_id=source_id,
+        batch_id=batch_id,
+        chapter_ids=chapter_ids,
+        force=True,
+    )
+    record_request_event(
+        request,
+        action="source.analysis.batch.retry",
+        object_type="source_analysis_batch",
+        object_id=batch_id,
+        metadata={"source_document_id": source_id, "chapter_count": len(chapter_ids)},
+    )
+    return result
 
 
 @router.get("/sources/{source_id}/chapters", response_model=SourceChapterList)

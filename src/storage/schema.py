@@ -629,6 +629,157 @@ class SourceEpisodeSplitPreview(Base):
     )
 
 
+class SourceChapterAnalysis(Base):
+    """Immutable analysis attempt for one Source chapter revision."""
+
+    __tablename__ = "source_chapter_analyses"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    events_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    retry_of: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    finished_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('processing', 'succeeded', 'failed')",
+            name="ck_source_chapter_analyses_status",
+        ),
+        CheckConstraint("revision_number > 0", name="ck_source_chapter_analyses_revision_number"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_chapter_analyses_sha256"),
+        CheckConstraint("attempt > 0", name="ck_source_chapter_analyses_attempt"),
+        CheckConstraint("json_valid(events_json)", name="ck_source_chapter_analyses_events_json"),
+        Index("ix_source_chapter_analyses_chapter_created", "chapter_id", "created_at"),
+        Index("ix_source_chapter_analyses_source_status", "source_document_id", "status", "updated_at"),
+        Index("ix_source_chapter_analyses_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
+class SourceAnalysisBatch(Base):
+    """Durable batch envelope for chapter event analysis."""
+
+    __tablename__ = "source_analysis_batches"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="processing")
+    requested_chapter_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    succeeded: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('processing', 'succeeded', 'partially_succeeded', 'failed', 'skipped')",
+            name="ck_source_analysis_batches_status",
+        ),
+        CheckConstraint("json_valid(requested_chapter_ids_json)", name="ck_source_analysis_batches_chapters_json"),
+        CheckConstraint("total >= 0 AND succeeded >= 0 AND failed >= 0 AND skipped >= 0", name="ck_source_analysis_batches_counts"),
+        Index("ix_source_analysis_batches_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_source_analysis_batches_source_updated", "source_document_id", "updated_at"),
+    )
+
+
+class SourceAnalysisBatchItem(Base):
+    """Per-chapter result ledger for a Source analysis batch."""
+
+    __tablename__ = "source_analysis_batch_items"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_analysis_batches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    analysis_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_chapter_analyses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'succeeded', 'failed', 'skipped')",
+            name="ck_source_analysis_batch_items_status",
+        ),
+        CheckConstraint("attempt >= 0", name="ck_source_analysis_batch_items_attempt"),
+        UniqueConstraint("batch_id", "chapter_id", name="uq_source_analysis_batch_items_chapter"),
+        Index("ix_source_analysis_batch_items_batch_status", "batch_id", "status"),
+        Index("ix_source_analysis_batch_items_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
 class Script(Base):
     __tablename__ = "scripts"
 
@@ -820,6 +971,9 @@ __all__ = [
     "SourceEpisodeLink",
     "SourceImportPreview",
     "SourceEpisodeSplitPreview",
+    "SourceChapterAnalysis",
+    "SourceAnalysisBatch",
+    "SourceAnalysisBatchItem",
     "Script",
     "ScriptEditLease",
     "Job",

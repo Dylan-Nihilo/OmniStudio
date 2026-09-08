@@ -67,6 +67,9 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_episode_links",
         "source_import_previews",
         "source_episode_split_previews",
+        "source_chapter_analyses",
+        "source_analysis_batches",
+        "source_analysis_batch_items",
     }
 
     expected_indexes = {
@@ -132,6 +135,19 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_source_episode_split_previews_source_updated",
             "ix_source_episode_split_previews_status",
         },
+        "source_chapter_analyses": {
+            "ix_source_chapter_analyses_chapter_created",
+            "ix_source_chapter_analyses_source_status",
+            "ix_source_chapter_analyses_workspace_updated",
+        },
+        "source_analysis_batches": {
+            "ix_source_analysis_batches_workspace_updated",
+            "ix_source_analysis_batches_source_updated",
+        },
+        "source_analysis_batch_items": {
+            "ix_source_analysis_batch_items_batch_status",
+            "ix_source_analysis_batch_items_workspace_updated",
+        },
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -162,6 +178,9 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_episode_links",
         "source_import_previews",
         "source_episode_split_previews",
+        "source_chapter_analyses",
+        "source_analysis_batches",
+        "source_analysis_batch_items",
     }
 
 

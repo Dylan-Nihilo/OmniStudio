@@ -18,7 +18,10 @@ from .schema import (
     Script,
     Series,
     SourceChapter,
+    SourceChapterAnalysis,
     SourceDocument,
+    SourceAnalysisBatch,
+    SourceAnalysisBatchItem,
     SourceEpisodeLink,
     SourceEpisodeSplitPreview,
     SourceImportPreview,
@@ -178,6 +181,422 @@ class SourceRepository:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    @staticmethod
+    def _chapter_analysis_payload(row: Mapping[str, Any], *, reused: bool = False) -> dict[str, Any]:
+        return {
+            "id": str(row["id"]),
+            "workspace_id": str(row["workspace_id"]),
+            "source_document_id": str(row["source_document_id"]),
+            "chapter_id": str(row["chapter_id"]),
+            "chapter_number": int(row["chapter_number"]),
+            "chapter_title": str(row["chapter_title"]),
+            "revision_id": str(row["revision_id"]),
+            "revision_number": int(row["revision_number"]),
+            "content_sha256": str(row["content_sha256"]),
+            "status": str(row["status"]),
+            "events": json.loads(str(row["events_json"])),
+            "error_code": row["error_code"],
+            "error_message": row["error_message"],
+            "attempt": int(row["attempt"]),
+            "retry_of": row["retry_of"],
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+            "finished_at": row["finished_at"],
+            "reused": reused,
+        }
+
+    @staticmethod
+    def _chapter_analysis_select():
+        return select(
+            SourceChapterAnalysis.__table__,
+            SourceChapter.chapter_number.label("chapter_number"),
+            SourceChapter.title.label("chapter_title"),
+        ).join(
+            SourceChapter, SourceChapter.id == SourceChapterAnalysis.chapter_id
+        )
+
+    @staticmethod
+    def _analysis_batch_item_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(row["id"]),
+            "batch_id": str(row["batch_id"]),
+            "chapter_id": str(row["chapter_id"]),
+            "chapter_number": int(row["chapter_number"]),
+            "chapter_title": str(row["chapter_title"]),
+            "status": str(row["status"]),
+            "analysis_id": row["analysis_id"],
+            "attempt": int(row["attempt"]),
+            "error_code": row["error_code"],
+            "error_message": row["error_message"],
+            "skip_reason": row["skip_reason"],
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+        }
+
+    @staticmethod
+    def _analysis_batch_status(items: list[Mapping[str, Any]]) -> tuple[str, dict[str, int]]:
+        counts = {
+            "total": len(items),
+            "succeeded": sum(item["status"] == "succeeded" for item in items),
+            "failed": sum(item["status"] == "failed" for item in items),
+            "skipped": sum(item["status"] == "skipped" for item in items),
+        }
+        active = sum(item["status"] in {"pending", "processing"} for item in items)
+        if active:
+            status = "processing"
+        elif counts["failed"] and counts["succeeded"]:
+            status = "partially_succeeded"
+        elif counts["failed"]:
+            status = "failed"
+        elif counts["skipped"] and not counts["succeeded"]:
+            status = "skipped"
+        else:
+            status = "succeeded"
+        return status, counts
+
+    def _chapter_analysis_input(self, connection, source_id: str, chapter_id: str, workspace_id: str):
+        chapter = self._chapter_row(connection, source_id, chapter_id, workspace_id)
+        revision_id = chapter["current_revision_id"]
+        if not revision_id:
+            raise SourceRepositoryError(
+                "SOURCE_CHAPTER_NO_REVISION", "章节没有可分析的正文版本", status_code=422
+            )
+        revision = connection.execute(
+            select(SourceRevision.__table__).where(SourceRevision.id == revision_id)
+        ).mappings().first()
+        if revision is None:
+            raise SourceRepositoryError(
+                "SOURCE_REVISION_NOT_FOUND", "章节当前正文版本不存在", status_code=409
+            )
+        content = str(revision["content"])
+        return {
+            "source_document_id": str(chapter["source_document_id"]),
+            "chapter_id": str(chapter["id"]),
+            "chapter_number": int(chapter["chapter_number"]),
+            "chapter_title": str(chapter["title"]),
+            "revision_id": str(revision["id"]),
+            "revision_number": int(revision["revision_number"]),
+            "content_sha256": str(revision["content_sha256"]),
+        }, content
+
+    def get_chapter_analysis_input(
+        self, workspace_id: str, source_id: str, chapter_id: str
+    ) -> tuple[dict[str, Any], str]:
+        with self.engine.connect() as connection:
+            return self._chapter_analysis_input(connection, source_id, chapter_id, workspace_id)
+
+    def _latest_chapter_analysis_row(self, connection, workspace_id: str, source_id: str, chapter_id: str):
+        return connection.execute(
+            self._chapter_analysis_select()
+            .where(
+                SourceChapterAnalysis.workspace_id == self._id(workspace_id, "workspace_id"),
+                SourceChapterAnalysis.source_document_id == self._id(source_id, "source_id"),
+                SourceChapterAnalysis.chapter_id == self._id(chapter_id, "chapter_id"),
+            )
+            .order_by(SourceChapterAnalysis.created_at.desc(), SourceChapterAnalysis.id.desc())
+            .limit(1)
+        ).mappings().first()
+
+    def get_latest_chapter_analysis(
+        self, workspace_id: str, source_id: str, chapter_id: str, *, reused: bool = False
+    ) -> dict[str, Any] | None:
+        with self.engine.connect() as connection:
+            self._chapter_row(connection, source_id, chapter_id, workspace_id)
+            row = self._latest_chapter_analysis_row(connection, workspace_id, source_id, chapter_id)
+            return self._chapter_analysis_payload(row, reused=reused) if row else None
+
+    def list_chapter_analysis_history(
+        self, workspace_id: str, source_id: str, chapter_id: str
+    ) -> list[dict[str, Any]]:
+        with self.engine.connect() as connection:
+            self._chapter_row(connection, source_id, chapter_id, workspace_id)
+            rows = connection.execute(
+                self._chapter_analysis_select()
+                .where(
+                    SourceChapterAnalysis.workspace_id == self._id(workspace_id, "workspace_id"),
+                    SourceChapterAnalysis.source_document_id == self._id(source_id, "source_id"),
+                    SourceChapterAnalysis.chapter_id == self._id(chapter_id, "chapter_id"),
+                )
+                .order_by(SourceChapterAnalysis.created_at.desc(), SourceChapterAnalysis.id.desc())
+            ).mappings().all()
+        return [self._chapter_analysis_payload(row) for row in rows]
+
+    def record_chapter_analysis(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        chapter_id: str,
+        expected_revision_id: str,
+        expected_content_sha256: str,
+        status: str,
+        events: list[Mapping[str, Any]] | None,
+        error_code: str | None,
+        error_message: str | None,
+        attempt: int,
+        retry_of: str | None,
+        user_id: str | None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        if status not in {"processing", "succeeded", "failed"}:
+            raise SourceRepositoryError("SOURCE_ANALYSIS_INVALID_STATUS", "分析状态无效", status_code=422)
+        if attempt < 1:
+            raise SourceRepositoryError("SOURCE_ANALYSIS_INVALID_ATTEMPT", "分析尝试次数无效", status_code=422)
+        timestamp = time.time() if now is None else float(now)
+        analysis_id = str(uuid.uuid4())
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                context, _ = self._chapter_analysis_input(connection, source_id, chapter_id, workspace_id)
+                if (
+                    context["revision_id"] != expected_revision_id
+                    or context["content_sha256"] != expected_content_sha256
+                ):
+                    raise SourceRepositoryError(
+                        "SOURCE_CHAPTER_ANALYSIS_SOURCE_CHANGED",
+                        "章节正文在分析期间发生变化，请重新分析当前版本",
+                        status_code=409,
+                    )
+                connection.execute(
+                    SourceChapterAnalysis.__table__.insert().values(
+                        id=analysis_id,
+                        workspace_id=workspace_id,
+                        source_document_id=source_id,
+                        chapter_id=chapter_id,
+                        revision_id=expected_revision_id,
+                        revision_number=context["revision_number"],
+                        content_sha256=expected_content_sha256,
+                        status=status,
+                        events_json=json.dumps(events or [], ensure_ascii=False, separators=(",", ":")),
+                        error_code=error_code,
+                        error_message=error_message,
+                        attempt=attempt,
+                        retry_of=retry_of,
+                        created_by_user_id=user_id,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                        finished_at=timestamp if status in {"succeeded", "failed"} else None,
+                    )
+                )
+                row = connection.execute(
+                    self._chapter_analysis_select().where(SourceChapterAnalysis.id == analysis_id)
+                ).mappings().one()
+        return self._chapter_analysis_payload(row)
+
+    def _analysis_batch_row(self, connection, workspace_id: str, batch_id: str):
+        row = connection.execute(
+            select(SourceAnalysisBatch.__table__).where(
+                SourceAnalysisBatch.id == self._id(batch_id, "batch_id"),
+                SourceAnalysisBatch.workspace_id == self._id(workspace_id, "workspace_id"),
+            )
+        ).mappings().first()
+        if row is None:
+            raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_FOUND", "分析批次不存在", status_code=404)
+        return row
+
+    def _analysis_batch_items(self, connection, batch_id: str):
+        return connection.execute(
+            select(
+                SourceAnalysisBatchItem.__table__,
+                SourceChapter.chapter_number.label("chapter_number"),
+                SourceChapter.title.label("chapter_title"),
+            )
+            .join(SourceChapter, SourceChapter.id == SourceAnalysisBatchItem.chapter_id)
+            .where(SourceAnalysisBatchItem.batch_id == batch_id)
+            .order_by(SourceChapter.chapter_number, SourceChapter.id)
+        ).mappings().all()
+
+    def _analysis_batch_payload(self, connection, row: Mapping[str, Any]) -> dict[str, Any]:
+        items = [self._analysis_batch_item_payload(item) for item in self._analysis_batch_items(connection, row["id"])]
+        status, counts = self._analysis_batch_status(items)
+        return {
+            "id": str(row["id"]),
+            "workspace_id": str(row["workspace_id"]),
+            "source_document_id": str(row["source_document_id"]),
+            "status": status,
+            **counts,
+            "items": items,
+            "success_items": [item for item in items if item["status"] == "succeeded"],
+            "failed_items": [item for item in items if item["status"] == "failed"],
+            "skipped_items": [item for item in items if item["status"] == "skipped"],
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+        }
+
+    def create_analysis_batch(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        chapter_ids: list[str] | None,
+        user_id: str | None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        batch_id = str(uuid.uuid4())
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._source_row(connection, source_id, workspace_id)
+                rows = connection.execute(
+                    select(SourceChapter.__table__)
+                    .where(SourceChapter.source_document_id == self._id(source_id, "source_id"))
+                    .order_by(SourceChapter.chapter_number, SourceChapter.id)
+                ).mappings().all()
+                by_id = {str(row["id"]): row for row in rows}
+                if not by_id:
+                    raise SourceRepositoryError("SOURCE_NO_CHAPTERS", "来源资料至少需要一个章节才能批量分析", status_code=422)
+                requested = list(dict.fromkeys(chapter_ids or by_id.keys()))
+                if any(chapter_id not in by_id for chapter_id in requested):
+                    raise SourceRepositoryError("SOURCE_CHAPTER_NOT_FOUND", "批量分析包含不存在的章节", status_code=404)
+                connection.execute(
+                    SourceAnalysisBatch.__table__.insert().values(
+                        id=batch_id,
+                        workspace_id=workspace_id,
+                        source_document_id=source_id,
+                        status="processing",
+                        requested_chapter_ids_json=json.dumps(requested, ensure_ascii=False, separators=(",", ":")),
+                        total=len(requested),
+                        succeeded=0,
+                        failed=0,
+                        skipped=0,
+                        created_by_user_id=user_id,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+                for chapter_id in requested:
+                    connection.execute(
+                        SourceAnalysisBatchItem.__table__.insert().values(
+                            id=str(uuid.uuid4()),
+                            batch_id=batch_id,
+                            workspace_id=workspace_id,
+                            source_document_id=source_id,
+                            chapter_id=chapter_id,
+                            analysis_id=None,
+                            status="pending",
+                            attempt=0,
+                            error_code=None,
+                            error_message=None,
+                            skip_reason=None,
+                            created_at=timestamp,
+                            updated_at=timestamp,
+                        )
+                    )
+                row = self._analysis_batch_row(connection, workspace_id, batch_id)
+                return self._analysis_batch_payload(connection, row)
+
+    def get_analysis_batch(self, workspace_id: str, batch_id: str) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            row = self._analysis_batch_row(connection, workspace_id, batch_id)
+            return self._analysis_batch_payload(connection, row)
+
+    def workspace_for_analysis_batch(self, batch_id: str) -> str | None:
+        if not isinstance(batch_id, str) or not batch_id.strip():
+            return None
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(SourceAnalysisBatch.workspace_id).where(SourceAnalysisBatch.id == batch_id)
+            ).first()
+        return str(row[0]) if row else None
+
+    def update_analysis_batch_item(
+        self,
+        *,
+        workspace_id: str,
+        batch_id: str,
+        chapter_id: str,
+        status: str,
+        analysis_id: str | None = None,
+        attempt: int | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        skip_reason: str | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        if status not in {"pending", "processing", "succeeded", "failed", "skipped"}:
+            raise SourceRepositoryError("SOURCE_ANALYSIS_INVALID_STATUS", "批量分析状态无效", status_code=422)
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._analysis_batch_row(connection, workspace_id, batch_id)
+                item = connection.execute(
+                    select(SourceAnalysisBatchItem.__table__).where(
+                        SourceAnalysisBatchItem.batch_id == batch_id,
+                        SourceAnalysisBatchItem.chapter_id == self._id(chapter_id, "chapter_id"),
+                        SourceAnalysisBatchItem.workspace_id == self._id(workspace_id, "workspace_id"),
+                    )
+                ).mappings().first()
+                if item is None:
+                    raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_ITEM_NOT_FOUND", "批量分析项不存在", status_code=404)
+                values: dict[str, Any] = {
+                    "status": status,
+                    "updated_at": timestamp,
+                    "analysis_id": analysis_id,
+                    "error_code": error_code,
+                    "error_message": error_message,
+                    "skip_reason": skip_reason,
+                }
+                if attempt is not None:
+                    values["attempt"] = attempt
+                connection.execute(
+                    update(SourceAnalysisBatchItem)
+                    .where(SourceAnalysisBatchItem.id == item["id"])
+                    .values(**values)
+                )
+                items = self._analysis_batch_items(connection, batch_id)
+                item_payloads = [self._analysis_batch_item_payload(value) for value in items]
+                batch_status, counts = self._analysis_batch_status(item_payloads)
+                connection.execute(
+                    update(SourceAnalysisBatch)
+                    .where(SourceAnalysisBatch.id == batch_id)
+                    .values(status=batch_status, **counts, updated_at=timestamp)
+                )
+                row = self._analysis_batch_row(connection, workspace_id, batch_id)
+                return self._analysis_batch_payload(connection, row)
+
+    def reset_failed_analysis_batch_items(
+        self,
+        *,
+        workspace_id: str,
+        batch_id: str,
+        chapter_ids: list[str] | None = None,
+        now: float | None = None,
+    ) -> list[str]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._analysis_batch_row(connection, workspace_id, batch_id)
+                query = select(SourceAnalysisBatchItem.__table__).where(
+                    SourceAnalysisBatchItem.batch_id == batch_id,
+                    SourceAnalysisBatchItem.workspace_id == self._id(workspace_id, "workspace_id"),
+                    SourceAnalysisBatchItem.status == "failed",
+                )
+                rows = connection.execute(query).mappings().all()
+                selected = list(dict.fromkeys(chapter_ids or [str(row["chapter_id"]) for row in rows]))
+                selected_set = set(selected)
+                available = {str(row["chapter_id"]) for row in rows}
+                if any(chapter_id not in available for chapter_id in selected):
+                    raise SourceRepositoryError("SOURCE_ANALYSIS_NO_FAILED_ITEMS", "没有可重试的失败分析项", status_code=422)
+                for row in rows:
+                    if str(row["chapter_id"]) not in selected_set:
+                        continue
+                    connection.execute(
+                        update(SourceAnalysisBatchItem)
+                        .where(SourceAnalysisBatchItem.id == row["id"])
+                        .values(
+                            status="pending",
+                            error_code=None,
+                            error_message=None,
+                            skip_reason=None,
+                            updated_at=timestamp,
+                        )
+                    )
+                connection.execute(
+                    update(SourceAnalysisBatch)
+                    .where(SourceAnalysisBatch.id == batch_id)
+                    .values(status="processing", updated_at=timestamp)
+                )
+        return selected
 
     def _source_split_content(self, connection, source_id: str, workspace_id: str) -> tuple[dict[str, Any], str, str]:
         source = self._source_row(connection, source_id, workspace_id)

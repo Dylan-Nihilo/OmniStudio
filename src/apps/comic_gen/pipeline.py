@@ -6167,6 +6167,10 @@ class ComicGenPipeline:
         """Split text into episodes using LLM. Returns episode preview data."""
         return self.script_processor.split_into_episodes(text, suggested_episodes)
 
+    def analyze_source_chapter_events(self, chapter_title: str, text: str) -> List[Dict]:
+        """Analyze one Source chapter without mutating Studio project data."""
+        return self.script_processor.analyze_chapter_events(text, chapter_title)
+
     def create_series_from_import(self, title: str, text: str, episodes_data: List[Dict],
                                    description: str = "") -> Dict:
         """Create a Series with Episodes from import data.

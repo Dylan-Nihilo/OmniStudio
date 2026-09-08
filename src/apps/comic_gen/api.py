@@ -488,6 +488,8 @@ def _workspace_for_resource_path(path: str, repository, source_repository=None) 
             return source_repository.workspace_for_episode_split_preview(parts[2]) if source_repository else None
         if resource_id == "episode-splits" and len(parts) >= 4 and parts[2] == "previews":
             return source_repository.workspace_for_episode_split_preview(parts[3]) if source_repository else None
+        if resource_id == "analysis-batches" and len(parts) >= 3:
+            return source_repository.workspace_for_analysis_batch(parts[2]) if source_repository else None
         return source_repository.workspace_for_source(resource_id) if source_repository else None
     if resource_type == "episodes":
         return source_repository.workspace_for_episode(resource_id) if source_repository else None

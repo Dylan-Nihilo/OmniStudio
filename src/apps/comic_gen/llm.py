@@ -643,6 +643,45 @@ class ScriptProcessor:
         except Exception as e:
             raise RuntimeError(f"分集划分失败: {str(e)}")
 
+    def analyze_chapter_events(self, text: str, chapter_title: str = "") -> List[Dict[str, Any]]:
+        """Extract ordered narrative events from one source chapter."""
+        if not self.is_configured:
+            raise ValueError("LLM API Key 未配置。请在 API 配置中设置对应的 API Key 后重试。")
+
+        prompt = f"""你是一名专业的剧本分析师。请分析下面章节中的叙事事件，并按原文发生顺序输出纯 JSON，不要输出 Markdown 或解释文字。
+
+输出格式：
+{{
+  "events": [
+    {{
+      "sequence": 1,
+      "event_type": "action|dialogue|conflict|revelation|turning_point|emotion|setting|other",
+      "description": "一句话描述事件",
+      "characters": ["涉及的角色"],
+      "location": "发生地点，没有则为空字符串",
+      "importance": "low|medium|high",
+      "source_excerpt": "对应原文短摘录"
+    }}
+  ]
+}}
+
+章节标题：{chapter_title}
+章节正文：
+{text}"""
+        try:
+            content = _strip_markdown_json(self.llm.chat(messages=[{"role": "user", "content": prompt}]))
+            data = json.loads(content)
+            events = data.get("events") if isinstance(data, dict) else data
+            if not isinstance(events, list):
+                raise RuntimeError("LLM 未返回有效的事件列表")
+            return events
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"LLM 返回的事件数据格式错误: {exc}") from exc
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"章节事件分析失败: {exc}") from exc
+
     def _mock_parse(self, title: str, text: str) -> Script:
         # ... (Existing mock logic moved here) ...
         script_id = str(uuid.uuid4())
