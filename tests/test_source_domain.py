@@ -136,6 +136,149 @@ def test_source_document_chapter_revision_and_many_to_many_api(source_client):
     assert client.delete(f"/sources/{source['id']}/episodes/{episode_id}").json()["created"] is False
 
 
+def test_source_chapter_list_supports_search_and_pagination(source_client):
+    client, _ = source_client
+    source = client.post("/sources", json={"title": "分页来源"}).json()
+    for number in range(1, 6):
+        response = client.post(
+            f"/sources/{source['id']}/chapters",
+            json={
+                "chapter_number": number,
+                "title": f"章节 {number}",
+                "content": f"正文关键词-{number}",
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    first_page = client.get(
+        f"/sources/{source['id']}/chapters",
+        params={"page": 1, "page_size": 2},
+    )
+    assert first_page.status_code == 200, first_page.text
+    assert first_page.json()["total"] == 5
+    assert first_page.json()["page"] == 1
+    assert first_page.json()["page_size"] == 2
+    assert [item["chapter_number"] for item in first_page.json()["items"]] == [1, 2]
+
+    second_page = client.get(
+        f"/sources/{source['id']}/chapters",
+        params={"page": 2, "page_size": 2},
+    )
+    assert [item["chapter_number"] for item in second_page.json()["items"]] == [3, 4]
+    assert client.get(
+        f"/sources/{source['id']}/chapters",
+        params={"q": "正文关键词-4", "page_size": 10},
+    ).json()["items"][0]["chapter_number"] == 4
+    assert client.get(
+        f"/sources/{source['id']}/chapters",
+        params={"search": "章节 5", "page_size": 10},
+    ).json()["items"][0]["chapter_number"] == 5
+    assert client.get(
+        f"/sources/{source['id']}/chapters",
+        params={"page": 99, "page_size": 2},
+    ).json()["items"] == []
+
+    assert client.get(
+        f"/sources/{source['id']}/chapters", params={"page": 0}
+    ).status_code == 422
+    assert client.get(
+        f"/sources/{source['id']}/chapters", params={"page_size": 101}
+    ).status_code == 422
+
+
+def test_source_chapter_edit_appends_and_restores_revisions(source_client):
+    client, _ = source_client
+    source = client.post("/sources", json={"title": "版本来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "旧标题", "content": "第一版正文"},
+    ).json()
+    original_revision_id = chapter["current_revision"]["id"]
+
+    renamed = client.patch(
+        f"/sources/{source['id']}/chapters/{chapter['id']}",
+        json={"title": "新标题"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["title"] == "新标题"
+    assert renamed.json()["revision_count"] == 1
+    assert renamed.json()["current_revision"]["content"] == "第一版正文"
+
+    edited = client.put(
+        f"/sources/{source['id']}/chapters/{chapter['id']}",
+        json={"content": "第二版正文"},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["revision_count"] == 2
+    assert edited.json()["current_revision"]["revision_number"] == 2
+    history = client.get(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/revisions"
+    ).json()["items"]
+    assert [item["revision_number"] for item in history] == [2, 1]
+
+    restored = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/revisions/{original_revision_id}/restore"
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["revision_number"] == 3
+    assert restored.json()["metadata"]["edit_type"] == "revision_restore"
+    current = client.get(f"/sources/{source['id']}/chapters/{chapter['id']}").json()
+    assert current["current_revision"]["content"] == "第一版正文"
+    assert current["revision_count"] == 3
+
+    other = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 2, "title": "另一章", "content": "另一章正文"},
+    ).json()
+    other_revision_id = other["current_revision"]["id"]
+    cross_chapter = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/revisions/{other_revision_id}/restore"
+    )
+    assert cross_chapter.status_code == 404
+    assert cross_chapter.json()["error"]["code"] == "SOURCE_REVISION_NOT_FOUND"
+    missing = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/revisions/not-found/restore"
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "SOURCE_REVISION_NOT_FOUND"
+    assert client.patch(
+        f"/sources/{source['id']}/chapters/{chapter['id']}", json={}
+    ).status_code == 422
+
+
+def test_source_episode_links_are_bidirectional_many_to_many_and_idempotent(source_client):
+    client, pipeline = source_client
+    sources = [
+        client.post("/sources", json={"title": "关系来源一"}).json(),
+        client.post("/sources", json={"title": "关系来源二"}).json(),
+    ]
+    projects = [
+        pipeline.create_project("关系剧集一", "正文一", skip_analysis=True),
+        pipeline.create_project("关系剧集二", "正文二", skip_analysis=True),
+    ]
+    user = api_module.app.state.auth_service.repository.find_user_by_username("owner")
+    workspace_id = api_module.app.state.auth_service.repository.get_default_workspace(user.id).id
+    for project in projects:
+        pipeline.repository.assign_workspace_for_script(project.id, workspace_id)
+
+    assert client.post(f"/sources/{sources[0]['id']}/episodes/{projects[0].id}").json()["created"] is True
+    assert client.post(f"/sources/{sources[0]['id']}/episodes/{projects[1].id}").json()["created"] is True
+    assert client.post(f"/sources/{sources[1]['id']}/episodes/{projects[0].id}").json()["created"] is True
+    duplicate = client.post(f"/sources/{sources[0]['id']}/episodes/{projects[0].id}")
+    assert duplicate.status_code == 201
+    assert duplicate.json()["created"] is False
+
+    source_episodes = client.get(f"/sources/{sources[0]['id']}/episodes").json()
+    assert {item["id"] for item in source_episodes["items"]} == {projects[0].id, projects[1].id}
+    episode_sources = client.get(f"/episodes/{projects[0].id}/sources").json()
+    assert {item["id"] for item in episode_sources["items"]} == {sources[0]["id"], sources[1]["id"]}
+
+    unlinked = client.delete(f"/sources/{sources[0]['id']}/episodes/{projects[0].id}")
+    assert unlinked.status_code == 200 and unlinked.json()["linked"] is False
+    assert client.get(f"/sources/{sources[0]['id']}/episodes").json()["total"] == 1
+    assert client.get(f"/episodes/{projects[0].id}/sources").json()["total"] == 1
+
+
 def test_source_errors_are_stable_and_workspace_scoped(source_client):
     client, _ = source_client
     missing = client.get("/sources/not-found")

@@ -1,4 +1,4 @@
-"""Pydantic contracts for the Source domain (SRC-00 through SRC-02)."""
+"""Pydantic contracts for the Source domain (SRC-00 through SRC-05)."""
 
 from __future__ import annotations
 
@@ -35,6 +35,13 @@ class SourceChapterCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceChapterUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    content: str | None = Field(default=None, min_length=1)
 
 
 class SourceDocumentSummary(BaseModel):
@@ -119,6 +126,8 @@ class SourceChapterList(BaseModel):
 
     items: list[SourceChapterRead] = Field(default_factory=list)
     total: int = Field(ge=0)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=100)
 
 
 class SourceRevisionList(BaseModel):
@@ -208,6 +217,7 @@ SourceRevision = SourceRevisionRead
 
 __all__ = [
     "SourceChapterCreate",
+    "SourceChapterUpdate",
     "SourceChapter",
     "SourceChapterList",
     "SourceChapterRead",

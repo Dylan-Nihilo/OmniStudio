@@ -8,7 +8,7 @@ import time
 import uuid
 from typing import Any, Mapping
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import and_, delete, exists, func, insert, or_, select, update
 from sqlalchemy.engine import Engine
 
 from .db import begin_immediate
@@ -470,7 +470,59 @@ class SourceRepository:
             document["episodes"] = [self._episode_payload(item) for item in episodes]
             return document
 
+    def list_chapters_page(
+        self,
+        workspace_id: str,
+        source_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        workspace_id = self._id(workspace_id, "workspace_id")
+        source_id = self._id(source_id, "source_id")
+        page = int(page)
+        page_size = int(page_size)
+        if page < 1 or page_size < 1 or page_size > 100:
+            raise SourceRepositoryError("SOURCE_INVALID_PAGINATION", "分页参数不合法", status_code=422)
+        normalized_query = str(query or "").strip()
+        if len(normalized_query) > 200:
+            raise SourceRepositoryError("SOURCE_SEARCH_TOO_LONG", "搜索关键词不能超过 200 个字符", status_code=422)
+        with self.engine.connect() as connection:
+            self._source_row(connection, source_id, workspace_id)
+            conditions = [SourceChapter.source_document_id == source_id]
+            if normalized_query:
+                pattern = f"%{normalized_query}%"
+                current_content = exists(
+                    select(SourceRevision.id).where(
+                        SourceRevision.id == SourceChapter.current_revision_id,
+                        SourceRevision.content.ilike(pattern),
+                    )
+                )
+                conditions.append(or_(SourceChapter.title.ilike(pattern), current_content))
+            total = int(
+                connection.execute(
+                    select(func.count()).select_from(SourceChapter).where(and_(*conditions))
+                ).scalar_one()
+            )
+            rows = connection.execute(
+                select(SourceChapter.__table__)
+                .where(and_(*conditions))
+                .order_by(SourceChapter.chapter_number, SourceChapter.id)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).mappings().all()
+            return {
+                "items": [self._chapter_payload(connection, row) for row in rows],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+
     def list_chapters(self, workspace_id: str, source_id: str) -> list[dict[str, Any]]:
+        """Backward-compatible unpaged chapter listing for repository callers."""
+        workspace_id = self._id(workspace_id, "workspace_id")
+        source_id = self._id(source_id, "source_id")
         with self.engine.connect() as connection:
             self._source_row(connection, source_id, workspace_id)
             rows = connection.execute(
@@ -479,6 +531,131 @@ class SourceRepository:
                 .order_by(SourceChapter.chapter_number, SourceChapter.id)
             ).mappings().all()
             return [self._chapter_payload(connection, row) for row in rows]
+
+    def update_chapter(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        chapter_id: str,
+        title: str | None,
+        content: str | None,
+        user_id: str | None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        if title is None and content is None:
+            raise SourceRepositoryError("SOURCE_INVALID_INPUT", "至少需要修改标题或正文", status_code=422)
+        normalized_title = str(title).strip() if title is not None else None
+        normalized_content = str(content) if content is not None else None
+        if normalized_title is not None and not normalized_title:
+            raise SourceRepositoryError("SOURCE_INVALID_INPUT", "章节标题不能为空", status_code=422)
+        if normalized_content is not None and not normalized_content.strip():
+            raise SourceRepositoryError("SOURCE_INVALID_INPUT", "章节正文不能为空", status_code=422)
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                chapter = self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                values: dict[str, Any] = {"updated_at": timestamp}
+                if normalized_title is not None:
+                    values["title"] = normalized_title
+                connection.execute(
+                    update(SourceChapter).where(SourceChapter.id == chapter_id).values(**values)
+                )
+                if normalized_content is not None:
+                    revision_id = str(uuid.uuid4())
+                    revision_number = int(
+                        connection.execute(
+                            select(func.coalesce(func.max(SourceRevision.revision_number), 0)).where(
+                                SourceRevision.chapter_id == chapter_id
+                            )
+                        ).scalar_one()
+                    ) + 1
+                    connection.execute(
+                        SourceRevision.__table__.insert().values(
+                            id=revision_id,
+                            source_document_id=source_id,
+                            chapter_id=chapter_id,
+                            revision_number=revision_number,
+                            content=normalized_content,
+                            content_sha256=hashlib.sha256(normalized_content.encode("utf-8")).hexdigest(),
+                            created_by_user_id=user_id,
+                            metadata_json=_json({"edit_type": "chapter_edit"}),
+                            created_at=timestamp,
+                        )
+                    )
+                    connection.execute(
+                        update(SourceChapter)
+                        .where(SourceChapter.id == chapter_id)
+                        .values(current_revision_id=revision_id)
+                    )
+                connection.execute(
+                    update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)
+                )
+                updated = connection.execute(
+                    select(SourceChapter.__table__).where(SourceChapter.id == chapter_id)
+                ).mappings().one()
+                return self._chapter_payload(connection, updated)
+
+    def restore_revision(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        chapter_id: str,
+        revision_id: str,
+        user_id: str | None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                target = connection.execute(
+                    select(SourceRevision.__table__).where(
+                        SourceRevision.id == self._id(revision_id, "revision_id"),
+                        SourceRevision.source_document_id == source_id,
+                        SourceRevision.chapter_id == chapter_id,
+                    )
+                ).mappings().first()
+                if target is None:
+                    raise SourceRepositoryError("SOURCE_REVISION_NOT_FOUND", "来源版本不存在", status_code=404)
+                revision_number = int(
+                    connection.execute(
+                        select(func.coalesce(func.max(SourceRevision.revision_number), 0)).where(
+                            SourceRevision.chapter_id == chapter_id
+                        )
+                    ).scalar_one()
+                ) + 1
+                new_revision_id = str(uuid.uuid4())
+                connection.execute(
+                    SourceRevision.__table__.insert().values(
+                        id=new_revision_id,
+                        source_document_id=source_id,
+                        chapter_id=chapter_id,
+                        revision_number=revision_number,
+                        content=target["content"],
+                        content_sha256=target["content_sha256"],
+                        created_by_user_id=user_id,
+                        metadata_json=_json({
+                            "edit_type": "revision_restore",
+                            "restored_from_revision_id": revision_id,
+                            "restored_from_revision_number": target["revision_number"],
+                        }),
+                        created_at=timestamp,
+                    )
+                )
+                connection.execute(
+                    update(SourceChapter)
+                    .where(SourceChapter.id == chapter_id)
+                    .values(current_revision_id=new_revision_id, updated_at=timestamp)
+                )
+                connection.execute(
+                    update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)
+                )
+                row = connection.execute(
+                    select(SourceRevision.__table__).where(SourceRevision.id == new_revision_id)
+                ).mappings().one()
+                return self._revision_payload(row)
 
     def create_chapter(
         self,
@@ -704,8 +881,6 @@ class SourceRepository:
         }
 
     def unlink_episode(self, *, workspace_id: str, source_id: str, episode_id: str) -> bool:
-        from sqlalchemy import delete
-
         with self.engine.connect() as connection:
             with begin_immediate(connection):
                 self._source_row(connection, source_id, workspace_id)
@@ -716,6 +891,12 @@ class SourceRepository:
                         SourceEpisodeLink.episode_id == episode_id,
                     )
                 )
+                if result.rowcount:
+                    connection.execute(
+                        update(SourceDocument)
+                        .where(SourceDocument.id == source_id)
+                        .values(updated_at=time.time())
+                    )
         return result.rowcount == 1
 
     def workspace_for_source(self, source_id: str) -> str | None:

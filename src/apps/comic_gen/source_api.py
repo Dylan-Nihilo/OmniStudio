@@ -6,13 +6,14 @@ import uuid
 import hashlib
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import ValidationError
 
 from .source_models import (
     SourceChapterCreate,
     SourceChapterList,
     SourceChapterRead,
+    SourceChapterUpdate,
     SourceDocumentCreate,
     SourceDocumentList,
     SourceDocumentRead,
@@ -218,9 +219,18 @@ def get_source(source_id: str, request: Request):
 
 
 @router.get("/sources/{source_id}/chapters", response_model=SourceChapterList)
-def list_source_chapters(source_id: str, request: Request):
-    items = _repository(request).list_chapters(_workspace_id(request), source_id)
-    return {"items": items, "total": len(items)}
+def list_source_chapters(
+    source_id: str,
+    request: Request,
+    q: str = Query(default="", max_length=200),
+    search: str | None = Query(default=None, max_length=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+):
+    return _repository(request).list_chapters_page(
+        _workspace_id(request), source_id, query=search if search is not None else q,
+        page=page, page_size=page_size,
+    )
 
 
 @router.post("/sources/{source_id}/chapters", response_model=SourceChapterRead, status_code=201)
@@ -235,6 +245,21 @@ def create_source_chapter(source_id: str, request: Request, payload: SourceChapt
         user_id=_user_id(request),
     )
     record_request_event(request, action="source.chapter.create", object_type="source_chapter", object_id=result["id"])
+    return result
+
+
+@router.patch("/sources/{source_id}/chapters/{chapter_id}", response_model=SourceChapterRead)
+@router.put("/sources/{source_id}/chapters/{chapter_id}", response_model=SourceChapterRead)
+def update_source_chapter(source_id: str, chapter_id: str, request: Request, payload: SourceChapterUpdate):
+    result = _repository(request).update_chapter(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        chapter_id=chapter_id,
+        title=payload.title,
+        content=payload.content,
+        user_id=_user_id(request),
+    )
+    record_request_event(request, action="source.chapter.update", object_type="source_chapter", object_id=chapter_id)
     return result
 
 
@@ -260,6 +285,28 @@ def create_source_revision(source_id: str, chapter_id: str, request: Request, pa
         user_id=_user_id(request),
     )
     record_request_event(request, action="source.revision.create", object_type="source_revision", object_id=result["id"])
+    return result
+
+
+@router.post(
+    "/sources/{source_id}/chapters/{chapter_id}/revisions/{revision_id}/restore",
+    response_model=SourceRevisionRead,
+)
+def restore_source_revision(source_id: str, chapter_id: str, revision_id: str, request: Request):
+    result = _repository(request).restore_revision(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        chapter_id=chapter_id,
+        revision_id=revision_id,
+        user_id=_user_id(request),
+    )
+    record_request_event(
+        request,
+        action="source.revision.restore",
+        object_type="source_revision",
+        object_id=result["id"],
+        metadata={"restored_from_revision_id": revision_id, "chapter_id": chapter_id},
+    )
     return result
 
 
