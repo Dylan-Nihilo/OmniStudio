@@ -5,6 +5,17 @@ from pydantic import BaseModel, Field
 
 from ...utils.model_catalog import get_default_model_settings
 
+# Source-domain contracts live in their own module to keep this large legacy
+# model file focused, while remaining importable from the public model module.
+from .source_models import (
+    SourceChapter,
+    SourceChapterCreate,
+    SourceDocument,
+    SourceDocumentCreate,
+    SourceRevision,
+    SourceRevisionCreate,
+)
+
 
 _DEFAULT_MODEL_SETTINGS = get_default_model_settings()
 
@@ -617,6 +628,11 @@ class Script(BaseModel):
     series_id: Optional[str] = Field(None, description="ID of the parent Series, None for standalone projects")
     episode_number: Optional[int] = Field(None, description="Episode number within the Series")
 
+    # Project lifecycle. Archiving is reversible and intentionally keeps all
+    # production data, while permanent deletion remains a separate action.
+    archived: bool = Field(False, description="Whether the project is archived")
+    archived_at: Optional[float] = Field(None, description="Archive timestamp")
+
     # R2V v2 Phase 3 — "Previously on..." panel cache.
     # Generated AI summary of the PREVIOUS episode's script (qwen3.6-plus),
     # invalidated when the previous episode's original_text changes
@@ -694,6 +710,11 @@ class Series(BaseModel):
     # Episode references
     episode_ids: List[str] = Field(default_factory=list, description="Ordered list of Episode/Script IDs")
 
+    # Project lifecycle is separate from each Episode's lifecycle. Archiving a
+    # Series hides the project container but leaves every Episode untouched.
+    archived: bool = Field(False, description="Whether the Series project is archived")
+    archived_at: Optional[float] = Field(None, description="Series archive timestamp")
+
     created_at: float
     updated_at: float
 
@@ -730,6 +751,11 @@ class Project(BaseModel):
     content_mode: str = Field("scripted", description="Content mode: 'scripted' or 'freeform'")
     episode_ids: List[str] = Field(default_factory=list, description="Ordered Episode IDs")
 
+    # W2 keeps Project and Episode lifecycle state independent. Legacy
+    # Script/Series payloads remain the source of truth for these values.
+    archived: bool = Field(False, description="Whether the Project is archived")
+    archived_at: Optional[float] = Field(None, description="Project archive timestamp")
+
     created_at: float
     updated_at: float
 
@@ -742,6 +768,8 @@ class Episode(BaseModel):
     series_id: Optional[str] = Field(None, description="Legacy Series relation, if any")
     episode_number: Optional[int] = Field(None, description="Episode number within the project")
     script: Script = Field(..., description="Episode production content")
+    archived: bool = Field(False, description="Whether the Episode is archived")
+    archived_at: Optional[float] = Field(None, description="Episode archive timestamp")
     created_at: float
     updated_at: float
 

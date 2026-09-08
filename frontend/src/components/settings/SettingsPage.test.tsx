@@ -27,6 +27,17 @@ beforeEach(() => {
 afterEach(() => {vi.useRealTimers();vi.restoreAllMocks();});
 
 describe('settings persistence', () => {
+  it('saves the new image and MiniMax provider fields through the shared configuration surface', async () => {
+    mocks.getEnvConfig.mockResolvedValue({...config, IMAGE_PROVIDER:'openai', OPENAI_IMAGE_API_KEY:'sk-••••image'});
+    const onSaved = vi.fn();
+    render(<SettingsPage initialCategory="apikeys" onProviderConfigSaved={onSaved} />);
+    fireEvent.change(await screen.findByLabelText('OpenAI Image API Key'), {target:{value:'test-image-replacement'}});
+    fireEvent.change(screen.getByLabelText('imageModel'), {target:{value:'test-image-model'}});
+    fireEvent.change(screen.getByLabelText('MOMA API Key'), {target:{value:'test-moma-replacement'}});
+    fireEvent.click(screen.getByRole('button',{name:'saveConfig'}));
+    await waitFor(() => expect(mocks.saveEnvConfig).toHaveBeenCalledWith({OPENAI_IMAGE_API_KEY:'test-image-replacement', OPENAI_IMAGE_MODEL:'test-image-model', MOMA_API_KEY:'test-moma-replacement'}));
+    expect(onSaved).toHaveBeenCalledOnce();
+  });
   it('saves only edited storage fields and retains the draft after a failed save', async () => {
     mocks.saveEnvConfig.mockRejectedValueOnce(new Error('Offline')).mockResolvedValueOnce({status:'success'});
     render(<SettingsPage />);

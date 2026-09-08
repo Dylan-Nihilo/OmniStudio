@@ -66,7 +66,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: |
+          test -n "$HEROUI_AUTH_TOKEN" || { echo 'Configure the HEROUI_AUTH_TOKEN Actions secret for licensed UI dependencies.'; exit 1; }
+          npm ci
+          test -s node_modules/@heroui-pro/react/dist/index.js
 
       - name: Run frontend tests
         run: npm run test:all

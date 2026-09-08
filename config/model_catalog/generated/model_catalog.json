@@ -8,6 +8,7 @@
       "happyhorse-1.1-t2v": "happyhorse/happyhorse-1.1-t2v#i2v",
       "kling-v3-i2v": "kling/kling-v3-video#i2v",
       "kling-v3-r2v": "kling/kling-v3-video#r2v",
+      "minimax/minimax-h3": "minimax/minimax-h3#i2v",
       "pixverse-c1-i2v": "pixverse/pixverse-c1-video#i2v",
       "pixverse-c1-r2v": "pixverse/pixverse-c1-video#r2v",
       "pixverse-v4-i2v": "pixverse/pixverse-v4-i2v#i2v",
@@ -196,6 +197,50 @@
         "reference_video_input_mode": {
           "dashscope": "dashscope_temp_file_url",
           "vendor": "kling_vendor_video_url"
+        }
+      }
+    },
+    "minimax": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "moma": [
+          "MOMA_API_KEY"
+        ]
+      },
+      "default_backend": "moma",
+      "display_name": "MiniMax",
+      "docs": {
+        "official_snapshot_ids": [
+          "moma/minimax-h3/2026-09-07"
+        ]
+      },
+      "family": "minimax",
+      "models": [
+        "minimax/minimax-h3"
+      ],
+      "provider": "moma",
+      "routing_prefixes": [
+        "minimax-",
+        "minimax/minimax-"
+      ],
+      "supported_backends": [
+        "moma"
+      ],
+      "supported_modalities": [
+        "t2v",
+        "i2v",
+        "r2v",
+        "v2v"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "moma": "moma_content_audio_url"
+        },
+        "image_input_mode": {
+          "moma": "moma_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "moma": "moma_content_video_url"
         }
       }
     },
@@ -748,6 +793,66 @@
         "reference_video_input_mode": {
           "dashscope": "dashscope_temp_file_url",
           "vendor": "kling_vendor_video_url"
+        }
+      }
+    },
+    "minimax/minimax-h3": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "moma": [
+          "MOMA_API_KEY"
+        ]
+      },
+      "default_backend": "moma",
+      "description": "MiniMax H3 multimodal video generation through the MOMA gateway",
+      "display_name": "MiniMax H3 Video",
+      "docs": {
+        "context_hub_doc_ids": [
+          "moma/minimax-h3-api"
+        ],
+        "official_snapshot_ids": [
+          "moma/minimax-h3/2026-09-07"
+        ]
+      },
+      "family": "minimax",
+      "id": "minimax/minimax-h3",
+      "legacy_model_ids": [
+        "minimax/minimax-h3"
+      ],
+      "modes": [
+        "minimax/minimax-h3#i2v"
+      ],
+      "provider": "moma",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "minimax-",
+        "minimax/minimax-"
+      ],
+      "runtime": {
+        "moma": {
+          "api_model_id": "minimax/minimax-h3",
+          "gateway": "moma"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "moma"
+      ],
+      "supported_modalities": [
+        "t2v",
+        "i2v",
+        "r2v",
+        "v2v"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "moma": "moma_content_audio_url"
+        },
+        "image_input_mode": {
+          "moma": "moma_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "moma": "moma_content_video_url"
         }
       }
     },
@@ -2727,6 +2832,103 @@
         "order": 80,
         "recommended": false,
         "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "minimax/minimax-h3": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v",
+        "r2v",
+        "t2v",
+        "v2v"
+      ],
+      "credential_sources": {
+        "moma": [
+          "MOMA_API_KEY"
+        ]
+      },
+      "default_backend": "moma",
+      "description": "MiniMax H3 multimodal video generation through the MOMA gateway",
+      "display_name": "MiniMax H3 Video",
+      "docs": {
+        "context_hub_doc_ids": [
+          "moma/minimax-h3-api"
+        ],
+        "official_snapshot_ids": [
+          "moma/minimax-h3/2026-09-07"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "minimax",
+      "id": "minimax/minimax-h3",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "ratio": {
+          "default": "16:9",
+          "options": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ]
+        },
+        "resolution": {
+          "default": "2K",
+          "options": [
+            "1K",
+            "2K"
+          ]
+        },
+        "watermark": false
+      },
+      "provider": "moma",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "minimax-",
+        "minimax/minimax-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "moma"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "moma": "moma_content_audio_url"
+        },
+        "image_input_mode": {
+          "moma": "moma_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "moma": "moma_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 100,
+        "recommended": false,
+        "selection_group": "i2v",
         "visible_in": [
           "project_settings",
           "series_settings",
@@ -5824,6 +6026,112 @@
         "order": 80,
         "recommended": false,
         "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "minimax/minimax-h3#i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v",
+        "r2v",
+        "t2v",
+        "v2v"
+      ],
+      "credential_sources": {
+        "moma": [
+          "MOMA_API_KEY"
+        ]
+      },
+      "default_backend": "moma",
+      "description": "MiniMax H3 multimodal video generation through the MOMA gateway",
+      "display_name": "MiniMax H3 Video",
+      "docs": {
+        "context_hub_doc_ids": [
+          "moma/minimax-h3-api"
+        ],
+        "official_snapshot_ids": [
+          "moma/minimax-h3/2026-09-07"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 10,
+        "min": 1,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "minimax",
+      "id": "minimax/minimax-h3#i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "minimax/minimax-h3",
+      "mode": "i2v",
+      "model_line_id": "minimax/minimax-h3",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "ratio": {
+          "default": "16:9",
+          "options": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ]
+        },
+        "resolution": {
+          "default": "2K",
+          "options": [
+            "1K",
+            "2K"
+          ]
+        },
+        "watermark": false
+      },
+      "provider": "moma",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "minimax-",
+        "minimax/minimax-"
+      ],
+      "runtime": {
+        "moma": {
+          "api_model_id": "minimax/minimax-h3",
+          "gateway": "moma"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "moma"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "moma": "moma_content_audio_url"
+        },
+        "image_input_mode": {
+          "moma": "moma_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "moma": "moma_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 100,
+        "recommended": false,
+        "selection_group": "i2v",
         "visible_in": [
           "project_settings",
           "series_settings",

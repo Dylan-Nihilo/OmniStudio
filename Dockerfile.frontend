@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Stage 1: Build
 FROM node:20-alpine AS builder
 
@@ -5,7 +6,9 @@ WORKDIR /app/frontend
 
 COPY packages/ui/ /app/packages/ui/
 COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
-RUN npm ci
+RUN --mount=type=secret,id=heroui_auth_token,required=true \
+    HEROUI_AUTH_TOKEN="$(cat /run/secrets/heroui_auth_token)" npm ci && \
+    test -s node_modules/@heroui-pro/react/dist/index.js
 
 COPY frontend/ .
 

@@ -20,7 +20,7 @@
 # import_file_preview, import_file_confirm, upload_t2i_frame,
 # analyze_script_for_styles. All others are `def` for a reason.
 # ─────────────────────────────────────────────────────────────────────────────
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -65,17 +65,50 @@ from .auth.service import AuthError, AuthService
 from .auth.dependencies import get_current_user
 from .auth.routes import require_csrf
 from .auth.settings import AuthSettings
+from .source_models import (
+    SourceChapterCreate,
+    SourceChapterList,
+    SourceDocumentCreate,
+    SourceDocumentList,
+    SourceDocumentRead,
+    SourceEpisodeList,
+    SourceLinkResponse,
+    SourceRevisionCreate,
+    SourceRevisionList,
+    SourceRevisionRead,
+)
+from .source_api import router as source_router, source_error_payload
 from .collaboration_context import (
     WorkspacePermissionError,
     current_workspace_role,
 )
+from .audit import record_request_event
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
+from ...storage.job_repository import JobRepository
 from ...storage.legacy_claim import LegacyClaimService
+from ...storage.source_repository import SourceRepository, SourceRepositoryError
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
+
+
+class TaskAPIError(Exception):
+    """Stable error envelope for the unified task API."""
+
+    def __init__(self, code: str, message: str, status_code: int = 400):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
+@app.exception_handler(TaskAPIError)
+def task_api_error_handler(request: Request, exc: TaskAPIError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
 
 _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "LLM_PROVIDER",
@@ -84,6 +117,9 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_MODEL",
+    "OPENAI_IMAGE_API_KEY",
+    "OPENAI_IMAGE_BASE_URL",
+    "OPENAI_IMAGE_MODEL",
     "ARK_API_KEY",
     "ALIBABA_CLOUD_ACCESS_KEY_ID",
     "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
@@ -102,6 +138,9 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "MULEROUTER_API_KEY",
     "MULEROUTER_BASE_URL",
     "MULEROUTER_SITE",
+    "MOMA_API_KEY",
+    "MOMA_BASE_URL",
+    "IMAGE_PROVIDER",
 }
 
 
@@ -230,6 +269,11 @@ _CORS_ALLOW_HEADERS = [
 app.add_exception_handler(AuthError, auth_exception_handler)
 
 
+@app.exception_handler(SourceRepositoryError)
+def source_repository_error_handler(request: Request, exc: SourceRepositoryError):
+    return JSONResponse(status_code=exc.status_code, content=source_error_payload(request, exc))
+
+
 @app.exception_handler(WorkspacePermissionError)
 def workspace_permission_error_handler(request: Request, exc: WorkspacePermissionError):
     return auth_exception_handler(
@@ -250,7 +294,9 @@ app.state.legacy_claim_service = LegacyClaimService(
     projects_path=pipeline.data_file,
     series_path=pipeline.series_data_file,
 )
+app.state.source_repository = SourceRepository(pipeline.storage_engine)
 app.include_router(auth_router)
+app.include_router(source_router)
 
 
 def _iter_media_strings(value, field: str = ""):
@@ -420,7 +466,7 @@ _DEVELOPMENT_ROUTE_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
-def _workspace_for_resource_path(path: str, repository) -> str | None:
+def _workspace_for_resource_path(path: str, repository, source_repository=None) -> str | None:
     """Resolve the Workspace for a project or series resource path."""
     parts = [part for part in path.strip("/").split("/") if part]
     if len(parts) < 2:
@@ -434,6 +480,12 @@ def _workspace_for_resource_path(path: str, repository) -> str | None:
         return repository.workspace_for_script(resource_id)
     if resource_type == "series":
         return repository.workspace_for_series(resource_id)
+    if resource_type == "sources":
+        if resource_id == "import" and len(parts) >= 4 and parts[2] == "previews":
+            return source_repository.workspace_for_import_preview(parts[3]) if source_repository else None
+        return source_repository.workspace_for_source(resource_id) if source_repository else None
+    if resource_type == "episodes":
+        return source_repository.workspace_for_episode(resource_id) if source_repository else None
     return None
 
 
@@ -461,6 +513,8 @@ def _owner_required_for_request(method: str, path: str) -> bool:
     if method == "PUT" and len(parts) == 2 and parts[0] == "series":
         return True
     if method == "POST" and parts == ["series", "import", "confirm"]:
+        return True
+    if method == "POST" and len(parts) == 3 and parts[0] in {"projects", "series"} and parts[2] == "purge":
         return True
     if parts and parts[0] == "library":
         return True
@@ -556,24 +610,30 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 )
             repository = getattr(pipeline, "repository", None)
             if repository is not None:
+                source_repository = getattr(request.app.state, "source_repository", None)
+                if source_repository is None or source_repository.engine is not request.app.state.storage_engine:
+                    source_repository = SourceRepository(request.app.state.storage_engine)
+                    request.app.state.source_repository = source_repository
                 parts = [part for part in request.url.path.strip("/").split("/") if part]
                 is_domain_collection = parts == ["projects", "domain"]
                 is_series_import = parts[:2] == ["series", "import"]
+                is_source_import_create = parts == ["sources", "import", "preview"]
                 is_missing_domain_project = (
                     len(parts) >= 3
                     and parts[0] == "projects"
                     and parts[2] == "episodes"
                     and not repository.project_exists(parts[1])
                 )
-                if not is_domain_collection and not is_series_import and not is_missing_domain_project:
+                if not is_domain_collection and not is_series_import and not is_source_import_create and not is_missing_domain_project:
                     resource_workspace = _workspace_for_resource_path(
                         request.url.path,
                         repository,
+                        source_repository,
                     )
                     if (
                         resource_workspace != context.workspace.id
                         and len(parts) >= 2
-                        and parts[0] in {"projects", "series"}
+                        and parts[0] in {"projects", "series", "sources", "episodes"}
                     ):
                         raise AuthError("AUTH_RESOURCE_NOT_FOUND", "资源不存在", status_code=404)
             if request.method.upper() in _MUTATING_METHODS:
@@ -954,6 +1014,317 @@ class ReparseProjectRequest(BaseModel):
     text: str
 
 
+class UpdateProjectRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+
+
+class ConvertProjectToSeriesRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: str = Field("", max_length=2000)
+
+
+@app.get("/projects/{script_id}/convert-to-series/preview")
+def preview_project_to_series(script_id: str):
+    """Preview Standalone → Series impact without changing project data."""
+    try:
+        return signed_response(pipeline.preview_project_to_series(script_id))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/projects/{script_id}/convert-to-series")
+def convert_project_to_series(
+    script_id: str,
+    request: ConvertProjectToSeriesRequest,
+    http_request: Request,
+):
+    """Confirm Standalone → Series conversion while retaining the Script ID."""
+    try:
+        result = pipeline.convert_project_to_series(
+            script_id,
+            request.title,
+            request.description,
+        )
+        context = getattr(http_request.state, "auth_context", None)
+        if context is not None:
+            pipeline.repository.assign_workspace_for_series(result["series"].id, context.workspace.id)
+        return signed_response({
+            "series": result["series"].model_dump(),
+            "episode": result["episode"].model_dump(),
+            "preserved": result["preserved"],
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400 if "already" in str(e) else 404, detail=str(e))
+
+
+class ProjectArchiveResponse(BaseModel):
+    id: str
+    title: str
+    archived: bool
+    archived_at: Optional[float]
+    impact: dict[str, int]
+    message: str
+
+
+class PermanentPurgeRequest(BaseModel):
+    confirmation_token: str = Field(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+class PermanentPurgeImpactResponse(BaseModel):
+    resource_type: Literal["project", "series"]
+    id: str
+    title: str
+    archived: bool
+    archived_at: Optional[float]
+    impact: dict[str, int]
+    confirmation_token: str
+    confirmation_phrase: str
+    message: str
+
+
+class PermanentPurgeResponse(BaseModel):
+    job_id: str
+    status: str
+    resource_type: Literal["project", "series"]
+    resource_id: str
+    report_url: str
+
+
+class PermanentPurgeJobResponse(BaseModel):
+    job_id: str
+    status: str
+    resource_type: Literal["project", "series"]
+    resource_id: str
+    report: Optional[Dict[str, Any]] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+EpisodeDefaultSection = Literal[
+    "model_settings",
+    "prompt_config",
+    "art_direction",
+    "workflow_mode",
+    "default_generation_mode",
+]
+
+
+class PromoteEpisodeDefaultsRequest(BaseModel):
+    sections: List[EpisodeDefaultSection] = Field(
+        default_factory=lambda: [
+            "model_settings",
+            "prompt_config",
+            "art_direction",
+            "workflow_mode",
+            "default_generation_mode",
+        ],
+        min_length=1,
+        description="Episode config sections to copy to Series defaults",
+    )
+
+
+class EpisodeDefaultsPromotionPreview(BaseModel):
+    series_id: str
+    episode_id: str
+    episode_title: str
+    sections: List[EpisodeDefaultSection]
+    changes: Dict[str, Dict[str, Any]]
+    message: str
+
+
+def _project_archive_impact(script) -> dict[str, int]:
+    return {
+        "episodes": 1,
+        "characters": len(script.characters),
+        "scenes": len(script.scenes),
+        "props": len(script.props),
+        "shots": len(script.frames),
+        "video_tasks": len(script.video_tasks),
+    }
+
+
+def _series_archive_impact(series) -> dict[str, int]:
+    episodes = pipeline.get_series_episodes(series.id)
+    return {
+        "episodes": len(episodes),
+        "characters": len(series.characters),
+        "scenes": len(series.scenes),
+        "props": len(series.props),
+        "shots": sum(len(episode.frames) for episode in episodes),
+        "video_tasks": sum(len(episode.video_tasks) for episode in episodes),
+    }
+
+
+def _purge_confirmation_token(resource_type: str, resource_id: str, updated_at: float, impact: dict[str, int]) -> str:
+    payload = json.dumps(
+        {"resource_type": resource_type, "resource_id": resource_id, "updated_at": updated_at, "impact": impact},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _purge_snapshot(resource_type: str, resource_id: str) -> dict[str, Any]:
+    if resource_type == "project":
+        resource = pipeline.get_script(resource_id)
+        if not resource:
+            raise HTTPException(status_code=404, detail="Project not found")
+        impact = _project_archive_impact(resource)
+        payloads = [resource.model_dump(mode="json")]
+    else:
+        resource = pipeline.get_series(resource_id)
+        if not resource:
+            raise HTTPException(status_code=404, detail="Series not found")
+        episodes = pipeline.get_series_episodes(resource_id)
+        impact = _series_archive_impact(resource)
+        payloads = [resource.model_dump(mode="json")] + [episode.model_dump(mode="json") for episode in episodes]
+    media_refs = list(dict.fromkeys(ref for payload in payloads for ref in _iter_media_strings(payload)))
+    return {
+        "resource": resource,
+        "impact": impact,
+        "updated_at": resource.updated_at,
+        "payloads": payloads,
+        "media_refs": media_refs,
+        "confirmation_token": _purge_confirmation_token(resource_type, resource_id, resource.updated_at, impact),
+    }
+
+
+def _purge_impact_payload(resource_type: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+    resource = snapshot["resource"]
+    return {
+        "resource_type": resource_type,
+        "id": resource.id,
+        "title": resource.title,
+        "archived": resource.archived,
+        "archived_at": resource.archived_at,
+        "impact": snapshot["impact"],
+        "confirmation_token": snapshot["confirmation_token"],
+        "confirmation_phrase": "永久删除",
+        "message": "永久删除不可撤销；确认后将异步清除业务数据，并清理未被其他资源引用的本地媒体。",
+    }
+
+
+def _remaining_local_media_paths() -> set[str]:
+    values = [
+        *(script.model_dump(mode="json") for script in pipeline.scripts.values()),
+        *(series.model_dump(mode="json") for series in pipeline.series_store.values()),
+        pipeline.library_store.model_dump(mode="json"),
+    ]
+    return {
+        resolved
+        for value in values
+        for raw in _iter_media_strings(value)
+        if (resolved := _resolve_media_reference(raw))
+    }
+
+
+def _cleanup_purge_media(media_refs: list[str], remaining_paths: set[str]) -> dict[str, Any]:
+    local_paths = {
+        resolved
+        for raw in media_refs
+        if (resolved := _resolve_media_reference(raw))
+    }
+    shared = sorted(path for path in local_paths if path in remaining_paths)
+    deleted: list[str] = []
+    missing: list[str] = []
+    failed: list[dict[str, str]] = []
+    output_root = (MEDIA_PROJECT_ROOT / "output").resolve()
+
+    def display_path(path: str) -> str:
+        try:
+            return str(Path(path).resolve().relative_to(output_root))
+        except ValueError:
+            return "[local path redacted]"
+
+    for path in sorted(local_paths - set(shared)):
+        target = Path(path)
+        try:
+            if target.is_file():
+                target.unlink()
+                deleted.append(path)
+            else:
+                missing.append(path)
+        except OSError as exc:
+            failed.append({"path": display_path(path), "error": str(exc)})
+    return {
+        "candidates": len(local_paths),
+        "deleted": len(deleted),
+        "skipped_shared": len(shared),
+        "missing": len(missing),
+        "failed": len(failed),
+        "remote_or_unresolved_preserved": len(set(media_refs) - local_paths),
+        "failed_paths": failed,
+    }
+
+
+def _run_purge_job(
+    job_id: str,
+    item_id: str,
+    workspace_id: str,
+    user_id: str,
+    resource_type: str,
+    resource_id: str,
+    snapshot: dict[str, Any],
+) -> None:
+    repository = JobRepository(pipeline.storage_engine)
+    try:
+        repository.transition_item(item_id, "processing", progress=0.05)
+        if resource_type == "project":
+            pipeline.delete_project(resource_id)
+        else:
+            pipeline.purge_series(resource_id)
+        media = _cleanup_purge_media(snapshot["media_refs"], _remaining_local_media_paths())
+        report = {
+            "status": "completed_with_warnings" if media["failed"] else "completed",
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "data_deleted": True,
+            "impact": snapshot["impact"],
+            "media": media,
+            "finished_at": time.time(),
+        }
+        job = repository.get_job(workspace_id, job_id)
+        if job is None or not job.items:
+            raise RuntimeError("Purge job disappeared before completion")
+        item = next((candidate for candidate in job.items if candidate.id == item_id), job.items[0])
+        repository.update_item_payload(item.id, {**item.payload, "report": report})
+        repository.transition_item(
+            item.id,
+            "succeeded",
+            media_refs=[{"id": job_id, "kind": "cleanup_report", "uri": f"cleanup-report://{job_id}"}],
+        )
+        try:
+            pipeline.repository.record_audit_event(
+                actor_user_id=user_id,
+                workspace_id=workspace_id,
+                action="project.purge.completed",
+                object_type=resource_type,
+                object_id=resource_id,
+                metadata={"job_id": job_id, "report": report},
+            )
+        except Exception:
+            logger.exception("Failed to persist purge completion audit for %s", job_id)
+    except Exception as exc:
+        safe_error = str(exc)
+        report = {"status": "failed", "resource_type": resource_type, "resource_id": resource_id, "data_deleted": False, "error": safe_error, "finished_at": time.time()}
+        try:
+            job = repository.get_job(workspace_id, job_id)
+            if job and job.items:
+                repository.update_item_payload(job.items[0].id, {**job.items[0].payload, "report": report})
+                repository.transition_item(job.items[0].id, "failed", error={"code": "PURGE_FAILED", "message": safe_error})
+                pipeline.repository.record_audit_event(
+                    actor_user_id=user_id,
+                    workspace_id=workspace_id,
+                    action="project.purge.failed",
+                    object_type=resource_type,
+                    object_id=resource_id,
+                    metadata={"job_id": job_id, "error": safe_error},
+                )
+        except Exception:
+            logger.exception("Failed to persist purge failure for %s", job_id)
+
+
 class UpdateScriptTextRequest(BaseModel):
     text: str
     expected_revision: str
@@ -1251,6 +1622,8 @@ def get_series(series_id: str):
             "id": ep.id,
             "title": ep.title,
             "episode_number": ep.episode_number,
+            "archived": ep.archived,
+            "archived_at": ep.archived_at,
             "created_at": ep.created_at,
             "updated_at": ep.updated_at,
         }
@@ -1272,14 +1645,173 @@ def update_series(series_id: str, request: UpdateSeriesRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get("/series/{series_id}/archive-impact", response_model=ProjectArchiveResponse)
+def series_archive_impact(series_id: str):
+    """Preview archiving the Series container without archiving its Episodes."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    state = "已归档" if series.archived else "归档后可随时恢复"
+    return {
+        "id": series.id,
+        "title": series.title,
+        "archived": series.archived,
+        "archived_at": series.archived_at,
+        "impact": _series_archive_impact(series),
+        "message": f"{state}；只归档项目容器，不会归档或删除 Episode、脚本、素材、分镜、视频任务或导出引用。",
+    }
+
+
+@app.post("/series/{series_id}/archive", response_model=ProjectArchiveResponse)
+def archive_series(series_id: str, request: Request):
+    try:
+        series = pipeline.set_series_archived(series_id, True)
+        record_request_event(request, action="project.archive", object_type="project", object_id=series_id)
+        return {
+            "id": series.id,
+            "title": series.title,
+            "archived": True,
+            "archived_at": series.archived_at,
+            "impact": _series_archive_impact(series),
+            "message": "项目已归档，可随时恢复；Episode 状态和生产数据保持不变。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Series not found") from exc
+
+
+@app.post("/series/{series_id}/restore", response_model=ProjectArchiveResponse)
+def restore_series(series_id: str, request: Request):
+    try:
+        series = pipeline.set_series_archived(series_id, False)
+        record_request_event(request, action="project.restore", object_type="project", object_id=series_id)
+        return {
+            "id": series.id,
+            "title": series.title,
+            "archived": False,
+            "archived_at": None,
+            "impact": _series_archive_impact(series),
+            "message": "项目已恢复；Episode 状态和生产数据保持不变。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Series not found") from exc
+
+
+def _find_existing_purge_job(request: Request, resource_id: str, confirmation_token: str):
+    context = _task_context(request)
+    jobs = _task_repository(request).list_jobs(
+        context.workspace.id,
+        project_id=resource_id,
+        query="project.purge",
+        page=1,
+        page_size=100,
+    ).items
+    for job in jobs:
+        if job.kind != "project.purge" or not job.items:
+            continue
+        item = job.items[0]
+        if item.payload.get("confirmation_token") == confirmation_token and job.status in {"pending", "processing", "succeeded"}:
+            return job
+    return None
+
+
+def _submit_purge(
+    resource_type: Literal["project", "series"],
+    resource_id: str,
+    request: PermanentPurgeRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    context = _task_context(http_request)
+    snapshot = _purge_snapshot(resource_type, resource_id)
+    if not secrets.compare_digest(request.confirmation_token, snapshot["confirmation_token"]):
+        raise HTTPException(status_code=409, detail="影响预览已过期，请重新获取预览并确认")
+
+    existing = _find_existing_purge_job(http_request, resource_id, request.confirmation_token)
+    if existing is not None:
+        return {
+            "job_id": existing.id,
+            "status": existing.status,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "report_url": f"/purge-jobs/{existing.id}",
+        }
+
+    repository = _task_repository(http_request)
+    job = repository.create_job(
+        context.workspace.id,
+        "project.purge",
+        project_id=resource_id,
+        metadata={"resource_type": resource_type, "resource_id": resource_id},
+    )
+    item = repository.create_item(
+        job.id,
+        "project.purge",
+        f"purge:{resource_type}:{resource_id}:{request.confirmation_token}:{job.id}",
+        payload={
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "confirmation_token": request.confirmation_token,
+            "impact": snapshot["impact"],
+        },
+    )
+    background_tasks.add_task(
+        _run_purge_job,
+        job.id,
+        item.id,
+        context.workspace.id,
+        context.user.id,
+        resource_type,
+        resource_id,
+        snapshot,
+    )
+    record_request_event(
+        http_request,
+        action="project.purge.requested",
+        object_type=resource_type,
+        object_id=resource_id,
+        metadata={"job_id": job.id, "impact": snapshot["impact"]},
+    )
+    return {
+        "job_id": job.id,
+        "status": "pending",
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "report_url": f"/purge-jobs/{job.id}",
+    }
+
+
+@app.get("/series/{series_id}/purge-impact", response_model=PermanentPurgeImpactResponse)
+def series_purge_impact(series_id: str):
+    return _purge_impact_payload("series", _purge_snapshot("series", series_id))
+
+
+@app.post("/series/{series_id}/purge", response_model=PermanentPurgeResponse, status_code=202)
+def purge_series(series_id: str, request: PermanentPurgeRequest, background_tasks: BackgroundTasks, http_request: Request):
+    return _submit_purge("series", series_id, request, http_request, background_tasks)
+
+
+@app.get("/purge-jobs/{job_id}", response_model=PermanentPurgeJobResponse)
+def get_purge_job(job_id: str, request: Request):
+    context = _task_context(request)
+    job = _task_repository(request).get_job(context.workspace.id, job_id)
+    if job is None or job.kind != "project.purge" or not job.items:
+        raise HTTPException(status_code=404, detail="清除任务不存在")
+    item = job.items[0]
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "resource_type": item.payload.get("resource_type", "project"),
+        "resource_id": item.payload.get("resource_id") or job.project_id or "",
+        "report": item.payload.get("report"),
+        "error_code": item.error_code,
+        "error_message": item.error_message,
+    }
+
+
 @app.delete("/series/{series_id}")
 def delete_series(series_id: str):
-    """Delete a Series and disassociate its episodes."""
-    try:
-        pipeline.delete_series(series_id)
-        return {"status": "deleted"}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    """Legacy deletion path is disabled; permanent purge requires preview + Owner confirmation."""
+    raise HTTPException(status_code=410, detail="请先调用 purge-impact，再通过 POST /series/{series_id}/purge 确认清除")
 
 
 class AddEpisodeRequest(BaseModel):
@@ -1287,11 +1819,110 @@ class AddEpisodeRequest(BaseModel):
     episode_number: Optional[int] = None
 
 
+@app.get(
+    "/series/{series_id}/episodes/{script_id}/promote-defaults/preview",
+    response_model=EpisodeDefaultsPromotionPreview,
+)
+def preview_episode_defaults(
+    series_id: str,
+    script_id: str,
+    sections: Optional[List[EpisodeDefaultSection]] = Query(None),
+):
+    """Preview copying selected Episode settings to Series defaults."""
+    try:
+        return pipeline.preview_episode_default_promotion(series_id, script_id, sections)
+    except ValueError as exc:
+        status = 400 if "Unsupported" in str(exc) or "required" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@app.post(
+    "/series/{series_id}/episodes/{script_id}/promote-defaults",
+)
+def promote_episode_defaults(
+    series_id: str,
+    script_id: str,
+    request: PromoteEpisodeDefaultsRequest,
+    http_request: Request,
+):
+    """Confirm copying selected Episode settings to Series defaults."""
+    try:
+        result = pipeline.promote_episode_defaults(series_id, script_id, request.sections)
+        record_request_event(
+            http_request,
+            action="episode.defaults_promote",
+            object_type="episode",
+            object_id=script_id,
+            metadata={"series_id": series_id, "sections": request.sections},
+        )
+        return signed_response(
+            {
+                "series": result["series"].model_dump(),
+                "episode": result["episode"].model_dump(),
+                "preview": result["preview"],
+            }
+        )
+    except ValueError as exc:
+        status = 400 if "Unsupported" in str(exc) or "required" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+class EpisodeOrderRequest(BaseModel):
+    episode_ids: List[str]
+
+
+class EpisodeMoveRequest(BaseModel):
+    target_index: int = Field(ge=0)
+
+
 @app.post("/series/{series_id}/episodes")
 def add_episode_to_series(series_id: str, request: AddEpisodeRequest):
     """Add an existing project as an episode to a Series."""
     try:
         series = pipeline.add_episode_to_series(series_id, request.script_id, request.episode_number)
+        return signed_response(series)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.put("/series/{series_id}/episodes/order")
+def reorder_series_episodes(series_id: str, request: EpisodeOrderRequest):
+    """Persist the complete ordered Episode list for a Series."""
+    try:
+        series = pipeline.reorder_series_episodes(series_id, request.episode_ids)
+        return signed_response(series)
+    except ValueError as e:
+        status = 404 if str(e) == "Series not found" else 400
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/move")
+def move_series_episode(series_id: str, script_id: str, request: EpisodeMoveRequest):
+    """Move an Episode to a zero-based position, including from another Series."""
+    try:
+        series = pipeline.move_episode_to_series(series_id, script_id, request.target_index)
+        return signed_response(series)
+    except ValueError as e:
+        status = 404 if str(e) in {"Series not found", "Script not found"} else 400
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/archive")
+def archive_series_episode(series_id: str, script_id: str, request: Request):
+    try:
+        series = pipeline.set_episode_archived(series_id, script_id, True)
+        record_request_event(request, action="episode.archive", object_type="episode", object_id=script_id)
+        return signed_response(series)
+    except ValueError as e:
+        status = 409 if "last active" in str(e) else 404
+        raise HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/series/{series_id}/episodes/{script_id}/restore")
+def restore_series_episode(series_id: str, script_id: str, request: Request):
+    try:
+        series = pipeline.set_episode_archived(series_id, script_id, False)
+        record_request_event(request, action="episode.restore", object_type="episode", object_id=script_id)
         return signed_response(series)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -1892,6 +2523,10 @@ class EnvConfig(ProviderRoutingConfig):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: Optional[str] = None
     OPENAI_MODEL: Optional[str] = None
+    IMAGE_PROVIDER: Literal["mulerouter", "openai"] = "mulerouter"
+    OPENAI_IMAGE_API_KEY: Optional[str] = None
+    OPENAI_IMAGE_BASE_URL: Optional[str] = None
+    OPENAI_IMAGE_MODEL: Optional[str] = None
     DASHSCOPE_API_KEY: Optional[str] = None
     ALIBABA_CLOUD_ACCESS_KEY_ID: Optional[str] = None
     ALIBABA_CLOUD_ACCESS_KEY_SECRET: Optional[str] = None
@@ -1903,6 +2538,7 @@ class EnvConfig(ProviderRoutingConfig):
     KLING_SECRET_KEY: Optional[str] = None
     VIDU_API_KEY: Optional[str] = None
     MULEROUTER_API_KEY: Optional[str] = None
+    MOMA_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -2024,11 +2660,42 @@ def update_env_config(config: EnvConfig, request: Request):
             removed_keys=keys_to_remove,
             now=time.time(),
         )
+        record_request_event(
+            request,
+            action="provider.config.update",
+            object_type="workspace",
+            object_id=str(context.workspace.id),
+            metadata={"changed_keys": sorted(config_dict.keys()), "removed_keys": sorted(keys_to_remove)},
+        )
         return {"status": "success", "message": "Configuration saved to Workspace"}
     except Exception as e:
         logger.exception("Failed to save environment configuration")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/projects/{script_id}/archive-impact", response_model=ProjectArchiveResponse)
+def project_archive_impact(script_id: str):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    state = "已归档" if script.archived else "归档后可随时恢复"
+    return {
+        "id": script.id,
+        "title": script.title,
+        "archived": script.archived,
+        "archived_at": script.archived_at,
+        "impact": _project_archive_impact(script),
+        "message": f"{state}；不会删除脚本、素材、分镜、视频任务或导出引用。",
+    }
+
+
+@app.get("/projects/{script_id}/purge-impact", response_model=PermanentPurgeImpactResponse)
+def project_purge_impact(script_id: str):
+    return _purge_impact_payload("project", _purge_snapshot("project", script_id))
+
+
+@app.post("/projects/{script_id}/purge", response_model=PermanentPurgeResponse, status_code=202)
+def purge_project(script_id: str, request: PermanentPurgeRequest, background_tasks: BackgroundTasks, http_request: Request):
+    return _submit_purge("project", script_id, request, http_request, background_tasks)
 
 
 @app.get("/projects/{script_id}")
@@ -2115,19 +2782,44 @@ def get_project(script_id: str, request: Request):
     return signed_response(payload)
 
 
+@app.patch("/projects/{script_id}")
+def update_project(script_id: str, payload: UpdateProjectRequest, request: Request):
+    """Update project metadata without changing its production content."""
+    if payload.title is None:
+        raise HTTPException(status_code=400, detail="No project fields to update")
+    try:
+        script = pipeline.update_project_title(script_id, payload.title)
+        record_request_event(request, action="project.update", object_type="project", object_id=script_id, metadata={"fields": ["title"]})
+        return signed_response(script)
+    except ValueError as exc:
+        raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/archive", response_model=ProjectArchiveResponse)
+def archive_project(script_id: str, request: Request):
+    try:
+        script = pipeline.set_project_archived(script_id, True)
+        record_request_event(request, action="project.archive", object_type="project", object_id=script_id)
+        return {"id": script.id, "title": script.title, "archived": True, "archived_at": script.archived_at, "impact": _project_archive_impact(script), "message": "项目已归档，可随时恢复；生产数据未删除。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
+@app.post("/projects/{script_id}/restore", response_model=ProjectArchiveResponse)
+def restore_project(script_id: str, request: Request):
+    try:
+        script = pipeline.set_project_archived(script_id, False)
+        record_request_event(request, action="project.restore", object_type="project", object_id=script_id)
+        return {"id": script.id, "title": script.title, "archived": False, "archived_at": None, "impact": _project_archive_impact(script), "message": "项目已恢复，生产数据保持不变。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
 
 @app.delete("/projects/{script_id}")
-def delete_project(script_id: str):
-    """Deletes a project by ID. WARNING: This permanently removes the project from backend storage."""
-    script = pipeline.get_script(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    try:
-        pipeline.delete_project(script_id)
-        return {"status": "deleted", "id": script_id, "title": script.title}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def delete_project(script_id: str, request: Request):
+    """Legacy deletion path is disabled; permanent purge requires preview + Owner confirmation."""
+    raise HTTPException(status_code=410, detail="请先调用 purge-impact，再通过 POST /projects/{script_id}/purge 确认清除")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -3131,9 +3823,169 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RetryTaskRequest(BaseModel):
+    item_ids: Optional[List[str]] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+def _task_repository(request: Request) -> JobRepository:
+    engine = getattr(request.app.state, "storage_engine", None)
+    if engine is None:
+        raise TaskAPIError("TASK_STORAGE_UNAVAILABLE", "任务存储不可用", status_code=503)
+    return JobRepository(engine)
+
+
+def _task_item_payload(item):
+    return {
+        "id": item.id,
+        "job_id": item.job_id,
+        "workspace_id": item.workspace_id,
+        "project_id": item.project_id,
+        "episode_id": item.episode_id,
+        "kind": item.kind,
+        "status": item.status,
+        "progress": item.progress,
+        "idempotency_key": item.idempotency_key,
+        "retry_of": item.retry_of,
+        "payload": item.payload,
+        "media_refs": item.media_refs,
+        "error_code": item.error_code,
+        "error_message": item.error_message,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "started_at": item.started_at,
+        "finished_at": item.finished_at,
+        "idempotent": item.idempotent,
+    }
+
+
+def _task_payload(job):
+    return {
+        "id": job.id,
+        "workspace_id": job.workspace_id,
+        "project_id": job.project_id,
+        "episode_id": job.episode_id,
+        "kind": job.kind,
+        "status": job.status,
+        "total": job.total,
+        "succeeded": job.succeeded,
+        "failed": job.failed,
+        "canceled": job.canceled,
+        "skipped": job.skipped,
+        "items": [_task_item_payload(item) for item in job.items],
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+    }
+
+
+def _task_context(request: Request):
+    context = getattr(request.state, "auth_context", None)
+    if context is None or not getattr(getattr(context, "workspace", None), "id", None):
+        raise TaskAPIError("AUTH_SESSION_INVALID", "登录状态无效", status_code=401)
+    return context
+
+
+@app.get("/tasks")
+def list_tasks(
+    request: Request,
+    project_id: Optional[str] = None,
+    episode_id: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = Query(default=None, max_length=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """List unified jobs within the active Workspace."""
+    context = _task_context(request)
+    result = _task_repository(request).list_jobs(
+        context.workspace.id,
+        project_id=project_id,
+        episode_id=episode_id,
+        status=status,
+        query=q,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        "items": [_task_payload(job) for job in result.items],
+        "page": result.page,
+        "page_size": result.page_size,
+        "total": result.total,
+    }
+
+
+@app.get("/tasks/summary")
+def task_summary(
+    request: Request,
+    project_id: Optional[str] = None,
+    episode_id: Optional[str] = None,
+):
+    """Return item counts for the active Workspace and optional context."""
+    context = _task_context(request)
+    return _task_repository(request).summarize(
+        context.workspace.id,
+        project_id=project_id,
+        episode_id=episode_id,
+    )
+
+
+@app.post("/tasks/{job_id}/cancel")
+def cancel_task(job_id: str, request: Request):
+    """Cancel only pending/processing items in a unified job."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    job = repository.cancel_job(context.workspace.id, job_id)
+    if job is None:
+        code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
+        message = "任务不存在" if code == "TASK_NOT_FOUND" else "任务不存在"
+        raise TaskAPIError(code, message, status_code=404)
+    record_request_event(
+        request,
+        action="task.cancel",
+        object_type="job",
+        object_id=job_id,
+    )
+    return _task_payload(job)
+
+
+@app.post("/tasks/{job_id}/retry")
+def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest] = None):
+    """Create idempotent pending retry items for failed items."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    body = payload or RetryTaskRequest()
+    job = repository.retry_failed_items(
+        context.workspace.id,
+        job_id,
+        item_ids=body.item_ids,
+        idempotency_key=body.idempotency_key,
+    )
+    if job is None:
+        code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
+        raise TaskAPIError(code, "任务不存在", status_code=404)
+    record_request_event(
+        request,
+        action="task.retry",
+        object_type="job",
+        object_id=job_id,
+        metadata={"item_ids": body.item_ids or []},
+    )
+    return _task_payload(job)
+
+
 @app.get("/tasks/{task_id}")
 def get_task_status(task_id: str, request: Request):
-    """Returns the status of an asset generation task for polling."""
+    """Return a unified job detail, falling back to legacy asset polling."""
+    context = _task_context(request)
+    repository = _task_repository(request)
+    job = repository.get_job(context.workspace.id, task_id)
+    if job is not None:
+        events = repository.list_item_events(context.workspace.id, task_id) or []
+        return {"job": _task_payload(job), "events": events}
+    if repository.job_exists(task_id):
+        raise TaskAPIError("AUTH_RESOURCE_NOT_FOUND", "任务不存在", status_code=404)
+
+    # Legacy asset generation task polling remains available for older clients.
     status = pipeline.get_asset_generation_task_status(task_id)
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -4845,6 +5697,7 @@ def trigger_mulerun_login():
 # Credential-like env fields that must never be returned in plaintext.
 SECRET_FIELDS = {
     "OPENAI_API_KEY",
+    "OPENAI_IMAGE_API_KEY",
     "DASHSCOPE_API_KEY",
     "ALIBABA_CLOUD_ACCESS_KEY_ID",
     "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
@@ -4852,6 +5705,7 @@ SECRET_FIELDS = {
     "KLING_SECRET_KEY",
     "VIDU_API_KEY",
     "MULEROUTER_API_KEY",
+    "MOMA_API_KEY",
 }
 
 # Bullet sentinel: never appears in a real key, so the save path can detect an
@@ -4898,6 +5752,7 @@ def get_env_config():
         return {
             # Masked secrets — never plaintext.
             "OPENAI_API_KEY": _mask_secret(workspace_getenv("OPENAI_API_KEY")),
+            "OPENAI_IMAGE_API_KEY": _mask_secret(workspace_getenv("OPENAI_IMAGE_API_KEY")),
             "DASHSCOPE_API_KEY": _mask_secret(workspace_getenv("DASHSCOPE_API_KEY")),
             "ALIBABA_CLOUD_ACCESS_KEY_ID": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
             "ALIBABA_CLOUD_ACCESS_KEY_SECRET": _mask_secret(workspace_getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")),
@@ -4905,6 +5760,7 @@ def get_env_config():
             "KLING_SECRET_KEY": _mask_secret(workspace_getenv("KLING_SECRET_KEY")),
             "VIDU_API_KEY": _mask_secret(workspace_getenv("VIDU_API_KEY")),
             "MULEROUTER_API_KEY": _mask_secret(workspace_getenv("MULEROUTER_API_KEY")),
+            "MOMA_API_KEY": _mask_secret(workspace_getenv("MOMA_API_KEY")),
             # Non-secret config.
             "OSS_BUCKET_NAME": workspace_getenv("OSS_BUCKET_NAME", ""),
             "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),
@@ -4913,6 +5769,9 @@ def get_env_config():
             "LLM_PROVIDER": (workspace_getenv("LLM_PROVIDER", "dashscope") or "dashscope").strip().lower(),
             "OPENAI_BASE_URL": workspace_getenv("OPENAI_BASE_URL", ""),
             "OPENAI_MODEL": workspace_getenv("OPENAI_MODEL", ""),
+            "IMAGE_PROVIDER": (workspace_getenv("IMAGE_PROVIDER", "mulerouter") or "mulerouter").strip().lower(),
+            "OPENAI_IMAGE_BASE_URL": workspace_getenv("OPENAI_IMAGE_BASE_URL", ""),
+            "OPENAI_IMAGE_MODEL": workspace_getenv("OPENAI_IMAGE_MODEL", ""),
             "MULERUN_CLI_LOGGED_IN": _check_mulerun_cli_status(),
             "KLING_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("KLING_PROVIDER_MODE")),
             "VIDU_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("VIDU_PROVIDER_MODE")),

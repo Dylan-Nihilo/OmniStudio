@@ -9,7 +9,7 @@ import {
 import { useProjectStore, Project } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { useOnline } from "@/lib/useOnline";
-import { Button, TextField } from "@omnistudio/ui";
+import { ActionMenu, Button, TextField } from "@omnistudio/ui";
 import { Dropdown, Label } from "@heroui/react";
 import ProjectCard, { deriveStatus, deriveCover, type DerivedStatus } from "@/components/project/ProjectCard";
 import CreateSeriesDialog from "@/components/series/CreateSeriesDialog";
@@ -33,6 +33,9 @@ import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
 import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
+import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
+import TaskCenter from "@/components/tasks/TaskCenter";
+import type { TaskObjectRef } from "@/components/tasks/taskCenterModel";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -68,7 +71,7 @@ const WS_VIEW_KEY = "omni_studio_workspace_view";
 // deriveCover is imported from ProjectCard (single source of truth).
 
 // ── Project Row (Line B list-view item) ──
-function ProjectRow({ project, crumb }: { project: Project; crumb: string }) {
+function ProjectRow({ project, crumb, onArchive, onRestore, onRename, onConvert }: { project: Project; crumb: string; onArchive: (project: Project) => void; onRestore: (project: Project) => void; onRename: (project: Project) => void; onConvert?: (project: Project) => void }) {
   const t = useTranslations("project");
   const cover = deriveCover(project);
   const status = deriveStatus(project);
@@ -139,14 +142,11 @@ function ProjectRow({ project, crumb }: { project: Project; crumb: string }) {
         </span>
       </div>
 
-      {/* More */}
-      <button
-        onClick={(e) => e.stopPropagation()}
-        className="w-8 h-8 rounded-lg grid place-items-center text-text-muted hover:text-foreground hover:bg-hover-bg transition-colors flex-shrink-0"
-        aria-label={t("moreActions")}
-      >
-        <MoreVertical size={15} />
-      </button>
+      <div onClick={event => event.stopPropagation()}><ActionMenu label={t("moreActions")} icon={<MoreVertical size={16} />} items={[
+        {id:"rename", label:t("rename"), onAction:() => onRename(project)},
+        ...(!project.series_id && onConvert ? [{id:"convert", label:t("convertToSeries"), onAction:() => onConvert(project)}] : []),
+        {id:"archive", label:t(project.archived ? "restore" : "archive"), onAction:() => project.archived ? onRestore(project) : onArchive(project)},
+      ]} /></div>
     </div>
   );
 }
@@ -199,12 +199,12 @@ function AuthenticatedHome() {
   const [syncError, setSyncError] = useState(false);
   const syncRequest = useRef(0);
   const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
-  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'studio/editor' | 'project-editor'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
   const [wsSearch, setWsSearch] = useState("");
   const online = useOnline();
-  const [wsStatus, setWsStatus] = useState<DerivedStatus | "all">("all");
+  const [wsStatus, setWsStatus] = useState<DerivedStatus | "all" | "archived">("all");
   const [viewMode, setViewMode] = useState<"gallery" | "list">("gallery");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [seriesId, setSeriesId] = useState<string | null>(null);
@@ -215,20 +215,58 @@ function AuthenticatedHome() {
   const [episodesError, setEpisodesError] = useState(false);
   const projects = useProjectStore((state) => state.projects);
   const seriesList = useProjectStore((state) => state.seriesList);
-  const deleteProject = useProjectStore((state) => state.deleteProject);
   const fetchSeriesList = useProjectStore((state) => state.fetchSeriesList);
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
+  const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
 
-  const handleDeleteProject = async (id: string) => {
+  const tp = useTranslations("project");
+  const [projectAction, setProjectAction] = useState<ActionDialogProps | null>(null);
+  const actionRequest = useRef(0);
+  useEffect(() => { actionRequest.current += 1; setProjectAction(null); }, [activeWorkspaceId]);
+
+  const prepareProjectAction = async (project: Project, kind: "rename" | "archive" | "purge" | "convert") => {
+    const request = ++actionRequest.current;
+    const current = () => request === actionRequest.current && activeWorkspaceId === useAuthStore.getState().activeWorkspace?.id;
+    const close = () => setProjectAction(null);
     try {
-      await deleteProject(id);
-      setSeriesEpisodes((groups) => Object.fromEntries(
-        Object.entries(groups).map(([seriesId, episodes]) => [seriesId, episodes.filter((episode) => episode.id !== id)]),
-      ));
-    } catch {
-      toast.error(t("toastDeleteFailed"));
-    }
+      let action: ActionDialogProps;
+      if (kind === "rename") {
+        action = {title:tp("rename"), fieldLabel:tp("titleLabel"), initialValue:project.title, onClose:close,
+          onConfirm:async title => { await api.updateProject(project.id, {title}); await syncAll(); }};
+      } else if (kind === "convert") {
+        const preview = await api.previewProjectToSeries(project.id);
+        action = {title:tp("convertToSeries"), fieldLabel:tp("seriesTitle"), initialValue:project.title,
+          description:tp("conversionImpact", {episode_count:preview.episode_count, characters:preview.characters, scenes:preview.scenes, shots:preview.shots, video_tasks:preview.video_tasks}), onClose:close,
+          onConfirm:async title => { await api.convertProjectToSeries(project.id, title); await syncAll(); }};
+      } else {
+        const preview = kind === "purge" ? await api.getProjectPurgeImpact(project.id) : await api.getProjectArchiveImpact(project.id);
+        action = {title:tp(kind), description:preview.message + "\n\n" + tp("retainedCounts", preview.impact) + (kind === "purge" ? "\n\n" + tp("purgeWarning") : ""), danger:kind === "purge", onClose:close,
+          onConfirm:async () => {
+            if (kind === "archive") { await api.archiveProject(project.id); await syncAll(); return; }
+            if (!("confirmation_token" in preview) || typeof preview.confirmation_token !== "string") throw new Error(tp("actionFailed"));
+            const submitted = await api.purgeProject(project.id, preview.confirmation_token);
+            let job = await api.getPurgeJob(submitted.job_id);
+            for (let attempt = 0; attempt < 20 && (job.status === "pending" || job.status === "processing"); attempt += 1) {
+              await new Promise(resolve => window.setTimeout(resolve, 250));
+              job = await api.getPurgeJob(submitted.job_id);
+            }
+            if (job.status === "failed") throw new Error(job.error_message || tp("actionFailed"));
+            await syncAll();
+            if (job.status !== "succeeded") { toast.info(tp("purgePending")); return; }
+            toast.success(tp("purgeComplete", {deleted:Number(job.report?.media?.deleted ?? 0), shared:Number(job.report?.media?.skipped_shared ?? 0), failed:Number(job.report?.media?.failed ?? 0)}));
+          }};
+      }
+      if (current()) setProjectAction(action);
+    } catch { if (current()) toast.error(tp("actionFailed")); }
+  };
+  const renameProject = (project: Project) => { void prepareProjectAction(project, "rename"); };
+  const archiveProject = (project: Project) => { void prepareProjectAction(project, "archive"); };
+  const permanentlyDeleteProject = (project: Project) => { void prepareProjectAction(project, "purge"); };
+  const convertProject = (project: Project) => { void prepareProjectAction(project, "convert"); };
+  const restoreProject = async (project: Project) => {
+    try { await api.restoreProject(project.id); await syncAll(); }
+    catch { toast.error(tp("actionFailed")); }
   };
 
   // Hydrate the persisted gallery/list view preference (client-only to avoid
@@ -352,6 +390,14 @@ function AuthenticatedHome() {
         setEpisodeId(null);
         return;
       }
+      if (hash === '#/tasks') {
+        setCurrentView('tasks');
+        setActiveTab('tasks');
+        setProjectId(null);
+        setSeriesId(null);
+        setEpisodeId(null);
+        return;
+      }
       // Menu action: open new project dialog then land on workspace
       if (hash === '#/new-project' || hash === '#/new-series') {
         setCurrentView('home');
@@ -431,6 +477,13 @@ function AuthenticatedHome() {
     if (currentView === 'playground') {
       return <PlaygroundPage />;
     }
+    if (currentView === 'tasks') {
+      const openTaskObject = (ref: TaskObjectRef) => {
+        const target = ref.episodeId || ref.projectId;
+        if (target) window.location.hash = `#/project/${target}`;
+      };
+      return <TaskCenter key={activeWorkspace?.id} workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
+    }
     if (currentView === 'studio/editor') {
       return <StandaloneScriptEditor />;
     }
@@ -441,32 +494,39 @@ function AuthenticatedHome() {
     // Workspace view — Line B skeleton
     const wsAllProjects: Project[] = [...seriesList.flatMap((series) => seriesEpisodes[series.id] || []), ...standaloneProjects];
     if (workspaceSection === "overview") {
-      return <WorkspaceOverview projects={wsAllProjects} series={seriesList}
+      return <WorkspaceOverview projects={wsAllProjects.filter(project => !project.archived && !seriesList.some(series => series.id === project.series_id && series.archived))} series={seriesList.filter(series => !series.archived)}
         loading={isSyncing || episodesLoading} error={syncError || episodesError}
         onRefresh={syncAll} onCreate={() => setIsDialogOpen(true)}
         onCreateSeries={() => setIsSeriesDialogOpen(true)} onImport={() => setIsImportDialogOpen(true)}
-        onDelete={handleDeleteProject} />;
+        onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />;
     }
-    const wsStatusCounts: Record<"all" | DerivedStatus, number> = {
-      all: wsAllProjects.length,
+    const archivedSeriesEpisodeIds = new Set(seriesList.filter(series => series.archived).flatMap(series => (seriesEpisodes[series.id] || []).map(episode => episode.id)));
+    const wsStatusCounts: Record<"all" | DerivedStatus | "archived", number> = {
+      all: wsAllProjects.filter(project => !project.archived && !archivedSeriesEpisodeIds.has(project.id)).length,
       completed: 0,
       processing: 0,
       pending: 0,
+      archived: 0,
     };
-    for (const p of wsAllProjects) wsStatusCounts[deriveStatus(p)]++;
+    for (const p of wsAllProjects) {
+      if (p.archived || archivedSeriesEpisodeIds.has(p.id)) wsStatusCounts.archived++;
+      else wsStatusCounts[deriveStatus(p)]++;
+    }
     const wsQuery = wsSearch.trim().toLowerCase();
     const wsFiltering = wsStatus !== "all" || wsQuery.length > 0;
-    const wsMatch = (p: Project, seriesTitleMatched = false) => {
-      if (wsStatus !== "all" && deriveStatus(p) !== wsStatus) return false;
+    const wsMatch = (p: Project, seriesTitleMatched = false, parentArchived = false) => {
+      const archived = p.archived || parentArchived;
+      if (wsStatus === "archived" ? !archived : archived || (wsStatus !== "all" && deriveStatus(p) !== wsStatus)) return false;
       // A matching series title keeps the whole series' episodes visible (search at group level).
       if (wsQuery && !seriesTitleMatched && !p.title.toLowerCase().includes(wsQuery)) return false;
       return true;
     };
-    const wsStatusPills: { id: "all" | DerivedStatus; label: string; count: number }[] = [
+    const wsStatusPills: { id: "all" | DerivedStatus | "archived"; label: string; count: number }[] = [
       { id: "all", label: t("filterAll"), count: wsStatusCounts.all },
       { id: "completed", label: t("filterCompleted"), count: wsStatusCounts.completed },
       { id: "processing", label: t("filterProcessing"), count: wsStatusCounts.processing },
       { id: "pending", label: t("filterDraft"), count: wsStatusCounts.pending },
+      { id: "archived", label: "已归档", count: wsStatusCounts.archived },
     ];
     // Precompute filtered groups once — single source of truth for the grid render
     // and the filtered-empty count below (avoids the two diverging).
@@ -474,7 +534,7 @@ function AuthenticatedHome() {
       const seriesTitleMatched = wsQuery.length > 0 && s.title.toLowerCase().includes(wsQuery);
       const eps = [...(seriesEpisodes[s.id] || [])]
         .sort((a, b) => (a.episode_number || 0) - (b.episode_number || 0))
-        .filter((ep) => wsMatch(ep, seriesTitleMatched));
+        .filter((ep) => wsMatch(ep, seriesTitleMatched, Boolean(s.archived)));
       return { s, eps };
     });
     const wsVisibleStandalone = standaloneProjects.filter((p) => wsMatch(p));
@@ -602,6 +662,7 @@ function AuthenticatedHome() {
                       >
                         {s.title}
                       </button>
+                      {s.archived && <span className="rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">项目已归档</span>}
                       <span className="font-mono text-[0.625rem] uppercase tracking-wider text-text-muted">
                         {t("series")} · {t("frames", { count: eps.length })}
                       </span>
@@ -618,6 +679,10 @@ function AuthenticatedHome() {
                             <ProjectRow
                               project={ep}
                               crumb={`${s.title}${ep.episode_number ? ` · EP.${String(ep.episode_number).padStart(2, "0")}` : ""}`}
+                              onArchive={archiveProject}
+                              onRestore={restoreProject}
+                              onRename={renameProject}
+                              onConvert={convertProject}
                             />
                           </div>
                         ))}
@@ -641,7 +706,7 @@ function AuthenticatedHome() {
                             className="atelier-reveal"
                             style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                           >
-                            <ProjectCard project={ep} onDelete={handleDeleteProject} />
+                            <ProjectCard variant="editorial" project={ep} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                           </div>
                         ))}
                         {!wsFiltering && <NewProjectTile episode onClick={() => { setDialogSeries({ id: s.id, title: s.title }); setIsDialogOpen(true); }} />}
@@ -675,7 +740,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                          <ProjectRow project={p} crumb="" />
+                          <ProjectRow project={p} crumb="" onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                         </div>
                       ))}
                       {!wsFiltering && (
@@ -698,7 +763,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                          <ProjectCard project={p} onDelete={handleDeleteProject} />
+                          <ProjectCard variant="editorial" project={p} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                         </div>
                       ))}
                       {!wsFiltering && <NewProjectTile onClick={() => setIsDialogOpen(true)} />}
@@ -730,11 +795,13 @@ function AuthenticatedHome() {
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
         <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} workspaceSection={workspaceSection} context={activeTab === "playground" ? <PlaygroundModeSelector /> : undefined}>
-          <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : "工作区"}>
+          <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : currentView === "tasks" ? "任务中心" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>
         </AppShell>
       </div>
+
+      {projectAction && <ActionDialog {...projectAction} />}
 
       {/* Create Project Dialog */}
       <CreateProjectDialog

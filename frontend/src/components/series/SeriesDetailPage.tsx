@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight, Film, Image as ImageIcon, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -9,6 +9,8 @@ import { api } from "@/lib/api";
 import { productionProgress } from "@/lib/workspaceOverview";
 import type { Series, Project } from "@/store/projectStore";
 import AssetCard from "@/components/common/AssetCard";
+import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
+import { toast } from "@/store/toastStore";
 import AppShell from "@/components/layout/AppShell";
 import { deriveCover, deriveStatus } from "@/components/project/ProjectCard";
 import { useOnline } from "@/lib/useOnline";
@@ -52,6 +54,54 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
     api.listSeries().then(items => { if (!cancelled) setSeriesList(items); }).catch(() => {});
     return () => { cancelled = true; };
   }, [seriesId, reload]);
+
+  const tp = useTranslations("project");
+  const [action, setAction] = useState<ActionDialogProps | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const mutation = useRef(false);
+  const actionRequest = useRef(0);
+  useEffect(() => { actionRequest.current += 1; setAction(null); }, [seriesId]);
+  const perform = async (operation: () => Promise<unknown>) => {
+    if (mutation.current) return;
+    mutation.current = true; setActionBusy(true);
+    try { await operation(); refresh(); }
+    catch { toast.error(tp("actionFailed")); }
+    finally { mutation.current = false; setActionBusy(false); }
+  };
+  const moveEpisode = (episode: Project, direction: number) => {
+    const order = [...episodes].sort((a,b) => (a.episode_number || 0) - (b.episode_number || 0));
+    const from = order.findIndex(item => item.id === episode.id), to = from + direction;
+    if (from < 0 || to < 0 || to >= order.length) return;
+    [order[from], order[to]] = [order[to], order[from]];
+    void perform(() => api.reorderSeriesEpisodes(seriesId, order.map(item => item.id)));
+  };
+  const toggleEpisodeArchive = (episode: Project) => {
+    if (episode.archived) { void perform(() => api.restoreSeriesEpisode(seriesId, episode.id)); return; }
+    setAction({title:tp("archive"), description:t("archiveEpisodeHint", {title:episode.title}), onClose:() => setAction(null),
+      onConfirm:async () => { await api.archiveSeriesEpisode(seriesId, episode.id); refresh(); }});
+  };
+  const toggleSeriesArchive = async () => {
+    if (!series) return;
+    if (series.archived) { void perform(() => api.restoreSeries(seriesId)); return; }
+    const request = ++actionRequest.current;
+    try {
+      const preview = await api.getSeriesArchiveImpact(seriesId);
+      if (request !== actionRequest.current) return;
+      setAction({title:tp("archive"), description:preview.message + "\n\n" + tp("retainedCounts", preview.impact), onClose:() => setAction(null),
+        onConfirm:async () => { await api.archiveSeries(seriesId); refresh(); }});
+    } catch { if (request === actionRequest.current) toast.error(tp("actionFailed")); }
+  };
+  const promoteDefaults = async (episode: Project) => {
+    const request = ++actionRequest.current;
+    try {
+      const preview = await api.previewEpisodeDefaultPromotion(seriesId, episode.id);
+      if (request !== actionRequest.current) return;
+      const labels: Record<string,string> = {model_settings:ts("genSettings"), prompt_config:ts("promptConfig"), art_direction:t("art_direction"), workflow_mode:t("workflow"), default_generation_mode:t("generationMode")};
+      const changes = Object.keys(preview.changes).map(key => labels[key] || key).join("、");
+      setAction({title:t("promoteDefaults"), description:t("promoteHint", {title:episode.title, changes:changes || t("noDefaultChanges")}), onClose:() => setAction(null),
+        onConfirm:async () => { await api.promoteEpisodeDefaults(seriesId, episode.id, preview.sections); refresh(); toast.success(t("defaultsPromoted")); }});
+    } catch { if (request === actionRequest.current) toast.error(tp("actionFailed")); }
+  };
 
   const openDialog = (value: "edit" | "episode") => {
     setTitle(value === "edit" ? series?.title || "" : "");
@@ -102,7 +152,7 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
         {loadError && <div className={styles.error} role="alert">{t("loadFailed")}<Button variant="quiet" onPress={refresh} isDisabled={!online}>{t("retry")}</Button></div>}
         <header className={styles.hero}>
           {cover && <img className={styles.heroImage} src={cover} alt="" />}
-          <div className={styles.heroCopy}><p>{t("title")} / {series.workflow_mode === "i2v_legacy" ? "I2V" : "R2V"}</p><h1>{series.title}</h1>{series.description && <p className={styles.description}>{series.description}</p>}<span>{t("episodeCount", { count: episodes.length })}</span></div>
+          <div className={styles.heroCopy}><p>{t("title")} / {series.workflow_mode === "i2v_legacy" ? "I2V" : "R2V"}</p><h1>{series.title}</h1>{series.archived && <StatusBadge>{tp("archived")}</StatusBadge>}{series.description && <p className={styles.description}>{series.description}</p>}<span>{t("episodeCount", { count: episodes.length })}</span></div>
           <Button variant="secondary" className={styles.editButton} onPress={() => openDialog("edit")} isDisabled={!online}>{t("editSeries")}</Button>
         </header>
         <div className={styles.body}>
@@ -110,26 +160,33 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
           <nav className={styles.tools} aria-label={t("seriesTools")}>
             {sections.map(item => <Button key={item} variant="quiet" aria-pressed={section === item} onPress={() => setSection(item)}>{t(item)}</Button>)}
             <ActionMenu label={t("moreSettings")} className={styles.moreSettings} items={[
+              { id: "archive", label: tp(series.archived ? "restore" : "archive"), isDisabled: !online || actionBusy, onAction: () => { void toggleSeriesArchive(); } },
               { id: "model", label: ts("genSettings"), isDisabled: !online, onAction: () => setSettings("model") },
               { id: "prompt", label: ts("promptConfig"), isDisabled: !online, onAction: () => setSettings("prompt") },
               { id: "import", label: ts("importAssets"), isDisabled: !online, onAction: () => setSettings("import") },
             ]} />
           </nav>
           <PageTransition transitionKey={section}>
-            {section === "episodes" ? ordered.length ? <ol className={styles.episodes}>{ordered.map(episode => {
+            {section === "episodes" ? ordered.length ? <ol className={styles.episodes}>{ordered.map((episode, index) => {
               const thumbnail = deriveCover(episode);
               const status = deriveStatus(episode);
               const progress = productionProgress(episode);
-              return <li key={episode.id}><a className={styles.episode} href={`#/series/${seriesId}/episode/${episode.id}`}>
+              return <li key={episode.id} className={styles.episodeRow}><a className={styles.episode} href={`#/series/${seriesId}/episode/${episode.id}`}>
                 <div className={styles.thumbnail}>{thumbnail ? <img src={thumbnail} alt="" loading="lazy" /> : <Film size={28} />}</div>
                 <div className={styles.episodeCopy}><p>{t("episode", { number: episode.episode_number || 0 })}</p><h3>{episode.title}</h3><span>{episode.originalText || (episode as Project & { original_text?: string }).original_text || t("emptyScript")}</span></div>
-                <div className={styles.episodeMeta}><span>{t("shotProgress", { ready: progress.images, total: progress.total })}</span><StatusBadge tone={status === "completed" ? "success" : status === "processing" ? "info" : "neutral"}>{t(status)}</StatusBadge></div><ChevronRight size={18} />
-              </a></li>;
+                <div className={styles.episodeMeta}><span>{t("shotProgress", { ready: progress.images, total: progress.total })}</span><StatusBadge tone={status === "completed" ? "success" : status === "processing" ? "info" : "neutral"}>{episode.archived ? tp("archived") : t(status)}</StatusBadge></div><ChevronRight size={18} />
+              </a><ActionMenu label={t("episodeActions", {number:episode.episode_number || index + 1})} items={[
+                {id:"up", label:t("moveUp"), isDisabled:!online || actionBusy || index === 0, onAction:() => moveEpisode(episode, -1)},
+                {id:"down", label:t("moveDown"), isDisabled:!online || actionBusy || index === ordered.length - 1, onAction:() => moveEpisode(episode, 1)},
+                {id:"archive", label:tp(episode.archived ? "restore" : "archive"), isDisabled:!online || actionBusy, onAction:() => toggleEpisodeArchive(episode)},
+                {id:"defaults", label:t("promoteDefaults"), isDisabled:!online || actionBusy, onAction:() => { void promoteDefaults(episode); }},
+              ]} /></li>;
             })}</ol> : <EmptyState title={ts("noEpisodes")} description={t("emptyEpisodes")} media={<Film size={30} />} /> : section === "art_direction" ? <SeriesArtDirectionPanel seriesId={seriesId} onSaved={refresh} /> : assets?.length ? <><p className={styles.assetHint}>{ts("sharedAssetsEditHint")}</p><div className={styles.assets}>{assets.map(asset => <AssetCard key={asset.id} asset={asset} type={section as "characters" | "scenes" | "props"} />)}</div></> : <EmptyState title={ts("noAssets", { label: t(section) })} description={ts("assetsSharedHint")} media={<ImageIcon size={28} />} />}
           </PageTransition>
         </div>
       </div>}
     </AppShell>
+    {action && <ActionDialog {...action} />}
     <Dialog isOpen={dialog !== null} onOpenChange={open => { if (!open && !saving) setDialog(null); }} isDismissable={!saving} title={t(dialog === "edit" ? "editSeries" : "newEpisode")} closeLabel={tc("close")} footer={<><Button variant="secondary" onPress={() => setDialog(null)} isDisabled={saving}>{tc("cancel")}</Button><Button type="submit" form={formId} isPending={saving} isDisabled={!online || !title.trim()}>{tc("save")}</Button></>}>
       <form id={formId} className={styles.form} onSubmit={save}><TextField autoFocus label={t("name")} value={title} onChange={setTitle} isRequired isDisabled={saving} />{dialog === "edit" && <TextAreaField label={t("description")} value={description} onChange={setDescription} isDisabled={saving} rows={3} />}{saveError && <p role="alert" className={styles.error}>{t("saveFailed")}</p>}</form>
     </Dialog>

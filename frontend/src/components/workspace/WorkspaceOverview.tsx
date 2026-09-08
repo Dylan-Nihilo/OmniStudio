@@ -9,10 +9,10 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useOnline } from "@/lib/useOnline";
 import { productionProgress, projectHref, recentProjects } from "@/lib/workspaceOverview";
 import { ActionMenu, Button, IconButton, LoadingState, Skeleton, EmptyState } from "@omnistudio/ui";
-import ProjectCard, { deriveCover } from "@/components/project/ProjectCard";
+import ProjectCard, { deriveCover, type ProjectCardProps } from "@/components/project/ProjectCard";
 import styles from "./WorkspaceOverview.module.css";
 
-interface Props {
+interface Props extends Omit<ProjectCardProps, "project" | "variant"> {
   projects: Project[];
   series: Series[];
   loading: boolean;
@@ -21,10 +21,9 @@ interface Props {
   onCreate: () => void;
   onCreateSeries: () => void;
   onImport: () => void;
-  onDelete: (id: string) => void;
 }
 
-export default function WorkspaceOverview({ projects, series, loading, error, onRefresh, onCreate, onCreateSeries, onImport, onDelete }: Props) {
+export default function WorkspaceOverview({ projects, series, loading, error, onRefresh, onCreate, onCreateSeries, onImport, onDelete, onArchive, onRestore, onRename, onConvert }: Props) {
   const t = useTranslations("workspaceOverview");
   const user = useAuthStore((state) => state.user);
   const locale = useSettingsStore((state) => state.locale);
@@ -92,7 +91,7 @@ export default function WorkspaceOverview({ projects, series, loading, error, on
         </section>
         <section className={styles.recent} aria-labelledby="recent-title">
           <div className={styles.sectionHeader}><h2 id="recent-title">{t("recent")}</h2><a className={styles.textLink} href="#/workspace/projects">{t("viewAll")}<ArrowUpRight size={14} /></a></div>
-          <div className={styles.cards}>{(ordered.length > 1 ? ordered.slice(1, 4) : ordered).map((project) => <ProjectCard key={project.id} project={project} variant="editorial" onDelete={onDelete} />)}</div>
+          <div className={styles.cards}>{(ordered.length > 1 ? ordered.slice(1, 4) : ordered).map((project) => <ProjectCard key={project.id} project={project} variant="editorial" onDelete={onDelete} onArchive={onArchive} onRestore={onRestore} onRename={onRename} onConvert={onConvert} />)}</div>
         </section>
       </> : !error && <EmptyState className={styles.empty} title={t("emptyTitle")} description={t("emptyBody")} media={<Film size={32} aria-hidden="true" />} action={
         <div className={styles.emptyActions}><Button onPress={onCreate} isDisabled={!online}><Plus size={18} />{t("newProject")}</Button><Button variant="secondary" onPress={onCreateSeries} isDisabled={!online}><Layers size={18} />{t("newSeries")}</Button><Button variant="secondary" onPress={onImport} isDisabled={!online}><FileUp size={18} />{t("import")}</Button></div>

@@ -22,6 +22,7 @@ export interface DialogueAudioBatch {
 export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
 export type LlmProvider = "dashscope" | "openai";
+export type ImageProvider = "mulerouter" | "openai";
 
 /**
  * PR-3g #3 · TTS voice metadata returned by GET /voices.
@@ -65,6 +66,10 @@ export interface EnvConfigPayload {
     OPENAI_API_KEY?: string;
     OPENAI_BASE_URL?: string;
     OPENAI_MODEL?: string;
+    IMAGE_PROVIDER?: ImageProvider;
+    OPENAI_IMAGE_API_KEY?: string;
+    OPENAI_IMAGE_BASE_URL?: string;
+    OPENAI_IMAGE_MODEL?: string;
     DASHSCOPE_API_KEY?: string;
     ALIBABA_CLOUD_ACCESS_KEY_ID?: string;
     ALIBABA_CLOUD_ACCESS_KEY_SECRET?: string;
@@ -78,6 +83,7 @@ export interface EnvConfigPayload {
     KLING_ACCESS_KEY?: string;
     KLING_SECRET_KEY?: string;
     VIDU_API_KEY?: string;
+    MOMA_API_KEY?: string;
     endpoint_overrides?: Record<string, string>;
     // Secrets from GET are masked (bullets + last 4 chars). This map reports
     // which credential fields are actually configured on the backend.
@@ -125,6 +131,168 @@ export const legacyClaimApi = {
         }).then((response) => response.data),
     rollback: () =>
         apiClient.post<LegacyClaimStatus>(`${AUTH_API_URL}/auth/legacy-claim/rollback`).then((response) => response.data),
+};
+
+export type SourceType = "text" | "txt" | "markdown" | "docx" | "paste";
+
+export interface SourceDocumentCreate {
+    title: string;
+    source_type?: SourceType;
+    original_filename?: string | null;
+    encoding?: string;
+    summary?: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface SourceRevisionCreate {
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface SourceChapterCreate {
+    chapter_number: number;
+    title: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface SourceChapterUpdate {
+    title?: string;
+    content?: string;
+}
+
+export interface SourceRevision {
+    id: string;
+    source_document_id: string;
+    chapter_id: string;
+    revision_number: number;
+    content: string;
+    content_sha256: string;
+    created_by_user_id: string | null;
+    metadata: Record<string, unknown>;
+    created_at: number;
+}
+
+export interface SourceChapter {
+    id: string;
+    source_document_id: string;
+    chapter_number: number;
+    title: string;
+    current_revision_id: string | null;
+    revision_count: number;
+    current_revision: SourceRevision | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceChapterPage {
+    items: SourceChapter[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export interface SourceEpisode {
+    id: string;
+    project_id: string;
+    title: string;
+    episode_number: number | null;
+    status: string;
+    linked_at: number;
+}
+
+export interface SourceDocument {
+    id: string;
+    workspace_id: string;
+    title: string;
+    source_type: SourceType;
+    original_filename: string | null;
+    encoding: string;
+    summary: string;
+    metadata: Record<string, unknown>;
+    imported_at: number | null;
+    chapter_count: number;
+    linked_episode_count: number;
+    created_at: number;
+    updated_at: number;
+    chapters?: SourceChapter[];
+    episodes?: SourceEpisode[];
+}
+
+export interface SourceList<T> {
+    items: T[];
+    total: number;
+}
+
+export interface SourceLinkResponse {
+    source_document_id: string;
+    episode_id: string;
+    created: boolean;
+    linked: boolean;
+}
+
+export interface SourceImportChapterProposal {
+    chapter_number: number;
+    title: string;
+    volume: string;
+    start_line: number;
+    end_line: number;
+    content: string;
+}
+
+export interface SourceImportPreview {
+    id: string;
+    workspace_id: string;
+    source_type: SourceType;
+    title: string;
+    original_filename: string | null;
+    encoding: string;
+    content: string;
+    summary: string;
+    content_sha256: string;
+    proposals: SourceImportChapterProposal[];
+    status: "previewing" | "confirmed" | "canceled";
+    source_document_id: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceImportRequest {
+    title: string;
+    source_type?: "text" | "txt" | "markdown" | "paste";
+    content: string;
+    original_filename?: string | null;
+}
+
+export interface SourceImportBoundaryProposal {
+    chapter_number?: number;
+    title?: string;
+    volume?: string;
+    start_line: number;
+    end_line: number;
+    content?: string;
+}
+
+export const sourceApi = {
+    list: () => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/sources`).then((response) => response.data),
+    get: (sourceId: string) => apiClient.get<SourceDocument>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
+    create: (payload: SourceDocumentCreate) => apiClient.post<SourceDocument>(`${API_URL}/sources`, payload).then((response) => response.data),
+    listChapters: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
+    createChapter: (sourceId: string, payload: SourceChapterCreate) => apiClient.post<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters`, payload).then((response) => response.data),
+    listChaptersPage: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
+    updateChapter: (sourceId: string, chapterId: string, payload: SourceChapterUpdate) => apiClient.patch<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}`, payload).then((response) => response.data),
+    listRevisions: (sourceId: string, chapterId: string) => apiClient.get<SourceList<SourceRevision>>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`).then((response) => response.data),
+    createRevision: (sourceId: string, chapterId: string, payload: SourceRevisionCreate) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`, payload).then((response) => response.data),
+    restoreRevision: (sourceId: string, chapterId: string, revisionId: string) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions/${revisionId}/restore`).then((response) => response.data),
+    listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
+    linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
+    unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
+    listForEpisode: (episodeId: string) => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/episodes/${episodeId}/sources`).then((response) => response.data),
+    previewImport: (payload: SourceImportRequest | FormData) => apiClient.post<SourceImportPreview>(`${API_URL}/sources/import/preview`, payload).then((response) => response.data),
+    getImportPreview: (previewId: string) => apiClient.get<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}`).then((response) => response.data),
+    updateImportBoundaries: (previewId: string, proposals: SourceImportBoundaryProposal[]) => apiClient.patch<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/boundaries`, { proposals }).then((response) => response.data),
+    confirmImport: (previewId: string) => apiClient.post<{ preview_id: string; status: "confirmed"; source_document: SourceDocument }>(`${API_URL}/sources/import/previews/${previewId}/confirm`).then((response) => response.data),
+    cancelImport: (previewId: string) => apiClient.post<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/cancel`).then((response) => response.data),
 };
 
 // R2V v2 Phase 4 — Cross-episode reconcile types
@@ -191,6 +359,131 @@ export interface VideoTask {
     provider_name?: string | null;
     provider_task_id?: string | null;
     provider_request_id?: string | null;
+}
+
+export type UnifiedJobStatus = "pending" | "processing" | "succeeded" | "failed" | "canceled" | "skipped";
+
+export interface PermanentPurgeImpact {
+    resource_type: "project" | "series";
+    id: string;
+    title: string;
+    archived: boolean;
+    archived_at: number | null;
+    impact: Record<string, number>;
+    confirmation_token: string;
+    confirmation_phrase: string;
+    message: string;
+}
+
+export interface PermanentPurgeSubmission {
+    job_id: string;
+    status: string;
+    resource_type: "project" | "series";
+    resource_id: string;
+    report_url: string;
+}
+
+export interface PermanentPurgeJob {
+    job_id: string;
+    status: string;
+    resource_type: "project" | "series";
+    resource_id: string;
+    report?: {
+        status: string;
+        data_deleted: boolean;
+        impact: Record<string, number>;
+        media?: Record<string, unknown>;
+        finished_at?: number;
+    };
+    error_code?: string | null;
+    error_message?: string | null;
+}
+
+export interface UnifiedMediaRef {
+    id: string;
+    kind: string;
+    uri: string;
+}
+
+export interface UnifiedJobItem {
+    id: string;
+    job_id: string;
+    workspace_id: string;
+    project_id?: string | null;
+    episode_id?: string | null;
+    kind: string;
+    status: UnifiedJobStatus;
+    progress: number;
+    idempotency_key: string;
+    retry_of?: string | null;
+    media_refs: UnifiedMediaRef[];
+    error_code?: string | null;
+    error_message?: string | null;
+    created_at?: number | null;
+    updated_at?: number | null;
+    started_at?: number | null;
+    finished_at?: number | null;
+    idempotent?: boolean;
+    payload?: Record<string, unknown>;
+}
+
+export interface UnifiedJob {
+    id: string;
+    workspace_id: string;
+    project_id?: string | null;
+    episode_id?: string | null;
+    kind: string;
+    status: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+    canceled: number;
+    skipped: number;
+    items: UnifiedJobItem[];
+    created_at?: number | null;
+    updated_at?: number | null;
+}
+
+export interface UnifiedTaskPage {
+    items: UnifiedJob[];
+    page: number;
+    page_size: number;
+    total: number;
+}
+
+export interface UnifiedTaskEvent {
+    id: string;
+    item_id: string;
+    from_status?: UnifiedJobStatus | null;
+    to_status: UnifiedJobStatus;
+    progress?: number | null;
+    error_code?: string | null;
+    created_at: number;
+}
+
+export interface UnifiedTaskDetail {
+    job: UnifiedJob;
+    events: UnifiedTaskEvent[];
+}
+
+export interface UnifiedTaskSummary {
+    pending: number;
+    processing: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+    canceled: number;
+    skipped: number;
+    total: number;
+}
+
+export interface UnifiedTaskFilters {
+    project_id?: string;
+    episode_id?: string;
+    status?: string;
+    q?: string;
+    page?: number;
+    page_size?: number;
 }
 
 // ─── Storyboard Schema v2 types ─────────────────────────────────────────────
@@ -279,6 +572,34 @@ function asObject(value: unknown): Record<string, any> {
 }
 
 export const api = {
+    listTasks: async (filters: UnifiedTaskFilters = {}): Promise<UnifiedTaskPage> => {
+        const res = await apiClient.get<UnifiedTaskPage>(`${API_URL}/tasks`, { params: filters });
+        return res.data;
+    },
+
+    getTask: async (jobId: string): Promise<UnifiedTaskDetail> => {
+        const res = await apiClient.get<UnifiedTaskDetail>(`${API_URL}/tasks/${jobId}`);
+        return res.data;
+    },
+
+    cancelTask: async (jobId: string): Promise<UnifiedJob> => {
+        const res = await apiClient.post<UnifiedJob>(`${API_URL}/tasks/${jobId}/cancel`);
+        return res.data;
+    },
+
+    retryTask: async (jobId: string, itemIds?: string[], idempotencyKey?: string): Promise<UnifiedJob> => {
+        const body: { item_ids?: string[]; idempotency_key?: string } = {};
+        if (itemIds?.length) body.item_ids = itemIds;
+        if (idempotencyKey) body.idempotency_key = idempotencyKey;
+        const res = await apiClient.post<UnifiedJob>(`${API_URL}/tasks/${jobId}/retry`, body);
+        return res.data;
+    },
+
+    getTaskSummary: async (filters: Pick<UnifiedTaskFilters, "project_id" | "episode_id"> = {}): Promise<UnifiedTaskSummary> => {
+        const res = await apiClient.get<UnifiedTaskSummary>(`${API_URL}/tasks/summary`, { params: filters });
+        return res.data;
+    },
+
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
             params: { skip_analysis: skipAnalysis }
@@ -301,6 +622,61 @@ export const api = {
 
     deleteProject: async (scriptId: string) => {
         const res = await apiClient.delete(`${API_URL}/projects/${scriptId}`);
+        return res.data;
+    },
+
+    getProjectPurgeImpact: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/purge-impact`);
+        return res.data as PermanentPurgeImpact;
+    },
+
+    purgeProject: async (scriptId: string, confirmationToken: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/purge`, {
+            confirmation_token: confirmationToken,
+        });
+        return res.data as PermanentPurgeSubmission;
+    },
+
+    updateProject: async (scriptId: string, data: { title: string }) => {
+        const res = await apiClient.patch(`${API_URL}/projects/${scriptId}`, data);
+        return { ...res.data, originalText: res.data.original_text };
+    },
+
+    previewProjectToSeries: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/convert-to-series/preview`);
+        return res.data as {
+            project_id: string;
+            title: string;
+            episode_count: number;
+            characters: number;
+            scenes: number;
+            props: number;
+            shots: number;
+            video_tasks: number;
+            preserved_fields: string[];
+        };
+    },
+
+    convertProjectToSeries: async (scriptId: string, title?: string, description?: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/convert-to-series`, {
+            title: title || undefined,
+            description: description || "",
+        });
+        return res.data;
+    },
+
+    getProjectArchiveImpact: async (scriptId: string) => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/archive-impact`);
+        return res.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+
+    archiveProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/archive`);
+        return res.data;
+    },
+
+    restoreProject: async (scriptId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/restore`);
         return res.data;
     },
 
@@ -1341,7 +1717,7 @@ export const api = {
     },
     updateSeries: async (
         seriesId: string,
-        data: { title?: string; description?: string; art_direction?: any },
+        data: { title?: string; description?: string; workflow_mode?: string; content_mode?: string; default_generation_mode?: "r2v" | "i2v"; art_direction?: any },
     ) => {
         const response = await apiClient.put(`${API_URL}/series/${seriesId}`, data);
         return response.data;
@@ -1472,6 +1848,69 @@ export const api = {
     },
     addEpisodeToSeries: async (seriesId: string, scriptId: string, episodeNumber?: number) => {
         const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes`, { script_id: scriptId, episode_number: episodeNumber });
+        return response.data;
+    },
+    reorderSeriesEpisodes: async (seriesId: string, episodeIds: string[]) => {
+        const response = await apiClient.put(`${API_URL}/series/${seriesId}/episodes/order`, { episode_ids: episodeIds });
+        return response.data;
+    },
+    moveSeriesEpisode: async (seriesId: string, scriptId: string, targetIndex: number) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/move`, { target_index: targetIndex });
+        return response.data;
+    },
+    archiveSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/archive`);
+        return response.data;
+    },
+    restoreSeriesEpisode: async (seriesId: string, scriptId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/restore`);
+        return response.data;
+    },
+    getSeriesArchiveImpact: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/archive-impact`);
+        return response.data as { id: string; title: string; archived: boolean; archived_at: number | null; impact: Record<string, number>; message: string };
+    },
+    archiveSeries: async (seriesId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/archive`);
+        return response.data;
+    },
+    restoreSeries: async (seriesId: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/restore`);
+        return response.data;
+    },
+    getSeriesPurgeImpact: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/purge-impact`);
+        return response.data as PermanentPurgeImpact;
+    },
+    purgeSeries: async (seriesId: string, confirmationToken: string) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/purge`, {
+            confirmation_token: confirmationToken,
+        });
+        return response.data as PermanentPurgeSubmission;
+    },
+    getPurgeJob: async (jobId: string) => {
+        const response = await apiClient.get(`${API_URL}/purge-jobs/${jobId}`);
+        return response.data as PermanentPurgeJob;
+    },
+    previewEpisodeDefaultPromotion: async (seriesId: string, scriptId: string, sections?: string[]) => {
+        // The default preview covers every promotable section. Keep the
+        // optional argument for callers that want to retain the same shape as
+        // the confirm API without relying on array query-string serialization.
+        void sections;
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/episodes/${scriptId}/promote-defaults/preview`);
+        return response.data as {
+            series_id: string;
+            episode_id: string;
+            episode_title: string;
+            sections: string[];
+            changes: Record<string, { before: unknown; after: unknown }>;
+            message: string;
+        };
+    },
+    promoteEpisodeDefaults: async (seriesId: string, scriptId: string, sections?: string[]) => {
+        const response = await apiClient.post(`${API_URL}/series/${seriesId}/episodes/${scriptId}/promote-defaults`, {
+            sections: sections ?? ["model_settings", "prompt_config", "art_direction", "workflow_mode", "default_generation_mode"],
+        });
         return response.data;
     },
     removeEpisodeFromSeries: async (seriesId: string, scriptId: string) => {

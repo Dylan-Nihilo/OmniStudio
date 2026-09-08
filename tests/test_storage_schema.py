@@ -14,6 +14,11 @@ from src.storage.schema import (
     SchemaMigration,
     Script,
     Series,
+    SourceChapter,
+    SourceDocument,
+    SourceEpisodeLink,
+    SourceImportPreview,
+    SourceRevision,
     User,
     Workspace,
 )
@@ -51,6 +56,15 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "series",
         "sessions",
         "script_edit_leases",
+        "audit_events",
+        "jobs",
+        "job_items",
+        "job_item_events",
+        "source_documents",
+        "source_chapters",
+        "source_revisions",
+        "source_episode_links",
+        "source_import_previews",
     }
 
     expected_indexes = {
@@ -88,6 +102,30 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_script_edit_leases_expiry",
             "ix_script_edit_leases_holder",
         },
+        "audit_events": {
+            "ix_audit_events_workspace_created",
+            "ix_audit_events_object",
+        },
+        "jobs": {"ix_jobs_workspace_updated", "ix_jobs_project_episode"},
+        "job_items": {
+            "ix_job_items_job_status",
+            "ix_job_items_workspace_updated",
+        },
+        "job_item_events": {"ix_job_item_events_item_created"},
+        "source_documents": {"ix_source_documents_workspace_updated"},
+        "source_chapters": {"ix_source_chapters_document_order"},
+        "source_revisions": {
+            "ix_source_revisions_chapter_created",
+            "ix_source_revisions_document",
+        },
+        "source_episode_links": {
+            "ix_source_episode_links_episode",
+            "ix_source_episode_links_source",
+        },
+        "source_import_previews": {
+            "ix_source_import_previews_workspace_updated",
+            "ix_source_import_previews_status",
+        },
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -108,6 +146,15 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "series",
         "sessions",
         "script_edit_leases",
+        "audit_events",
+        "jobs",
+        "job_items",
+        "job_item_events",
+        "source_documents",
+        "source_chapters",
+        "source_revisions",
+        "source_episode_links",
+        "source_import_previews",
     }
 
 

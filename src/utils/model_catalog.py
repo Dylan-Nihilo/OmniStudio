@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import yaml
 
 
-SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter")
+SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma")
 SUPPORTED_MODEL_STATUSES = ("active", "planned", "deprecated", "hidden")
 SUPPORTED_SELECTION_GROUPS = ("t2i", "i2i", "image", "i2v", "r2v", "t2v")
 VISIBLE_MODEL_SURFACES = ("project_settings", "series_settings", "video_sidebar", "global_settings")
@@ -922,6 +922,7 @@ def write_generated_catalog(
     output.write_text(
         json.dumps(catalog, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return output
 
@@ -940,6 +941,7 @@ def write_catalog_schema(output_path: Path = MODEL_CATALOG_SCHEMA_PATH) -> Path:
     output.write_text(
         json.dumps(_build_schema_stub(), indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     return output
 

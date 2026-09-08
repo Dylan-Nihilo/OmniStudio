@@ -285,6 +285,35 @@ class Session(Base):
     )
 
 
+class AuditEvent(Base):
+    """Workspace-scoped, append-only security and lifecycle audit record."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    actor_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    object_type: Mapped[str] = mapped_column(Text, nullable=False)
+    object_id: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(metadata_json)", name="ck_audit_events_metadata_json"),
+        Index("ix_audit_events_workspace_created", "workspace_id", "created_at"),
+        Index("ix_audit_events_object", "object_type", "object_id", "created_at"),
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -375,6 +404,183 @@ class Episode(Base):
     )
 
 
+class SourceDocument(Base):
+    """A workspace-owned source document used as upstream story material."""
+
+    __tablename__ = "source_documents"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="text")
+    original_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encoding: Mapped[str] = mapped_column(Text, nullable=False, server_default="utf-8")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("length(trim(title)) > 0", name="ck_source_documents_title"),
+        CheckConstraint(
+            "source_type IN ('text', 'txt', 'markdown', 'docx', 'paste')",
+            name="ck_source_documents_type",
+        ),
+        CheckConstraint("json_valid(metadata_json)", name="ck_source_documents_metadata_json"),
+        Index("ix_source_documents_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
+class SourceChapter(Base):
+    """An ordered chapter boundary within a SourceDocument."""
+
+    __tablename__ = "source_chapters"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    current_revision_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("chapter_number > 0", name="ck_source_chapters_number"),
+        CheckConstraint("length(trim(title)) > 0", name="ck_source_chapters_title"),
+        UniqueConstraint("source_document_id", "chapter_number"),
+        Index("ix_source_chapters_document_order", "source_document_id", "chapter_number"),
+    )
+
+
+class SourceRevision(Base):
+    """Immutable source text revision for one chapter."""
+
+    __tablename__ = "source_revisions"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("revision_number > 0", name="ck_source_revisions_number"),
+        CheckConstraint("length(trim(content)) > 0", name="ck_source_revisions_content"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_revisions_sha256"),
+        CheckConstraint("json_valid(metadata_json)", name="ck_source_revisions_metadata_json"),
+        UniqueConstraint("chapter_id", "revision_number"),
+        Index("ix_source_revisions_chapter_created", "chapter_id", "created_at"),
+        Index("ix_source_revisions_document", "source_document_id", "created_at"),
+    )
+
+
+class SourceEpisodeLink(Base):
+    """Many-to-many relationship between source documents and episodes."""
+
+    __tablename__ = "source_episode_links"
+
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    episode_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("episodes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        Index("ix_source_episode_links_episode", "episode_id", "created_at"),
+        Index("ix_source_episode_links_source", "source_document_id", "created_at"),
+    )
+
+
+class SourceImportPreview(Base):
+    """Durable workspace-scoped draft for the Source import preview flow."""
+
+    __tablename__ = "source_import_previews"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    original_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encoding: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="previewing")
+    source_document_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('text', 'txt', 'markdown', 'docx', 'paste')",
+            name="ck_source_import_previews_type",
+        ),
+        CheckConstraint(
+            "status IN ('previewing', 'confirmed', 'canceled')",
+            name="ck_source_import_previews_status",
+        ),
+        CheckConstraint("length(trim(title)) > 0", name="ck_source_import_previews_title"),
+        CheckConstraint("length(trim(content)) > 0", name="ck_source_import_previews_content"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_import_previews_sha256"),
+        CheckConstraint("json_valid(proposals_json)", name="ck_source_import_previews_proposals_json"),
+        Index("ix_source_import_previews_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_source_import_previews_status", "workspace_id", "status", "updated_at"),
+    )
+
+
 class Script(Base):
     __tablename__ = "scripts"
 
@@ -435,6 +641,101 @@ class ScriptEditLease(Base):
     )
 
 
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    episode_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("episodes.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(metadata_json)", name="ck_jobs_metadata_json"),
+        Index("ix_jobs_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_jobs_project_episode", "project_id", "episode_id", "updated_at"),
+    )
+
+
+class JobItem(Base):
+    __tablename__ = "job_items"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    project_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    progress: Mapped[float] = mapped_column(REAL, nullable=False, server_default="0")
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_of: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    media_refs_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    started_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    finished_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'succeeded', 'failed', 'canceled', 'skipped')",
+            name="ck_job_items_status",
+        ),
+        CheckConstraint("progress >= 0 AND progress <= 1", name="ck_job_items_progress"),
+        CheckConstraint("json_valid(payload_json)", name="ck_job_items_payload_json"),
+        CheckConstraint("json_valid(media_refs_json)", name="ck_job_items_media_refs_json"),
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_job_items_workspace_idempotency"),
+        Index("ix_job_items_job_status", "job_id", "status"),
+        Index("ix_job_items_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+
+class JobItemEvent(Base):
+    __tablename__ = "job_item_events"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    item_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("job_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    to_status: Mapped[str] = mapped_column(Text, nullable=False)
+    progress: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        Index("ix_job_item_events_item_created", "item_id", "created_at"),
+    )
+
+
 # Explicit DESC expressions preserve the ordering specified by the SQLite DDL.
 Index(
     "ix_migration_runs_source",
@@ -461,9 +762,18 @@ __all__ = [
     "WorkspaceInvitation",
     "WorkspaceProviderConfig",
     "Session",
+    "AuditEvent",
     "Project",
     "Series",
     "Episode",
+    "SourceDocument",
+    "SourceChapter",
+    "SourceRevision",
+    "SourceEpisodeLink",
+    "SourceImportPreview",
     "Script",
     "ScriptEditLease",
+    "Job",
+    "JobItem",
+    "JobItemEvent",
 ]

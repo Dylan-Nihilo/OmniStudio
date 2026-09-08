@@ -101,11 +101,14 @@ class PlaygroundStorage:
             return ordered[offset:] if limit is None else ordered[offset : offset + limit]
 
     def update_generation(self, gen: PlaygroundGeneration) -> None:
-        """Replace an existing generation record (matched by id) and persist."""
+        """Update generation data without regressing its lifecycle state."""
         with self._lock:
             for i, existing in enumerate(self._history):
                 if existing.id == gen.id:
-                    self._history[i] = gen
+                    self._history[i] = gen.model_copy(
+                        deep=True,
+                        update={"status": existing.status, "error": existing.error},
+                    )
                     self._save_history()
                     return
         logger.warning("update_generation: id %s not found", gen.id)
@@ -125,7 +128,7 @@ class PlaygroundStorage:
                     continue
                 if existing.status in ("completed", "failed"):
                     return None
-                canceled = existing.model_copy(update={"status": "failed", "error": error})
+                canceled = existing.model_copy(update={"status": "canceled", "error": error})
                 self._history[i] = canceled
                 self._save_history()
                 return canceled.model_copy(deep=True)

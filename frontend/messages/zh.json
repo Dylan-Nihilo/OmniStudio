@@ -427,13 +427,15 @@
     "copied": "已复制",
     "copyFailed": "复制失败，请选择详情手动复制。",
     "copyErrorDetails": "复制错误详情",
-    "offlineBannerText": "网络已断开 — 重新连接后可继续操作"
+    "offlineBannerText": "网络已断开 — 重新连接后可继续操作",
+    "actionFailed": "操作失败，请重试。"
   },
   "nav": {
     "workspace": "工作区",
     "library": "资产库",
     "editor": "剧本编辑器",
     "playground": "创作台",
+    "tasks": "任务中心",
     "settings": "设置",
     "workspaceAria": "Omni Studio · 工作区",
     "mainNavAria": "主导航"
@@ -513,7 +515,17 @@
     "name": "标题",
     "description": "简介",
     "loadFailed": "系列加载失败，请重试。",
-    "saveFailed": "保存失败，内容已保留，请重试。"
+    "saveFailed": "保存失败，内容已保留，请重试。",
+    "archiveEpisodeHint": "归档「{title}」？剧本、素材和分镜将保留。",
+    "promoteDefaults": "设为系列默认",
+    "promoteHint": "将「{title}」的配置应用为系列默认。更新内容：{changes}。",
+    "noDefaultChanges": "与当前默认配置相同",
+    "defaultsPromoted": "系列默认配置已更新。",
+    "workflow": "制作流程",
+    "generationMode": "生成方式",
+    "episodeActions": "第 {number} 集操作",
+    "moveUp": "上移",
+    "moveDown": "下移"
   },
   "workspaceControls": {
     "currentWorkspace": "当前工作区",
@@ -820,7 +832,11 @@
     "loginWaiting": "等待浏览器登录…",
     "loginTimedOut": "未确认登录完成，请重新发起登录。",
     "appliesImmediately": "更改即时生效",
-    "offlineSettingsBody": "服务商与存储配置暂时无法保存。请在网络恢复后重试。"
+    "offlineSettingsBody": "服务商与存储配置暂时无法保存。请在网络恢复后重试。",
+    "imageProviderLabel": "图像生成服务",
+    "imageProviderHint": "选择 GPT 图像模型使用的服务，其他图像模型按模型目录运行。",
+    "imageModel": "图像模型",
+    "momaHint": "MiniMax H3 视频生成服务"
   },
   "project": {
     "createTitle": "创建新项目",
@@ -909,7 +925,21 @@
     "promptSaveFailed": "保存提示词配置失败",
     "promptEmptyHint": "留空字段将使用系统默认提示词。自定义提示词会完全替换该阶段的默认值。",
     "resetToDefault": "恢复默认",
-    "viewDefault": "查看完整默认提示词"
+    "viewDefault": "查看完整默认提示词",
+    "rename": "重命名",
+    "titleLabel": "项目标题",
+    "seriesTitle": "系列标题",
+    "archive": "归档",
+    "restore": "恢复",
+    "archived": "已归档",
+    "purge": "永久清除",
+    "convertToSeries": "转为系列",
+    "actionFailed": "操作失败，请重试。",
+    "purgeWarning": "此操作会永久清除项目及相关内容，无法撤销。",
+    "purgePending": "清除任务仍在处理中，请稍后刷新工作区。",
+    "purgeComplete": "清除完成：删除 {deleted} 份媒体，保留 {shared} 份共享媒体，{failed} 项清理警告。",
+    "retainedCounts": "{episodes} 集 · {characters} 个角色 · {scenes} 个场景 · {props} 个道具 · {shots} 个镜头 · {video_tasks} 个视频任务",
+    "conversionImpact": "将保留 {episode_count} 集、{characters} 个角色、{scenes} 个场景、{shots} 个镜头及 {video_tasks} 个视频任务，原有内容和关联保持不变。"
   },
   "series": {
     "characterLabel": "角色",
@@ -2541,7 +2571,6 @@
     "contactAdminHint": "请联系管理员开通账号。",
     "login": "登录",
     "loggingIn": "正在登录...",
-    "forgotPassword": "忘记密码？",
     "resetPasswordTitle": "重置密码",
     "resetPasswordSubtitle": "仅可在运行 Omni Studio 后端服务的本机恢复 Owner 账号。",
     "resetToken": "恢复令牌",
@@ -2576,5 +2605,37 @@
     "bootstrapFailed": "无法连接到 Omni Studio 服务",
     "bootstrapFailedHint": "请确认后端服务已启动，然后重试。",
     "retry": "重试"
+  },
+  "taskCenter": {
+    "title": "任务中心",
+    "subtitle": "查看生成、渲染和导出任务的实时状态",
+    "back": "返回工作区",
+    "refresh": "刷新",
+    "running": "运行中",
+    "failed": "失败",
+    "succeeded": "已完成",
+    "canceled": "已取消",
+    "pending": "排队中",
+    "processing": "处理中",
+    "skipped": "已跳过",
+    "total": "全部任务",
+    "all": "全部状态",
+    "searchPlaceholder": "搜索任务或项目…",
+    "statusFilter": "状态筛选",
+    "empty": "暂无任务",
+    "emptyHint": "新的生成任务会显示在这里",
+    "loading": "正在加载任务…",
+    "loadFailed": "任务加载失败",
+    "retry": "重试",
+    "cancel": "取消",
+    "details": "详情",
+    "openObject": "打开关联项目",
+    "confirmCancel": "确定取消这个任务吗？",
+    "close": "关闭",
+    "noEvents": "暂无状态事件",
+    "page": "第 {page} / {total} 页",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
+    "confirmCancelAction": "确认取消"
   }
 }

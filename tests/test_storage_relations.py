@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
-from src.apps.comic_gen.models import Script, Series
+from src.apps.comic_gen.models import Character, Scene, Script, Series
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.storage.errors import StorageError
 from src.storage.schema import Episode, Project, Script as ScriptRow, Series as SeriesRow, Workspace
@@ -222,3 +222,43 @@ def test_create_series_from_import_persists_series_and_all_episodes(
         (episode_ids[0], series_id, series_id, 1),
         (episode_ids[1], series_id, series_id, 2),
     ]
+
+
+def test_convert_standalone_to_series_preserves_production_payload(pipeline: ComicGenPipeline):
+    script = _script("standalone-to-series", title="Standalone Feature")
+    script.characters.append(Character(id="char-1", name="Hero", description="A hero"))
+    script.scenes.extend([
+        Scene(id="scene-1", name="Opening", description="Opening scene"),
+        Scene(id="scene-2", name="Finale", description="Finale scene"),
+        Scene(id="scene-3", name="Middle", description="Middle scene"),
+        Scene(id="scene-4", name="Chase", description="Chase scene"),
+        Scene(id="scene-5", name="Epilogue", description="Epilogue scene"),
+    ])
+    script.original_text = "chapter one\nchapter two\nchapter three"
+    script.merged_video_url = "video/final.mp4"
+    script.frames = []
+    pipeline.scripts[script.id] = script
+    pipeline._save_data()
+
+    before = script.model_dump()
+    preview = pipeline.preview_project_to_series(script.id)
+    assert preview["episode_count"] == 1
+    assert preview["scenes"] == 5
+    assert script.series_id is None
+
+    result = pipeline.convert_project_to_series(script.id, "Converted Series", "A preserved series")
+    series = result["series"]
+    assert series.title == "Converted Series"
+    assert series.episode_ids == [script.id]
+    assert script.series_id == series.id
+    assert script.episode_number == 1
+    after = script.model_dump()
+    assert after["original_text"] == before["original_text"]
+    assert after["merged_video_url"] == before["merged_video_url"]
+    assert after["frames"] == before["frames"]
+    assert [item.id for item in series.characters] == ["char-1"]
+    assert [item.id for item in series.scenes] == [
+        "scene-1", "scene-2", "scene-3", "scene-4", "scene-5"
+    ]
+    assert pipeline.repository.load_series()[series.id].episode_ids == [script.id]
+    assert not pipeline.repository.project_exists(script.id)

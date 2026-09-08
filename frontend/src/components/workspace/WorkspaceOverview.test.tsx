@@ -6,7 +6,7 @@ import WorkspaceOverview from "./WorkspaceOverview";
 vi.mock("next-intl", () => ({ useTranslations: () => (key: string, values?: Record<string, unknown>) => values ? `${key}:${JSON.stringify(values)}` : key }));
 vi.mock("@/store/authStore", () => ({ useAuthStore: (select: (state: unknown) => unknown) => select({ user: { username: "artist" } }) }));
 vi.mock("@/store/settingsStore", () => ({ useSettingsStore: (select: (state: unknown) => unknown) => select({ locale: "zh" }) }));
-const actions = { onRefresh: vi.fn(), onCreate: vi.fn(), onCreateSeries: vi.fn(), onImport: vi.fn(), onDelete: vi.fn() };
+const actions = { onRefresh: vi.fn(), onCreate: vi.fn(), onCreateSeries: vi.fn(), onImport: vi.fn(), onDelete: vi.fn(), onArchive: vi.fn(), onRestore: vi.fn(), onRename: vi.fn() };
 
 it("shows real progress and routes, preserves creation actions and distinguishes failed loading from an empty workspace", async () => {
   const { rerender } = render(<WorkspaceOverview {...actions} projects={[]} series={[]} loading={false} error={false} />);
@@ -29,7 +29,7 @@ it("shows real progress and routes, preserves creation actions and distinguishes
   fireEvent.click(await screen.findByRole("menuitem", { name: "newSeries" }));
   expect(actions.onCreateSeries).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getAllByRole("button", { name: "moreActions" })[1]);
-  expect(screen.getByRole("menuitem", { name: "delete" })).toBeVisible();
-  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.getByRole("menuitem", { name: "archive" })).toBeVisible();
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });

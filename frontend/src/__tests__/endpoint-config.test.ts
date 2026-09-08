@@ -36,6 +36,7 @@ const ENDPOINT_PROVIDERS = [
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
   { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },
+  { key: "MOMA_BASE_URL", label: "MOMA / MiniMax", placeholder: "https://moma.cmecloud.cn/v1" },
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
@@ -155,9 +156,9 @@ describe("ENDPOINT_PROVIDERS registry", () => {
   });
 
   it("contains the supported endpoint providers", () => {
-    expect(ENDPOINT_PROVIDERS).toHaveLength(4);
+    expect(ENDPOINT_PROVIDERS).toHaveLength(5);
     const labels = ENDPOINT_PROVIDERS.map((p) => p.label);
-    expect(labels).toEqual(expect.arrayContaining(["DashScope", "Kling", "Vidu", "MuleRouter"]));
+    expect(labels).toEqual(expect.arrayContaining(["DashScope", "Kling", "Vidu", "MuleRouter", "MOMA / MiniMax"]));
   });
 });
 

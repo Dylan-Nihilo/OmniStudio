@@ -9,6 +9,7 @@ import {
   Play,
   KeyRound,
   LayoutGrid,
+  ListTodo,
   LogOut,
   Settings,
 } from "lucide-react";
@@ -27,11 +28,12 @@ import WorkspaceControls from "@/components/collaboration/WorkspaceControls";
 import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 import SidebarSection from "./SidebarSection";
 
-export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
+export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "tasks" | "settings";
 
 interface GlobalSidebarProps {
   activeTab: GlobalTab;
   onTabChange: (tab: GlobalTab) => void;
+  taskBadge?: number;
   context?: ReactNode;
   workspaceSection?: WorkspaceSection;
 }
@@ -41,6 +43,7 @@ export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: s
   { id: "editor", icon: Film, hash: "#/studio/editor" },
   { id: "library", icon: ImageIcon, hash: "#/library" },
   { id: "playground", icon: Play, hash: "#/playground" },
+  { id: "tasks", icon: ListTodo, hash: "#/tasks" },
   { id: "settings", icon: Settings, hash: "#/settings" },
 ];
 
@@ -55,11 +58,13 @@ function NavButton({
   label,
   icon: Icon,
   onClick,
+  badge,
 }: {
   active: boolean;
   label: string;
   icon: typeof LayoutGrid;
   onClick: () => void;
+  badge?: number;
 }) {
   return (
     <button
@@ -78,11 +83,12 @@ function NavButton({
         )}
       />
       <span>{label}</span>
+      {!!badge && <span className={styles.subnavCount}>{badge > 99 ? "99+" : badge}</span>}
     </button>
   );
 }
 
-export default function GlobalSidebar({ activeTab, onTabChange, context, workspaceSection = "overview" }: GlobalSidebarProps) {
+export default function GlobalSidebar({ activeTab, onTabChange, context, taskBadge, workspaceSection = "overview" }: GlobalSidebarProps) {
   const t = useTranslations("nav");
   const ta = useTranslations("auth");
   const user = useAuthStore((state) => state.user);
@@ -141,10 +147,10 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, workspa
         </button>
         <div className={styles.navigationBody}><nav className={styles.railNav} aria-label={t("mainNavAria")}>
           <WorkspaceNavigation active={activeTab === "workspace"} section={workspaceSection} />
-          {GLOBAL_NAV_ITEMS.slice(1, 4).map((item) => (
+          {GLOBAL_NAV_ITEMS.filter(item => item.id !== "workspace" && item.id !== "settings").map((item) => (
             activeTab === item.id && context
               ? <SidebarSection key={item.id} active label={t(item.id)} icon={<item.icon size={18} strokeWidth={1.8} aria-hidden="true" />}>{context}</SidebarSection>
-              : <NavButton key={item.id} active={activeTab === item.id} label={t(item.id)} icon={item.icon} onClick={() => handleNav(item.id, item.hash)} />
+              : <NavButton key={item.id} active={activeTab === item.id} label={t(item.id)} icon={item.icon} onClick={() => handleNav(item.id, item.hash)} badge={item.id === "tasks" ? taskBadge : undefined} />
           ))}
         </nav>
         </div>

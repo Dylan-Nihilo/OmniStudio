@@ -1,0 +1,24 @@
+{
+  "workspace": {"id": "workspace-acceptance", "name": "Acceptance Workspace"},
+  "project": {"id": "project-acceptance", "workspace_id": "workspace-acceptance", "title": "零点信号"},
+  "episodes": [
+    {"id": "episode-01", "project_id": "project-acceptance", "title": "最后一班地铁", "number": 1},
+    {"id": "episode-02", "project_id": "project-acceptance", "title": "站台回声", "number": 2}
+  ],
+  "chapters": [
+    {"id": "chapter-01", "project_id": "project-acceptance", "title": "夜班开始"},
+    {"id": "chapter-02", "project_id": "project-acceptance", "title": "失踪的乘客"},
+    {"id": "chapter-03", "project_id": "project-acceptance", "title": "零点到站"}
+  ],
+  "scenes": [
+    {"id": "scene-01", "project_id": "project-acceptance", "name": "地铁入口"},
+    {"id": "scene-02", "project_id": "project-acceptance", "name": "站台"},
+    {"id": "scene-03", "project_id": "project-acceptance", "name": "车厢"},
+    {"id": "scene-04", "project_id": "project-acceptance", "name": "控制室"},
+    {"id": "scene-05", "project_id": "project-acceptance", "name": "隧道"}
+  ],
+  "characters": [
+    {"id": "character-01", "project_id": "project-acceptance", "name": "林夏"},
+    {"id": "character-02", "project_id": "project-acceptance", "name": "周野"}
+  ]
+}

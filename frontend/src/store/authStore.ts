@@ -344,6 +344,15 @@ export const useAuthStore = create<AuthStore>()(
 
       clearSession: () => {
         rememberActiveWorkspace(null);
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem("omni_studio.clientInstanceId");
+          // Project state is scoped by user and Workspace; remove all local
+          // snapshots on logout so stale private data cannot be rehydrated.
+          for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+            const key = window.localStorage.key(index);
+            if (key?.startsWith("project-storage:")) window.localStorage.removeItem(key);
+          }
+        }
         set({
           user: null,
           activeWorkspace: null,

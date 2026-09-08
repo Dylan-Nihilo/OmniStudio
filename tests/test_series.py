@@ -213,6 +213,46 @@ class TestEpisodeAssociation:
         assert episodes[0].title == "Ep1"
         assert episodes[1].title == "Ep2"
 
+    def test_reorder_episodes_persists_unique_numbers(self, pipeline):
+        series = pipeline.create_series("S")
+        episodes = [_make_script(title=f"Ep{i}") for i in range(1, 4)]
+        for episode in episodes:
+            pipeline.scripts[episode.id] = episode
+            pipeline.add_episode_to_series(series.id, episode.id)
+
+        pipeline.reorder_series_episodes(series.id, [episodes[2].id, episodes[0].id, episodes[1].id])
+        ordered = pipeline.get_series_episodes(series.id)
+        assert [episode.title for episode in ordered] == ["Ep3", "Ep1", "Ep2"]
+        assert [episode.episode_number for episode in ordered] == [1, 2, 3]
+
+    def test_move_episode_between_series(self, pipeline):
+        first = pipeline.create_series("First")
+        second = pipeline.create_series("Second")
+        episode = _make_script()
+        pipeline.scripts[episode.id] = episode
+        pipeline.add_episode_to_series(first.id, episode.id)
+
+        pipeline.move_episode_to_series(second.id, episode.id, 0)
+        assert episode.series_id == second.id
+        assert episode.id not in first.episode_ids
+        assert second.episode_ids == [episode.id]
+
+    def test_archive_requires_one_active_episode_to_remain(self, pipeline):
+        series = pipeline.create_series("S")
+        first = _make_script(title="Ep1")
+        second = _make_script(title="Ep2")
+        pipeline.scripts[first.id] = first
+        pipeline.scripts[second.id] = second
+        pipeline.add_episode_to_series(series.id, first.id)
+        pipeline.add_episode_to_series(series.id, second.id)
+
+        pipeline.set_episode_archived(series.id, first.id, True)
+        assert first.archived is True
+        with pytest.raises(ValueError, match="last active"):
+            pipeline.set_episode_archived(series.id, second.id, True)
+        pipeline.set_episode_archived(series.id, first.id, False)
+        assert first.archived is False
+
 
 # ===================================================================
 # 4. Asset resolution tests

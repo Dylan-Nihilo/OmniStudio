@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { api, type EnvConfigPayload, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
+import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
 import {
   DEFAULT_MODEL_SETTINGS,
@@ -29,6 +29,10 @@ type EnvConfig = EnvConfigPayload & {
   OPENAI_API_KEY: string;
   OPENAI_BASE_URL: string;
   OPENAI_MODEL: string;
+  IMAGE_PROVIDER: ImageProvider;
+  OPENAI_IMAGE_API_KEY: string;
+  OPENAI_IMAGE_BASE_URL: string;
+  OPENAI_IMAGE_MODEL: string;
   DASHSCOPE_API_KEY: string;
   ALIBABA_CLOUD_ACCESS_KEY_ID: string;
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: string;
@@ -43,6 +47,7 @@ type EnvConfig = EnvConfigPayload & {
   KLING_SECRET_KEY: string;
   VIDU_API_KEY: string;
   MULEROUTER_API_KEY: string;
+  MOMA_API_KEY: string;
   MULERUN_CLI_LOGGED_IN?: boolean;
   endpoint_overrides: Record<string, string>;
 };
@@ -52,6 +57,7 @@ const ENDPOINT_PROVIDERS = [
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
   { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },
+  { key: "MOMA_BASE_URL", label: "MOMA / MiniMax", placeholder: "https://moma.cmecloud.cn/v1" },
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
@@ -59,6 +65,10 @@ const DEFAULT_CONFIG: EnvConfig = {
   OPENAI_API_KEY: "",
   OPENAI_BASE_URL: "https://api.openai.com/v1",
   OPENAI_MODEL: "gpt-4o",
+  IMAGE_PROVIDER: "mulerouter",
+  OPENAI_IMAGE_API_KEY: "",
+  OPENAI_IMAGE_BASE_URL: "https://api.openai.com/v1",
+  OPENAI_IMAGE_MODEL: "gpt-image-2",
   DASHSCOPE_API_KEY: "",
   ALIBABA_CLOUD_ACCESS_KEY_ID: "",
   ALIBABA_CLOUD_ACCESS_KEY_SECRET: "",
@@ -73,6 +83,7 @@ const DEFAULT_CONFIG: EnvConfig = {
   KLING_SECRET_KEY: "",
   VIDU_API_KEY: "",
   MULEROUTER_API_KEY: "",
+  MOMA_API_KEY: "",
   endpoint_overrides: {},
 };
 
@@ -85,6 +96,9 @@ const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvCo
   LLM_PROVIDER: normalizeLlmProvider(data?.LLM_PROVIDER ?? existing.LLM_PROVIDER),
   OPENAI_BASE_URL: data?.OPENAI_BASE_URL || existing.OPENAI_BASE_URL || "https://api.openai.com/v1",
   OPENAI_MODEL: data?.OPENAI_MODEL || existing.OPENAI_MODEL || "gpt-4o",
+  IMAGE_PROVIDER: data?.IMAGE_PROVIDER ?? existing.IMAGE_PROVIDER ?? "mulerouter",
+  OPENAI_IMAGE_BASE_URL: data?.OPENAI_IMAGE_BASE_URL || existing.OPENAI_IMAGE_BASE_URL || "https://api.openai.com/v1",
+  OPENAI_IMAGE_MODEL: data?.OPENAI_IMAGE_MODEL || existing.OPENAI_IMAGE_MODEL || "gpt-image-2",
   KLING_PROVIDER_MODE: normalizeProviderMode(data?.KLING_PROVIDER_MODE ?? existing.KLING_PROVIDER_MODE),
   VIDU_PROVIDER_MODE: normalizeProviderMode(data?.VIDU_PROVIDER_MODE ?? existing.VIDU_PROVIDER_MODE),
   PIXVERSE_PROVIDER_MODE: normalizeProviderMode(data?.PIXVERSE_PROVIDER_MODE ?? existing.PIXVERSE_PROVIDER_MODE),
@@ -104,11 +118,14 @@ const getValidationErrors = (env: EnvConfig): string[] => {
   if (env.VIDU_PROVIDER_MODE === "vendor" && !env.VIDU_API_KEY?.trim()) {
     errors.push("Vidu API Key (vendor mode)");
   }
+  if (env.IMAGE_PROVIDER === "openai" && !env.OPENAI_IMAGE_API_KEY?.trim()) {
+    errors.push("OpenAI-compatible image API Key");
+  }
   return errors;
 };
 
 const STORAGE_FIELDS = ['OSS_ENABLE', 'OSS_BUCKET_NAME', 'OSS_ENDPOINT', 'OSS_BASE_PATH', 'ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'] as const;
-const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY'] as const;
+const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY', 'IMAGE_PROVIDER', 'OPENAI_IMAGE_API_KEY', 'OPENAI_IMAGE_BASE_URL', 'OPENAI_IMAGE_MODEL', 'MOMA_API_KEY'] as const;
 
 const LS_KEY_MODEL = "omni_studio_default_model_settings";
 const LS_KEY_PROMPT = "omni_studio_default_prompt_config";
@@ -157,11 +174,15 @@ interface SystemReport {
   status?: string;
 }
 
-export default function SettingsPage() {
+export default function SettingsPage({ initialCategory = "general", onProviderConfigSaved, onSavingChange }: {
+  initialCategory?: SettingsCategory;
+  onProviderConfigSaved?: () => void;
+  onSavingChange?: (saving: boolean) => void;
+} = {}) {
   const t = useTranslations("settings");
   const { locale, theme, animations, setLocale, setTheme, setAnimations } = useSettingsStore();
 
-  const [active, setActive] = useState<SettingsCategory>("general");
+  const [active, setActive] = useState<SettingsCategory>(initialCategory);
 
   // ── API Config ──
   const [config, setConfig] = useState<EnvConfig>(DEFAULT_CONFIG);
@@ -171,6 +192,7 @@ export default function SettingsPage() {
   const mounted = useRef(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const clearFeedback = () => { setSaveError(null); setSaved(false); };
@@ -328,7 +350,7 @@ export default function SettingsPage() {
       const endpoints = Object.fromEntries(Object.entries(config.endpoint_overrides).filter(([key,value]) => value !== savedConfigRef.current.endpoint_overrides[key]));
       if (Object.keys(endpoints).length) payload.endpoint_overrides = endpoints;
     }
-    if (!Object.keys(payload).length) { setSaved(true); return; }
+    if (!Object.keys(payload).length) { setSaved(true); if (scope === "apikeys") onProviderConfigSaved?.(); return; }
     setSaving(true);
     try {
       await api.saveEnvConfig(payload);
@@ -339,6 +361,7 @@ export default function SettingsPage() {
       });
       setSaved(true);
       toast.success(t('saveSuccess'));
+      if (scope === 'apikeys') onProviderConfigSaved?.();
     } catch {
       if (mounted.current) setSaveError(t('saveConfigFailed'));
     } finally {
@@ -520,6 +543,13 @@ export default function SettingsPage() {
           {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
         </div>
       </FormRow> : <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>{keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}</FormRow>}
+      <FormRow label={t("imageProviderLabel")} hint={t("imageProviderHint")}>
+        <div className="space-y-4">
+          <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
+          {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
+        </div>
+      </FormRow>
+      <FormRow label="MOMA / MiniMax H3" hint={t("momaHint")}>{keyField("MOMA_API_KEY", "MOMA API Key")}</FormRow>
       <FormRow label={t("klingLabel")} hint={t("klingHint")}>
         <div className="space-y-4">
           <SelectField label={t("klingProvider")} value={config.KLING_PROVIDER_MODE} onChange={value => handleChange("KLING_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />

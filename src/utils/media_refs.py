@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,16 @@ MEDIA_REF_REMOTE_URL = "remote_url"
 MEDIA_REF_BLOB_URL = "blob_url"
 MEDIA_REF_DATA_URI = "data_uri"
 MEDIA_REF_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class MediaRef:
+    """A validated local media reference scoped to one Workspace."""
+
+    workspace_id: str
+    relative_path: str
+    absolute_path: str
+    media_type: str
 
 
 def _project_root(project_root: Optional[str] = None) -> Path:
@@ -125,3 +136,35 @@ def is_stable_project_media_ref(value: str) -> bool:
         MEDIA_REF_OBJECT_KEY,
         MEDIA_REF_REMOTE_URL,
     }
+
+
+def media_ref_for_path(
+    path: str,
+    workspace_id: str,
+    *,
+    project_root: Optional[str] = None,
+) -> MediaRef:
+    """Validate and bind a local media path to its owning Workspace."""
+    if not isinstance(path, str) or not path.strip() or not workspace_id:
+        raise ValueError("media path and workspace_id are required")
+    normalized = path.strip().lstrip("/\\").replace("\\", "/")
+    if normalized.startswith("output/"):
+        normalized = normalized[len("output/") :]
+    absolute = resolve_local_media_path(normalized, project_root=project_root)
+    if absolute is None or not Path(absolute).is_file():
+        raise ValueError("media path is not a readable local media reference")
+    workspace_prefixes = (
+        f"uploads/{workspace_id}/",
+        f"playground/uploads/{workspace_id}/",
+        f"cache/voice_preview/{workspace_id}/",
+        f"cache/voice_design_preview/{workspace_id}/",
+    )
+    if not normalized.startswith(workspace_prefixes):
+        raise ValueError("media path is outside the requested Workspace")
+    media_type = (Path(absolute).suffix or "").lstrip(".").lower() or "bin"
+    return MediaRef(
+        workspace_id=workspace_id,
+        relative_path=normalized,
+        absolute_path=absolute,
+        media_type=media_type,
+    )

@@ -19,6 +19,8 @@ from .models import (
 )
 from .storage import PlaygroundStorage
 from ...utils import get_logger
+from ...storage.job_repository import JobRepository
+from ...apps.comic_gen.contracts import sanitize_error_text
 
 logger = get_logger(__name__)
 
@@ -41,6 +43,7 @@ class PlaygroundService:
         self._kling_model = None
         self._vidu_model = None
         self._mulerouter_video_model = None
+        self._moma_video_model = None
         self._mulerouter_image_model = None
 
     # ------------------------------------------------------------------
@@ -51,13 +54,24 @@ class PlaygroundService:
         self,
         generation_id: str,
         workspace_id: str | None = None,
+        job_repository: JobRepository | None = None,
     ) -> PlaygroundGeneration | None:
         """Cancel local state; an already-running provider call may continue remotely."""
-        return self.storage.cancel_generation(
+        generation = self.storage.cancel_generation(
             generation_id,
             workspace_id,
             error="Canceled by user",
         )
+        if generation and generation.job_item_id and job_repository:
+            try:
+                job_repository.transition_item(
+                    generation.job_item_id,
+                    "canceled",
+                    error={"code": "CANCELED", "message": "任务已取消"},
+                )
+            except Exception:
+                logger.exception("Failed to synchronize cancellation for %s", generation_id)
+        return generation
 
     def create_generation(
         self,
@@ -80,11 +94,16 @@ class PlaygroundService:
             status="pending",
             error=None,
             created_at=datetime.now(timezone.utc).isoformat(),
+            idempotency_key=request.idempotency_key,
         )
         self.storage.add_generation(gen)
         return gen
 
-    def process_generation(self, generation_id: str) -> None:
+    def process_generation(
+        self,
+        generation_id: str,
+        job_repository: JobRepository | None = None,
+    ) -> None:
         """Execute the actual generation.  Intended to run in a background
         thread -- all calls are synchronous (blocking)."""
         gen = self.storage.get_generation(generation_id)
@@ -99,6 +118,12 @@ class PlaygroundService:
         if not self.storage.start_generation(gen):
             return
 
+        if gen.job_item_id and job_repository:
+            try:
+                job_repository.transition_item(gen.job_item_id, "processing", progress=0.0)
+            except Exception:
+                logger.exception("Failed to synchronize processing state for %s", generation_id)
+
         try:
             mode = gen.mode
             if mode in (PlaygroundMode.T2I, PlaygroundMode.I2I):
@@ -110,9 +135,31 @@ class PlaygroundService:
 
             if not self.storage.finish_generation(gen, "completed"):
                 return
+            if gen.job_item_id and job_repository:
+                refs = [
+                    {"id": output.id, "kind": output.media_type, "uri": output.media_path}
+                    for output in gen.outputs
+                ]
+                try:
+                    job_repository.transition_item(
+                        gen.job_item_id,
+                        "succeeded",
+                        media_refs=refs,
+                    )
+                except Exception:
+                    logger.exception("Failed to synchronize success state for %s", generation_id)
         except Exception as exc:
             logger.exception("Generation %s failed", generation_id)
-            self.storage.finish_generation(gen, "failed", str(exc))
+            safe_error = sanitize_error_text(str(exc))
+            if self.storage.finish_generation(gen, "failed", safe_error) and gen.job_item_id and job_repository:
+                try:
+                    job_repository.transition_item(
+                        gen.job_item_id,
+                        "failed",
+                        error={"code": "PROVIDER_FAILED", "message": safe_error},
+                    )
+                except Exception:
+                    logger.exception("Failed to synchronize failure state for %s", generation_id)
 
     def save_to_library(
         self,
@@ -305,6 +352,8 @@ class PlaygroundService:
             try:
                 if model_lower.startswith("seedance"):
                     self._generate_video_mulerouter(gen, out_path)
+                elif model_lower.startswith("minimax"):
+                    self._generate_video_moma(gen, out_path)
                 elif model_lower.startswith("kling"):
                     self._generate_video_kling(gen, out_path)
                 elif model_lower.startswith("vidu") or model_lower.startswith("viduq"):
@@ -399,6 +448,32 @@ class PlaygroundService:
             img_url=img_url,
             img_path=img_path,
             **kwargs,
+        )
+
+    def _generate_video_moma(self, gen: PlaygroundGeneration, out_path: str) -> None:
+        """Delegate to :class:`MomaVideoModel` (MiniMax H3 via MOMA)."""
+        from ...models.moma import MomaVideoModel
+
+        if self._moma_video_model is None:
+            self._moma_video_model = MomaVideoModel({})
+
+        params = gen.parameters
+        image_inputs = []
+        video_inputs = []
+        if gen.mode in (PlaygroundMode.I2V, PlaygroundMode.R2V):
+            image_inputs = list(gen.input_media)
+        elif gen.mode == PlaygroundMode.V2V:
+            video_inputs = list(gen.input_media)
+        self._moma_video_model.generate(
+            prompt=gen.prompt,
+            output_path=out_path,
+            model=gen.model_id,
+            image_urls=image_inputs,
+            video_urls=video_inputs,
+            audio_urls=[params["audio_url"]] if params.get("audio_url") else [],
+            resolution=params.get("resolution", "2K"),
+            duration=params.get("duration", 5),
+            ratio=params.get("ratio", params.get("aspect_ratio", "16:9")),
         )
 
     def _generate_video_kling(self, gen: PlaygroundGeneration, out_path: str) -> None:

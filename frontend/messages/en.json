@@ -427,13 +427,15 @@
     "copied": "Copied",
     "copyFailed": "Copy failed. Select the details to copy them.",
     "copyErrorDetails": "Copy error details",
-    "offlineBannerText": "You're offline — you can continue once reconnected"
+    "offlineBannerText": "You're offline — you can continue once reconnected",
+    "actionFailed": "The operation failed. Please try again."
   },
   "nav": {
     "workspace": "Workspace",
     "library": "Library",
     "editor": "Script Editor",
     "playground": "Playground",
+    "tasks": "Tasks",
     "settings": "Settings",
     "workspaceAria": "Omni Studio · Workspace",
     "mainNavAria": "Main navigation"
@@ -513,7 +515,17 @@
     "name": "Title",
     "description": "Description",
     "loadFailed": "Could not load this series. Please retry.",
-    "saveFailed": "Could not save. Your changes are retained; please retry."
+    "saveFailed": "Could not save. Your changes are retained; please retry.",
+    "archiveEpisodeHint": "Archive “{title}”? Scripts, assets and storyboards will be retained.",
+    "promoteDefaults": "Use as series defaults",
+    "promoteHint": "Use the configuration of “{title}” as series defaults. Changes: {changes}.",
+    "noDefaultChanges": "No changes to the current defaults",
+    "defaultsPromoted": "Series defaults updated.",
+    "workflow": "Workflow",
+    "generationMode": "Generation mode",
+    "episodeActions": "Episode {number} actions",
+    "moveUp": "Move up",
+    "moveDown": "Move down"
   },
   "workspaceControls": {
     "currentWorkspace": "Current workspace",
@@ -820,7 +832,11 @@
     "loginWaiting": "Waiting for browser login…",
     "loginTimedOut": "Login was not confirmed. Please start again.",
     "appliesImmediately": "Changes apply immediately",
-    "offlineSettingsBody": "Provider and storage settings cannot be saved while offline. Retry when your connection returns."
+    "offlineSettingsBody": "Provider and storage settings cannot be saved while offline. Retry when your connection returns.",
+    "imageProviderLabel": "Image generation service",
+    "imageProviderHint": "Choose the service for GPT image models. Other image models use their catalog provider.",
+    "imageModel": "Image model",
+    "momaHint": "MiniMax H3 video generation service"
   },
   "project": {
     "createTitle": "Create New Project",
@@ -909,7 +925,21 @@
     "promptSaveFailed": "Failed to save prompt configuration",
     "promptEmptyHint": "Leave a field empty to use the system default prompt. Custom prompts completely replace the default for that stage.",
     "resetToDefault": "Reset to default",
-    "viewDefault": "View full default prompt"
+    "viewDefault": "View full default prompt",
+    "rename": "Rename",
+    "titleLabel": "Project title",
+    "seriesTitle": "Series title",
+    "archive": "Archive",
+    "restore": "Restore",
+    "archived": "Archived",
+    "purge": "Permanently delete",
+    "convertToSeries": "Convert to series",
+    "actionFailed": "The operation failed. Please try again.",
+    "purgeWarning": "This permanently removes the project and its related content. It cannot be undone.",
+    "purgePending": "Deletion is still in progress. Refresh the workspace later.",
+    "purgeComplete": "Deletion complete: {deleted} media files removed, {shared} shared files retained, {failed} cleanup warnings.",
+    "retainedCounts": "{episodes} episodes · {characters} characters · {scenes} scenes · {props} props · {shots} shots · {video_tasks} video tasks",
+    "conversionImpact": "Retains {episode_count} episodes, {characters} characters, {scenes} scenes, {shots} shots and {video_tasks} video tasks, including existing content and links."
   },
   "series": {
     "characterLabel": "Characters",
@@ -2541,7 +2571,6 @@
     "contactAdminHint": "Please contact an administrator to activate your account.",
     "login": "Sign in",
     "loggingIn": "Signing in...",
-    "forgotPassword": "Forgot password?",
     "resetPasswordTitle": "Reset password",
     "resetPasswordSubtitle": "The Owner account can only be recovered on the machine running the Omni Studio backend.",
     "resetToken": "Recovery token",
@@ -2576,5 +2605,37 @@
     "bootstrapFailed": "Unable to connect to Omni Studio",
     "bootstrapFailedHint": "Make sure the backend service is running, then try again.",
     "retry": "Try again"
+  },
+  "taskCenter": {
+    "title": "Task Center",
+    "subtitle": "Track generation, rendering, and export jobs in one place",
+    "back": "Back to workspace",
+    "refresh": "Refresh",
+    "running": "Running",
+    "failed": "Failed",
+    "succeeded": "Succeeded",
+    "canceled": "Canceled",
+    "pending": "Pending",
+    "processing": "Processing",
+    "skipped": "Skipped",
+    "total": "All tasks",
+    "all": "All statuses",
+    "searchPlaceholder": "Search tasks or projects…",
+    "statusFilter": "Filter by status",
+    "empty": "No tasks yet",
+    "emptyHint": "New generation jobs will appear here",
+    "loading": "Loading tasks…",
+    "loadFailed": "Failed to load tasks",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "details": "Details",
+    "openObject": "Open linked project",
+    "confirmCancel": "Cancel this task?",
+    "close": "Close",
+    "noEvents": "No status events",
+    "page": "Page {page} / {total}",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "confirmCancelAction": "Confirm cancellation"
   }
 }

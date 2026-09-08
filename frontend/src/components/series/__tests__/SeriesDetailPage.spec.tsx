@@ -3,7 +3,7 @@ import { vi, it, expect, beforeEach } from 'vitest';
 import { renderWithIntl } from '@/test/renderWithIntl';
 import SeriesDetailPage from '../SeriesDetailPage';
 
-const mocks = vi.hoisted(() => ({ getSeries: vi.fn(), getSeriesEpisodes: vi.fn(), listSeries: vi.fn(), updateSeries: vi.fn(), createEpisodeForSeries: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getSeries: vi.fn(), getSeriesEpisodes: vi.fn(), listSeries: vi.fn(), updateSeries: vi.fn(), createEpisodeForSeries: vi.fn(), reorderSeriesEpisodes:vi.fn(), archiveSeriesEpisode:vi.fn(), restoreSeriesEpisode:vi.fn(), previewEpisodeDefaultPromotion:vi.fn(), promoteEpisodeDefaults:vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: mocks }));
 vi.mock('@/components/layout/AppShell', () => ({ default: ({ children, context }: any) => <>{context}{children}</> }));
 vi.mock('@/components/common/AssetCard', () => ({ default: ({ asset }: any) => <div>{asset.name}</div> }));
@@ -18,6 +18,26 @@ beforeEach(() => {
   mocks.listSeries.mockResolvedValue([series]);
 });
 const renderPage = () => renderWithIntl(<SeriesDetailPage seriesId="series-1" />);
+
+it('reorders actual episode IDs and confirms archive and default promotion using the shared dialogs', async () => {
+  mocks.previewEpisodeDefaultPromotion.mockResolvedValue({sections:['model_settings'], changes:{model_settings:{before:{},after:{}}}});
+  renderPage();
+  await screen.findByRole('heading', {name:'测试系列',level:1});
+  const menu = async (name: string) => {
+    fireEvent.click(screen.getAllByRole('button', {name:/第 .* 集操作/})[0]);
+    fireEvent.click(await screen.findByRole('menuitem', {name}));
+  };
+  await menu('下移');
+  await waitFor(() => expect(mocks.reorderSeriesEpisodes).toHaveBeenCalledWith('series-1',['ep-4','ep-1']));
+  await menu('归档');
+  expect(mocks.archiveSeriesEpisode).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', {name:'确定'}));
+  await waitFor(() => expect(mocks.archiveSeriesEpisode).toHaveBeenCalledWith('series-1','ep-1'));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await menu('设为系列默认');
+  fireEvent.click(await screen.findByRole('button', {name:'确定'}));
+  await waitFor(() => expect(mocks.promoteEpisodeDefaults).toHaveBeenCalledWith('series-1','ep-1',['model_settings']));
+});
 
 it('shows loading, then links actual episodes and retains shared asset navigation', async () => {
   renderPage();

@@ -34,6 +34,9 @@ class PlaygroundGeneration(BaseModel):
     status: str = Field("pending", description="Generation status: pending/processing/completed/failed")
     error: Optional[str] = Field(None, description="Error message if generation failed")
     created_at: str = Field(..., description="Creation timestamp in ISO 8601 format")
+    job_id: Optional[str] = Field(None, description="Unified Job identifier")
+    job_item_id: Optional[str] = Field(None, description="Unified JobItem identifier")
+    idempotency_key: Optional[str] = Field(None, description="Client-provided generation idempotency key")
 
 
 class PlaygroundTemplate(BaseModel):
@@ -58,6 +61,7 @@ class GenerateRequest(BaseModel):
     input_media: Optional[List[str]] = Field(None, description="Input file paths for image/video-conditioned modes")
     parameters: Optional[dict] = Field(None, description="Generation parameters (resolution, duration, aspect_ratio, etc.)")
     batch_size: Optional[int] = Field(1, ge=1, le=4, description="Number of outputs to generate (1-4)")
+    idempotency_key: Optional[str] = Field(None, min_length=1, max_length=200, description="Optional request idempotency key")
 
 
 class SaveToLibraryRequest(BaseModel):

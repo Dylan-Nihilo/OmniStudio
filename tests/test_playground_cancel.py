@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from src.apps.playground.models import PlaygroundGeneration, PlaygroundMode
+from src.apps.playground.models import PlaygroundGeneration, PlaygroundMode, PlaygroundOutput
 from src.apps.playground.service import PlaygroundService
 from src.apps.playground.storage import PlaygroundStorage
 
@@ -36,11 +36,11 @@ def test_cancel_generation_marks_processing_record_failed(tmp_path):
     canceled = service.cancel_generation("generation-1", "workspace-1")
 
     assert canceled is not None
-    assert canceled.status == "failed"
+    assert canceled.status == "canceled"
     assert canceled.error == "Canceled by user"
     persisted = storage.get_generation("generation-1", "workspace-1")
     assert persisted is not None
-    assert persisted.status == "failed"
+    assert persisted.status == "canceled"
 
 
 def test_cancel_generation_rejects_unknown_or_terminal_record(tmp_path):
@@ -65,8 +65,58 @@ def test_late_provider_completion_does_not_overwrite_cancellation(tmp_path):
 
     persisted = storage.get_generation("generation-1", "workspace-1")
     assert persisted is not None
-    assert persisted.status == "failed"
+    assert persisted.status == "canceled"
     assert persisted.error == "Canceled by user"
+
+
+def test_output_update_keeps_processing_state_until_generation_completes(tmp_path):
+    storage = _storage(tmp_path)
+    storage.add_generation(_generation(status="pending"))
+    service = PlaygroundService(storage)
+
+    def provider_saves_output(generation):
+        generation.outputs.append(
+            PlaygroundOutput(
+                id="output-1",
+                media_path="output/playground/images/result.png",
+                media_type="image",
+            )
+        )
+        storage.update_generation(generation)
+
+    service._process_image_generation = provider_saves_output
+    service.process_generation("generation-1")
+
+    persisted = storage.get_generation("generation-1", "workspace-1")
+    assert persisted is not None
+    assert persisted.status == "completed"
+    assert [output.id for output in persisted.outputs] == ["output-1"]
+
+
+def test_output_update_does_not_overwrite_concurrent_cancellation(tmp_path):
+    storage = _storage(tmp_path)
+    storage.add_generation(_generation(status="pending"))
+    service = PlaygroundService(storage)
+
+    def provider_saves_output_after_user_cancel(generation):
+        assert service.cancel_generation(generation.id, "workspace-1") is not None
+        generation.outputs.append(
+            PlaygroundOutput(
+                id="output-1",
+                media_path="output/playground/images/result.png",
+                media_type="image",
+            )
+        )
+        storage.update_generation(generation)
+
+    service._process_image_generation = provider_saves_output_after_user_cancel
+    service.process_generation("generation-1")
+
+    persisted = storage.get_generation("generation-1", "workspace-1")
+    assert persisted is not None
+    assert persisted.status == "canceled"
+    assert persisted.error == "Canceled by user"
+    assert [output.id for output in persisted.outputs] == ["output-1"]
 
 
 def test_start_generation_does_not_resurrect_a_canceled_record(tmp_path):
@@ -79,7 +129,18 @@ def test_start_generation_does_not_resurrect_a_canceled_record(tmp_path):
 
     persisted = storage.get_generation("generation-1", "workspace-1")
     assert persisted is not None
-    assert persisted.status == "failed"
+    assert persisted.status == "canceled"
+
+
+def test_playground_cancel_status_is_distinct_from_provider_failure(tmp_path):
+    storage = _storage(tmp_path)
+    storage.add_generation(_generation(status="processing"))
+
+    canceled = storage.cancel_generation("generation-1", "workspace-1")
+
+    assert canceled is not None
+    assert canceled.status == "canceled"
+    assert canceled.error == "Canceled by user"
 
 
 def test_playground_router_exposes_cancel_endpoint():

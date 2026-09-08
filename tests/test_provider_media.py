@@ -167,6 +167,37 @@ def test_vendor_vidu_image_local_with_oss_uses_signed_url(tmp_path):
     assert resolved.value.startswith("https://oss.example/omni_studio/temp/provider_media/")
 
 
+def test_moma_local_image_with_oss_uses_signed_url(tmp_path):
+    _write_output_png(tmp_path, "storyboard/ref.png")
+    uploader = FakeUploader(configured=True)
+
+    resolved = resolve_media_input(
+        "storyboard/ref.png",
+        model_name="minimax/minimax-h3",
+        backend="moma",
+        modality="image",
+        uploader=uploader,
+        project_root=str(tmp_path),
+    )
+
+    assert resolved.value.startswith("https://oss.example/omni_studio/temp/provider_media/")
+
+
+def test_moma_local_image_without_oss_fails_before_remote_submission(tmp_path):
+    _write_output_png(tmp_path, "storyboard/ref.png")
+    uploader = FakeUploader(configured=False)
+
+    with pytest.raises(ValueError, match="Configure OSS or provide a remote HTTPS URL"):
+        resolve_media_input(
+            "storyboard/ref.png",
+            model_name="minimax/minimax-h3",
+            backend="moma",
+            modality="image",
+            uploader=uploader,
+            project_root=str(tmp_path),
+        )
+
+
 def test_resolver_does_not_mutate_input_refs(tmp_path):
     _write_output_png(tmp_path, "uploads/ref.png")
     uploader = FakeUploader(configured=False)
