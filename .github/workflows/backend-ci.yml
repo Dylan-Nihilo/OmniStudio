@@ -83,6 +83,12 @@ jobs:
       - name: Run frontend tests
         run: npm run test:all
 
+      - name: Test dependency configuration
+        working-directory: packages/ui
+        run: |
+          npm ci --ignore-scripts
+          npm run test:install
+
       - name: Run typecheck
         run: npm run typecheck
 
