@@ -19,11 +19,11 @@
     "@heroui/styles": "^3.2.4",
     "lucide-react": "^0.554.0",
     "motion": "^12.23.24",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "react-resizable-panels": "^4.10.0",
     "tailwind-merge": "^3.4.0",
     "tailwind-variants": "^3.2.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "tailwindcss": "^4.0.0"
   },
   "devDependencies": {
@@ -49,5 +49,8 @@
   },
   "files": [
     "src"
-  ]
+  ],
+  "overrides": {
+    "tar": "7.5.22"
+  }
 }

@@ -14,6 +14,8 @@ python3 tests/browser_check.py  # 需先启动预览；使用 Python Playwright
 
 新机器需先完成 HeroUI Pro 官方 CLI 登录，再运行 `npm ci` 获取授权依赖。此次本机验证复用了已有项目中完整安装的 Pro beta.6 runtime；未验证全新机器的授权下载安装流程。Pro 源码、授权凭据及 node_modules 均不进入 Git。
 
+GitHub Actions 使用仓库 Secret `HEROUI_AUTH_TOKEN` 完成非交互安装；本地 Docker 构建使用同名环境变量，由 Compose/BuildKit 作为构建 secret 传入。不要通过 build arg 或提交文件传递令牌。安装方式见 [HeroUI 官方说明](https://heroui.pro/docs/react/getting-started/installation)。
+
 ## 使用
 
 ```tsx

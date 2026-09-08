@@ -104,6 +104,7 @@
     "@tiptap/suggestion": "3.29.2",
     "framer-motion": "12.23.24",
     "motion-dom": "12.23.23",
-    "motion-utils": "12.23.6"
+    "motion-utils": "12.23.6",
+    "tar": "7.5.22"
   }
 }
