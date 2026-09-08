@@ -1,6 +1,6 @@
 {
   "name": "@omnistudio/ui",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "exports": {
@@ -58,5 +58,8 @@
   ],
   "overrides": {
     "tar": "7.5.22"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   }
 }

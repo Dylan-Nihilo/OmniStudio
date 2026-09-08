@@ -12,7 +12,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
-[![Node](https://img.shields.io/badge/node-18%2B-green)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-20.19%2B-green)](https://nodejs.org/)
 [![GitHub Stars](https://img.shields.io/github/stars/Dylan-Nihilo/OmniStudio?style=social)](https://github.com/Dylan-Nihilo/OmniStudio)
 
 [English](README_EN.md) · [中文](README.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
@@ -112,7 +112,7 @@ Omni Studio 目前包含两个核心模块：
 ### 环境要求
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 20.19+ (20.x) / 22.12+
 - FFmpeg（视频处理）
 
 ### 一键启动

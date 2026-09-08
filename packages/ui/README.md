@@ -14,7 +14,9 @@ python3 tests/browser_check.py  # 需先启动预览；使用 Python Playwright
 
 组件开发使用项目配置的 `hpmcp` 和 `heroui-react-pro` / `heroui-pro-design-taste` skills；基础组件来自 `@heroui/react`，Pro 组件来自 `@heroui-pro/react`。本地 Pro runtime 最初复用自 `kaizo-saas`，安装沿用该项目的 `hpsetup` 分发渠道。
 
-新机器在 `frontend/` 或 `packages/ui/` 运行 `npm ci`，再设置已有的 `HEROUI_KEY` 环境变量并运行 `npm run heroui:setup`。npm 包提供安装入口；真实 Pro runtime 由锁定的 `hpsetup` 下载器补齐，版本必须与本项目声明一致。安装脚本不调用 CLI 的自动升级流程。Pro 源码、授权凭据及 node_modules 均不进入 Git。
+在仓库根目录的 `.env.local` 配置团队提供的 `HEROUI_KEY` 后，在 `frontend/` 或 `packages/ui/` 运行 `npm ci` 和 `npm run dev` 即可。也可运行 `npm run heroui:setup` 单独安装。安装凭据读取顺序：终端环境变量 → 当前目录 `.env.local` → 仓库根目录 `.env.local` → 当前目录 `.env` → 仓库根目录 `.env`。
+
+npm 包提供安装入口；真实 Pro runtime 由锁定的 `hpsetup` 下载器补齐，版本必须与本项目声明一致。安装脚本不调用 CLI 的自动升级流程。Pro 源码、授权凭据及 node_modules 均不进入 Git；`.env.local` 也排除在 Docker 构建上下文之外。
 
 `npm run dev` / `npm run build` 会检查已安装的 Pro runtime；完整且版本匹配时直接使用，否则调用同一安装脚本。根目录的统一开发入口也经过此前端检查。安装检查测试：`cd packages/ui && npm run test:install`。
 
