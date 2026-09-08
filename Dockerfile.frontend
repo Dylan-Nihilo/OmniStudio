@@ -1,9 +1,10 @@
 # Stage 1: Build
 FROM node:20-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/package-lock.json* ./
+COPY packages/ui/ /app/packages/ui/
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
 RUN npm ci
 
 COPY frontend/ .
@@ -11,12 +12,14 @@ COPY frontend/ .
 # Build for Docker (override desktop app paths)
 ENV NODE_ENV=production
 ENV DOCKER_BUILD=true
+ARG NEXT_PUBLIC_AUTH_COOKIE_PREFIX=omni_studio
+ENV NEXT_PUBLIC_AUTH_COOKIE_PREFIX=$NEXT_PUBLIC_AUTH_COOKIE_PREFIX
 RUN npm run build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine
 
-COPY --from=builder /app/out /usr/share/nginx/html
+COPY --from=builder /app/frontend/out /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
