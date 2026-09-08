@@ -173,6 +173,40 @@ export interface SourceRevision {
     created_at: number;
 }
 
+export interface SourceImpactTarget {
+    id: string;
+    impact_event_id: string;
+    target_type: "script" | "shot" | "downstream";
+    target_id: string;
+    episode_id: string | null;
+    target_stage: string;
+    status: "needs_review" | "resolved";
+    metadata: Record<string, unknown>;
+    created_at: number;
+}
+
+export interface SourceRevisionImpact {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    chapter_id: string;
+    revision_id: string;
+    previous_revision_id: string | null;
+    revision_number: number;
+    previous_revision_number: number | null;
+    change_type: "chapter_edit" | "revision_restore";
+    status: "open" | "resolved";
+    target_count: number;
+    targets: SourceImpactTarget[];
+    created_by_user_id: string | null;
+    created_at: number;
+}
+
+export interface SourceRevisionImpactList {
+    items: SourceRevisionImpact[];
+    total: number;
+}
+
 export interface SourceChapter {
     id: string;
     source_document_id: string;
@@ -432,6 +466,8 @@ export const sourceApi = {
     analyzeSourceBatch: (sourceId: string, payload?: SourceAnalysisBatchRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batch`, payload ?? {}).then((response) => response.data),
     getSourceAnalysisBatch: (sourceId: string, batchId: string) => apiClient.get<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}`).then((response) => response.data),
     retrySourceAnalysisBatch: (sourceId: string, batchId: string, payload?: SourceAnalysisBatchRetryRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}/retry`, payload ?? {}).then((response) => response.data),
+    listRevisionImpacts: (sourceId: string, params?: { chapter_id?: string; revision_id?: string }) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/impact-events`, { params }).then((response) => response.data),
+    listChapterRevisionImpacts: (sourceId: string, chapterId: string) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/impact-events`).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),

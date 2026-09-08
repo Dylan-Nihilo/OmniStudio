@@ -1,4 +1,4 @@
-"""Pydantic contracts for the Source domain (SRC-00 through SRC-08)."""
+"""Pydantic contracts for the Source domain (SRC-00 through SRC-09)."""
 
 from __future__ import annotations
 
@@ -74,6 +74,46 @@ class SourceRevisionRead(BaseModel):
     created_by_user_id: str | None
     metadata: dict[str, Any]
     created_at: float
+
+
+class SourceImpactTargetRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    impact_event_id: str
+    target_type: Literal["script", "shot", "downstream"]
+    target_id: str
+    episode_id: str | None = None
+    target_stage: str
+    status: Literal["needs_review", "resolved"]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: float
+
+
+class SourceRevisionImpactRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    workspace_id: str
+    source_document_id: str
+    chapter_id: str
+    revision_id: str
+    previous_revision_id: str | None = None
+    revision_number: int = Field(gt=0)
+    previous_revision_number: int | None = Field(default=None, gt=0)
+    change_type: Literal["chapter_edit", "revision_restore"]
+    status: Literal["open", "resolved"]
+    target_count: int = Field(ge=0)
+    targets: list[SourceImpactTargetRead] = Field(default_factory=list)
+    created_by_user_id: str | None = None
+    created_at: float
+
+
+class SourceRevisionImpactList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[SourceRevisionImpactRead] = Field(default_factory=list)
+    total: int = Field(ge=0)
 
 
 class SourceChapterRead(BaseModel):
@@ -417,6 +457,9 @@ __all__ = [
     "SourceImportPreviewRead",
     "SourceImportRequest",
     "SourceRevisionCreate",
+    "SourceRevisionImpactList",
+    "SourceRevisionImpactRead",
+    "SourceImpactTargetRead",
     "SourceRevision",
     "SourceRevisionList",
     "SourceRevisionRead",

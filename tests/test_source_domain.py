@@ -763,3 +763,74 @@ def test_source_analysis_batch_is_workspace_scoped(source_client, monkeypatch):
     )
     assert isolated.status_code == 404
     assert isolated.json()["error"]["code"] == "AUTH_RESOURCE_NOT_FOUND"
+
+
+def test_source_revision_emits_queryable_downstream_impact_markers(source_client):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "影响追踪来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "初始正文"},
+    ).json()
+    project = pipeline.create_project("下游剧集", "剧集正文", skip_analysis=True)
+    user = api_module.app.state.auth_service.repository.find_user_by_username("owner")
+    workspace_id = api_module.app.state.auth_service.repository.get_default_workspace(user.id).id
+    pipeline.repository.assign_workspace_for_script(project.id, workspace_id)
+    pipeline.add_frame(project.id, action_description="一个待复核镜头")
+    linked = client.post(f"/sources/{source['id']}/episodes/{project.id}")
+    assert linked.status_code == 201, linked.text
+
+    assert client.get(f"/sources/{source['id']}/impact-events").json()["total"] == 0
+
+    title_only = client.patch(
+        f"/sources/{source['id']}/chapters/{chapter['id']}",
+        json={"title": "改名但未改正文"},
+    )
+    assert title_only.status_code == 200, title_only.text
+    assert client.get(f"/sources/{source['id']}/impact-events").json()["total"] == 0
+
+    edited = client.put(
+        f"/sources/{source['id']}/chapters/{chapter['id']}",
+        json={"content": "第二版正文"},
+    )
+    assert edited.status_code == 200, edited.text
+    impacts = client.get(f"/sources/{source['id']}/impact-events")
+    assert impacts.status_code == 200, impacts.text
+    payload = impacts.json()
+    assert payload["total"] == 1
+    impact = payload["items"][0]
+    assert impact["change_type"] == "chapter_edit"
+    assert impact["revision_number"] == 2
+    assert impact["previous_revision_number"] == 1
+    assert impact["target_count"] == len(impact["targets"])
+    assert {target["target_type"] for target in impact["targets"]} == {
+        "script", "shot", "downstream"
+    }
+    assert all(target["status"] == "needs_review" for target in impact["targets"])
+    assert any(
+        target["target_type"] == "script" and target["target_id"] == project.id
+        for target in impact["targets"]
+    )
+    assert any(
+        target["target_type"] == "shot" and target["target_stage"] == "storyboard"
+        for target in impact["targets"]
+    )
+
+    chapter_impacts = client.get(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/impact-events"
+    )
+    assert chapter_impacts.status_code == 200
+    assert chapter_impacts.json()["total"] == 1
+    assert client.get(
+        f"/sources/{source['id']}/impact-events",
+        params={"revision_id": chapter["current_revision"]["id"]},
+    ).json()["total"] == 0
+
+    restored = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/revisions/{chapter['current_revision']['id']}/restore"
+    )
+    assert restored.status_code == 200, restored.text
+    restored_impacts = client.get(f"/sources/{source['id']}/impact-events").json()
+    assert restored_impacts["total"] == 2
+    assert restored_impacts["items"][0]["change_type"] == "revision_restore"
+    assert restored_impacts["items"][0]["previous_revision_number"] == 2

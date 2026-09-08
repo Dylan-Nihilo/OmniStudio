@@ -1,4 +1,4 @@
-"""HTTP API for the Source domain (SRC-00 through SRC-08)."""
+"""HTTP API for the Source domain (SRC-00 through SRC-09)."""
 
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ from .source_models import (
     SourceImportConfirmResponse,
     SourceImportPreviewRead,
     SourceImportRequest,
+    SourceRevisionImpactList,
     SourceRevisionCreate,
     SourceRevisionList,
     SourceRevisionRead,
@@ -872,6 +873,44 @@ def retry_source_analysis_batch(
         metadata={"source_document_id": source_id, "chapter_count": len(chapter_ids)},
     )
     return result
+
+
+@router.get(
+    "/sources/{source_id}/impact-events",
+    response_model=SourceRevisionImpactList,
+)
+@router.get(
+    "/sources/{source_id}/impacts",
+    response_model=SourceRevisionImpactList,
+)
+def list_source_revision_impacts(
+    source_id: str,
+    request: Request,
+    chapter_id: str | None = Query(default=None, max_length=200),
+    revision_id: str | None = Query(default=None, max_length=200),
+):
+    items = _repository(request).list_revision_impacts(
+        _workspace_id(request),
+        source_id,
+        chapter_id=chapter_id,
+        revision_id=revision_id,
+    )
+    return {"items": items, "total": len(items)}
+
+
+@router.get(
+    "/sources/{source_id}/chapters/{chapter_id}/impact-events",
+    response_model=SourceRevisionImpactList,
+)
+@router.get(
+    "/sources/{source_id}/chapters/{chapter_id}/impacts",
+    response_model=SourceRevisionImpactList,
+)
+def list_chapter_revision_impacts(source_id: str, chapter_id: str, request: Request):
+    items = _repository(request).list_revision_impacts(
+        _workspace_id(request), source_id, chapter_id=chapter_id
+    )
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/sources/{source_id}/chapters", response_model=SourceChapterList)

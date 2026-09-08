@@ -502,6 +502,128 @@ class SourceRevision(Base):
     )
 
 
+class SourceRevisionImpact(Base):
+    """Durable impact event emitted when a Source chapter revision changes."""
+
+    __tablename__ = "source_revision_impacts"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    previous_revision_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_revisions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_revision_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    change_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="open")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "change_type IN ('chapter_edit', 'revision_restore')",
+            name="ck_source_revision_impacts_change_type",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved')",
+            name="ck_source_revision_impacts_status",
+        ),
+        CheckConstraint("revision_number > 0", name="ck_source_revision_impacts_revision_number"),
+        CheckConstraint(
+            "previous_revision_number IS NULL OR previous_revision_number > 0",
+            name="ck_source_revision_impacts_previous_revision_number",
+        ),
+        Index("ix_source_revision_impacts_workspace_created", "workspace_id", "created_at"),
+        Index("ix_source_revision_impacts_source_created", "source_document_id", "created_at"),
+        Index("ix_source_revision_impacts_revision", "revision_id"),
+    )
+
+
+class SourceImpactTarget(Base):
+    """Snapshot of one downstream target that needs review after a revision."""
+
+    __tablename__ = "source_impact_targets"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    impact_event_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_revision_impacts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chapter_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_stage: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="needs_review")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "target_type IN ('script', 'shot', 'downstream')",
+            name="ck_source_impact_targets_type",
+        ),
+        CheckConstraint(
+            "status IN ('needs_review', 'resolved')",
+            name="ck_source_impact_targets_status",
+        ),
+        CheckConstraint("length(trim(target_id)) > 0", name="ck_source_impact_targets_id"),
+        CheckConstraint("length(trim(target_stage)) > 0", name="ck_source_impact_targets_stage"),
+        CheckConstraint("json_valid(metadata_json)", name="ck_source_impact_targets_metadata_json"),
+        UniqueConstraint(
+            "impact_event_id",
+            "episode_id",
+            "target_type",
+            "target_id",
+            "target_stage",
+            name="uq_source_impact_targets_target",
+        ),
+        Index("ix_source_impact_targets_event_status", "impact_event_id", "status"),
+        Index("ix_source_impact_targets_workspace_created", "workspace_id", "created_at"),
+        Index("ix_source_impact_targets_target", "target_type", "target_id", "status"),
+    )
+
+
 class SourceEpisodeLink(Base):
     """Many-to-many relationship between source documents and episodes."""
 
@@ -968,6 +1090,8 @@ __all__ = [
     "SourceDocument",
     "SourceChapter",
     "SourceRevision",
+    "SourceRevisionImpact",
+    "SourceImpactTarget",
     "SourceEpisodeLink",
     "SourceImportPreview",
     "SourceEpisodeSplitPreview",

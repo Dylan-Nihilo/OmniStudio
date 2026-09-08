@@ -20,10 +20,12 @@ from .schema import (
     SourceChapter,
     SourceChapterAnalysis,
     SourceDocument,
+    SourceImpactTarget,
     SourceAnalysisBatch,
     SourceAnalysisBatchItem,
     SourceEpisodeLink,
     SourceEpisodeSplitPreview,
+    SourceRevisionImpact,
     SourceImportPreview,
     SourceRevision,
 )
@@ -138,6 +140,140 @@ class SourceRepository:
             "metadata": _metadata(str(row["metadata_json"])),
             "created_at": float(row["created_at"]),
         }
+
+    @staticmethod
+    def _impact_target_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(row["id"]),
+            "impact_event_id": str(row["impact_event_id"]),
+            "target_type": str(row["target_type"]),
+            "target_id": str(row["target_id"]),
+            "episode_id": row["episode_id"],
+            "target_stage": str(row["target_stage"]),
+            "status": str(row["status"]),
+            "metadata": _metadata(str(row["metadata_json"])),
+            "created_at": float(row["created_at"]),
+        }
+
+    def _revision_impact_payload(self, connection, row: Mapping[str, Any]) -> dict[str, Any]:
+        targets = connection.execute(
+            select(SourceImpactTarget.__table__)
+            .where(SourceImpactTarget.impact_event_id == row["id"])
+            .order_by(SourceImpactTarget.target_type, SourceImpactTarget.target_stage, SourceImpactTarget.target_id)
+        ).mappings().all()
+        target_payloads = [self._impact_target_payload(target) for target in targets]
+        return {
+            "id": str(row["id"]),
+            "workspace_id": str(row["workspace_id"]),
+            "source_document_id": str(row["source_document_id"]),
+            "chapter_id": str(row["chapter_id"]),
+            "revision_id": str(row["revision_id"]),
+            "previous_revision_id": row["previous_revision_id"],
+            "revision_number": int(row["revision_number"]),
+            "previous_revision_number": row["previous_revision_number"],
+            "change_type": str(row["change_type"]),
+            "status": str(row["status"]),
+            "target_count": len(target_payloads),
+            "targets": target_payloads,
+            "created_by_user_id": row["created_by_user_id"],
+            "created_at": float(row["created_at"]),
+        }
+
+    def _record_revision_impact(
+        self,
+        connection,
+        *,
+        workspace_id: str,
+        source_id: str,
+        chapter_id: str,
+        revision_id: str,
+        previous_revision_id: str | None,
+        change_type: str,
+        user_id: str | None,
+        timestamp: float,
+    ) -> str:
+        revision = connection.execute(
+            select(SourceRevision.revision_number).where(SourceRevision.id == revision_id)
+        ).scalar_one()
+        previous_number = None
+        if previous_revision_id:
+            previous_number = connection.execute(
+                select(SourceRevision.revision_number).where(SourceRevision.id == previous_revision_id)
+            ).scalar_one_or_none()
+        impact_id = str(uuid.uuid4())
+        connection.execute(
+            SourceRevisionImpact.__table__.insert().values(
+                id=impact_id,
+                workspace_id=workspace_id,
+                source_document_id=source_id,
+                chapter_id=chapter_id,
+                revision_id=revision_id,
+                previous_revision_id=previous_revision_id,
+                revision_number=int(revision),
+                previous_revision_number=int(previous_number) if previous_number is not None else None,
+                change_type=change_type,
+                status="open",
+                created_by_user_id=user_id,
+                created_at=timestamp,
+            )
+        )
+
+        linked = connection.execute(
+            select(Episode.id, Episode.title, Script.payload_json)
+            .join(SourceEpisodeLink, SourceEpisodeLink.episode_id == Episode.id)
+            .join(Project, Project.id == Episode.project_id)
+            .outerjoin(Script, Script.episode_id == Episode.id)
+            .where(
+                SourceEpisodeLink.source_document_id == source_id,
+                Project.workspace_id == workspace_id,
+            )
+            .order_by(Episode.episode_number, Episode.id)
+        ).mappings().all()
+
+        def add_target(
+            target_type: str,
+            target_id: str,
+            episode_id: str,
+            target_stage: str,
+            metadata: Mapping[str, Any] | None = None,
+        ) -> None:
+            connection.execute(
+                SourceImpactTarget.__table__.insert().values(
+                    id=str(uuid.uuid4()),
+                    impact_event_id=impact_id,
+                    workspace_id=workspace_id,
+                    source_document_id=source_id,
+                    chapter_id=chapter_id,
+                    target_type=target_type,
+                    target_id=target_id,
+                    episode_id=episode_id,
+                    target_stage=target_stage,
+                    status="needs_review",
+                    metadata_json=_json(metadata),
+                    created_at=timestamp,
+                )
+            )
+
+        for row in linked:
+            episode_id = str(row["id"])
+            episode_metadata = {"episode_title": str(row["title"])}
+            add_target("script", episode_id, episode_id, "script", episode_metadata)
+            add_target("downstream", episode_id, episode_id, "production", episode_metadata)
+            try:
+                payload = json.loads(str(row["payload_json"])) if row["payload_json"] else {}
+            except (TypeError, json.JSONDecodeError):
+                payload = {}
+            frames = payload.get("frames", []) if isinstance(payload, dict) else []
+            if not isinstance(frames, list):
+                frames = []
+            for frame in frames:
+                if not isinstance(frame, dict) or not str(frame.get("id", "")).strip():
+                    continue
+                frame_id = str(frame["id"])
+                frame_metadata = {**episode_metadata, "frame_id": frame_id}
+                add_target("shot", frame_id, episode_id, "storyboard", frame_metadata)
+                add_target("downstream", frame_id, episode_id, "generation", frame_metadata)
+        return impact_id
 
     def _revision(self, connection, revision_id: str | None) -> dict[str, Any] | None:
         if not revision_id:
@@ -382,6 +518,34 @@ class SourceRepository:
                     self._chapter_analysis_select().where(SourceChapterAnalysis.id == analysis_id)
                 ).mappings().one()
         return self._chapter_analysis_payload(row)
+
+    def list_revision_impacts(
+        self,
+        workspace_id: str,
+        source_id: str,
+        *,
+        chapter_id: str | None = None,
+        revision_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        workspace_id = self._id(workspace_id, "workspace_id")
+        source_id = self._id(source_id, "source_id")
+        with self.engine.connect() as connection:
+            self._source_row(connection, source_id, workspace_id)
+            conditions = [
+                SourceRevisionImpact.workspace_id == workspace_id,
+                SourceRevisionImpact.source_document_id == source_id,
+            ]
+            if chapter_id is not None:
+                self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                conditions.append(SourceRevisionImpact.chapter_id == self._id(chapter_id, "chapter_id"))
+            if revision_id is not None:
+                conditions.append(SourceRevisionImpact.revision_id == self._id(revision_id, "revision_id"))
+            rows = connection.execute(
+                select(SourceRevisionImpact.__table__)
+                .where(and_(*conditions))
+                .order_by(SourceRevisionImpact.created_at.desc(), SourceRevisionImpact.id.desc())
+            ).mappings().all()
+            return [self._revision_impact_payload(connection, row) for row in rows]
 
     def _analysis_batch_row(self, connection, workspace_id: str, batch_id: str):
         row = connection.execute(
@@ -1323,6 +1487,17 @@ class SourceRepository:
                         .where(SourceChapter.id == chapter_id)
                         .values(current_revision_id=revision_id)
                     )
+                    self._record_revision_impact(
+                        connection,
+                        workspace_id=workspace_id,
+                        source_id=source_id,
+                        chapter_id=chapter_id,
+                        revision_id=revision_id,
+                        previous_revision_id=chapter["current_revision_id"],
+                        change_type="chapter_edit",
+                        user_id=user_id,
+                        timestamp=timestamp,
+                    )
                 connection.execute(
                     update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)
                 )
@@ -1344,7 +1519,7 @@ class SourceRepository:
         timestamp = time.time() if now is None else float(now)
         with self.engine.connect() as connection:
             with begin_immediate(connection):
-                self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                chapter = self._chapter_row(connection, source_id, chapter_id, workspace_id)
                 target = connection.execute(
                     select(SourceRevision.__table__).where(
                         SourceRevision.id == self._id(revision_id, "revision_id"),
@@ -1383,6 +1558,17 @@ class SourceRepository:
                     update(SourceChapter)
                     .where(SourceChapter.id == chapter_id)
                     .values(current_revision_id=new_revision_id, updated_at=timestamp)
+                )
+                self._record_revision_impact(
+                    connection,
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    chapter_id=chapter_id,
+                    revision_id=new_revision_id,
+                    previous_revision_id=chapter["current_revision_id"],
+                    change_type="revision_restore",
+                    user_id=user_id,
+                    timestamp=timestamp,
                 )
                 connection.execute(
                     update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)
@@ -1494,7 +1680,7 @@ class SourceRepository:
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
         with self.engine.connect() as connection:
             with begin_immediate(connection):
-                self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                chapter = self._chapter_row(connection, source_id, chapter_id, workspace_id)
                 revision_number = int(
                     connection.execute(
                         select(func.coalesce(func.max(SourceRevision.revision_number), 0)).where(
@@ -1519,6 +1705,17 @@ class SourceRepository:
                     update(SourceChapter)
                     .where(SourceChapter.id == chapter_id)
                     .values(current_revision_id=revision_id, updated_at=timestamp)
+                )
+                self._record_revision_impact(
+                    connection,
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    chapter_id=chapter_id,
+                    revision_id=revision_id,
+                    previous_revision_id=chapter["current_revision_id"],
+                    change_type="chapter_edit",
+                    user_id=user_id,
+                    timestamp=timestamp,
                 )
                 connection.execute(
                     update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)
