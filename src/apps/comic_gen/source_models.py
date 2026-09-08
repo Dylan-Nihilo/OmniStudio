@@ -1,4 +1,4 @@
-"""Pydantic contracts for the Source domain (SRC-00 through SRC-05)."""
+"""Pydantic contracts for the Source domain (SRC-00 through SRC-06)."""
 
 from __future__ import annotations
 

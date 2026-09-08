@@ -401,6 +401,42 @@ def test_source_ai_episode_split_rejects_stale_or_canceled_preview(source_client
     assert canceled_confirm.json()["error"]["code"] == "SOURCE_EPISODE_SPLIT_PREVIEW_CANCELED"
 
 
+def test_source_ai_episode_split_preview_is_workspace_scoped(source_client, monkeypatch):
+    client, pipeline = source_client
+    other_workspace = client.post("/auth/workspaces", json={"name": "另一个工作区"})
+    assert other_workspace.status_code == 201, other_workspace.text
+    other_workspace_id = other_workspace.json()["id"]
+
+    source = client.post("/sources", json={"title": "工作区隔离来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "正文"},
+    )
+    assert chapter.status_code == 201, chapter.text
+    monkeypatch.setattr(
+        pipeline,
+        "import_file_and_split",
+        lambda text, suggested: [{
+            "episode_number": 1,
+            "title": "第一集",
+            "summary": "摘要",
+            "start_marker": "第一章",
+            "end_marker": "正文",
+            "estimated_duration": "1",
+        }],
+    )
+    preview = client.post(f"/sources/{source['id']}/episode-splits/preview", json={})
+    assert preview.status_code == 201, preview.text
+    preview_id = preview.json()["id"]
+
+    isolated = client.get(
+        f"/sources/episode-split-previews/{preview_id}",
+        headers={"X-Workspace-ID": other_workspace_id},
+    )
+    assert isolated.status_code == 404
+    assert isolated.json()["error"]["code"] == "AUTH_RESOURCE_NOT_FOUND"
+
+
 def test_source_errors_are_stable_and_workspace_scoped(source_client):
     client, _ = source_client
     missing = client.get("/sources/not-found")
