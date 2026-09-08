@@ -1,3 +1,4 @@
+import threading
 import base64
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,9 +29,11 @@ class _FakeResponse:
 
 def _build_pipeline(task: VideoTask, wanx_model) -> ComicGenPipeline:
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     script = SimpleNamespace(
         id=task.project_id,
         video_tasks=[task],
+        frames=[],
         characters=[],
         scenes=[],
         props=[],

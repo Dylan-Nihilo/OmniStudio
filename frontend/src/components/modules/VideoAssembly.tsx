@@ -1,5 +1,6 @@
 "use client";
 
+import { SelectField } from "@omnistudio/ui";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
@@ -711,7 +712,7 @@ function MixPhase({
     );
 }
 
-function ExportPhase({
+export function ExportPhase({
     mergedVideoUrl,
     isMerging,
     isDownloading,
@@ -801,7 +802,6 @@ function ExportPhase({
             ? ta(stageTranslationKeys[mergeProgress.stage])
             : mergeProgress.message || mergeProgress.stage
         : ta("stagePreparing");
-    const selectClassName = "mt-1.5 w-full rounded-lg border border-glass-border bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary";
 
     return (
         <div className="space-y-6 max-w-4xl">
@@ -815,60 +815,21 @@ function ExportPhase({
                 </div>
 
                 <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                    <label className="text-xs text-text-secondary">
-                        {ta("resolution")}
-                        <select
-                            value={draftSettings.resolution}
-                            onChange={(event) => setDraftSettings((current) => ({ ...current, resolution: event.target.value as ExportResolution | "" }))}
-                            className={selectClassName}
-                        >
-                            <option value="">—</option>
-                            <option value="1920x1080">1920×1080</option>
-                            <option value="1280x720">1280×720</option>
-                            <option value="640x360">640×360</option>
-                        </select>
-                    </label>
-                    <label className="text-xs text-text-secondary">
-                        {ta("fps")}
-                        <select
-                            value={draftSettings.fps}
-                            onChange={(event) => setDraftSettings((current) => ({ ...current, fps: event.target.value ? Number(event.target.value) as ExportFps : "" }))}
-                            className={selectClassName}
-                        >
-                            <option value="">—</option>
-                            {[24, 25, 30].map((fps) => <option key={fps} value={fps}>{fps}</option>)}
-                        </select>
-                    </label>
-                    <label className="text-xs text-text-secondary">
-                        {ta("crf")}
-                        <select
-                            value={draftSettings.crf}
-                            onChange={(event) => setDraftSettings((current) => ({ ...current, crf: Number(event.target.value) as ExportCrf }))}
-                            className={selectClassName}
-                        >
-                            {[18, 20, 23, 26, 28].map((crf) => <option key={crf} value={crf}>{crf}</option>)}
-                        </select>
-                    </label>
-                    <label className="text-xs text-text-secondary">
-                        {ta("preset")}
-                        <select
-                            value={draftSettings.preset}
-                            onChange={(event) => setDraftSettings((current) => ({ ...current, preset: event.target.value as ExportPreset }))}
-                            className={selectClassName}
-                        >
-                            {(["fast", "medium", "slow"] as const).map((preset) => <option key={preset} value={preset}>{preset}</option>)}
-                        </select>
-                    </label>
-                    <label className="text-xs text-text-secondary">
-                        {ta("audioBitrate")}
-                        <select
-                            value={draftSettings.audio_bitrate}
-                            onChange={(event) => setDraftSettings((current) => ({ ...current, audio_bitrate: event.target.value as AudioBitrate }))}
-                            className={selectClassName}
-                        >
-                            {(["128k", "192k", "256k"] as const).map((bitrate) => <option key={bitrate} value={bitrate}>{bitrate}</option>)}
-                        </select>
-                    </label>
+                    <SelectField label={ta("resolution")} value={draftSettings.resolution || "__none"}
+                        onChange={value => setDraftSettings(current => ({ ...current, resolution: value === "__none" ? "" : value as ExportResolution }))}
+                        options={[{ id: "__none", label: "—" }, ...["1920x1080", "1280x720", "640x360"].map(value => ({ id: value, label: value.replace("x", "×") }))]} />
+                    <SelectField label={ta("fps")} value={draftSettings.fps === "" ? "__none" : String(draftSettings.fps)}
+                        onChange={value => setDraftSettings(current => ({ ...current, fps: value === "__none" ? "" : Number(value) as ExportFps }))}
+                        options={[{ id: "__none", label: "—" }, ...[24, 25, 30].map(value => ({ id: String(value), label: String(value) }))]} />
+                    <SelectField label={ta("crf")} value={String(draftSettings.crf)}
+                        onChange={value => setDraftSettings(current => ({ ...current, crf: Number(value) as ExportCrf }))}
+                        options={[18, 20, 23, 26, 28].map(value => ({ id: String(value), label: String(value) }))} />
+                    <SelectField label={ta("preset")} value={draftSettings.preset}
+                        onChange={value => setDraftSettings(current => ({ ...current, preset: value as ExportPreset }))}
+                        options={["fast", "medium", "slow"].map(value => ({ id: value, label: value }))} />
+                    <SelectField label={ta("audioBitrate")} value={draftSettings.audio_bitrate}
+                        onChange={value => setDraftSettings(current => ({ ...current, audio_bitrate: value as AudioBitrate }))}
+                        options={["128k", "192k", "256k"].map(value => ({ id: value, label: value }))} />
                 </div>
 
                 <div className="mt-5 flex justify-end">

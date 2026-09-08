@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect, useState, useMemo } from "react";
+import { useRef, useCallback, useEffect, useState, useMemo, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Trash2,
@@ -17,10 +17,7 @@ import {
     Loader2,
     Code2,
     ChevronRight,
-    Pin,
     PinOff,
-    Play,
-    Star,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import AssetChipBar from "./AssetChipBar";
@@ -32,6 +29,8 @@ import { PendingTaskAffordance } from "@/components/shared/PendingTaskAffordance
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import { useProjectStore } from "@/store/projectStore";
+import { Button, ActionMenu, SelectField, LoadingState, StatusBadge } from "@omnistudio/ui";
+import styles from "./ShotCard.module.css";
 import { selectedVariantUrl } from "@/lib/characterImage";
 
 export interface ShotNode {
@@ -47,6 +46,9 @@ export interface ShotNode {
     // the shot state. See Storyboard R2V redesign discussion.
     t2iImageUrl?: string;
     t2iTaskId?: string;
+    t2iError?: string;
+    t2iOperation?: "generate" | "upload";
+    t2iRecovering?: boolean;
     t2iStatus?: "pending" | "processing" | "completed" | "failed";
     /** Ordered list of every T2I image URL this shot has produced.
      *  Newest at the end. Active one is at t2iSelectedIndex (defaults
@@ -117,6 +119,7 @@ interface ShotCardProps {
     onUpdateField: (field: string, value: string | number | null) => void;
     onGenerateT2I: () => void;
     onGenerateVideo: () => void;
+    structurePending?: boolean;
     onDelete: () => void;
     onMoveUp: () => void;
     onMoveDown: () => void;
@@ -134,8 +137,11 @@ interface ShotCardProps {
      *  Setup/Takes chips below the card are hidden entirely (zero chrome
      *  residue). When true, chips render. The chevron in the card's
      *  top-right corner toggles this. */
-    expanded: boolean;
-    onToggleExpanded: () => void;
+    referenceImages?: string[];
+    sequence?: ReactNode;
+    audio?: ReactNode;
+    configuration?: ReactNode;
+    candidates?: ReactNode;
     /** PR-3c · 闭环生成. Generation 移到 ShotCard 内的全宽行 (Action
      *  Bar 之后, disclosure bar 之前), 含 count selector 同行. Host
      *  传入 current count + handlers + canGenerate gate.
@@ -150,11 +156,13 @@ interface ShotCardProps {
     /** Active in-flight count for label flip (生成 ×N → 生成中 · N). */
     inFlightCount?: number;
     onRefineFrame?: () => void;
+    isRefining?: boolean;
     onUpdateDialogue?: (text: string) => void;
     /** Active-take pin controls. When the user has manually pinned an
      *  active take (shot.isVideoPinned=true), the hero shows a "📌 Pinned"
      *  chip; clicking it fires onUnpinVideo to resume auto latest-wins. */
     onUnpinVideo?: () => void;
+    isSelectingVideo?: boolean;
 }
 
 export default function ShotCard({
@@ -168,6 +176,7 @@ export default function ShotCard({
     onUpdateField,
     onGenerateT2I,
     onGenerateVideo,
+    structurePending = false,
     onDelete,
     onMoveUp,
     onMoveDown,
@@ -177,8 +186,7 @@ export default function ShotCard({
     onInsertAsset: _onInsertAsset,
     durationEditorConfig,
     onCancelVideo,
-    expanded,
-    onToggleExpanded,
+    sequence, audio, configuration, candidates, referenceImages = [],
     generateCount = 1,
     genSummary,
     canGenerate = true,
@@ -186,16 +194,18 @@ export default function ShotCard({
     onGenerateBatch,
     inFlightCount = 0,
     onRefineFrame,
+    isRefining = false,
     onUnpinVideo,
+    isSelectingVideo = false,
 }: ShotCardProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const cardRef = useRef<HTMLDivElement>(null);
     const t = useTranslations("storyboardR2V");
     // Expand modal state (B5). Cmd/Ctrl+E in the small textarea
     // opens it; saving syncs back via onUpdatePrompt; cancel
     // discards the modal's draft without touching parent state.
     const [expandOpen, setExpandOpen] = useState(false);
     const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
+    useEffect(() => { setExpandOpen(false); setPromptPreviewOpen(false); }, [shot.id]);
     // currentProjectId — needed by PolishPanel to look up the
     // project's PromptConfig override server-side.
     const currentProjectId = useProjectStore((state) => state.currentProject?.id);
@@ -293,14 +303,6 @@ export default function ShotCard({
         const next = Math.min(ta.scrollHeight, 260);
         ta.style.height = `${next}px`;
     }, [shot.prompt]);
-
-    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        const el = cardRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        el.style.setProperty("--spotlight-x", `${e.clientX - rect.left}px`);
-        el.style.setProperty("--spotlight-y", `${e.clientY - rect.top}px`);
-    }, []);
 
     const renderPreview = () => {
         if (shot.tabMode === "t2i_i2v") {
@@ -429,6 +431,7 @@ export default function ShotCard({
                 </div>
             );
         }
+        if (shot.imageUrl) return <PreviewImage src={shot.imageUrl} alt={t("shot") + " " + (index + 1)} className="w-full aspect-video" />;
         return (
             <div className="w-full aspect-video flex flex-col items-center justify-center gap-2.5 text-text-muted">
                 <Video size={24} strokeWidth={1.6} className="opacity-50" />
@@ -542,140 +545,28 @@ export default function ShotCard({
         }
     };
 
-    const isActiveT2I = shot.tabMode === "t2i_i2v";
-
-    return (
-        <div
-            ref={cardRef}
-            onMouseMove={handleMouseMove}
-            className="relative group"
-        >
-            {/* Spotlight border glow */}
-            <div
-                className="absolute -inset-[1px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none z-0"
-                style={{
-                    background:
-                        "radial-gradient(600px circle at var(--spotlight-x, 50%) var(--spotlight-y, 50%), rgba(255,255,255,0.07), transparent 40%)",
-                }}
-            />
-
-            {/* Floating card body — mock-aligned glass surface */}
-            <div className="relative overflow-hidden rounded-[20px] border border-glass-border bg-surface shadow-[0_8px_30px_-10px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.05)] transition-all duration-base ease-out-quart group-hover:-translate-y-1 group-hover:shadow-[0_16px_50px_-12px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.07)] z-10">
-                {/* Card top — shot no/cap + status badge + tab switcher */}
-                <div className="flex items-center justify-between gap-4 px-5 pt-4 pb-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className="font-display text-[1.875rem] font-semibold leading-none text-text-secondary tracking-tight">
-                            {String(index + 1).padStart(2, "0")}
-                        </div>
-                        <div className="font-mono text-[0.6875rem] uppercase tracking-[0.08em] text-text-muted leading-tight">
-                            <span>SHOT</span>
-                            {shot.shotSize ? (
-                                <span className="ml-1.5 text-text-secondary font-medium">· {shot.shotSize}</span>
-                            ) : null}
-                            {shot.cameraMovementStructured?.primary ? (
-                                <span className="ml-1.5 text-text-secondary">· {shot.cameraMovementStructured.primary}</span>
-                            ) : null}
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                        <ShotStatusBadge shot={shot} t={t} />
-                        {/* Pill Tab Switcher */}
-                        <div className="relative inline-flex items-center p-[3px] bg-surface-inset rounded-full">
-                            <motion.div
-                                className="absolute top-[3px] bottom-[3px] rounded-full bg-elevated shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
-                                initial={false}
-                                animate={{
-                                    left: isActiveT2I ? 3 : "calc(50% + 1.5px)",
-                                    width: "calc(50% - 3px)",
-                                }}
-                                transition={{ type: "spring", stiffness: 350, damping: 32 }}
-                            />
-                            <button
-                                onClick={() => onSetTabMode("t2i_i2v")}
-                                className={`relative z-10 flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-full transition-colors duration-200 ${
-                                    isActiveT2I ? "text-foreground" : "text-text-secondary hover:text-text-secondary/80"
-                                }`}
-                            >
-                                <ImageIcon size={11} strokeWidth={1.6} />
-                                {t("tabT2iI2v")}
-                            </button>
-                            <button
-                                onClick={() => onSetTabMode("direct_r2v")}
-                                className={`relative z-10 flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-full transition-colors duration-200 ${
-                                    !isActiveT2I ? "text-foreground" : "text-text-secondary hover:text-text-secondary/80"
-                                }`}
-                            >
-                                <Video size={11} strokeWidth={1.6} />
-                                {t("tabDirectR2v")}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Main content: Preview + Editor */}
-                <div className="flex px-5">
-                    {/* Left: Preview */}
-                    <div className="group/preview relative w-72 shrink-0 bg-surface-inset flex flex-col items-center justify-center overflow-hidden rounded-[14px] border border-glass-border shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+    return <div className={styles.layout}>
+        <section className={styles.previewColumn}>
+            <div className={styles.preview}>
                         {renderPreview()}
-                        {/* Selected-take amber halation */}
-                        {(shot.isVideoPinned || shot.finalTakeId) && shot.videoUrl ? (
-                            <div
-                                className="pointer-events-none absolute inset-0 rounded-[14px]"
-                                style={{ boxShadow: "inset 0 0 42px -8px rgba(255,169,77,0.28)" }}
-                            />
-                        ) : null}
-                        {/* Hover play overlay — only on completed video */}
-                        {shot.videoUrl ? (
-                            <div className="absolute inset-0 grid place-items-center bg-overlay/20 opacity-0 transition-opacity duration-base group-hover/preview:opacity-100 pointer-events-none">
-                                <div className="grid h-11 w-11 place-items-center rounded-full bg-foreground/90 text-on-accent">
-                                    <Play size={17} fill="currentColor" className="ml-0.5" />
-                                </div>
-                            </div>
-                        ) : null}
-                        {/* Top-left selected chip */}
-                        {(shot.isVideoPinned || shot.finalTakeId) && shot.videoUrl ? (
-                            <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 rounded-full border border-status-starred-border bg-status-starred-bg/90 px-2 py-[3px] backdrop-blur-sm font-mono text-[0.5625rem] font-semibold uppercase tracking-[0.08em] text-status-starred-fg">
-                                <Star size={10} fill="currentColor" aria-hidden="true" />
-                                {t("selectedTake")}
-                            </div>
-                        ) : null}
-                        {/* Duration chip */}
-                        {shot.duration ? (
-                            <div className="absolute bottom-2.5 right-2.5 z-10 rounded-full bg-overlay/70 px-2 py-0.5 backdrop-blur-sm font-mono text-[0.5625rem] text-foreground">
-                                {shot.duration}s
-                            </div>
-                        ) : null}
-                        {/* Pinned chip — overlays the hero when the user has
-                            manually pinned an active take. Group/peer makes
-                            the "Unpin" CTA fade in on hover so the chip stays
-                            calm in the resting state. Only shown when a
-                            video is actually rendered (no point pinning a
-                            "no video" placeholder). */}
-                        {shot.isVideoPinned && shot.videoUrl && onUnpinVideo ? (
-                            <div className="group/pin absolute top-2.5 right-2.5 z-20 flex items-center gap-1">
-                                <span
-                                    className="inline-flex items-center gap-1 rounded-full border border-primary/55 bg-primary/20 backdrop-blur-sm px-2 py-[2px] font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-primary shadow-[var(--glow-primary)]"
-                                    title={t("activeTakePinnedTooltip")}
-                                >
-                                    <Pin size={9} aria-hidden="true" strokeWidth={2.2} fill="currentColor" />
-                                    {t("activeTakePinned")}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); onUnpinVideo(); }}
-                                    title={t("unpinActiveTakeTooltip")}
-                                    aria-label={t("unpinActiveTake")}
-                                    className="opacity-0 transition-opacity duration-fast ease-out-quart group-hover/pin:opacity-100 focus-visible:opacity-100 inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-black/55 backdrop-blur-sm px-1.5 py-[2px] font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-foreground/80 hover:text-foreground hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                >
-                                    <PinOff size={9} aria-hidden="true" strokeWidth={2.2} />
-                                    {t("unpinActiveTakeShort")}
-                                </button>
-                            </div>
-                        ) : null}
-                    </div>
-
-                    {/* Right: Prompt + Controls */}
-                    <div className="flex-1 py-0.5 pl-5 pr-0 flex flex-col gap-3">
+            </div>
+            {shot.videoUrl && <div className={styles.previewActions}>
+                <div>
+                    {shot.isVideoPinned ? <StatusBadge tone="info">{t("activeTakePinned")}</StatusBadge> : shot.finalTakeId ? <StatusBadge tone="info">{t("selectedTake")}</StatusBadge> : null}
+                    {shot.duration ? <span>{shot.duration}s</span> : null}
+                </div>
+                {shot.isVideoPinned && onUnpinVideo && <Button variant="quiet" aria-label={t("unpinActiveTake")} isPending={isSelectingVideo} isDisabled={isSelectingVideo} onPress={onUnpinVideo}>
+                    {!isSelectingVideo && <PinOff size={16} />}{t("unpinActiveTakeShort")}
+                </Button>}
+            </div>}
+            {shot.dialogueStructured?.line && <p className={styles.caption}>{shot.dialogueStructured.speaker} · {shot.dialogueStructured.line}</p>}
+            {audio}
+            {sequence}
+        </section>
+        <aside className={styles.settings} aria-busy={isRefining}>
+            <header className={styles.heading}><span>{t("shot")} {String(index + 1).padStart(2, "0")}</span>{isRefining ? <LoadingState inline label={t("refiningPrompt")} /> : <ShotStatusBadge shot={shot} t={t} />}</header>
+            <SelectField label={t("generationMode")} value={shot.tabMode} onChange={key => onSetTabMode(String(key) as ShotNode["tabMode"])} options={[{ id: "direct_r2v", label: t("tabDirectR2v") }, { id: "t2i_i2v", label: t("tabT2iI2v") }]} />
+            <div className={styles.editor}>
                         {/* Cast avatar group */}
                         {castAvatars.length > 0 ? (
                             <div className="flex items-center gap-2">
@@ -722,6 +613,7 @@ export default function ShotCard({
                         <div className="relative">
                             <textarea
                                 ref={textareaRef}
+                                aria-label={t("promptLabel")}
                                 value={shot.prompt}
                                 onChange={(e) => onUpdatePrompt(e.target.value)}
                                 onKeyDown={(e) => {
@@ -753,7 +645,7 @@ export default function ShotCard({
                             (storyboard_polish / video_polish /
                             r2v_polish from PromptConfig). Routes to
                             the right API by tabMode. */}
-                        <PolishPanel
+                        <PolishPanel key={shot.id}
                             prompt={shot.prompt}
                             tabMode={shot.tabMode}
                             scriptId={currentProjectId ?? ""}
@@ -883,158 +775,27 @@ export default function ShotCard({
                             props={props}
                             onInsertAsset={handleInsertAssetFromChip}
                         />
-                    </div>
-                </div>
 
-                {/* actions row — full-width per mock (lives outside editor/card-body) */}
-                <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border-subtle">
-                            <div className="flex items-center gap-1 shrink-0">
-                                <motion.button
-                                    whileHover={{ scale: 1.06 }}
-                                    whileTap={{ scale: 0.94 }}
-                                    onClick={onOpenDrawer}
-                                    className="ico-btn flex h-8 w-8 items-center justify-center rounded-[14px] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    title={t("browseAssets")}
-                                >
-                                    <AtSign size={15} strokeWidth={1.8} />
-                                </motion.button>
-                                <motion.button
-                                    whileHover={{ scale: 1.06 }}
-                                    whileTap={{ scale: 0.94 }}
-                                    onClick={onMoveUp}
-                                    disabled={index === 0}
-                                    className="ico-btn flex h-8 w-8 items-center justify-center rounded-[14px] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    title={t("moveUp")}
-                                >
-                                    <ChevronUp size={15} strokeWidth={1.8} />
-                                </motion.button>
-                                <motion.button
-                                    whileHover={{ scale: 1.06 }}
-                                    whileTap={{ scale: 0.94 }}
-                                    onClick={onMoveDown}
-                                    disabled={index === totalShots - 1}
-                                    className="ico-btn flex h-8 w-8 items-center justify-center rounded-[14px] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    title={t("moveDown")}
-                                >
-                                    <ChevronDown size={15} strokeWidth={1.8} />
-                                </motion.button>
-                                <motion.button
-                                    whileHover={{ scale: 1.06 }}
-                                    whileTap={{ scale: 0.94 }}
-                                    onClick={onDuplicate}
-                                    className="ico-btn flex h-8 w-8 items-center justify-center rounded-[14px] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    title={t("duplicateShot")}
-                                >
-                                    <Copy size={15} strokeWidth={1.8} />
-                                </motion.button>
-                                {onRefineFrame && (
-                                    <motion.button
-                                        whileHover={{ scale: 1.06 }}
-                                        whileTap={{ scale: 0.94 }}
-                                        onClick={onRefineFrame}
-                                        className="ico-btn flex h-8 w-8 items-center justify-center rounded-[14px] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                        title={t("refineFrame")}
-                                    >
-                                        <Sparkles size={15} strokeWidth={1.8} />
-                                    </motion.button>
-                                )}
-                                <motion.button
-                                    whileHover={{ scale: 1.06 }}
-                                    whileTap={{ scale: 0.94 }}
-                                    onClick={onDelete}
-                                    className="ico-btn flex h-8 w-8 items-center justify-center rounded-[14px] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-status-failed-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                    title={t("deleteShot")}
-                                >
-                                    <Trash2 size={15} strokeWidth={1.8} />
-                                </motion.button>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                                {genSummary && (
-                                    <span className="inline-flex items-center gap-1.5 shrink-0 font-mono text-[0.6875rem] text-text-secondary">
-                                        <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[var(--glow-primary)]" />
-                                        {genSummary}
-                                    </span>
-                                )}
-                                <span className="font-mono text-[0.59375rem] uppercase tracking-[0.1em] text-text-muted hidden sm:inline">
-                                    {t("countLabel")}
-                                </span>
-                                <div className="flex items-center gap-0.5 shrink-0 p-[3px] rounded-full bg-surface-inset">
-                                    {[1, 2, 4, 6].map((n) => {
-                                        const active = generateCount === n;
-                                        return (
-                                            <button
-                                                key={n}
-                                                type="button"
-                                                onClick={() => onSetGenerateCount?.(n)}
-                                                aria-pressed={active}
-                                                aria-label={`Generate ${n} at a time`}
-                                                title={t("genCandidatesEachTooltip", { n })}
-                                                className={`grid h-7 min-w-[28px] place-items-center rounded-full font-mono text-[0.625rem] font-semibold transition-colors duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
-                                                    active
-                                                        ? "bg-primary text-on-accent"
-                                                        : "text-text-muted hover:text-foreground"
-                                                }`}
-                                            >
-                                                ×{n}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <motion.button
-                                    whileHover={canGenerate && inFlightCount === 0 ? { scale: 1.02 } : undefined}
-                                    whileTap={canGenerate && inFlightCount === 0 ? { scale: 0.98 } : undefined}
-                                    type="button"
-                                    onClick={() => onGenerateBatch?.(generateCount)}
-                                    disabled={!canGenerate || inFlightCount > 0}
-                                    title={!canGenerate
-                                        ? (shot.tabMode === "t2i_i2v"
-                                            ? t("needFirstFrameTooltip")
-                                            : t("needPromptInputTooltip"))
-                                        : t("genVideoCandidatesTooltip", { count: generateCount })}
-                                    className="inline-flex items-center justify-center gap-1.5 rounded-full px-[13px] py-[7px] font-sans text-[0.75rem] font-semibold tracking-tight transition-all duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 disabled:cursor-not-allowed disabled:opacity-40 bg-primary text-on-accent shadow-[var(--btn-pri-glow),inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover hover:-translate-y-px disabled:hover:translate-y-0"
-                                >
-                                    {inFlightCount > 0 ? (
-                                        <>
-                                            <Loader2 size={14} className="animate-spin" strokeWidth={2} />
-                                            <span>{t("genClusterInFlight", { count: inFlightCount })}</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Sparkles size={14} strokeWidth={2} />
-                                            <span>{t("generateBatch", { count: generateCount })}</span>
-                                        </>
-                                    )}
-                                </motion.button>
-                            </div>
-                        </div>
-
-                        {/* Disclosure bar — controls attached panel visibility */}
-                        <button
-                            type="button"
-                            onClick={onToggleExpanded}
-                            aria-expanded={expanded}
-                            aria-label={expanded ? t("collapseShot") : t("expandShot")}
-                            className="group/disc flex w-full items-center gap-2.5 border-t border-border-subtle px-5 py-2.5 font-mono text-[0.6875rem] uppercase tracking-[0.14em] text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            {expanded ? (
-                                <ChevronUp size={13} strokeWidth={2} className="text-text-muted transition-transform duration-fast group-hover/disc:text-text-secondary" aria-hidden="true" />
-                            ) : (
-                                <ChevronDown size={13} strokeWidth={2} className="text-text-muted transition-transform duration-fast group-hover/disc:text-text-secondary" aria-hidden="true" />
-                            )}
-                            <span className="text-foreground font-semibold">{expanded ? t("collapseShotShort") : t("expandShotShort")}</span>
-                            <span className="text-text-muted/80">· {t("panelLabel")}</span>
-                            {expanded ? (
-                                <ChevronUp size={13} strokeWidth={2} className="ml-auto text-text-muted/60" aria-hidden="true" />
-                            ) : (
-                                <ChevronDown size={13} strokeWidth={2} className="ml-auto text-text-muted/60" aria-hidden="true" />
-                            )}
-                        </button>
             </div>
-            {/* Focus-editor modal (B5 escape hatch) — opens via the
-                expand icon or Cmd/Ctrl+E. Cancel discards; Save
-                propagates back through the same onUpdatePrompt
-                path the inline textarea uses. */}
+            {referenceImages.length > 0 && <div className={styles.references}>{referenceImages.map((url, index) => <PreviewImage key={url} src={url} alt={t("referenceImage", { number: index + 1 })} className={styles.reference} />)}</div>}
+            {configuration}
+            <div className={styles.actions}>
+                <ActionMenu label={t("shotActions")} items={[
+                    { id: "assets", label: t("browseAssets"), onAction: onOpenDrawer },
+                    { id: "up", label: t("moveUp"), onAction: onMoveUp, isDisabled: structurePending || isRefining || index === 0 },
+                    { id: "down", label: t("moveDown"), onAction: onMoveDown, isDisabled: structurePending || isRefining || index === totalShots - 1 },
+                    { id: "copy", label: t("duplicateShot"), onAction: onDuplicate, isDisabled: structurePending || isRefining },
+                    ...(onRefineFrame ? [{ id: "refine", label: t("refineFrame"), onAction: onRefineFrame, isDisabled: isRefining || shot.id.startsWith("shot_") }] : []),
+                    { id: "delete", label: t("deleteShot"), onAction: onDelete, isDisabled: structurePending || isRefining },
+                ]} />
+                <SelectField label={t("countLabel")} value={String(generateCount)} onChange={key => onSetGenerateCount?.(Number(key))} options={[1, 2, 4, 6].map(n => ({ id: String(n), label: String(n) }))} />
+            </div>
+            <Button className={styles.generate} onPress={() => onGenerateBatch?.(generateCount)} isDisabled={!canGenerate || isRefining} isPending={inFlightCount > 0}>
+                {inFlightCount > 0 ? t("genClusterInFlight", { count: inFlightCount }) : t("generateBatch", { count: generateCount })}
+            </Button>
+            <p className={styles.summary}>{!canGenerate ? (shot.tabMode === "t2i_i2v" ? t("needFirstFrameTooltip") : t("needPromptInputTooltip")) : genSummary}</p>
+            {candidates}
+        </aside>
             {expandOpen ? (
                 <PromptExpandModal
                     initialValue={shot.prompt}
@@ -1047,6 +808,6 @@ export default function ShotCard({
                     onClose={() => setExpandOpen(false)}
                 />
             ) : null}
-        </div>
-    );
+
+    </div>;
 }

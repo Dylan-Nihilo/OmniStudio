@@ -1,0 +1,35 @@
+.candidate { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px 0 16px; border-bottom: 1px solid var(--color-border-default); }
+.candidate[data-active] .media { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.candidateHeader { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.candidateHeader :global(.omni-status) { font-size: 12px; }
+.media { aspect-ratio: 16/9; overflow: hidden; border-radius: 16px; background: var(--color-bg-inset); }
+.placeholder { display: flex; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 12px; color: var(--color-text-muted); font-size: 12px; }
+.candidateMeta { display: flex; gap: 12px; color: var(--color-text-muted); font-size: 11px; font-family: var(--font-jetbrains-mono, monospace); }
+.candidateActions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.candidateActions :global(.omni-button) { font-size: 12px; padding-inline: 12px; }
+.note { justify-content: flex-start; padding-inline: 0; min-width: 0; }
+.note > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hint { color: var(--color-text-muted); font-size: 12px; line-height: 1.6; }
+.error { margin-block: 8px; color: var(--color-status-failed-fg); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.selectionFeedback { min-height: 32px; display: flex; align-items: center; font-size: 12px; }
+.compare { padding-block: 12px; border-block: 1px solid var(--color-border-default); margin-bottom: 16px; }
+.compare p { font-size: 13px; font-weight: 500; }
+.compare p span { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--color-text-muted); }
+.compare > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.batches { display: flex; flex-direction: column; gap: 16px; }
+.batch { min-width: 0; border-top: 1px solid var(--color-border-default); padding-top: 8px; }
+.batchHeader { display: flex; align-items: center; gap: 8px; }
+.batchToggle { flex: 1; min-width: 0; height: auto; padding: 8px 0; justify-content: flex-start; text-align: left; }
+.batchToggle > span { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.batchToggle strong { overflow-wrap: anywhere; font-size: 13px; font-weight: 500; }
+.batchToggle > span > span { font-size: 11px; font-weight: 400; color: var(--color-text-muted); white-space: normal; }
+.batchSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-block: 8px; color: var(--color-text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 156px), 1fr)); gap: 16px; }
+
+.candidateActions :global(.omni-checkbox) { min-height: 40px; align-items: center; }
+.grid { animation: candidate-enter 160ms ease-out; }
+@keyframes candidate-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+:global(.no-motion) .grid { animation: none; }
+@media (prefers-reduced-motion: reduce) { .grid { animation: none; } }

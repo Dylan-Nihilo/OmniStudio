@@ -3,6 +3,8 @@
 import { AlertCircle, CheckCircle2, ChevronRight, CircleSlash2, Clock3, Loader2, RotateCcw, StopCircle } from "lucide-react";
 import clsx from "clsx";
 import { useTranslations } from "next-intl";
+import { Button, IconButton, StatusBadge } from "@omnistudio/ui";
+import styles from "./TaskCenter.module.css";
 import type { TaskViewModel } from "./taskCenterModel";
 
 const statusIcon = {
@@ -16,12 +18,16 @@ const statusIcon = {
 
 export default function TaskCenterRow({
   task,
+  isPending = false,
+  isDisabled = false,
   onCancel,
   onRetry,
   onDetails,
   onOpenObject,
 }: {
   task: TaskViewModel;
+  isPending?: boolean;
+  isDisabled?: boolean;
   onCancel: () => void;
   onRetry: () => void;
   onDetails: () => void;
@@ -31,13 +37,13 @@ export default function TaskCenterRow({
   const Icon = statusIcon[task.status] ?? Clock3;
   const hasObject = Object.values(task.objectRef).some(Boolean);
   return (
-    <article className="rounded-xl border border-glass-border bg-surface/60 p-4 shadow-lg shadow-black/10">
-      <div className="flex items-start gap-3">
-        <Icon size={19} className={clsx("mt-0.5 shrink-0", task.status === "processing" && "animate-spin", task.status === "failed" ? "text-status-failed-fg" : "text-primary")} />
+    <article className={styles.row}>
+      <div className={styles.rowBody}>
+        <Icon size={19} className={clsx("mt-0.5 shrink-0", task.status === "processing" && "animate-spin motion-reduce:animate-none", task.status === "failed" ? "text-status-failed-fg" : "text-primary")} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate font-medium text-foreground">{task.title}</h3>
-            <span className="rounded-full border border-glass-border px-2 py-0.5 text-[0.6875rem] text-text-secondary">{t(task.status)}</span>
+            <StatusBadge tone={task.status === "failed" ? "danger" : task.status === "succeeded" ? "success" : task.status === "processing" ? "info" : "neutral"}>{t(task.status)}</StatusBadge>
           </div>
           <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
             <div className="h-1.5 min-w-20 flex-1 overflow-hidden rounded-full bg-border-subtle">
@@ -48,11 +54,11 @@ export default function TaskCenterRow({
           </div>
           {task.errorCode && <p className="mt-2 text-xs text-status-failed-fg"><span className="font-mono">{task.errorCode}</span>{task.errorMessage && <span> · {task.errorMessage}</span>}</p>}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {hasObject && <button type="button" aria-label="openTaskObject" onClick={onOpenObject} className="rounded-md p-2 text-text-muted hover:bg-hover-bg hover:text-foreground"><ChevronRight size={16} /></button>}
-          <button type="button" aria-label="taskDetails" onClick={onDetails} className="rounded-md px-2 py-1.5 text-xs text-text-secondary hover:bg-hover-bg hover:text-foreground">{t("details")}</button>
-          {task.action === "cancel" && <button type="button" aria-label={t("cancel")} onClick={onCancel} className="rounded-md p-2 text-text-muted hover:bg-status-failed-bg hover:text-status-failed-fg"><StopCircle size={16} /></button>}
-          {task.action === "retry" && <button type="button" aria-label={t("retry")} onClick={onRetry} className="rounded-md p-2 text-text-muted hover:bg-hover-bg hover:text-primary"><RotateCcw size={16} /></button>}
+        <div className={styles.rowActions}>
+          {hasObject && <IconButton aria-label={t("openObject")} onPress={onOpenObject}><ChevronRight size={16} /></IconButton>}
+          <Button variant="quiet" onPress={onDetails} isDisabled={isDisabled}>{t("details")}</Button>
+          {task.action === "cancel" && <IconButton aria-label={t("cancel")} isDisabled={isDisabled} onPress={onCancel}><StopCircle size={16} /></IconButton>}
+          {task.action === "retry" && <IconButton aria-label={t("retry")} isPending={isPending} isDisabled={isDisabled} onPress={onRetry}><RotateCcw size={16} /></IconButton>}
         </div>
       </div>
     </article>

@@ -1,142 +1,20 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { motion } from 'framer-motion';
+import { ActionMenu, Button } from '@omnistudio/ui';
 import { Film } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useEditorStore, type DerivedScene } from '@/store/editorStore';
 
-export interface SceneNavigatorProps {
-  editor: Editor | null;
-}
+export interface SceneNavigatorProps { editor: Editor | null; onNavigate?: () => void; }
+const COLOR_OPTIONS = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4'];
 
-const COLOR_OPTIONS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444',
-  '#f97316', '#eab308', '#22c55e', '#06b6d4',
-];
-
-interface SceneItemProps {
-  scene: DerivedScene;
-  isActive: boolean;
-  color: string | null;
-  onSelect: () => void;
-  onColorChange: (color: string | null) => void;
-  onDragStart: (e: React.DragEvent, id: string) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent, id: string) => void;
-}
-
-function SceneItem({
-  scene,
-  isActive,
-  color,
-  onSelect,
-  onColorChange,
-  onDragStart,
-  onDragOver,
-  onDrop,
-}: SceneItemProps) {
+export default function SceneNavigator({ editor, onNavigate }: SceneNavigatorProps) {
   const t = useTranslations('scriptEditor');
-  const [showColors, setShowColors] = useState(false);
-
-  return (
-    <motion.div
-      layout
-      draggable
-      onDragStart={(e) => onDragStart(e as unknown as React.DragEvent, scene.id)}
-      onDragOver={onDragOver}
-      onDrop={(e) => onDrop(e as unknown as React.DragEvent, scene.id)}
-      className={`group flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
-        isActive
-          ? 'bg-indigo-500/20 border border-indigo-500/30'
-          : 'hover:bg-white/5 border border-transparent'
-      }`}
-      onClick={onSelect}
-    >
-      {/* Color dot */}
-      <button
-        type="button"
-        className="shrink-0 w-3 h-3 rounded-full border border-glass-border transition-colors hover:border-primary"
-        style={{ backgroundColor: color || 'transparent' }}
-        onClick={(e) => {
-          e.stopPropagation();
-          setShowColors(!showColors);
-        }}
-      />
-
-      {/* Scene info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          {scene.number != null && (
-            <span className="text-xs font-mono text-text-muted shrink-0">
-              #{scene.number}
-            </span>
-          )}
-          {scene.intExt && (
-            <span className="text-[10px] font-medium uppercase px-1 py-0.5 rounded bg-surface-inset text-text-secondary shrink-0">
-              {scene.intExt}
-            </span>
-          )}
-          <span className="text-sm text-foreground truncate">
-            {scene.location || scene.title || t('sidebar.untitled')}
-          </span>
-        </div>
-      </div>
-
-      {/* Drag handle indicator */}
-      <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted">
-        <svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor">
-          <circle cx="2" cy="2" r="1" />
-          <circle cx="6" cy="2" r="1" />
-          <circle cx="2" cy="7" r="1" />
-          <circle cx="6" cy="7" r="1" />
-          <circle cx="2" cy="12" r="1" />
-          <circle cx="6" cy="12" r="1" />
-        </svg>
-      </div>
-
-      {/* Color picker popup */}
-      {showColors && (
-        <div
-          className="absolute left-8 mt-1 z-50 p-1.5 bg-surface border border-glass-border rounded-lg shadow-xl grid grid-cols-4 gap-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {COLOR_OPTIONS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              className="w-5 h-5 rounded-full border border-glass-border hover:scale-110 transition-transform"
-              style={{ backgroundColor: c }}
-              onClick={() => {
-                onColorChange(c);
-                setShowColors(false);
-              }}
-            />
-          ))}
-          <button
-            type="button"
-            className="w-5 h-5 rounded-full border border-glass-border hover:scale-110 transition-transform bg-surface-inset flex items-center justify-center text-[8px] text-text-secondary"
-            onClick={() => {
-              onColorChange(null);
-              setShowColors(false);
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-export default function SceneNavigator({ editor }: SceneNavigatorProps) {
-  const t = useTranslations('scriptEditor');
-  const derivedScenes = useEditorStore((s) => s.derivedScenes);
+  const derivedScenes = useEditorStore(s => s.derivedScenes);
   const [sceneColors, setSceneColors] = useState<Record<string, string | null>>({});
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
-  const dragIdRef = useRef<string | null>(null);
-
   const handleSceneSelect = useCallback(
     (scene: DerivedScene) => {
       setActiveSceneId(scene.id);
@@ -173,56 +51,25 @@ export default function SceneNavigator({ editor }: SceneNavigatorProps) {
       if (targetPos !== null) {
         editor.commands.setTextSelection(targetPos + 1);
         editor.commands.scrollIntoView();
+        onNavigate?.();
       }
     },
-    [editor]
+    [editor, onNavigate]
   );
 
-  const handleColorChange = useCallback((sceneId: string, color: string | null) => {
-    setSceneColors((prev) => ({ ...prev, [sceneId]: color }));
-  }, []);
 
-  const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
-    dragIdRef.current = id;
-    e.dataTransfer.effectAllowed = 'move';
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const handleDrop = useCallback((_e: React.DragEvent, _targetId: string) => {
-    // Reorder is visual-only placeholder; actual reorder requires editor transaction
-    dragIdRef.current = null;
-  }, []);
-
-  if (derivedScenes.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-inset mb-2">
-          <Film size={16} className="text-text-secondary" />
-        </div>
-        <p className="text-xs text-text-muted">{t('sidebar.noScenes')}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-2 space-y-0.5">
-      {derivedScenes.map((scene) => (
-        <SceneItem
-          key={scene.id}
-          scene={scene}
-          isActive={activeSceneId === scene.id}
-          color={sceneColors[scene.id] || null}
-          onSelect={() => handleSceneSelect(scene)}
-          onColorChange={(c) => handleColorChange(scene.id, c)}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        />
-      ))}
-    </div>
-  );
+  if (derivedScenes.length === 0) return <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-text-muted"><Film size={16} /><p className="text-xs">{t('sidebar.noScenes')}</p></div>;
+  return <div className="space-y-1 p-2">
+    {derivedScenes.map(scene => <div key={scene.id} className={`flex items-center rounded-lg ${activeSceneId === scene.id ? 'bg-selected-bg' : ''}`}>
+      <Button variant="quiet" className="h-auto min-h-10 min-w-0 flex-1 justify-start px-2 text-left" aria-pressed={activeSceneId === scene.id} onPress={() => handleSceneSelect(scene)}>
+        {scene.number != null && <span className="shrink-0 font-mono text-xs text-text-muted">#{scene.number}</span>}
+        {scene.intExt && <span className="shrink-0 text-xs text-text-muted">{scene.intExt}</span>}
+        <span className="truncate text-sm">{scene.location || scene.title || t('sidebar.untitled')}</span>
+      </Button>
+      <ActionMenu label={t('sidebar.sceneColor')} icon={<span className="h-3 w-3 rounded-full border border-border-subtle" style={{backgroundColor: sceneColors[scene.id] || 'transparent'}} />} items={[
+        ...COLOR_OPTIONS.map((color,index) => ({ id: color, label: t(`sidebar.colors.${index}`), icon: <span className="h-3 w-3 rounded-full" style={{backgroundColor:color}} />, onAction: () => setSceneColors(previous => ({...previous, [scene.id]: color})) })),
+        { id: 'clear', label: t('sidebar.clearColor'), onAction: () => setSceneColors(previous => ({...previous, [scene.id]: null})) },
+      ]} />
+    </div>)}
+  </div>;
 }

@@ -12,6 +12,7 @@
  *   · "[全部确认]" applies in one click
  *   · "[去 Cast 查看 →]" navigates to Step 3 after apply
  */
+import { SelectField } from "@omnistudio/ui";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Check, X, Users, MapPin, Box, ArrowRight, Loader2 } from "lucide-react";
@@ -273,17 +274,8 @@ function ReconcileRow({ row, onActionChange }: { row: Row; onActionChange: (a: R
             </div>
             {/* Action selector */}
             <div className="shrink-0">
-                <select
-                    value={row.action}
-                    onChange={(e) => onActionChange(e.target.value as Row["action"])}
-                    className="bg-input-bg border border-glass-border rounded px-2 py-1 text-[0.71875rem] text-foreground focus:outline-none focus:border-primary"
-                >
-                    {row.suggestion.suggested_series_id && (
-                        <option value="merge_into_series">{t("actionMerge")}</option>
-                    )}
-                    <option value="create_new_in_series">{t("actionCreateNew")}</option>
-                    <option value="skip">{t("actionSkip")}</option>
-                </select>
+                <SelectField label={row.suggestion.local_name} className="[&>label]:sr-only" value={row.action} onChange={value => onActionChange(value as Row["action"])}
+                    options={[...(row.suggestion.suggested_series_id ? [{ id: "merge_into_series", label: t("actionMerge") }] : []), { id: "create_new_in_series", label: t("actionCreateNew") }, { id: "skip", label: t("actionSkip") }]} />
             </div>
             {/* Status checkmark */}
             <div className="shrink-0 w-5 grid place-items-center">

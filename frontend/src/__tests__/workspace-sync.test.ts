@@ -7,6 +7,10 @@ describe("workspace route refresh", () => {
     expect(isWorkspaceRoute("#/workspace"), "workspace hash").toBe(true);
     expect(isWorkspaceRoute(""), "empty hash").toBe(true);
     expect(isWorkspaceRoute("#/new-project"), "new project handoff").toBe(true);
+    expect(isWorkspaceRoute("#/workspace/projects")).toBe(true);
+    expect(isWorkspaceRoute("#/workspace/series")).toBe(true);
+    expect(isWorkspaceRoute("#/workspace/drafts")).toBe(true);
+    expect(isWorkspaceRoute("#/workspace/unknown")).toBe(false);
     expect(isWorkspaceRoute("#/series/series-1"), "series detail").toBe(false);
   });
 });

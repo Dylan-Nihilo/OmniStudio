@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useCallback, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Button, Dialog, IconButton } from '@omnistudio/ui';
 import {
-  X,
   Download,
   Crown,
   Bookmark,
@@ -76,21 +75,25 @@ export default function DetailPanel({
   onGenerateVideo,
 }: DetailPanelProps) {
   const t = useTranslations('playground');
+  const tc = useTranslations('common');
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const updateGeneration = usePlaygroundStore((s) => s.updateGeneration);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const markOutputSaved = usePlaygroundStore((s) => s.markOutputSaved);
+  const removeGeneration = usePlaygroundStore((s) => s.removeGeneration);
   const history = usePlaygroundStore((s) => s.history);
   const featuredByGen = usePlaygroundStore((s) => s.featuredByGen);
   const toggleFeatured = usePlaygroundStore((s) => s.toggleFeatured);
 
   // Always read the latest generation from store (so saved_to_library stays in sync)
   const generation = history.find((g) => g.id === generationProp.id) ?? generationProp;
-  const saved = generation.outputs[0]?.saved_to_library ?? false;
 
   // Determine media — focus the clicked output of a batch, else the first.
   const output =
     generation.outputs.find((o) => o.id === focusOutputId) ?? generation.outputs[0];
+  const saved = output?.saved_to_library ?? false;
+  const busy = saving || deleting;
   const featured = output ? featuredByGen[generation.id] === output.id : false;
   const isVideo =
     output?.media_type === 'video' ||
@@ -99,35 +102,29 @@ export default function DetailPanel({
 
   // Navigation
   const currentIndex = allGenerations.findIndex((g) => g.id === generation.id);
-  const hasPrev = currentIndex < allGenerations.length - 1;
+  const hasPrev = currentIndex >= 0 && currentIndex < allGenerations.length - 1;
   const hasNext = currentIndex > 0;
 
   const navigatePrev = useCallback(() => {
-    if (hasPrev) onNavigate(allGenerations[currentIndex + 1]);
-  }, [hasPrev, currentIndex, allGenerations, onNavigate]);
+    if (hasPrev && !busy) onNavigate(allGenerations[currentIndex + 1]);
+  }, [hasPrev, busy, currentIndex, allGenerations, onNavigate]);
 
   const navigateNext = useCallback(() => {
-    if (hasNext) onNavigate(allGenerations[currentIndex - 1]);
-  }, [hasNext, currentIndex, allGenerations, onNavigate]);
+    if (hasNext && !busy) onNavigate(allGenerations[currentIndex - 1]);
+  }, [hasNext, busy, currentIndex, allGenerations, onNavigate]);
 
   // Keyboard
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, select, video, audio, [role="slider"], [contenteditable="true"]'))) return;
       if (e.key === 'ArrowLeft') navigatePrev();
       if (e.key === 'ArrowRight') navigateNext();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose, navigatePrev, navigateNext]);
+  }, [navigatePrev, navigateNext]);
 
-  // Lock body scroll
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, []);
+  useEffect(() => setActionError(null), [generation.id, output?.id]);
 
   // Actions
   const handleCopyPrompt = () => {
@@ -148,32 +145,31 @@ export default function DetailPanel({
   };
 
   const handleSaveToLibrary = async () => {
-    if (!output || saving) return;
+    if (!output || saved || busy) return;
     setSaving(true);
+    setActionError(null);
     try {
-      const newSaved = !saved;
-      if (newSaved) {
-        await playgroundApi.saveToLibrary(generation.id, output.id);
-      }
-      const updatedOutputs = generation.outputs.map((o) =>
-        o.id === output.id ? { ...o, saved_to_library: newSaved } : o
-      );
-      updateGeneration({ ...generation, outputs: updatedOutputs });
+      await playgroundApi.saveToLibrary(generation.id, output.id);
+      markOutputSaved(generation.id, output.id);
     } catch (err) {
       console.error('[DetailPanel] Save to library failed:', err);
+      setActionError(t('detail.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async () => {
-    if (deleting) return;
+    if (busy) return;
     setDeleting(true);
+    setActionError(null);
     try {
       await playgroundApi.deleteGeneration(generation.id);
+      removeGeneration(generation.id);
       onClose();
     } catch (err) {
       console.error('[DetailPanel] Delete failed:', err);
+      setActionError(t('detail.deleteFailed'));
     } finally {
       setDeleting(false);
     }
@@ -204,18 +200,18 @@ export default function DetailPanel({
     }
   });
 
-  const modal = (
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 z-50 bg-overlay backdrop-blur-md"
-        onClick={onClose}
-      />
-
-      {/* Container */}
-      <div className="fixed inset-4 md:inset-8 z-50 bg-surface border border-glass-border rounded-[20px] shadow-2xl flex overflow-hidden">
+  return (
+    <Dialog
+      isOpen
+      onOpenChange={(open) => { if (!open) onClose(); }}
+      isDismissable={!busy}
+      title={t('detail.title')}
+      closeLabel={tc('close')}
+      className="w-[calc(100vw-2rem)] max-w-[1440px] [&_.modal__body]:p-0"
+    >
+      <div className="flex flex-col md:flex-row md:h-[min(760px,75dvh)]">
         {/* ─── LEFT SIDE (Media) ─────────────────────────────────────────── */}
-        <div className="relative w-[60%] h-full bg-surface-inset flex items-center justify-center">
+        <div className="relative w-full aspect-video md:aspect-auto md:w-[60%] md:h-full bg-surface-inset flex items-center justify-center">
           {mediaUrl ? (
             isVideo ? (
               <video
@@ -244,32 +240,29 @@ export default function DetailPanel({
 
           {/* Navigation arrows */}
           {hasPrev && (
-            <button
-              onClick={navigatePrev}
+            <IconButton
+              onPress={navigatePrev}
+              aria-label={t('detail.previous')}
+              isDisabled={busy}
               className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-elevated backdrop-blur-sm border border-glass-border flex items-center justify-center hover:bg-hover-bg transition-colors"
             >
               <ChevronLeft className="w-5 h-5 text-foreground/80" />
-            </button>
+            </IconButton>
           )}
           {hasNext && (
-            <button
-              onClick={navigateNext}
+            <IconButton
+              onPress={navigateNext}
+              aria-label={t('detail.next')}
+              isDisabled={busy}
               className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-elevated backdrop-blur-sm border border-glass-border flex items-center justify-center hover:bg-hover-bg transition-colors"
             >
               <ChevronRight className="w-5 h-5 text-foreground/80" />
-            </button>
+            </IconButton>
           )}
         </div>
 
         {/* ─── RIGHT SIDE (Details) — 3 zones: header / scroll body / pinned footer ─── */}
-        <div className="relative w-[40%] h-full overflow-y-auto border-l border-border-subtle">
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 z-10 w-8 h-8 rounded-lg bg-glass border border-glass-border flex items-center justify-center hover:bg-hover-bg transition-colors"
-          >
-            <X className="w-4 h-4 text-text-muted" />
-          </button>
+        <div className="w-full md:w-[40%] md:h-full md:overflow-y-auto border-t md:border-t-0 md:border-l border-border-subtle">
 
           {/* ── Header ── */}
           <div className="px-6 pt-6 pb-4 border-b border-border-subtle pr-14">
@@ -297,13 +290,14 @@ export default function DetailPanel({
                 <h3 className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.18em] text-text-muted">
                   PROMPT
                 </h3>
-                <button
-                  onClick={handleCopyPrompt}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[0.625rem] text-text-muted hover:text-foreground hover:bg-hover-bg transition-colors"
+                <Button
+                  onPress={handleCopyPrompt}
+                  variant="quiet"
+                  size="sm"
                 >
                   <Copy className="w-3 h-3" />
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
+                  {copied ? t('card.copied') : t('history.copy')}
+                </Button>
               </div>
               <div className="rounded-[14px] bg-surface-inset border border-border-subtle p-4 max-h-48 overflow-y-auto">
                 <p className="font-display italic text-[0.9375rem] text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
@@ -368,44 +362,41 @@ export default function DetailPanel({
 
           {/* ── Actions (flow after content; not pinned to bottom) ── */}
           <div className="border-t border-border-subtle px-6 py-4 space-y-2.5">
+            {actionError && <p role="alert" className="text-sm text-status-failed-fg">{actionError}</p>}
             {/* Primary: Retry (failed) or Save to library */}
             {generation.status === 'failed' && onRetry ? (
-              <button
-                onClick={() => onRetry(generation)}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full bg-primary text-on-accent text-sm font-medium shadow-[var(--glow-primary)] hover:bg-primary-hover transition"
+              <Button
+                onPress={() => onRetry(generation)}
+                isDisabled={busy}
+                className="w-full"
               >
                 <RotateCcw className="w-4 h-4" />
-                Retry
-              </button>
+                {t('card.retry')}
+              </Button>
             ) : output ? (
-              <button
-                onClick={handleSaveToLibrary}
-                disabled={saving}
-                className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
-                  saved
-                    ? 'bg-primary text-on-accent hover:bg-primary-hover'
-                    : 'bg-primary text-on-accent shadow-[var(--glow-primary)] hover:bg-primary-hover'
-                }`}
+              <Button
+                onPress={handleSaveToLibrary}
+                isDisabled={saved || busy}
+                isPending={saving}
+                className="w-full"
               >
                 <Bookmark className={`w-4 h-4 ${saved ? 'fill-current' : ''}`} />
-                {saving ? t('detail.saving') : saved ? t('detail.savedCancel') : t('detail.saveToLibrary')}
-              </button>
+                {saving ? t('detail.saving') : saved ? t('card.saved') : t('detail.saveToLibrary')}
+              </Button>
             ) : null}
 
             {/* Featured (best-of-batch) toggle — amber only when active */}
             {output && (
-              <button
-                onClick={() => toggleFeatured(generation.id, output.id)}
-                className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition border ${
-                  featured
-                    ? 'bg-status-starred-bg border-status-starred-border text-status-starred-fg'
-                    : 'bg-surface-inset border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg'
-                }`}
-                title={t('card.featured')}
+              <Button
+                onPress={() => toggleFeatured(generation.id, output.id)}
+                variant="secondary"
+                isDisabled={busy}
+                aria-pressed={featured}
+                className={`w-full ${featured ? 'bg-status-starred-bg border-status-starred-border text-status-starred-fg' : ''}`}
               >
                 <Crown className={`w-4 h-4 ${featured ? 'fill-status-starred-solid' : ''}`} />
                 {t('card.featured')}
-              </button>
+              </Button>
             )}
 
             {output && (
@@ -418,40 +409,43 @@ export default function DetailPanel({
             {(mediaUrl || (!isVideo && output?.media_path && onGenerateVideo)) && (
               <div className="flex gap-2">
                 {mediaUrl && (
-                  <button
-                    onClick={handleDownload}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full bg-surface-inset border border-glass-border text-text-secondary text-[0.8125rem] font-medium hover:text-foreground hover:bg-hover-bg transition"
+                  <Button
+                    onPress={handleDownload}
+                    variant="secondary"
+                    className="flex-1"
                   >
                     <Download className="w-4 h-4" />
-                    Download
-                  </button>
+                    {t('card.download')}
+                  </Button>
                 )}
                 {!isVideo && output?.media_path && onGenerateVideo && (
-                  <button
-                    onClick={() => onGenerateVideo(output.media_path)}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full bg-surface-inset border border-glass-border text-text-secondary text-[0.8125rem] font-medium hover:text-foreground hover:bg-hover-bg transition"
+                  <Button
+                    onPress={() => onGenerateVideo(output.media_path)}
+                    variant="secondary"
+                    isDisabled={busy}
+                    className="flex-1"
                   >
                     <Video className="w-4 h-4" />
-                    Generate Video
-                  </button>
+                    {t('card.generateVideo')}
+                  </Button>
                 )}
               </div>
             )}
 
             {/* Delete — subdued, red only on hover */}
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full text-[0.8125rem] font-medium text-text-muted hover:text-status-failed-fg hover:bg-status-failed-bg transition disabled:opacity-40"
+            <Button
+              onPress={handleDelete}
+              isDisabled={busy}
+              isPending={deleting}
+              variant="quiet"
+              className="w-full text-status-failed-fg"
             >
               <Trash2 className="w-4 h-4" />
-              {deleting ? 'Deleting...' : 'Delete'}
-            </button>
+              {deleting ? t('detail.deleting') : t('card.delete')}
+            </Button>
           </div>
         </div>
       </div>
-    </>
+    </Dialog>
   );
-
-  return createPortal(modal, document.body);
 }

@@ -1,7 +1,23 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { api } from '@/lib/api';
+import { api, type DialogueAudioBatch, type StoryboardGeneration } from '@/lib/api';
 import type { FrontendModelSettings } from '@/lib/modelCatalog';
+
+// Structure responses own membership and order, not later edits to retained shots.
+export function mergeFrameStructure(current: any[], received: any[]): any[] {
+    if (!Array.isArray(received) || received.some(frame => typeof frame?.id !== 'string' || !frame.id)
+        || new Set(received.map(frame => frame.id)).size !== received.length) {
+        throw new Error('Frame operation returned an invalid sequence');
+    }
+    const existing = new Map(current.map(frame => [frame.id, frame]));
+    return received.map(frame => existing.get(frame.id) ?? frame);
+}
+
+export function addedFrame(previousIds: Set<string>, received: any[]) {
+    const added = received.filter(frame => !previousIds.has(frame.id));
+    if (added.length !== 1) throw new Error('Frame operation returned no unique new shot');
+    return added[0];
+}
 
 const projectStorageScope = (): string => {
     if (typeof window === 'undefined') return 'server:default';
@@ -282,6 +298,8 @@ export interface Project {
     props: Prop[];
     frames: any[]; // Keeping as any for now to avoid breaking too much, but ideally StoryboardFrame[]
     video_tasks?: any[];
+    dialogue_audio_batch?: DialogueAudioBatch | null;
+    storyboard_generation?: StoryboardGeneration | null;
     status: string;
     createdAt: string;
     updatedAt: string;
@@ -328,7 +346,7 @@ interface ProjectStore {
     analyzeProject: (script: string) => Promise<void>;
     analyzeArtStyle: (scriptId: string, text: string) => Promise<void>;
     loadProjects: () => void;
-    selectProject: (id: string) => Promise<void>;
+    selectProject: (id: string) => Promise<boolean>;
     updateProject: (id: string, data: Partial<Project>) => void;
     deleteProject: (id: string) => Promise<void>;
     clearCurrentProject: () => void;
@@ -426,6 +444,9 @@ async function injectDefaultsIntoProject(projectId: string): Promise<Project | n
     return api.getProject(projectId);
 }
 
+let selectionRequest = 0;
+let seriesRequest = 0;
+
 export const useProjectStore = create<ProjectStore>()(
     persist(
         (set, get) => ({
@@ -448,7 +469,7 @@ export const useProjectStore = create<ProjectStore>()(
                         projects: state.projects.map((p) =>
                             p.id === project.id ? { ...project, updatedAt: new Date().toISOString() } : p
                         ),
-                        currentProject: { ...project, updatedAt: new Date().toISOString() },
+                        currentProject: state.currentProject?.id === project.id ? { ...project, updatedAt: new Date().toISOString() } : state.currentProject,
                         pendingExtraction: null,
                         pendingExtractionScript: null,
                         isAnalyzing: false,
@@ -527,15 +548,16 @@ export const useProjectStore = create<ProjectStore>()(
             },
 
             selectProject: async (id: string) => {
-                // First, try to set from local cache for immediate feedback
+                const request = ++selectionRequest;
+                const scope = projectStorageScope();
+                seriesRequest += 1;
                 const cachedProject = get().projects.find((p) => p.id === id);
-                if (cachedProject) {
-                    set({ currentProject: cachedProject });
-                }
+                set(state => ({ currentProject: cachedProject ?? null, ...(state.currentProject?.id !== id ? { pendingExtraction: null, pendingExtractionScript: null } : {}) }));
 
                 // Then fetch latest data from backend
                 try {
                     const latestProject = await api.getProject(id);
+                    if (request !== selectionRequest || scope !== projectStorageScope()) return false;
 
                     // Update both currentProject and projects array with latest data
                     set((state) => ({
@@ -557,9 +579,11 @@ export const useProjectStore = create<ProjectStore>()(
                         set({ currentSeries: null });
                     }
                 } catch (error) {
-                    console.error('Failed to fetch latest project data:', error);
-                    // Keep using cached version if fetch fails
+                    if (request === selectionRequest) console.error('Failed to fetch latest project data:', error);
+                    // Keep the matching cached project if the refresh fails.
+                    return false;
                 }
+                return true;
             },
 
             updateProject: (id: string, data: Partial<Project>) => {
@@ -575,22 +599,11 @@ export const useProjectStore = create<ProjectStore>()(
             },
 
             deleteProject: async (id: string) => {
-                try {
-                    // Delete from backend first
-                    await api.deleteProject(id);
-                    // Then remove from local state
-                    set((state) => ({
-                        projects: state.projects.filter((p) => p.id !== id),
-                        currentProject: state.currentProject?.id === id ? null : state.currentProject
-                    }));
-                } catch (error) {
-                    console.error('Failed to delete project from backend:', error);
-                    // Still remove from local state for UX, but warn user
-                    set((state) => ({
-                        projects: state.projects.filter((p) => p.id !== id),
-                        currentProject: state.currentProject?.id === id ? null : state.currentProject
-                    }));
-                }
+                await api.deleteProject(id);
+                set((state) => ({
+                    projects: state.projects.filter((p) => p.id !== id),
+                    currentProject: state.currentProject?.id === id ? null : state.currentProject,
+                }));
             },
 
             isAnalyzingArtStyle: false,
@@ -687,8 +700,10 @@ export const useProjectStore = create<ProjectStore>()(
             currentSeries: null,
 
             fetchSeriesList: async () => {
+                const scope = projectStorageScope();
                 try {
                     const seriesList = await api.listSeries();
+                    if (scope !== projectStorageScope()) return;
                     set({ seriesList });
                 } catch (error) {
                     console.error('Failed to fetch series list:', error);
@@ -696,8 +711,11 @@ export const useProjectStore = create<ProjectStore>()(
             },
 
             fetchSeries: async (id: string) => {
+                const scope = projectStorageScope();
+                const request = ++seriesRequest;
                 try {
                     const series = await api.getSeries(id);
+                    if (scope !== projectStorageScope() || request !== seriesRequest) return;
                     set((state) => ({
                         currentSeries: series,
                         seriesList: state.seriesList.some((s) => s.id === id)

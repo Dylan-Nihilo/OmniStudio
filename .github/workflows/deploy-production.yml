@@ -64,9 +64,13 @@ jobs:
             ./ "$DEPLOY_USER@$DEPLOY_HOST:/opt/omnistudio/app/"
 
       - name: Build and activate release
+        env:
+          HEROUI_KEY: ${{ secrets.HEROUI_KEY }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd /opt/omnistudio/app && bash scripts/deploy_production.sh '$DEPLOY_SHA'"
+          test -n "$HEROUI_KEY"
+          printf '%s\n' "$HEROUI_KEY" | \
+            ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "IFS= read -r HEROUI_KEY && export HEROUI_KEY && cd /opt/omnistudio/app && bash scripts/deploy_production.sh '$DEPLOY_SHA'"
 
       - name: Verify public routes
         run: |

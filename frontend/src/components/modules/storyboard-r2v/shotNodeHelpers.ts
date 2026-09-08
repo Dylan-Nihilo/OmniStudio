@@ -83,6 +83,7 @@ export function extractT2IImageUrl(result: any, frameId: string): string | undef
         ? result.frames.find((candidate: any) => candidate?.id === frameId)
         : undefined;
     if (!frame) return undefined;
+    if (frame.rendered_image_url || frame.image_url) return frame.rendered_image_url || frame.image_url;
     if (Array.isArray(frame.t2i_image_urls) && frame.t2i_image_urls.length > 0) {
         const selectedIndex = typeof frame.t2i_selected_index === "number"
             ? Math.max(0, Math.min(frame.t2i_selected_index, frame.t2i_image_urls.length - 1))
@@ -204,7 +205,8 @@ export function frameToShotNode(
     );
 
     let videoStatus: "pending" | "processing" | "completed" | "failed" | undefined;
-    let videoUrl: string | undefined = frame.dubbed_video_url || frame.video_url || undefined;
+    const dubbedMatchesSelection = !frame.selected_video_id || frame.dubbed_video_task_id === frame.selected_video_id;
+    let videoUrl: string | undefined = (dubbedMatchesSelection ? frame.dubbed_video_url : undefined) || frame.video_url || undefined;
     let videoTaskId: string | undefined;
 
     if (inFlightTask) {
@@ -219,7 +221,7 @@ export function frameToShotNode(
 
     return migrateShotNode({
         id: frame.id,
-        prompt: frame.visual_description || frame.action_description || "",
+        prompt: frame.visual_description ?? frame.action_description ?? "",
         tabMode: (frame.workbench_tab_mode as "t2i_i2v" | "direct_r2v" | undefined) ?? defaultTabMode,
         videoUrl,
         videoStatus,
@@ -255,4 +257,12 @@ export function videoTaskIdsForTab(
         return [shot.videoTaskId];
     }
     return [];
+}
+
+/** Match the backend speaker rule for both the row and the batch summary. */
+export function resolveDialogueSpeaker<T extends { id: string; name: string }>(frame: { speaker?: string | null; dialogue_structured?: { speaker?: string | null } | null; character_ids?: string[] }, characters: T[]): T | undefined {
+    const name = (frame.speaker || frame.dialogue_structured?.speaker || "").trim().toLowerCase();
+    return (name ? characters.find(character => character.name.trim().toLowerCase() === name)
+        || characters.find(character => name.includes(character.name.trim().toLowerCase()) || character.name.trim().toLowerCase().includes(name)) : undefined)
+        || characters.find(character => character.id === frame.character_ids?.[0]);
 }

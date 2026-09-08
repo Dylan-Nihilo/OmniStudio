@@ -1,22 +1,28 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
-import { Play, Trash2, Film, Clock, MoreVertical, ExternalLink, Star, Archive, ArchiveRestore, Pencil } from "lucide-react";
+import { useRef, useState } from "react";
+import { Play, Film, Clock, Ellipsis, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Project } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getAssetUrl } from "@/lib/utils";
 import { coverGradient, GRAIN_URL } from "@/lib/atelierCover";
+import { toast } from "@/store/toastStore";
 import { api } from "@/lib/api";
+import { projectHref } from "@/lib/workspaceOverview";
+import { ActionMenu } from "@omnistudio/ui";
+import { useAuthStore } from "@/store/authStore";
+import styles from "./ProjectCard.module.css";
 
-interface ProjectCardProps {
+export interface ProjectCardProps {
     project: Project;
     onDelete: (project: Project) => void | Promise<void>;
     onArchive: (project: Project) => void;
     onRestore: (project: Project) => void;
     onRename: (project: Project) => void;
     onConvert?: (project: Project) => void;
+    variant?: "default" | "editorial";
 }
 
 export type DerivedStatus = "completed" | "processing" | "pending";
@@ -46,46 +52,21 @@ export function deriveCover(project: Project): string | undefined {
     return undefined;
 }
 
-// Status is absent on the data model, so derive a coarse lifecycle state:
-// a merged video => completed; rendered frames present => processing; else draft.
+// Existing media is a saved draft; only active generation marks a project busy.
 export function deriveStatus(project: Project): DerivedStatus {
-    if (project.merged_video_url) return "completed";
-    const frames = (project.frames || []) as Array<Record<string, any>>;
-    const rendered = frames.some((f) => f?.rendered_image_url || f?.image_url);
-    if (rendered) return "processing";
-    return "pending";
+    const activeVideo = project.video_tasks?.some((task) => task.status === "pending" || task.status === "processing");
+    const activeAsset = [...(project.frames || []), ...(project.characters || []), ...(project.scenes || []), ...(project.props || [])]
+        .some((asset) => asset.status === "processing");
+    if (activeVideo || activeAsset) return "processing";
+    return project.merged_video_url ? "completed" : "pending";
 }
 
-export default function ProjectCard({ project, onDelete, onArchive, onRestore, onRename, onConvert }: ProjectCardProps) {
+export default function ProjectCard({ project, onDelete, onArchive, onRestore, onRename, onConvert, variant = "editorial" }: ProjectCardProps) {
     const t = useTranslations("project");
     const tCommon = useTranslations("common");
     const locale = useSettingsStore((s) => s.locale);
 
-    const [menuOpen, setMenuOpen] = useState(false);
-    const menuWrapRef = useRef<HTMLDivElement>(null);
-    const firstItemRef = useRef<HTMLButtonElement>(null);
-
-    // Close the actions menu on outside click / Escape, and move focus to the
-    // first item when it opens (keyboard + a11y parity with the rest of Studio).
-    useEffect(() => {
-        if (!menuOpen) return;
-        firstItemRef.current?.focus();
-        const onDocDown = (e: MouseEvent) => {
-            if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
-                setMenuOpen(false);
-            }
-        };
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setMenuOpen(false);
-        };
-        document.addEventListener("mousedown", onDocDown);
-        document.addEventListener("keydown", onKey);
-        return () => {
-            document.removeEventListener("mousedown", onDocDown);
-            document.removeEventListener("keydown", onKey);
-        };
-    }, [menuOpen]);
-
+    const owner = useAuthStore(state => state.activeWorkspace?.role === "owner");
     const cover = deriveCover(project);
     const status = deriveStatus(project);
     const frameCount = project.frames?.length || 0;
@@ -98,34 +79,29 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
     // gradient cover (same as no-image) instead of the ugly broken-img glyph.
     const [coverError, setCoverError] = useState(false);
 
-    const handleToggleStar = async (e: React.MouseEvent) => {
-        e.stopPropagation();
+    const starPending = useRef(false);
+    const handleToggleStar = async (e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        if (starPending.current) return;
+        starPending.current = true;
         const prev = starred;
         setStarred(!prev); // optimistic
         try {
             await api.toggleProjectStarred(project.id);
         } catch {
             setStarred(prev); // rollback on failure
-        }
+            toast.error(t("actionFailed"));
+        } finally { starPending.current = false; }
     };
 
     const handleOpen = () => {
         // Series episodes open through the series → episode route so the
         // series/episode breadcrumb context is preserved; standalone
         // projects fall back to the flat project route.
-        window.location.hash = project.series_id
-            ? `#/series/${project.series_id}/episode/${project.id}`
-            : `#/project/${project.id}`;
+        window.location.hash = projectHref(project);
     };
 
-    const handleDelete = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (confirm(t("confirmDelete", { title: project.title }))) {
-            void onDelete(project);
-        }
-    };
-
-    const badge = project.archived ? { label: "已归档", cls: "text-text-secondary bg-surface-inset border-glass-border" } : {
+    const badge = project.archived ? { label: t("archived"), cls: "text-text-secondary bg-surface-inset border-glass-border" } : {
         completed: { label: t("statusCompleted"), cls: "text-status-completed-fg bg-status-completed-bg border-status-completed-border" },
         processing: { label: t("statusProcessing"), cls: "text-status-processing-fg bg-status-processing-bg border-status-processing-border" },
         pending: { label: t("statusDraft"), cls: "text-status-pending-fg bg-status-pending-bg border-status-pending-border" },
@@ -140,6 +116,32 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
     const dateStr = Number.isFinite(dateMs)
         ? new Date(dateMs).toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US")
         : "";
+
+    const actions = <div onClick={event => event.stopPropagation()}><ActionMenu label={t("moreActions")} icon={<Ellipsis size={18} />} items={[
+        { id: "open", label: tCommon("open"), onAction: handleOpen },
+        { id: "star", label: t(starred ? "unstar" : "star"), onAction: () => { void handleToggleStar(); } },
+        { id: "rename", label: t("rename"), onAction: () => onRename(project) },
+        ...(!project.series_id && onConvert ? [{ id: "convert", label: t("convertToSeries"), onAction: () => onConvert(project) }] : []),
+        { id: "archive", label: t(project.archived ? "restore" : "archive"), onAction: () => project.archived ? onRestore(project) : onArchive(project) },
+        ...(project.archived && owner ? [{ id: "purge", label: t("purge"), onAction: () => { void onDelete(project); } }] : []),
+    ]} /></div>;
+
+    if (variant === "editorial") {
+        return (
+            <article className={styles.card}>
+                <a href={projectHref(project)} className={styles.cover} aria-label={project.title}>
+                    {cover && !coverError ? <img src={cover} alt="" onError={() => setCoverError(true)} /> : <Film size={32} aria-hidden="true" />}
+                </a>
+                <div className={styles.caption}>
+                    <div className={styles.description}>
+                        <h3><a href={projectHref(project)} title={project.title}>{project.title}</a></h3>
+                        <p>{badge.label} · {t("shotCount", { count: frameCount })}{dateStr ? ` · ${dateStr}` : ""}</p>
+                    </div>
+                    {actions}
+                </div>
+            </article>
+        );
+    }
 
     return (
         <motion.article
@@ -253,70 +255,7 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
                         </span>
                     </div>
                 </div>
-                <div className="relative" ref={menuWrapRef} onClick={(e) => e.stopPropagation()}>
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setMenuOpen((v) => !v);
-                        }}
-                        className={`w-8 h-8 rounded-lg grid place-items-center transition-colors ${menuOpen ? "text-foreground bg-hover-bg" : "text-text-muted hover:text-foreground hover:bg-hover-bg"}`}
-                        aria-label={t("moreActions")}
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpen}
-                    >
-                        <MoreVertical size={15} />
-                    </button>
-                    {menuOpen ? (
-                        <div
-                            role="menu"
-                            aria-label={t("moreActions")}
-                            className="absolute right-0 bottom-full z-20 mb-2 w-40 overflow-hidden rounded-md border border-glass-border bg-surface/96 shadow-[0_8px_28px_-6px_rgba(0,0,0,0.7)] backdrop-blur-md"
-                        >
-                            <button
-                                type="button"
-                                role="menuitem"
-                                ref={firstItemRef}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuOpen(false);
-                                    handleOpen();
-                                }}
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary focus-visible:outline-none focus-visible:bg-primary/12"
-                            >
-                                <ExternalLink size={14} aria-hidden="true" />
-                                {tCommon("open")}
-                            </button>
-                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRename(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
-                                <Pencil size={14} aria-hidden="true" />
-                                重命名
-                            </button>
-                            {!project.series_id && onConvert ? (
-                                <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onConvert(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
-                                    <Film size={14} aria-hidden="true" />
-                                    转为系列
-                                </button>
-                            ) : null}
-                            <button type="button" role="menuitem" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); project.archived ? onRestore(project) : onArchive(project); }} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-primary/12 hover:text-primary">
-                                {project.archived ? <ArchiveRestore size={14} aria-hidden="true" /> : <Archive size={14} aria-hidden="true" />}
-                                {project.archived ? "恢复项目" : "归档项目"}
-                            </button>
-                            <button
-                                type="button"
-                                role="menuitem"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuOpen(false);
-                                    handleDelete(e);
-                                }}
-                                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left font-sans text-body-sm text-foreground transition-colors hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-none focus-visible:bg-red-500/10 focus-visible:text-red-400"
-                            >
-                                <Trash2 size={14} aria-hidden="true" />
-                                {tCommon("delete")}
-                            </button>
-                        </div>
-                    ) : null}
-                </div>
+                {actions}
             </div>
         </motion.article>
     );

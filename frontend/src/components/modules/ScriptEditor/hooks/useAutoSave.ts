@@ -18,16 +18,27 @@ export function useAutoSave(
 ) {
   const { setDirty, setLastSavedAt } = useEditorStore();
   const isSavingRef = useRef(false);
+  const contextRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  useEffect(() => {
+    contextRef.current += 1;
+    isSavingRef.current = false;
+    setIsSaving(false);
+    setSaveError(null);
+    return () => { contextRef.current += 1; };
+  }, [editor, projectId]);
+
   // 核心保存逻辑
   const save = useCallback(
     async (createSnapshot = false) => {
-      if (!editor || !projectId) return;
-      if (isSavingRef.current) return;
+      const store = useEditorStore.getState();
+      if (!editor || editor.isDestroyed || !projectId || store.isLoading || store.projectId !== projectId || isSavingRef.current) return false;
 
+      const context = contextRef.current;
+      const savedDocument = editor.state.doc;
       const content = editor.getJSON();
       isSavingRef.current = true;
       setIsSaving(true);
@@ -35,15 +46,22 @@ export function useAutoSave(
 
       try {
         await scriptEditorApi.saveDocument(projectId, content, createSnapshot);
-        await saveToLocal?.(content, editor.getText().length);
-        setDirty(false);
+        if (context !== contextRef.current || editor.isDestroyed || useEditorStore.getState().projectId !== projectId) return false;
+        const unchanged = editor.state.doc.eq(savedDocument);
+        setDirty(!unchanged);
         setLastSavedAt(new Date());
+        await saveToLocal?.(editor.getJSON(), editor.getText().length);
+        return context === contextRef.current && !editor.isDestroyed && editor.state.doc.eq(savedDocument);
       } catch (err) {
+        if (context !== contextRef.current) return false;
         console.error('[useAutoSave] Save failed:', err);
         setSaveError(err instanceof Error ? err.message : 'Save failed');
+        return false;
       } finally {
-        isSavingRef.current = false;
-        setIsSaving(false);
+        if (context === contextRef.current) {
+          isSavingRef.current = false;
+          setIsSaving(false);
+        }
       }
     },
     [editor, projectId, saveToLocal, setDirty, setLastSavedAt]
@@ -85,15 +103,7 @@ export function useAutoSave(
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (useEditorStore.getState().isDirty) {
         e.preventDefault();
-        // 尝试在卸载前保存
-        if (editor && projectId) {
-          const content = editor.getJSON();
-          // 使用 sendBeacon 或同步请求不可靠，这里仅做拦截提醒
-          navigator.sendBeacon?.(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:17177'}/projects/${projectId}/document`,
-            JSON.stringify({ content, create_snapshot: false })
-          );
-        }
+        e.returnValue = '';
       }
     };
 

@@ -1,0 +1,136 @@
+import assert from "node:assert/strict";
+import http from "node:http";
+import { once } from "node:events";
+import { test } from "node:test";
+import { previewHandler, runPreview } from "./run-ui-preview.mjs";
+
+test("preview supports isolated project/series/document edits and rejects unsupported operations", async () => {
+  const server = http.createServer(previewHandler).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const me = await (await fetch(base + "/auth/me")).json();
+    assert.equal(me.workspace.id, "ui-preview-workspace");
+    const projects = await (await fetch(base + "/projects")).json();
+    assert.equal(projects.length, 4);
+    assert.equal((await fetch(base + "/files/" + projects[0].frames[0].rendered_image_url)).status, 200);
+    const request = (url, method, body) => fetch(base + url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    assert.equal((await request("/projects", "POST", { title: "" })).status, 422);
+    assert.equal((await request("/projects", "POST", [])).status, 400);
+    const parent = await (await request("/series", "POST", { title: "Demo series" })).json();
+    const created = await (await request("/projects", "POST", { title: "Demo episode", text: "Opening scene", workflow_mode: "r2v", series_id: parent.id })).json();
+    assert.equal(created.series_id, parent.id);
+    assert.equal(created.episode_number, 1);
+    assert.deepEqual((await (await fetch(base + `/series/${parent.id}/episodes`)).json()).map(p => p.id), [created.id]);
+    const addFrame = await request(`/projects/${created.id}/frames`, "POST", { scene_id: "", action_description: "First shot", insert_at: 0 });
+    assert.equal(addFrame.status, 200);
+    const frame = (await addFrame.json()).frames[0];
+    assert.equal(frame.action_description, "First shot");
+    assert.equal((await request(`/projects/${created.id}/frames/update`, "POST", { frame_id: frame.id, action_description: "Edited shot" })).status, 200);
+    assert.equal((await request(`/projects/${created.id}/frames/update`, "POST", { frame_id: frame.id, visual_description: "Refined shot" })).status, 200);
+    assert.equal((await (await fetch(base + `/projects/${created.id}`)).json()).frames[0].visual_description, "Refined shot");
+    assert.equal((await request(`/projects/${created.id}/frames/update`, "POST", { frame_id: frame.id, visual_description: {} })).status, 422);
+    assert.equal((await request(`/projects/${created.id}/frames/${frame.id}/workbench`, "PATCH", { workbench_generate_count: 4 })).status, 200);
+    assert.equal((await request(`/projects/${created.id}/frames/${frame.id}/workbench`, "PATCH", { workbench_generate_count: -1 })).status, 422);
+    const copied = await (await request(`/projects/${created.id}/frames/copy`, "POST", { frame_id: frame.id, insert_at: 1 })).json();
+    assert.equal(copied.frames.length, 2);
+    assert.notEqual(copied.frames[1].id, frame.id);
+    assert.equal(copied.frames[1].action_description, "Edited shot");
+    const ids = copied.frames.map(item => item.id).reverse();
+    assert.equal((await request(`/projects/${created.id}/frames/reorder`, "PUT", { frame_ids: [frame.id, frame.id] })).status, 422);
+    assert.equal((await request(`/projects/${created.id}/frames/reorder`, "PUT", { frame_ids: ids })).status, 200);
+    assert.deepEqual((await (await fetch(base + `/projects/${created.id}`)).json()).frames.map(item => item.id), ids);
+    assert.equal((await request(`/projects/${created.id}/frames/${frame.id}`, "DELETE")).status, 200);
+    const lease = await request(`/projects/${created.id}/edit-lease`, "POST", { client_instance_id: "test-tab" });
+    assert.equal(lease.status, 200);
+    assert.equal((await lease.json()).token, "ui-preview-only");
+    const writeText = (body, token = "ui-preview-only") => fetch(base + `/projects/${created.id}/text`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Edit-Lease": token }, body: JSON.stringify(body) });
+    const revision = String((await (await fetch(base + `/projects/${created.id}`)).json()).updated_at);
+    const payload = { text: "Revised opening", expected_revision: revision, client_instance_id: "test-tab" };
+    assert.equal((await writeText({ ...payload, text: null })).status, 422);
+    assert.equal((await writeText(payload, "invalid")).status, 423);
+    const savedResponse = await writeText(payload);
+    assert.equal(savedResponse.status, 200);
+    const saved = await savedResponse.json();
+    assert.notEqual(saved._revision, revision);
+    assert.equal((await (await fetch(base + `/projects/${created.id}`)).json()).original_text, payload.text);
+    const conflict = await writeText({ ...payload, text: "Stale overwrite" });
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).error.code, "EDIT_REVISION_CONFLICT");
+    assert.equal((await (await fetch(base + `/projects/${created.id}`)).json()).original_text, payload.text);
+    const previousEpisode = await (await fetch(base + "/projects/ui-preview-1/previous_episode")).json();
+    assert.equal(previousEpisode.previous_episode_id, "ui-preview-0");
+    assert.equal(previousEpisode.has_previous, true);
+    assert.equal((await (await fetch(base + `/projects/${created.id}/next_hook`)).json()).has_text, true);
+    const document = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Edited draft" }] }] };
+    assert.equal((await request(`/projects/${created.id}/document`, "POST", { content: document })).status, 200);
+    assert.deepEqual((await (await fetch(base + `/projects/${created.id}/document`)).json()).content, document);
+    assert.equal((await request(`/projects/${created.id}/document`, "POST", { content: null })).status, 422);
+    assert.equal((await request(`/projects/${created.id}/generate_assets`, "POST", {})).status, 501);
+    assert.equal((await request("/auth/login", "POST", {})).status, 501);
+    assert.equal((await request(`/projects/${created.id}`, "DELETE")).status, 200);
+    assert.equal((await fetch(base + `/projects/${created.id}`)).status, 404);
+    assert.deepEqual(await (await fetch(base + `/series/${parent.id}/episodes`)).json(), []);
+    assert.equal((await fetch(base + "/files/.env")).status, 404);
+    assert.equal((await fetch(base + "/unknown")).status, 404);
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try { assert.throws(runPreview, /local development/); }
+    finally { if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous; }
+  } finally { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("library preview uploads, creates and stars isolated assets with validated payloads", async () => {
+  const server = http.createServer(previewHandler).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const request = (url, method, body) => fetch(base + url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    const data = new FormData();
+    data.append("file", new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" }), "image.png");
+    const upload = await fetch(base + "/library/assets/upload", { method: "POST", body: data });
+    assert.equal(upload.status, 200);
+    const { image_url } = await upload.json();
+    assert.deepEqual(new Uint8Array(await (await fetch(base + "/files/" + image_url)).arrayBuffer()), new Uint8Array([137, 80, 78, 71]));
+    const invalidFile = new FormData();
+    invalidFile.append("file", new Blob(["bad"], { type: "text/html" }), "image.html");
+    assert.equal((await fetch(base + "/library/assets/upload", { method: "POST", body: invalidFile })).status, 422);
+    assert.equal((await request("/library/assets", "POST", { asset_type: "scene", name: "" })).status, 422);
+    const created = await (await request("/library/assets", "POST", { asset_type: "scene", name: "Uploaded scene", image_url })).json();
+    const route = "/library/assets/scene/" + created.id;
+    assert.equal((await request(route, "PUT", { starred: "yes" })).status, 422);
+    assert.equal((await request(route, "PUT", { starred: true })).status, 200);
+    assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.find(asset => asset.id === created.id).starred, true);
+    assert.equal((await request(route, "PUT", { image_url: image_url + "-replacement" })).status, 200);
+    const replaced = await (await request(route, "PUT", { image_url: image_url + "-replacement" })).json();
+    assert.equal(replaced.image_asset.variants.length, 1);
+    assert.equal(replaced.image_asset.variants.find(variant => variant.id === replaced.image_asset.selected_id).url, image_url + "-replacement");
+    assert.equal((await request(route, "DELETE")).status, 200);
+    assert.equal((await (await fetch(base + "/library/assets")).json()).scenes.some(asset => asset.id === created.id), false);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+
+test("settings preview applies partial updates, masks secrets, and never triggers real login", async () => {
+  const server = http.createServer(previewHandler).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const save = body => fetch(base + "/config/env", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const config = async () => (await fetch(base + "/config/env")).json();
+  const original = await config();
+  try {
+    assert.equal((await save({OSS_BUCKET_NAME:"demo-settings-bucket"})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, original.DASHSCOPE_API_KEY);
+    assert.equal((await save({DASHSCOPE_API_KEY:"sk-preview-test-value", endpoint_overrides:{DASHSCOPE_BASE_URL:"https://preview.example.test"}})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, "••••••••alue");
+    assert.equal((await save({DASHSCOPE_API_KEY:"••••ignored"})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, "••••••••alue");
+    assert.equal((await save({OSS_ENABLE:"false"})).status, 422);
+    assert.equal((await save({toString:"invalid"})).status, 422);
+    assert.equal((await save({endpoint_overrides:null})).status, 422);
+    assert.equal((await save({DASHSCOPE_API_KEY:"", endpoint_overrides:{DASHSCOPE_BASE_URL:""}})).status, 200);
+    assert.equal((await config()).DASHSCOPE_API_KEY, "");
+    assert.equal((await config()).OSS_BUCKET_NAME, "demo-settings-bucket");
+    assert.equal((await fetch(base + "/config/mulerun-login", {method:"POST"})).status, 501);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});

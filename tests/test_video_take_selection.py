@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from threading import RLock
 
 import pytest
 
@@ -10,6 +11,7 @@ from src.apps.comic_gen.pipeline import ComicGenPipeline
 def pipeline():
     instance = ComicGenPipeline.__new__(ComicGenPipeline)
     instance.scripts = {}
+    instance._save_lock = RLock()
     instance._save_data = lambda: None
     return instance
 
@@ -33,6 +35,7 @@ def _video_task(
 ):
     return SimpleNamespace(
         id=task_id,
+        project_id="script-1",
         frame_id="frame-1",
         status=status,
         video_url=video_url or f"video/{task_id}.mp4",

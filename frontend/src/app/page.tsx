@@ -1,20 +1,26 @@
 "use client";
 
-import { useState, useEffect, useRef, useId } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
-  Plus, RefreshCw, Library, FileUp, X, ChevronDown, FileText,
-  Zap, Film, Sparkles, Search, Clock, MoreVertical,
+  Plus, RefreshCw, Library, FileUp, ChevronDown, FileText,
+  Film, Sparkles, Search, Clock, MoreVertical,
 } from "lucide-react";
 import { useProjectStore, Project } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { useOnline } from "@/lib/useOnline";
-import { rovingKeyDown } from "@/lib/a11y";
+import { ActionMenu, Button, TextField } from "@omnistudio/ui";
+import { Dropdown, Label } from "@heroui/react";
 import ProjectCard, { deriveStatus, deriveCover, type DerivedStatus } from "@/components/project/ProjectCard";
+import CreateSeriesDialog from "@/components/series/CreateSeriesDialog";
 import CreateProjectDialog from "@/components/project/CreateProjectDialog";
 import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import CreativeCanvas from "@/components/canvas/CreativeCanvas";
 import AppShell from "@/components/layout/AppShell";
+import PlaygroundModeSelector from "@/components/modules/playground/ModeSelector";
+import WorkspaceOverview from "@/components/workspace/WorkspaceOverview";
+import { useAuthStore } from "@/store/authStore";
+import type { WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 import ModuleErrorBoundary from "@/components/layout/ModuleErrorBoundary";
 import type { GlobalTab } from "@/components/layout/GlobalSidebar";
 import dynamic from "next/dynamic";
@@ -27,9 +33,9 @@ import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
 import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
+import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
 import TaskCenter from "@/components/tasks/TaskCenter";
 import type { TaskObjectRef } from "@/components/tasks/taskCenterModel";
-import { useAuthStore } from "@/store/authStore";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -39,287 +45,6 @@ const AssetLibraryPage = dynamic(() => withChunkLoadRecovery(() => import("@/com
 const PlaygroundPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/playground/PlaygroundPage")), { ssr: false });
 const ScriptEditorShell = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/ScriptEditorShell")), { ssr: false });
 const StandaloneScriptEditor = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/StandaloneScriptEditor")), { ssr: false });
-
-// ── Create Series Dialog ──
-function CreateSeriesDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [workflowMode, setWorkflowMode] = useState<"r2v" | "i2v_legacy">("r2v");
-  // R2V v2 Phase 6 — content_mode (scripted | freeform)
-  const [contentMode, setContentMode] = useState<"scripted" | "freeform">("scripted");
-  // PR-3e — default per-shot generation mode (r2v=节奏优先 / i2v=画面优先)
-  const [defaultGenerationMode, setDefaultGenerationMode] = useState<"r2v" | "i2v">("r2v");
-  const [isCreating, setIsCreating] = useState(false);
-  const t = useTranslations("workspace");
-  const tc = useTranslations("common");
-  const tp = useTranslations("project");
-
-  // a11y — dialog labelling + focus management
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    // Move focus into the dialog (the title input is the first field).
-    const node = dialogRef.current;
-    if (node) {
-      const field = node.querySelector<HTMLElement>("input, textarea");
-      (field ?? node.querySelector<HTMLElement>("button:not([disabled])"))?.focus();
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== "Tab" || !dialogRef.current) return;
-      const focusables = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-        )
-      );
-      if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === first || !dialogRef.current.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last || !dialogRef.current.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus?.();
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleCreate = async () => {
-    if (!title.trim()) return;
-    setIsCreating(true);
-    try {
-      // Use the v2 createSeriesV2 API directly so we can pass content_mode
-      const { api } = await import("@/lib/api");
-      const series = await api.createSeriesV2(title.trim(), {
-        description: description.trim() || undefined,
-        workflow_mode: workflowMode,
-        content_mode: contentMode,
-        default_generation_mode: defaultGenerationMode,
-      });
-      setTitle("");
-      setDescription("");
-      setWorkflowMode("r2v");
-      setContentMode("scripted");
-      setDefaultGenerationMode("r2v");
-      onClose();
-      window.location.hash = `#/series/${series.id}`;
-    } catch (error) {
-      console.error("Failed to create series:", error);
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm" onClick={onClose}>
-      <motion.div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-elevated border border-border rounded-2xl p-8 w-full max-w-4xl shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-6">
-          <h2 id={titleId} className="text-2xl font-display font-bold text-foreground">{t("newSeries")}</h2>
-          <button onClick={onClose} aria-label={tc("close")} className="p-2 rounded-lg hover:bg-hover-bg transition-colors">
-            <X size={20} className="text-text-secondary" />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{t("seriesTitle")} *</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t("seriesTitlePlaceholder")}
-              className="glass-input w-full"
-            />
-          </div>
-
-          {/* Workflow Mode */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tp("workflowMode")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setWorkflowMode("r2v")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  workflowMode === "r2v"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Zap size={16} className={workflowMode === "r2v" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("workflowR2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("workflowR2VDesc")}</p>
-                {workflowMode === "r2v" && (
-                  <span className="absolute top-2 right-2 text-[0.625rem] font-medium text-primary bg-primary/20 px-1.5 py-0.5 rounded">
-                    {tc("recommended")}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setWorkflowMode("i2v_legacy")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  workflowMode === "i2v_legacy"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Film size={16} className={workflowMode === "i2v_legacy" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("workflowI2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("workflowI2VDesc")}</p>
-              </button>
-            </div>
-          </div>
-
-          {/* R2V v2 Phase 6 — Content mode picker */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tp("contentMode")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setContentMode("scripted")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  contentMode === "scripted"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="font-semibold text-sm text-foreground">{tp("contentScripted")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("contentScriptedDesc")}</p>
-                {contentMode === "scripted" && (
-                  <span className="absolute top-2 right-2 text-[0.625rem] font-medium text-primary bg-primary/20 px-1.5 py-0.5 rounded">
-                    {tc("recommended")}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setContentMode("freeform")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  contentMode === "freeform"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="font-semibold text-sm text-foreground">{tp("contentFreeform")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("contentFreeformDesc")}</p>
-              </button>
-            </div>
-          </div>
-
-          {/* PR-3e · Visual Control Preference picker — decides new-shot default
-              tabMode (r2v=direct_r2v / i2v=t2i_i2v). Series-level setting,
-              episodes inherit, shots can override individually. */}
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{tp("visualControlPref")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setDefaultGenerationMode("r2v")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  defaultGenerationMode === "r2v"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Zap size={16} className={defaultGenerationMode === "r2v" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("visualControlR2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("visualControlR2VDesc")}</p>
-                {defaultGenerationMode === "r2v" && (
-                  <span className="absolute top-2 right-2 text-[0.625rem] font-medium text-primary bg-primary/20 px-1.5 py-0.5 rounded">
-                    {tc("recommended")}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDefaultGenerationMode("i2v")}
-                className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                  defaultGenerationMode === "i2v"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface hover:border-text-muted"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Film size={16} className={defaultGenerationMode === "i2v" ? "text-primary" : "text-text-secondary"} />
-                  <span className="font-semibold text-sm text-foreground">{tp("visualControlI2V")}</span>
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">{tp("visualControlI2VDesc")}</p>
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">{t("description")}</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("descriptionPlaceholder")}
-              rows={4}
-              className="glass-input w-full resize-none"
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-3 pt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 glass-button"
-          >
-            {tc("cancel")}
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={!title.trim() || isCreating}
-            className="flex-1 bg-primary hover:bg-primary/90 text-foreground px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isCreating ? t("creating") : t("createSeries")}
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
 
 // ── New Project Tile (Line B dashed add card) ──
 function NewProjectTile({ onClick, episode = false }: { onClick: () => void; episode?: boolean }) {
@@ -352,7 +77,6 @@ function ProjectRow({ project, crumb, onArchive, onRestore, onRename, onConvert 
   const status = deriveStatus(project);
   const frameCount = project.frames?.length || 0;
   const sceneCount = project.scenes?.length || 0;
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const open = () => { window.location.hash = `#/project/${project.id}`; };
 
@@ -418,24 +142,11 @@ function ProjectRow({ project, crumb, onArchive, onRestore, onRename, onConvert 
         </span>
       </div>
 
-      {/* More */}
-      <div className="relative flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={() => setMenuOpen((open) => !open)}
-          className="w-8 h-8 rounded-lg grid place-items-center text-text-muted hover:text-foreground hover:bg-hover-bg transition-colors"
-          aria-label={t("moreActions")}
-          aria-expanded={menuOpen}
-        >
-          <MoreVertical size={15} />
-        </button>
-        {menuOpen && (
-          <div role="menu" aria-label={t("moreActions")} className="absolute right-0 bottom-full z-20 mb-2 w-36 overflow-hidden rounded-md border border-glass-border bg-surface/96 shadow-xl backdrop-blur-md">
-            <button role="menuitem" onClick={() => { setMenuOpen(false); onRename(project); }} className="w-full px-3 py-2 text-left text-body-sm text-foreground hover:bg-hover-bg">重命名</button>
-            {!project.series_id && onConvert ? <button role="menuitem" onClick={() => { setMenuOpen(false); onConvert(project); }} className="w-full px-3 py-2 text-left text-body-sm text-foreground hover:bg-hover-bg">转为系列</button> : null}
-            <button role="menuitem" onClick={() => { setMenuOpen(false); project.archived ? onRestore(project) : onArchive(project); }} className="w-full px-3 py-2 text-left text-body-sm text-foreground hover:bg-hover-bg">{project.archived ? "恢复项目" : "归档项目"}</button>
-          </div>
-        )}
-      </div>
+      <div onClick={event => event.stopPropagation()}><ActionMenu label={t("moreActions")} icon={<MoreVertical size={16} />} items={[
+        {id:"rename", label:t("rename"), onAction:() => onRename(project)},
+        ...(!project.series_id && onConvert ? [{id:"convert", label:t("convertToSeries"), onAction:() => onConvert(project)}] : []),
+        {id:"archive", label:t(project.archived ? "restore" : "archive"), onAction:() => project.archived ? onRestore(project) : onArchive(project)},
+      ]} /></div>
     </div>
   );
 }
@@ -484,10 +195,13 @@ function AuthenticatedHome() {
   const [dialogSeries, setDialogSeries] = useState<{ id: string; title: string } | null>(null);
   const [isSeriesDialogOpen, setIsSeriesDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [showCreateDropdown, setShowCreateDropdown] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(true);
+  const [syncError, setSyncError] = useState(false);
+  const syncRequest = useRef(0);
+  const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
   const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
+  const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
   const [wsSearch, setWsSearch] = useState("");
   const online = useOnline();
   const [wsStatus, setWsStatus] = useState<DerivedStatus | "all" | "archived">("all");
@@ -496,86 +210,63 @@ function AuthenticatedHome() {
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [episodeId, setEpisodeId] = useState<string | null>(null);
   const [seriesEpisodes, setSeriesEpisodes] = useState<Record<string, Project[]>>({});
-  const [, setEpisodesLoading] = useState(false);
+  const episodesWorkspace = useRef(activeWorkspaceId);
+  const [episodesLoading, setEpisodesLoading] = useState(false);
+  const [episodesError, setEpisodesError] = useState(false);
   const projects = useProjectStore((state) => state.projects);
   const seriesList = useProjectStore((state) => state.seriesList);
-  const updateProject = useProjectStore((state) => state.updateProject);
-  const setProjects = useProjectStore((state) => state.setProjects);
   const fetchSeriesList = useProjectStore((state) => state.fetchSeriesList);
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
 
-  const renameProject = async (project: Project) => {
-    const title = window.prompt("项目标题", project.title)?.trim();
-    if (!title || title === project.title) return;
+  const tp = useTranslations("project");
+  const [projectAction, setProjectAction] = useState<ActionDialogProps | null>(null);
+  const actionRequest = useRef(0);
+  useEffect(() => { actionRequest.current += 1; setProjectAction(null); }, [activeWorkspaceId, currentView, projectId, seriesId]);
+
+  const prepareProjectAction = async (project: Project, kind: "rename" | "archive" | "purge" | "convert") => {
+    const request = ++actionRequest.current;
+    const current = () => request === actionRequest.current && activeWorkspaceId === useAuthStore.getState().activeWorkspace?.id;
+    const close = () => setProjectAction(null);
     try {
-      const updated = await api.updateProject(project.id, { title });
-      updateProject(project.id, updated);
-    } catch (error: any) {
-      window.alert(error?.response?.data?.detail || "项目重命名失败");
-    }
+      let action: ActionDialogProps;
+      if (kind === "rename") {
+        action = {title:tp("rename"), fieldLabel:tp("titleLabel"), initialValue:project.title, onClose:close,
+          onConfirm:async title => { await api.updateProject(project.id, {title}); await syncAll(); }};
+      } else if (kind === "convert") {
+        const preview = await api.previewProjectToSeries(project.id);
+        action = {title:tp("convertToSeries"), fieldLabel:tp("seriesTitle"), initialValue:project.title,
+          description:tp("conversionImpact", {episode_count:preview.episode_count, characters:preview.characters, scenes:preview.scenes, shots:preview.shots, video_tasks:preview.video_tasks}), onClose:close,
+          onConfirm:async title => { await api.convertProjectToSeries(project.id, title); await syncAll(); }};
+      } else {
+        const preview = kind === "purge" ? await api.getProjectPurgeImpact(project.id) : await api.getProjectArchiveImpact(project.id);
+        action = {title:`${tp(kind)} · ${preview.title || project.title}`, description:preview.message + "\n\n" + tp("retainedCounts", preview.impact) + (kind === "purge" ? "\n\n" + tp("purgeWarning") : ""), danger:kind === "purge", onClose:close,
+          onConfirm:async () => {
+            if (kind === "archive") { await api.archiveProject(project.id); await syncAll(); return; }
+            if (!("confirmation_token" in preview) || typeof preview.confirmation_token !== "string") throw new Error(tp("actionFailed"));
+            const submitted = await api.purgeProject(project.id, preview.confirmation_token);
+            let job = await api.getPurgeJob(submitted.job_id);
+            for (let attempt = 0; attempt < 20 && (job.status === "pending" || job.status === "processing"); attempt += 1) {
+              await new Promise(resolve => window.setTimeout(resolve, 250));
+              job = await api.getPurgeJob(submitted.job_id);
+            }
+            if (job.status === "failed") throw new Error(job.error_message || tp("actionFailed"));
+            await syncAll();
+            if (job.status !== "succeeded") { toast.info(tp("purgePending")); return; }
+            toast.success(tp("purgeComplete", {deleted:Number(job.report?.media?.deleted ?? 0), shared:Number(job.report?.media?.skipped_shared ?? 0), failed:Number(job.report?.media?.failed ?? 0)}));
+          }};
+      }
+      if (current()) setProjectAction(action);
+    } catch { if (current()) toast.error(tp("actionFailed")); }
   };
-  const archiveProject = async (project: Project) => {
-    try {
-      const preview = await api.getProjectArchiveImpact(project.id);
-      const i = preview.impact;
-      const ok = window.confirm(`${preview.message}\n\n将保留：${i.episodes} 集、${i.characters} 个角色、${i.scenes} 个场景、${i.props} 个道具、${i.shots} 个镜头、${i.video_tasks} 个视频任务。\n\n确认归档「${project.title}」？`);
-      if (!ok) return;
-      const updated = await api.archiveProject(project.id);
-      updateProject(project.id, updated);
-    } catch (error: any) {
-      window.alert(error?.response?.data?.detail || "项目归档失败");
-    }
-  };
+  const renameProject = (project: Project) => { void prepareProjectAction(project, "rename"); };
+  const archiveProject = (project: Project) => { void prepareProjectAction(project, "archive"); };
+  const permanentlyDeleteProject = (project: Project) => { void prepareProjectAction(project, "purge"); };
+  const convertProject = (project: Project) => { void prepareProjectAction(project, "convert"); };
   const restoreProject = async (project: Project) => {
-    try {
-      const updated = await api.restoreProject(project.id);
-      updateProject(project.id, updated);
-    } catch (error: any) {
-      window.alert(error?.response?.data?.detail || "项目恢复失败");
-    }
-  };
-  const permanentlyDeleteProject = async (project: Project) => {
-    try {
-      const preview = await api.getProjectPurgeImpact(project.id);
-      const i = preview.impact;
-      const ok = window.confirm(
-        `${preview.message}\n\n将永久清除：${i.episodes} 集、${i.characters} 个角色、${i.scenes} 个场景、${i.props} 个道具、${i.shots} 个镜头、${i.video_tasks} 个视频任务。\n\n${preview.confirmation_phrase}「${project.title}」？此操作不可撤销。`
-      );
-      if (!ok) return;
-      const submitted = await api.purgeProject(project.id, preview.confirmation_token);
-      let job = await api.getPurgeJob(submitted.job_id);
-      for (let attempt = 0; attempt < 20 && (job.status === "pending" || job.status === "processing"); attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-        job = await api.getPurgeJob(submitted.job_id);
-      }
-      if (job.status === "failed") {
-        throw new Error(job.error_message || "永久清除失败");
-      }
-      await syncAll();
-      const media = job.report?.media;
-      window.alert(
-        `永久清除完成。\n\n已删除本地媒体：${media?.deleted ?? 0}\n共享媒体跳过：${media?.skipped_shared ?? 0}\n清理警告：${media?.failed ?? 0}`
-      );
-    } catch (error: any) {
-      window.alert(error?.response?.data?.detail || error?.message || "永久清除失败");
-    }
-  };
-  const convertProject = async (project: Project) => {
-    try {
-      const preview = await api.previewProjectToSeries(project.id);
-      const title = window.prompt("系列标题", project.title)?.trim();
-      if (!title) return;
-      const ok = window.confirm(`将保留 ${preview.episode_count} 集、${preview.characters} 个角色、${preview.scenes} 个场景、${preview.shots} 个镜头和 ${preview.video_tasks} 个视频任务，并保留原 Episode ID。确认转换？`);
-      if (!ok) return;
-      const result = await api.convertProjectToSeries(project.id, title);
-      updateProject(project.id, result.episode);
-      await fetchSeriesList();
-      setProjects(await api.getProjects());
-    } catch (error: any) {
-      window.alert(error?.response?.data?.detail || "项目转换失败");
-    }
+    try { await api.restoreProject(project.id); await syncAll(); }
+    catch { toast.error(tp("actionFailed")); }
   };
 
   // Hydrate the persisted gallery/list view preference (client-only to avoid
@@ -589,71 +280,51 @@ function AuthenticatedHome() {
     }
   }, []);
 
-  // Load episodes for all series when seriesList changes
+  // Ignore responses from a previous workspace or superseded series list.
   useEffect(() => {
-    if (seriesList.length === 0) return;
-    loadAllSeriesEpisodes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesList]);
-
-  const loadAllSeriesEpisodes = async () => {
-    setEpisodesLoading(true);
-    try {
-      const results = await Promise.all(
-        seriesList.map(async (s) => {
-          const eps = await api.getSeriesEpisodes(s.id);
-          return [s.id, eps] as const;
+    let cancelled = false;
+    if (episodesWorkspace.current !== activeWorkspaceId || !seriesList.length) setSeriesEpisodes({});
+    episodesWorkspace.current = activeWorkspaceId;
+    setEpisodesError(false);
+    setEpisodesLoading(seriesList.length > 0);
+    if (seriesList.length) {
+      Promise.all(seriesList.map(async (series) => [series.id, await api.getSeriesEpisodes(series.id)] as const))
+        .then((entries) => { if (!cancelled) setSeriesEpisodes(Object.fromEntries(entries)); })
+        .catch((error) => {
+          if (cancelled || isAuthenticationRecoveryError(error)) return;
+          setEpisodesError(true);
+          toast.error(t("toastEpisodesLoadFailed"));
         })
-      );
-      const map: Record<string, Project[]> = {};
-      for (const [id, eps] of results) {
-        map[id] = eps;
-      }
-      setSeriesEpisodes(map);
-    } catch (error) {
-      console.error("Failed to load series episodes:", error);
-      toast.error(t("toastEpisodesLoadFailed"), {
-        body: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setEpisodesLoading(false);
+        .finally(() => { if (!cancelled) setEpisodesLoading(false); });
     }
-  };
-
-  const syncProjects = async () => {
-    setIsSyncing(true);
-    try {
-      const backendProjects = await api.getProjects();
-      setProjects(backendProjects ?? []);
-    } catch (error) {
-      console.error("Failed to sync projects from backend:", error);
-      if (isAuthenticationRecoveryError(error)) return;
-      toast.error(t("toastProjectsSyncFailed"), {
-        body: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
+    return () => { cancelled = true; };
+  }, [seriesList, activeWorkspaceId, t]);
 
   const syncAll = async () => {
-    await Promise.all([syncProjects(), fetchSeriesList()]);
+    const request = ++syncRequest.current;
+    const workspaceId = useAuthStore.getState().activeWorkspace?.id;
+    const isCurrent = () => request === syncRequest.current && workspaceId === useAuthStore.getState().activeWorkspace?.id;
+    setIsSyncing(true);
+    setSyncError(false);
+    try {
+      const [backendProjects, backendSeries] = await Promise.all([api.getProjects(), api.listSeries()]);
+      if (isCurrent()) useProjectStore.setState({ projects: backendProjects ?? [], seriesList: backendSeries ?? [] });
+    } catch (error) {
+      if (isCurrent() && !isAuthenticationRecoveryError(error)) {
+        setSyncError(true);
+        toast.error(t("toastProjectsSyncFailed"));
+      }
+    } finally {
+      if (isCurrent()) setIsSyncing(false);
+    }
   };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!showCreateDropdown) return;
-    const handleClick = () => setShowCreateDropdown(false);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, [showCreateDropdown]);
 
   // 监听 hash 变化
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
       // Match #/series/{id}/episode/{eid} first (more specific)
-      const seriesEpisodeMatch = hash.match(/^#\/series\/([^/]+)\/episode\/([^/]+)$/);
+      const seriesEpisodeMatch = hash.match(/^#\/series\/([^/#]+)\/episode\/([^/#]+)(?:#[^/]+)?$/);
       if (seriesEpisodeMatch) {
         setSeriesId(seriesEpisodeMatch[1]);
         setEpisodeId(seriesEpisodeMatch[2]);
@@ -688,7 +359,7 @@ function AuthenticatedHome() {
         return;
       }
       if (hash.startsWith('#/project/')) {
-        const id = hash.replace('#/project/', '');
+        const id = hash.replace('#/project/', '').split('#')[0];
         setProjectId(id);
         setSeriesId(null);
         setEpisodeId(null);
@@ -728,18 +399,22 @@ function AuthenticatedHome() {
         return;
       }
       // Menu action: open new project dialog then land on workspace
-      if (hash === '#/new-project') {
+      if (hash === '#/new-project' || hash === '#/new-series') {
         setCurrentView('home');
         setActiveTab('workspace');
         setProjectId(null);
         setSeriesId(null);
         setEpisodeId(null);
-        setIsDialogOpen(true);
+        if (hash === '#/new-series') { setIsSeriesDialogOpen(true); setWorkspaceSection('series'); }
+        else setIsDialogOpen(true);
         void syncAll();
         // Clean URL without triggering another hashchange
         history.replaceState(null, '', '#/');
         return;
       }
+      const section = hash.split("/")[2];
+      setWorkspaceSection(section === "projects" || section === "series" || section === "drafts" ? section : "overview");
+      setWsStatus(section === "drafts" ? "pending" : "all");
       // Default: workspace
       if (isWorkspaceRoute(hash)) {
         void syncAll();
@@ -772,11 +447,15 @@ function AuthenticatedHome() {
 
   // 系列详情页 — 全屏，自带 BreadcrumbBar
   if (currentView === 'series' && seriesId) {
-    return <SeriesDetailPage seriesId={seriesId} />;
+    return <SeriesDetailPage key={seriesId} seriesId={seriesId} />;
+  }
+
+  if (currentView === 'library') {
+    return <main className="h-[100dvh] w-full"><ModuleErrorBoundary moduleName="资产库"><AssetLibraryPage key={activeWorkspaceId} /></ModuleErrorBoundary></main>;
   }
 
   // Filter standalone projects (not belonging to any series)
-  const standaloneProjects = projects.filter((p) => !p.series_id);
+  const standaloneProjects = workspaceSection === "series" ? [] : projects.filter((p) => !p.series_id);
 
   const totalCount = seriesList.length + standaloneProjects.length;
 
@@ -792,11 +471,8 @@ function AuthenticatedHome() {
 
   // Determine content based on activeTab
   const renderContent = () => {
-    if (currentView === 'library') {
-      return <AssetLibraryPage />;
-    }
     if (currentView === 'settings') {
-      return <SettingsPage />;
+      return <SettingsPage key={activeWorkspaceId} />;
     }
     if (currentView === 'playground') {
       return <PlaygroundPage />;
@@ -806,7 +482,7 @@ function AuthenticatedHome() {
         const target = ref.episodeId || ref.projectId;
         if (target) window.location.hash = `#/project/${target}`;
       };
-      return <TaskCenter workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
+      return <TaskCenter key={activeWorkspace?.id} workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
     }
     if (currentView === 'studio/editor') {
       return <StandaloneScriptEditor />;
@@ -816,14 +492,17 @@ function AuthenticatedHome() {
     }
 
     // Workspace view — Line B skeleton
-    const wsAllProjects: Project[] = [...Object.values(seriesEpisodes).flat(), ...standaloneProjects];
-    const archivedSeriesEpisodeIds = new Set(
-      seriesList
-        .filter((series) => series.archived)
-        .flatMap((series) => (seriesEpisodes[series.id] || []).map((episode) => episode.id))
-    );
+    const wsAllProjects: Project[] = [...seriesList.flatMap((series) => seriesEpisodes[series.id] || []), ...standaloneProjects];
+    if (workspaceSection === "overview") {
+      return <WorkspaceOverview projects={wsAllProjects.filter(project => !project.archived && !seriesList.some(series => series.id === project.series_id && series.archived))} series={seriesList.filter(series => !series.archived)}
+        loading={isSyncing || episodesLoading} error={syncError || episodesError}
+        onRefresh={syncAll} onCreate={() => setIsDialogOpen(true)}
+        onCreateSeries={() => setIsSeriesDialogOpen(true)} onImport={() => setIsImportDialogOpen(true)}
+        onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />;
+    }
+    const archivedSeriesEpisodeIds = new Set(seriesList.filter(series => series.archived).flatMap(series => (seriesEpisodes[series.id] || []).map(episode => episode.id)));
     const wsStatusCounts: Record<"all" | DerivedStatus | "archived", number> = {
-      all: wsAllProjects.length,
+      all: wsAllProjects.filter(project => !project.archived && !archivedSeriesEpisodeIds.has(project.id)).length,
       completed: 0,
       processing: 0,
       pending: 0,
@@ -847,7 +526,7 @@ function AuthenticatedHome() {
       { id: "completed", label: t("filterCompleted"), count: wsStatusCounts.completed },
       { id: "processing", label: t("filterProcessing"), count: wsStatusCounts.processing },
       { id: "pending", label: t("filterDraft"), count: wsStatusCounts.pending },
-      { id: "archived", label: "已归档", count: wsStatusCounts.archived },
+      { id: "archived", label: tp("archived"), count: wsStatusCounts.archived },
     ];
     // Precompute filtered groups once — single source of truth for the grid render
     // and the filtered-empty count below (avoids the two diverging).
@@ -874,123 +553,36 @@ function AuthenticatedHome() {
             </h1>
           </div>
           <div className="flex items-center flex-wrap gap-2.5 md:pb-1">
-            <button
-              onClick={syncAll}
-              disabled={isSyncing || !online}
-              title={!online ? tc("offlineTooltip") : undefined}
-              className="glass-button flex items-center gap-2 text-[0.8125rem] font-semibold disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
-              {tc("sync")}
-            </button>
-            <button
-              onClick={() => setIsImportDialogOpen(true)}
-              disabled={!online}
-              title={!online ? tc("offlineTooltip") : undefined}
-              className="glass-button flex items-center gap-2 text-[0.8125rem] font-semibold disabled:opacity-50"
-            >
-              <FileUp size={14} />
-              {t("importFile")}
-            </button>
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowCreateDropdown((v) => !v); }}
-                disabled={!online}
-                title={!online ? tc("offlineTooltip") : undefined}
-                className="bg-primary hover:bg-primary/90 text-on-accent px-4 py-2 rounded-[10px] font-semibold flex items-center gap-2 transition-all text-[0.8125rem] shadow-[var(--glow-primary)] disabled:opacity-50"
-              >
-                <Plus size={14} />
-                {t("new")}
-                <ChevronDown size={12} />
-              </button>
-              {showCreateDropdown && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute right-0 top-full mt-1 w-48 bg-elevated border border-glass-border rounded-xl shadow-xl z-20 overflow-hidden"
-                >
-                  <button
-                    onClick={() => { setIsSeriesDialogOpen(true); setShowCreateDropdown(false); }}
-                    className="w-full px-4 py-2.5 text-sm text-left text-foreground hover:bg-hover-bg transition-colors flex items-center gap-2"
-                  >
-                    <Library size={16} className="text-primary" />
-                    {t("newSeries")}
-                  </button>
-                  <button
-                    onClick={() => { setIsDialogOpen(true); setShowCreateDropdown(false); }}
-                    className="w-full px-4 py-2.5 text-sm text-left text-foreground hover:bg-hover-bg transition-colors flex items-center gap-2"
-                  >
-                    <FileText size={16} className="text-text-muted" />
-                    {t("newProject")}
-                  </button>
-                  <div className="border-t border-glass-border" />
-                  <button
-                    onClick={() => { window.location.hash = '#/playground'; setShowCreateDropdown(false); }}
-                    className="w-full px-4 py-2.5 text-sm text-left text-foreground hover:bg-hover-bg transition-colors flex items-center gap-2"
-                  >
-                    <Sparkles size={16} className="text-accent" />
-                    Playground
-                  </button>
-                </motion.div>
-              )}
-            </div>
+            <Button variant="secondary" onPress={() => void syncAll()} isPending={isSyncing} isDisabled={!online} aria-description={!online ? tc("offlineTooltip") : undefined}>
+              <RefreshCw size={14} />{tc("sync")}
+            </Button>
+            <Button variant="secondary" onPress={() => setIsImportDialogOpen(true)} isDisabled={!online} aria-description={!online ? tc("offlineTooltip") : undefined}>
+              <FileUp size={14} />{t("importFile")}
+            </Button>
+            <Dropdown>
+              <Button isDisabled={!online} aria-description={!online ? tc("offlineTooltip") : undefined}><Plus size={14} />{t("new")}<ChevronDown size={12} /></Button>
+              <Dropdown.Popover placement="bottom end">
+                <Dropdown.Menu aria-label={t("new")}>
+                  <Dropdown.Item id="series" textValue={t("newSeries")} onAction={() => setIsSeriesDialogOpen(true)}><Library size={16} /><Label>{t("newSeries")}</Label></Dropdown.Item>
+                  <Dropdown.Item id="project" textValue={t("newProject")} onAction={() => setIsDialogOpen(true)}><FileText size={16} /><Label>{t("newProject")}</Label></Dropdown.Item>
+                  <Dropdown.Item id="playground" textValue="Playground" onAction={() => { window.location.hash = "#/playground"; }}><Sparkles size={16} /><Label>Playground</Label></Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
           </div>
         </header>
 
-        {/* Toolbar — 状态横向筛选 + 搜索 + 视图切换 */}
-        <div className="px-7 pb-2 flex flex-wrap items-center gap-3">
-          <div className="inline-flex p-[3px] rounded-full bg-surface-inset atelier-pill-tabs" role="tablist" aria-label={t("statusFilterAria")} onKeyDown={rovingKeyDown}>
-            {wsStatusPills.map((pill) => {
-              const on = wsStatus === pill.id;
-              return (
-                <button
-                  key={pill.id}
-                  role="tab"
-                  aria-selected={on}
-                  tabIndex={on ? 0 : -1}
-                  onClick={() => setWsStatus(pill.id)}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                    on ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-                  }`}
-                >
-                  {pill.label}
-                  <span className={`font-mono text-[0.59375rem] ${on ? "text-text-secondary" : "text-text-muted"}`}>{pill.count}</span>
-                </button>
-              );
-            })}
+        <div className="px-4 md:px-7 pb-2 flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1" role="group" aria-label={t("statusFilterAria")}>
+            {wsStatusPills.map(pill => <Button key={pill.id} variant={wsStatus === pill.id ? "secondary" : "quiet"} aria-pressed={wsStatus === pill.id} onPress={() => setWsStatus(pill.id)}>
+              {pill.label}<span className="font-mono text-xs text-text-muted">{pill.count}</span>
+            </Button>)}
           </div>
-          <div className="relative flex-1 min-w-[180px] max-w-[340px] bg-surface-inset border border-glass-border rounded-full atelier-search-input">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            <input
-              type="search"
-              value={wsSearch}
-              onChange={(e) => setWsSearch(e.target.value)}
-              placeholder={t("searchPlaceholder") || "搜索项目 / 系列…"}
-              aria-label={t("searchPlaceholder") || "搜索项目 / 系列…"}
-              className="w-full bg-transparent border-0 rounded-full py-2 pl-9 pr-4 text-[0.8125rem] text-foreground placeholder-text-muted focus:outline-none"
-            />
-          </div>
-          <div className="inline-flex p-[3px] rounded-full bg-surface-inset atelier-pill-tabs ml-auto" role="group" aria-label={`${t("gallery") || "画廊"} / ${t("list") || "列表"}`}>
-            <button
-              type="button"
-              onClick={() => changeViewMode("gallery")}
-              aria-pressed={viewMode === "gallery"}
-              className={`inline-flex items-center px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                viewMode === "gallery" ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-              }`}
-            >
-              {t("gallery") || "画廊"}
-            </button>
-            <button
-              type="button"
-              onClick={() => changeViewMode("list")}
-              aria-pressed={viewMode === "list"}
-              className={`inline-flex items-center px-3.5 py-1.5 rounded-full text-[0.6875rem] font-semibold transition-colors ${
-                viewMode === "list" ? "text-foreground atelier-pill-tab-active bg-surface shadow-sm" : "text-text-muted hover:text-foreground"
-              }`}
-            >
-              {t("list") || "列表"}
-            </button>
+          <TextField label={t("searchPlaceholder")} type="search" value={wsSearch} onChange={setWsSearch} placeholder={t("searchPlaceholder")}
+            className="min-w-44 max-w-[340px] flex-1 [&>label]:sr-only" />
+          <div className="ml-auto flex gap-1" role="group" aria-label={`${t("gallery")} / ${t("list")}`}>
+            <Button variant={viewMode === "gallery" ? "secondary" : "quiet"} aria-pressed={viewMode === "gallery"} onPress={() => changeViewMode("gallery")}>{t("gallery")}</Button>
+            <Button variant={viewMode === "list" ? "secondary" : "quiet"} aria-pressed={viewMode === "list"} onPress={() => changeViewMode("list")}>{t("list")}</Button>
           </div>
         </div>
 
@@ -1070,7 +662,7 @@ function AuthenticatedHome() {
                       >
                         {s.title}
                       </button>
-                      {s.archived && <span className="rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">项目已归档</span>}
+                      {s.archived && <span className="rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-muted">{tp("archived")}</span>}
                       <span className="font-mono text-[0.625rem] uppercase tracking-wider text-text-muted">
                         {t("series")} · {t("frames", { count: eps.length })}
                       </span>
@@ -1114,7 +706,7 @@ function AuthenticatedHome() {
                             className="atelier-reveal"
                             style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                           >
-                            <ProjectCard project={ep} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
+                            <ProjectCard variant="editorial" project={ep} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                           </div>
                         ))}
                         {!wsFiltering && <NewProjectTile episode onClick={() => { setDialogSeries({ id: s.id, title: s.title }); setIsDialogOpen(true); }} />}
@@ -1171,7 +763,7 @@ function AuthenticatedHome() {
                           className="atelier-reveal"
                           style={{ animationDelay: `${Math.min(i * 60, 300)}ms` }}
                         >
-                            <ProjectCard project={p} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
+                          <ProjectCard variant="editorial" project={p} onDelete={permanentlyDeleteProject} onArchive={archiveProject} onRestore={restoreProject} onRename={renameProject} onConvert={convertProject} />
                         </div>
                       ))}
                       {!wsFiltering && <NewProjectTile onClick={() => setIsDialogOpen(true)} />}
@@ -1188,7 +780,7 @@ function AuthenticatedHome() {
   };
 
   return (
-    <main className="relative h-screen w-screen bg-background flex flex-col">
+    <main className="relative h-[100dvh] w-full bg-background flex flex-col">
       {/* Background Canvas */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <CreativeCanvas />
@@ -1201,13 +793,15 @@ function AuthenticatedHome() {
       <div className="atelier-page-grain" aria-hidden="true" />
 
       {/* AppShell with GlobalSidebar + content */}
-      <div className="relative z-10 flex-1 overflow-hidden">
-        <AppShell activeTab={activeTab} onTabChange={handleTabChange}>
-          <ModuleErrorBoundary key={currentView} moduleName={currentView === "library" ? "资产库" : currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : currentView === "tasks" ? "任务中心" : "工作区"}>
+      <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
+        <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} workspaceSection={workspaceSection} context={activeTab === "playground" ? <PlaygroundModeSelector /> : undefined}>
+          <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : currentView === "tasks" ? "任务中心" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>
         </AppShell>
       </div>
+
+      {projectAction && <ActionDialog {...projectAction} />}
 
       {/* Create Project Dialog */}
       <CreateProjectDialog

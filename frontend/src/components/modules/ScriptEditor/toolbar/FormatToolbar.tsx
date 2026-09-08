@@ -1,18 +1,8 @@
 'use client';
 
-import { useCallback } from 'react';
+import { IconButton, SelectField } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
-import {
-  Undo2,
-  Redo2,
-  Sparkles,
-  Download,
-  ChevronDown,
-  Pencil,
-  LayoutGrid,
-  BookOpen,
-  Maximize2,
-} from 'lucide-react';
+import { Undo2, Redo2, Pencil, LayoutGrid, BookOpen, Maximize2 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useFormatEngine } from '../hooks/useFormatEngine';
 import type { ScriptFormat, TextRendering, ViewMode } from '@/store/editorStore';
@@ -26,148 +16,26 @@ export interface FormatToolbarProps {
 export default function FormatToolbar({ editor, viewMode = 'edit', onViewModeChange }: FormatToolbarProps) {
   const t = useTranslations('scriptEditor');
   const { currentFormat, currentRendering, setFormat, setRendering } = useFormatEngine();
-
-  const FORMAT_OPTIONS: { value: ScriptFormat; label: string }[] = [
-    { value: 'hollywood', label: t('formats.hollywood') },
-    { value: 'chinese_film', label: t('formats.chinese_film') },
-    { value: 'chinese_short', label: t('formats.chinese_short') },
-    { value: 'japanese_anime', label: t('formats.japanese_anime') },
-  ];
-
-  const RENDERING_OPTIONS: { value: TextRendering; label: string }[] = [
-    { value: 'latin', label: t('renderings.latin') },
-    { value: 'cjk_zh', label: t('renderings.cjk_zh') },
-    { value: 'cjk_ja', label: t('renderings.cjk_ja') },
-  ];
-
-  const VIEW_OPTIONS: { value: ViewMode; label: string; icon: typeof Pencil }[] = [
-    { value: 'edit', label: t('views.edit'), icon: Pencil },
-    { value: 'storyboard', label: t('views.storyboard'), icon: LayoutGrid },
-    { value: 'read', label: t('views.read'), icon: BookOpen },
-    { value: 'focus', label: t('views.focus'), icon: Maximize2 },
-  ];
-
-  const handleUndo = useCallback(() => {
-    editor?.chain().focus().undo().run();
-  }, [editor]);
-
-  const handleRedo = useCallback(() => {
-    editor?.chain().focus().redo().run();
-  }, [editor]);
+  const formats: ScriptFormat[] = ['hollywood', 'chinese_film', 'chinese_short', 'japanese_anime'];
+  const renderings: TextRendering[] = ['latin', 'cjk_zh', 'cjk_ja'];
+  const views = [
+    { id: 'edit', icon: Pencil }, { id: 'storyboard', icon: LayoutGrid },
+    { id: 'read', icon: BookOpen }, { id: 'focus', icon: Maximize2 },
+  ] as const;
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-glass-border bg-surface px-4">
-      {/* Format Selector */}
-      <div className="relative">
-        <select
-          value={currentFormat}
-          onChange={(e) => setFormat(e.target.value as ScriptFormat)}
-          className="appearance-none rounded-md border border-glass-border bg-input-bg px-3 py-1.5 pr-7 text-xs text-foreground outline-none transition-colors hover:border-primary focus:border-[var(--color-primary)]"
-        >
-          {FORMAT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown
-          size={12}
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
-        />
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-subtle bg-surface px-4 py-2" role="group" aria-label={t('toolbar.format')}>
+      <div className="grid min-w-0 flex-[1_1_280px] grid-cols-2 gap-2 sm:max-w-80">
+        <SelectField label={t('toolbar.format')} className="min-w-0 [&_label]:sr-only" value={currentFormat} onChange={value => setFormat(value as ScriptFormat)} options={formats.map(id => ({ id, label: t(`formats.${id}`) }))} />
+        <SelectField label={t('toolbar.rendering')} className="min-w-0 [&_label]:sr-only" value={currentRendering} onChange={value => setRendering(value as TextRendering)} options={renderings.map(id => ({ id, label: t(`renderings.${id}`) }))} />
       </div>
-
-      {/* Rendering Selector */}
-      <div className="relative">
-        <select
-          value={currentRendering}
-          onChange={(e) => setRendering(e.target.value as TextRendering)}
-          className="appearance-none rounded-md border border-glass-border bg-input-bg px-3 py-1.5 pr-7 text-xs text-foreground outline-none transition-colors hover:border-primary focus:border-[var(--color-primary)]"
-        >
-          {RENDERING_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown
-          size={12}
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary"
-        />
+      <div className="flex gap-1">
+        <IconButton aria-label={t('toolbar.undo')} isDisabled={!editor?.isEditable || !editor?.can().undo()} onPress={() => editor?.chain().focus().undo().run()}><Undo2 size={16} /></IconButton>
+        <IconButton aria-label={t('toolbar.redo')} isDisabled={!editor?.isEditable || !editor?.can().redo()} onPress={() => editor?.chain().focus().redo().run()}><Redo2 size={16} /></IconButton>
       </div>
-
-      {/* Separator */}
-      <div className="mx-1 h-5 w-px bg-glass-border" />
-
-      {/* Undo / Redo */}
-      <button
-        type="button"
-        onClick={handleUndo}
-        disabled={!editor?.can().undo()}
-        className="rounded p-1.5 text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        aria-label={t('toolbar.undo')}
-      >
-        <Undo2 size={15} />
-      </button>
-      <button
-        type="button"
-        onClick={handleRedo}
-        disabled={!editor?.can().redo()}
-        className="rounded p-1.5 text-text-secondary transition-colors hover:bg-hover-bg hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        aria-label={t('toolbar.redo')}
-      >
-        <Redo2 size={15} />
-      </button>
-
-      {/* Separator */}
-      <div className="mx-1 h-5 w-px bg-white/10" />
-
-      {/* AI Tool (placeholder) */}
-      <button
-        type="button"
-        disabled
-        className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label={t('toolbar.ai')}
-      >
-        <Sparkles size={14} />
-        <span>AI</span>
-      </button>
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* View Mode Toggle */}
-      <div className="flex items-center gap-0.5 rounded-md border border-glass-border bg-surface-inset p-0.5">
-        {VIEW_OPTIONS.map((opt) => {
-          const Icon = opt.icon;
-          const isActive = viewMode === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => onViewModeChange?.(opt.value)}
-              className={`rounded px-2 py-1 text-[11px] transition-all ${
-                isActive
-                  ? 'bg-surface text-foreground shadow-sm'
-                  : 'text-text-muted hover:text-foreground'
-              }`}
-              aria-label={opt.label}
-              title={opt.label}
-            >
-              <Icon size={13} />
-            </button>
-          );
-        })}
+      <div className="ml-auto flex gap-1" role="group" aria-label={t('toolbar.view')}>
+        {views.map(({ id, icon: Icon }) => <IconButton key={id} aria-label={t(`views.${id}`)} aria-pressed={viewMode === id} className={viewMode === id ? 'bg-primary/10 text-primary' : ''} onPress={() => onViewModeChange?.(id)}><Icon size={16} /></IconButton>)}
       </div>
-
-      {/* Export (placeholder) */}
-      <button
-        type="button"
-        disabled
-        className="rounded p-1.5 text-text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label={t('toolbar.export')}
-      >
-        <Download size={15} />
-      </button>
     </div>
   );
 }

@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Sparkles } from 'lucide-react';
-import ModeSelector from './ModeSelector';
+import { Button, LoadingState } from '@omnistudio/ui';
+import styles from './PlaygroundPage.module.css';
 import ModelSelector from './ModelSelector';
 import MediaInput from './MediaInput';
 import PromptInput from './PromptInput';
 import ParameterBar from './ParameterBar';
 import ResultGallery from './ResultGallery';
-import { usePlaygroundStore, type PlaygroundMode, type PlaygroundGeneration, type QueuedRequest } from './usePlaygroundStore';
+import { usePlaygroundStore, type PlaygroundMode, type QueuedRequest } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
 import { toast } from '@/store/toastStore';
 import { normalizeGeneration, normalizeTemplate } from './normalizers';
@@ -65,62 +66,69 @@ export default function PlaygroundPage() {
   const activeCount = usePlaygroundStore((s) => s.activeGenerationIds.length);
   const maxConcurrent = usePlaygroundStore((s) => s.maxConcurrent);
 
-  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const activeIds = usePlaygroundStore(s => s.activeGenerationIds);
+  const [pollingError, setPollingError] = useState(false);
+
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
+  const [historyReload, setHistoryReload] = useState(0);
 
   // ─── Fetch initial data on mount ───────────────────────────────────────────
 
   useEffect(() => {
-    playgroundApi.getHistory().then((items) => {
-      setHistory(Array.isArray(items) ? items.map(normalizeGeneration) : []);
-    }).catch((err) => {
-      console.error('[Playground] Failed to fetch history:', err);
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError(false);
+    playgroundApi.getHistory().then(items => {
+      if (active) setHistory(Array.isArray(items) ? items.map(normalizeGeneration) : []);
+    }).catch(() => {
+      if (active) setHistoryError(true);
+    }).finally(() => {
+      if (active) setHistoryLoading(false);
     });
-
-    playgroundApi.getTemplates().then((items) => {
-      setTemplates(Array.isArray(items) ? items.map(normalizeTemplate) : []);
-    }).catch((err) => {
-      console.error('[Playground] Failed to fetch templates:', err);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ─── Cleanup poll timers ───────────────────────────────────────────────────
+    return () => { active = false; };
+  }, [historyReload, setHistory]);
 
   useEffect(() => {
-    return () => {
-      pollTimers.current.forEach((timer) => clearInterval(timer));
-      pollTimers.current.clear();
-    };
-  }, []);
+    let active = true;
+    playgroundApi.getTemplates().then(items => {
+      if (active) setTemplates(Array.isArray(items) ? items.map(normalizeTemplate) : []);
+    }).catch(err => {
+      console.error('[Playground] Failed to fetch templates:', err);
+    });
+    return () => { active = false; };
+  }, [setTemplates]);
 
-  // ─── Status poller ─────────────────────────────────────────────────────────
-
-  const startPolling = useCallback((generationId: string) => {
-    // Prevent duplicate timers
-    if (pollTimers.current.has(generationId)) return;
-
-    const timer = setInterval(async () => {
+  // One non-overlapping read loop per active job, including restored history.
+  useEffect(() => {
+    if (historyLoading) return;
+    let active = true;
+    const errors = new Set<string>();
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    setPollingError(false);
+    const isCurrent = (id: string) => active && usePlaygroundStore.getState().activeGenerationIds.includes(id);
+    const poll = async (id: string) => {
       try {
-        const statusResp = await playgroundApi.getGenerationStatus(generationId);
-        const isTerminal = statusResp.status === 'completed' || statusResp.status === 'failed';
-
-        // Fetch full generation data for complete update
-        const fullResp = await playgroundApi.getGeneration(generationId);
-        updateGeneration(normalizeGeneration(fullResp));
-
-        if (isTerminal) {
-          clearInterval(timer);
-          pollTimers.current.delete(generationId);
+        const response = await playgroundApi.getGeneration(id);
+        if (!isCurrent(id)) return;
+        updateGeneration(normalizeGeneration(response));
+        errors.delete(id);
+      } catch {
+        if (!isCurrent(id)) return;
+        errors.add(id);
+      } finally {
+        if (active) {
+          setPollingError(errors.size > 0);
+          if (isCurrent(id)) timers.set(id, setTimeout(() => void poll(id), POLL_INTERVAL));
         }
-      } catch (err) {
-        console.error('[Playground] Poll failed for', generationId, err);
-        clearInterval(timer);
-        pollTimers.current.delete(generationId);
       }
-    }, POLL_INTERVAL);
-
-    pollTimers.current.set(generationId, timer);
-  }, [updateGeneration]);
+    };
+    activeIds.forEach(id => timers.set(id, setTimeout(() => void poll(id), POLL_INTERVAL)));
+    return () => {
+      active = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [activeIds, historyLoading, updateGeneration]);
 
   // ─── Generate handler — enqueue a request; the dispatcher runs it ──────────
 
@@ -155,9 +163,6 @@ export default function PlaygroundPage() {
       const gen = normalizeGeneration(resp);
       startGeneration(gen);
       removeFromQueue(req.id);
-      if (gen.status !== 'completed' && gen.status !== 'failed') {
-        startPolling(gen.id);
-      }
     } catch (err) {
       console.error('[Playground] Dispatch failed:', err);
       toast.error(t('queue.dispatchFailed'), {
@@ -165,7 +170,7 @@ export default function PlaygroundPage() {
       });
       removeFromQueue(req.id);
     }
-  }, [startGeneration, removeFromQueue, startPolling]);
+  }, [startGeneration, removeFromQueue, t]);
 
   // Pump: dispatch pending requests up to the concurrency limit.
   const pump = useCallback(() => {
@@ -184,129 +189,51 @@ export default function PlaygroundPage() {
 
   // Run the pump whenever the queue, in-flight count, or concurrency changes.
   useEffect(() => {
-    pump();
-  }, [queue, activeCount, maxConcurrent, pump]);
+    if (!historyLoading) pump();
+  }, [queue, activeCount, maxConcurrent, pump, historyLoading]);
 
   // ─── Derived values ────────────────────────────────────────────────────────
 
   const resultCount = history.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0);
   const showMediaInput = MODES_WITH_MEDIA.includes(mode) || MODES_WITH_OPTIONAL_MEDIA.includes(mode);
-  const canGenerate = prompt.trim().length > 0
+  const canGenerate = !historyLoading && prompt.trim().length > 0
     && (!MODES_WITH_MEDIA.includes(mode) || inputMedia.length > 0);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full flex-col overflow-hidden text-foreground">
-      {/* ═══ PAGE HEADER ═══ */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border-subtle px-7 py-5">
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.2em] text-text-muted">
-            FREEFORM STUDIO
-            <span className="text-primary font-semibold"> · {t('header.eyebrowAccent')}</span>
-          </span>
-          <div className="flex items-baseline gap-[10px]">
-            <h1 className="font-display text-[1.625rem] md:text-[2.125rem] font-semibold tracking-tight text-foreground atelier-display">
-              {t('header.title')}
-            </h1>
-            <span className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-text-muted">
-              {t('header.resultsCount', { count: resultCount })}
-            </span>
-          </div>
-          <p className="font-mono text-text-muted text-[0.6875rem] tracking-[0.06em]">
-            {t('header.subtitle')}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="atelier-badge rounded border border-glass-border bg-glass px-2 py-1 text-[0.625rem] uppercase tracking-[0.18em] text-text-muted">
-            {MODE_LABELS[mode]}
-          </span>
-        </div>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div><h1>{t('header.title')}</h1><p>{t('header.subtitle')}</p></div>
+        <span>{MODE_LABELS[mode]} · {t('header.resultsCount', { count: resultCount })}</span>
       </header>
-
-      {/* ═══ SPLIT LAYOUT ═══ */}
-      <div className="flex flex-1 overflow-hidden min-h-0">
-        {/* ─── LEFT: INPUT PANEL ─── */}
-        <aside className="flex w-[420px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-glass-border px-4 py-4 scrollbar-thin">
-          {/* Mode */}
-          <section className="glass-panel atelier-card rounded-[20px] px-5 py-5">
-            <div className="mb-3 font-mono text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-              {t('compose.modeLabel')}
-            </div>
-            <ModeSelector />
-          </section>
-
-          {/* Prompt — first, the primary input */}
-          <section className="glass-panel atelier-card rounded-[20px] px-5 py-5">
-            <div className="mb-3 font-mono text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-              {t('compose.promptLabel')}
-            </div>
-            <PromptInput />
-          </section>
-
-          {/* Media Input (conditional) */}
-          {showMediaInput && (
-            <section className="glass-panel atelier-card rounded-[20px] px-5 py-5">
-              <div className="mb-3 font-mono text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-                {t(
-                  mode === 'v2v'
-                    ? 'compose.mediaSourceVideo'
-                    : mode === 'r2v'
-                      ? 'compose.mediaRefMaterial'
-                      : mode === 'i2v'
-                        ? 'compose.mediaFirstFrame'
-                        : 'compose.mediaReference'
-                )}
-              </div>
+      <div className={styles.body}>
+        <section className={styles.composer} aria-label={t('compose.eyebrow')}>
+          <div className={styles.fields}>
+            <section><PromptInput /></section>
+            {showMediaInput && <section>
+              <h2>{t(mode === 'v2v' ? 'compose.mediaSourceVideo' : mode === 'r2v' ? 'compose.mediaRefMaterial' : mode === 'i2v' ? 'compose.mediaFirstFrame' : 'compose.mediaReference')}</h2>
               <MediaInput />
+            </section>}
+            <section>
+              <ModelSelector />
+              <h2 className="mt-5">{t('compose.parametersLabel')}</h2>
+              <ParameterBar />
             </section>
-          )}
-
-          {/* Model & Parameters — merged into one card (mockup) */}
-          <section className="glass-panel atelier-card rounded-[20px] px-5 py-5 relative z-30">
-            <div className="mb-3 font-mono text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-              {t('compose.modelLabel')}
-            </div>
-            <ModelSelector />
-            <div className="my-4 h-px bg-border-subtle" />
-            <div className="mb-3 font-mono text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-              {t('compose.parametersLabel')}
-            </div>
-            <ParameterBar />
-          </section>
-
-          {/* Spacer to push generate button to bottom */}
-          <div className="flex-1" />
-
-          {/* Generate CTA (sticky) */}
-          <div className="sticky bottom-0 -mx-4 -mb-4 border-t border-glass-border bg-transparent backdrop-blur-md px-4 pb-4 pt-4">
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={!canGenerate}
-              className={[
-                'inline-flex w-full items-center justify-center gap-[7px] rounded-full px-6 py-[13px]',
-                "font-['Space_Grotesk',sans-serif] text-sm font-semibold",
-                'bg-primary text-on-accent shadow-[var(--glow-primary)] transition-all duration-150 disabled:opacity-40 disabled:shadow-none',
-                canGenerate
-                  ? 'hover:bg-primary-hover hover:-translate-y-px cursor-pointer'
-                  : 'cursor-not-allowed',
-              ].join(' ')}
-            >
-              <Sparkles size={16} aria-hidden="true" />
-              <span>
-                {batchSize > 1
-                  ? t('compose.generateBatch', { count: batchSize })
-                  : t('compose.generate')}
-              </span>
-            </button>
           </div>
-        </aside>
-
-        {/* ─── RIGHT: RESULT GALLERY ─── */}
-        <main className="flex flex-1 flex-col overflow-hidden min-w-0">
-          <ResultGallery />
-        </main>
+          <footer className={styles.generate}>
+            <Button onPress={handleGenerate} isDisabled={!canGenerate}>
+              <Sparkles size={16} aria-hidden="true" />
+              {batchSize > 1 ? t('compose.generateBatch', { count: batchSize }) : t('compose.generate')}
+            </Button>
+          </footer>
+        </section>
+        <section className={styles.results} aria-label={t('results.title')}>
+          {historyLoading && <LoadingState label={t('results.loading')} inline={history.length > 0} />}
+          {pollingError && <p role="alert" className={styles.error}>{t('results.pollFailed')}</p>}
+          {historyError && <div role="alert" className={styles.error}>{t('results.loadFailed')}<Button variant="quiet" onPress={() => setHistoryReload(value => value + 1)}>{t('card.retry')}</Button></div>}
+          {((!historyLoading && !historyError) || history.length > 0) && <ResultGallery />}
+        </section>
       </div>
     </div>
   );

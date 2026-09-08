@@ -1,255 +1,58 @@
-'use client'
+'use client';
 
-import { useState, useCallback, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, FileText, FileCode, X, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
-import { useTranslations } from 'next-intl'
-import { scriptEditorApi } from '@/lib/scriptEditorApi'
+import { useState, useRef } from 'react';
+import { Button, Dialog } from '@omnistudio/ui';
+import { Upload, FileText } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { scriptEditorApi } from '@/lib/scriptEditorApi';
+import type { JSONContent } from '@tiptap/core';
 
 export interface ImportDialogProps {
-  open: boolean
-  onClose: () => void
-  projectId: string
-  onImportSuccess: (content: any) => void
-}
-
-type FileType = 'fdx' | 'fountain' | 'txt'
-
-const ACCEPTED_EXTENSIONS: Record<string, FileType> = {
-  '.fdx': 'fdx',
-  '.fountain': 'fountain',
-  '.txt': 'txt',
-}
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
-
-function getFileExtension(filename: string): string {
-  const idx = filename.lastIndexOf('.')
-  return idx >= 0 ? filename.slice(idx).toLowerCase() : ''
-}
-
-function getFileIcon(ext: string) {
-  if (ext === '.fdx') return <FileCode size={24} className="text-blue-400" />
-  if (ext === '.fountain') return <FileText size={24} className="text-green-400" />
-  return <FileText size={24} className="text-gray-400" />
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+  onImportSuccess: (content: JSONContent) => void;
 }
 
 export default function ImportDialog({ open, onClose, projectId, onImportSuccess }: ImportDialogProps) {
-  const t = useTranslations('scriptEditor')
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
-  const [errorMsg, setErrorMsg] = useState('')
-  const [sceneCount, setSceneCount] = useState(0)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const t = useTranslations('scriptEditor');
+  const tc = useTranslations('common');
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const input = useRef<HTMLInputElement>(null);
 
-  const reset = useCallback(() => {
-    setSelectedFile(null)
-    setStatus('idle')
-    setErrorMsg('')
-    setSceneCount(0)
-  }, [])
-
-  const handleClose = useCallback(() => {
-    reset()
-    onClose()
-  }, [reset, onClose])
-
-  const validateFile = useCallback((file: File): string | null => {
-    const ext = getFileExtension(file.name)
-    if (!ACCEPTED_EXTENSIONS[ext]) {
-      return t('dialogs.import.unsupportedType', { ext })
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      return t('dialogs.import.fileTooLarge', { size: (file.size / 1024 / 1024).toFixed(1) })
-    }
-    return null
-  }, [t])
-
-  const handleFile = useCallback(async (file: File) => {
-    const err = validateFile(file)
-    if (err) {
-      setErrorMsg(err)
-      setStatus('error')
-      return
-    }
-
-    setSelectedFile(file)
-    setStatus('uploading')
-    setErrorMsg('')
-
+  const selectFile = (selected: File) => {
+    if (busy) return;
+    const ext = selected.name.slice(selected.name.lastIndexOf('.')).toLowerCase();
+    setFile(null);
+    if (!['.fdx', '.fountain', '.txt'].includes(ext)) return setError(t('dialogs.import.unsupportedType', { ext }));
+    if (selected.size > 10 * 1024 * 1024) return setError(t('dialogs.import.fileTooLarge', { size: (selected.size / 1024 / 1024).toFixed(1) }));
+    setFile(selected);
+    setError('');
+  };
+  const importFile = async () => {
+    if (!file || busy) return;
+    setBusy(true);
+    setError('');
     try {
-      const result = await scriptEditorApi.importDocument(projectId, file)
-      // Count scenes in the result
-      const content = result.content || result
-      const scenes = (content.content || []).filter(
-        (n: any) => n.type === 'sceneHeading'
-      )
-      setSceneCount(scenes.length)
-      setStatus('success')
+      const result = await scriptEditorApi.importDocument(projectId, file);
+      onImportSuccess(result.content || result);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('dialogs.import.failed'));
+    } finally { setBusy(false); }
+  };
 
-      // Auto-close after brief delay
-      setTimeout(() => {
-        onImportSuccess(content)
-        handleClose()
-      }, 1200)
-    } catch (e: any) {
-      setStatus('error')
-      setErrorMsg(e?.response?.data?.detail || e?.message || t('dialogs.import.failed'))
-    }
-  }, [validateFile, projectId, onImportSuccess, handleClose])
-
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragOver(false)
-      const file = e.dataTransfer.files[0]
-      if (file) handleFile(file)
-    },
-    [handleFile]
-  )
-
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(true)
-  }, [])
-
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }, [])
-
-  const onFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (file) handleFile(file)
-      // Reset input so same file can be selected again
-      e.target.value = ''
-    },
-    [handleFile]
-  )
-
-  if (!open) return null
-
-  const ext = selectedFile ? getFileExtension(selectedFile.name) : ''
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-overlay backdrop-blur-sm" onClick={handleClose} />
-
-          {/* Dialog */}
-          <motion.div
-            className="relative z-10 w-full max-w-lg rounded-2xl border border-glass-border bg-surface p-6 shadow-2xl backdrop-blur-xl"
-            initial={{ scale: 0.95, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.95, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-foreground">{t('dialogs.import.title')}</h2>
-              <button
-                onClick={handleClose}
-                className="rounded-lg p-1.5 text-text-secondary hover:bg-hover-bg hover:text-foreground transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Drop Zone */}
-            <div
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onClick={() => status === 'idle' && fileInputRef.current?.click()}
-              className={`
-                relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-10 transition-all cursor-pointer
-                ${isDragOver
-                  ? 'border-blue-400 bg-blue-500/10'
-                  : status === 'error'
-                    ? 'border-red-400/50 bg-red-500/5'
-                    : status === 'success'
-                      ? 'border-green-400/50 bg-green-500/5'
-                      : 'border-glass-border bg-glass hover:border-primary/40 hover:bg-hover-bg'
-                }
-              `}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".fdx,.fountain,.txt"
-                onChange={onFileSelect}
-                className="hidden"
-              />
-
-              {status === 'idle' && (
-                <>
-                  <Upload size={32} className="text-text-secondary mb-3" />
-                  <p className="text-sm text-text-secondary text-center">
-                    {t('dialogs.import.dropzone')}
-                  </p>
-                  <p className="text-xs text-text-muted mt-2">
-                    {t('dialogs.import.supportedFormats')}
-                  </p>
-                </>
-              )}
-
-              {status === 'uploading' && (
-                <div className="flex flex-col items-center gap-3">
-                  <Loader2 size={28} className="text-blue-400 animate-spin" />
-                  <div className="flex items-center gap-2">
-                    {getFileIcon(ext)}
-                    <span className="text-sm text-foreground">{selectedFile?.name}</span>
-                  </div>
-                  <p className="text-xs text-text-secondary">{t('dialogs.import.parsing')}</p>
-                </div>
-              )}
-
-              {status === 'success' && (
-                <div className="flex flex-col items-center gap-3">
-                  <CheckCircle2 size={28} className="text-green-400" />
-                  <div className="flex items-center gap-2">
-                    {getFileIcon(ext)}
-                    <span className="text-sm text-foreground">{selectedFile?.name}</span>
-                  </div>
-                  <p className="text-xs text-green-400/80">
-                    {t('dialogs.import.success', { count: sceneCount })}
-                  </p>
-                </div>
-              )}
-
-              {status === 'error' && (
-                <div className="flex flex-col items-center gap-3">
-                  <AlertCircle size={28} className="text-red-400" />
-                  <p className="text-sm text-red-300">{errorMsg}</p>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      reset()
-                    }}
-                    className="text-xs text-text-secondary hover:text-foreground underline mt-1"
-                  >
-                    {t('dialogs.import.retry')}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Footer hint */}
-            <p className="mt-4 text-xs text-text-muted text-center">
-              {t('dialogs.import.replaceWarning')}
-            </p>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
+  return <Dialog isOpen={open} onOpenChange={isOpen => { if (!isOpen) onClose(); }} isDismissable={!busy} title={t('dialogs.import.title')} closeLabel={tc('close')} footer={<><Button variant="quiet" isDisabled={busy} onPress={onClose}>{tc('cancel')}</Button><Button isDisabled={!file || busy} isPending={busy} onPress={importFile}>{busy ? t('dialogs.import.parsing') : t('dialogs.import.title')}</Button></>}>
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-border-subtle bg-surface-inset p-6 text-center" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const selected = event.dataTransfer.files[0]; if (selected) selectFile(selected); }}>
+      {file ? <FileText size={28} className="text-primary" /> : <Upload size={28} className="text-text-muted" />}
+      <p className="max-w-full break-all text-sm">{file?.name || t('dialogs.import.dropzone')}</p>
+      <p className="text-xs leading-5 text-text-muted">{t('dialogs.import.supportedFormats')}</p>
+      <Button variant="secondary" isDisabled={busy} onPress={() => input.current?.click()}>{t('dialogs.import.chooseFile')}</Button>
+      <input ref={input} type="file" accept=".fdx,.fountain,.txt" aria-label={t('dialogs.import.chooseFile')} className="hidden" disabled={busy} onChange={event => { const selected = event.target.files?.[0]; if (selected) selectFile(selected); event.target.value = ''; }} />
+    </div>
+    <p className="mt-4 text-sm text-text-secondary">{t('dialogs.import.replaceWarning')}</p>
+    {error && <p role="alert" className="mt-3 text-sm text-status-failed-fg">{error}</p>}
+  </Dialog>;
 }

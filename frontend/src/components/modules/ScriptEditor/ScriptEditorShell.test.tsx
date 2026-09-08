@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ScriptEditorShell from "./ScriptEditorShell";
@@ -9,9 +9,12 @@ const editor = {
   state: { doc: { descendants: vi.fn() } },
   commands: { setContent: vi.fn() },
   setEditable: vi.fn(),
+  getJSON: () => ({ type: "doc", content: [] }),
   isEmpty: true,
 };
+const saveDocument = vi.hoisted(() => vi.fn());
 const loadDocument = vi.hoisted(() => vi.fn());
+const importDocument = vi.hoisted(() => vi.fn());
 const getProject = vi.hoisted(() => vi.fn());
 const runDerivation = vi.hoisted(() => vi.fn());
 const translate = vi.hoisted(() => (key: string) => key);
@@ -53,7 +56,7 @@ vi.mock("@/store/editorStore", () => ({
 }));
 
 vi.mock("@/lib/scriptEditorApi", () => ({
-  scriptEditorApi: { loadDocument },
+  scriptEditorApi: { loadDocument, importDocument },
 }));
 vi.mock("@/lib/api", () => ({ api: { getProject } }));
 
@@ -64,21 +67,21 @@ vi.mock("./hooks/usePasteHandler", () => ({
   usePasteHandler: () => ({ showHint: false, analysis: null, applyFormatting: vi.fn(), dismissHint: vi.fn() }),
 }));
 vi.mock("./hooks/useKeyboardShortcuts", () => ({
-  useKeyboardShortcuts: () => ({ showShortcutHelp: false, closeShortcutHelp: vi.fn() }),
+  useKeyboardShortcuts: () => ({ showShortcutHelp: false, closeShortcutHelp: vi.fn(), toggleShortcutHelp: vi.fn() }),
 }));
 vi.mock("./hooks/useContinuityCheck", () => ({ useContinuityCheck: () => null }));
 vi.mock("./hooks/useSceneFolding", () => ({
   useSceneFolding: () => ({ enabled: false, isAllExpanded: true, totalScenes: 0 }),
 }));
 vi.mock("./hooks/useViewMode", () => ({
-  useViewMode: () => ({ mode: viewModeState.mode, setMode: viewModeState.setMode, isReadOnly: false, showToolbar: true, showSidebars: true }),
+  useViewMode: () => ({ mode: viewModeState.mode, setMode: viewModeState.setMode, isReadOnly: viewModeState.mode === 'read', showToolbar: viewModeState.mode !== 'read', showSidebars: viewModeState.mode === 'edit' }),
 }));
 vi.mock("./hooks/useOfflineCache", () => ({
   useOfflineCache: () => ({ hasNewerLocal: false, restoreFromLocal: vi.fn(), dismissLocalRestore: vi.fn(), isOffline: false }),
 }));
 vi.mock("./hooks/useL3Completion", () => ({ useL3Completion: vi.fn() }));
 vi.mock("./hooks/useAutoSave", () => ({
-  useAutoSave: () => ({ isSaving: false, saveError: null }),
+  useAutoSave: () => ({ save: saveDocument, isSaving: false, saveError: null }),
 }));
 vi.mock("./hooks/useDerivation", () => ({
   useDerivation: () => ({ runDerivation }),
@@ -91,12 +94,14 @@ vi.mock("./panels", () => ({ default: (props: Record<string, unknown>) => {
   rightPanelProps.current = props;
   return null;
 } }));
-vi.mock("./sidebar", () => ({ default: () => null }));
+vi.mock("./sidebar", () => ({ default: ({tab}: {tab: string}) => <div>{tab}</div> }));
 vi.mock("./views/StoryboardView", () => ({ default: () => null }));
 
 describe("ScriptEditorShell layout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    editorStoreMock.state.isDirty = false;
+    saveDocument.mockResolvedValue(true);
     loadDocument.mockResolvedValue({ type: "doc", content: [] });
     getProject.mockResolvedValue({
       id: "project-1",
@@ -146,13 +151,14 @@ describe("ScriptEditorShell layout", () => {
       { type: "doc", content: [] },
       { emitUpdate: false },
     );
-    expect(editor.setEditable).toHaveBeenCalledWith(true);
+    expect(editor.setEditable).toHaveBeenCalledWith(true, false);
   });
 
   it("loads the complete project so panels can show existing assets", async () => {
     render(<ScriptEditorShell mode="full" projectId="project-1" />);
 
     await waitFor(() => expect(getProject).toHaveBeenCalledWith("project-1"));
+    fireEvent.click(screen.getByRole('button', { name: 'shell.inspector' }));
     await waitFor(() => expect(rightPanelProps.current?.project).toMatchObject({
       title: "最后一班地铁",
       characters: [{ name: "林默" }],
@@ -181,4 +187,51 @@ describe("ScriptEditorShell layout", () => {
       { emitUpdate: false },
     ));
   });
+  it('offers a return from reading and disables editor mutations', async () => {
+    viewModeState.mode = 'read';
+    render(<ScriptEditorShell projectId="project-1" />);
+    await waitFor(() => expect(loadDocument).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'views.edit' }));
+    expect(viewModeState.setMode).toHaveBeenCalledWith('edit');
+    expect(editor.setEditable).toHaveBeenLastCalledWith(false, false);
+  });
+
+  it('imports through the actions menu and marks the parsed document unsaved', async () => {
+    const content = { type: 'doc', content: [{ type: 'action', content: [{ type: 'text', text: 'Imported draft' }] }] };
+    importDocument.mockResolvedValue({ content });
+    render(<ScriptEditorShell projectId="project-1" />);
+    await waitFor(() => expect(editor.setEditable).toHaveBeenCalledWith(true, false));
+    fireEvent.click(screen.getByRole('button', { name: 'toolbar.actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'dialogs.import.title' }));
+    expect(screen.getByRole('dialog', { name: 'dialogs.import.title' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('dialogs.import.chooseFile', { selector: 'input' }), { target: { files: [new File(['Draft'], 'draft.txt')] } });
+    expect(importDocument).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'dialogs.import.title' }));
+    await waitFor(() => expect(editor.commands.setContent).toHaveBeenLastCalledWith(content, { emitUpdate: true }));
+    expect(editorStoreMock.state.setDirty).toHaveBeenLastCalledWith(true);
+  });
+
+  it("opens the search panel on a narrow viewport from the keyboard command", async () => {
+    render(<ScriptEditorShell projectId="project-1" />);
+    await waitFor(() => expect(editorStoreMock.state.setLoading).toHaveBeenCalledWith(false));
+    act(() => document.dispatchEvent(new CustomEvent('script-editor:focus-search')));
+    expect(screen.getByRole('dialog', {name: 'shell.outline'})).toHaveTextContent('search');
+    expect(viewModeState.setMode).toHaveBeenCalledWith('edit');
+  });
+
+  it("only switches a dirty project after a successful save", async () => {
+    const changeProject = vi.fn();
+    editorStoreMock.state.isDirty = true;
+    saveDocument.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(<ScriptEditorShell projectId="project-1" onChangeProject={changeProject} />);
+    await waitFor(() => expect(editorStoreMock.state.setLoading).toHaveBeenCalledWith(false));
+    fireEvent.click(screen.getByRole('button', {name:'shell.changeProject'}));
+    fireEvent.click(screen.getByRole('button', {name:'shell.saveAndLeave'}));
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1));
+    expect(changeProject).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', {name:'shell.unsavedTitle'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'shell.saveAndLeave'}));
+    await waitFor(() => expect(changeProject).toHaveBeenCalledOnce());
+  });
+
 });

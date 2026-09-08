@@ -52,7 +52,7 @@ describe("StandaloneScriptEditor", () => {
     render(<StandaloneScriptEditor />);
 
     await waitFor(() => expect(mocks.getProjects).toHaveBeenCalledTimes(1));
-    expect(document.body.textContent).toContain("standalone.emptyTitle");
+    expect(screen.getByRole("heading", { name: "shell.title" })).toBeVisible();
     expect(document.body.textContent).toContain("standalone.selectProject");
   });
 
@@ -73,11 +73,17 @@ describe("StandaloneScriptEditor", () => {
     expect(await screen.findByTestId("bound-script-editor")).toHaveTextContent("bound:project-1");
   });
 
-  it("uses theme tokens for the project picker controls", async () => {
+  it("labels the project controls and requires a non-empty title", async () => {
     render(<StandaloneScriptEditor />);
-
-    const createButton = await screen.findByRole("button", { name: "standalone.createAndOpen" });
-    expect(createButton).toHaveClass("bg-primary", "text-on-accent", "hover:bg-primary-hover");
-    expect(createButton).not.toHaveClass("bg-indigo-600");
+    const input = await screen.findByRole('textbox', { name: 'standalone.projectTitle' });
+    const createButton = screen.getByRole('button', { name: 'standalone.createAndOpen' });
+    expect(createButton).toBeDisabled();
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(createButton).toBeDisabled();
+    fireEvent.change(input, { target: { value: '下一集' } });
+    expect(createButton).toBeEnabled();
+    const search = screen.getByRole('searchbox', { name: 'standalone.searchProjects' });
+    fireEvent.change(search, { target: { value: 'missing' } });
+    expect(screen.getByText('standalone.noMatchingProjects')).toBeVisible();
   });
 });

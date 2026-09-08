@@ -1,0 +1,7 @@
+**
+!src/**
+!config/**
+!frontend/out/**
+!docker/nginx.conf
+**/__pycache__/**
+**/*.pyc

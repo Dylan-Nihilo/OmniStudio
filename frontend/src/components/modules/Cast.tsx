@@ -18,6 +18,7 @@
  *   · NO `+ new asset` / generation modal yet (Phase 5)
  *   · NO inspector right rail yet (Q9 decision: 3-section flat, no inspector)
  */
+import { SelectField } from "@omnistudio/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, MapPin, Box, AlertTriangle, Sparkles, Plus, Upload, X, Loader2, Play, Pause, Volume2, Wand2, Layers, Maximize2 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -470,21 +471,8 @@ function AddCastPlaceholderModal({
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-text-secondary mb-1.5">
-                                    {t("fieldVoice")} <span className="text-text-muted">({t("fieldVoiceHint")})</span>
-                                </label>
-                                <select
-                                    value={voiceId}
-                                    onChange={(e) => setVoiceId(e.target.value)}
-                                    className="w-full bg-input-bg border border-glass-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
-                                >
-                                    <option value="">{t("fieldVoiceNone")}</option>
-                                    <option value="longanyang">{t("voiceLonganyang")}</option>
-                                    <option value="longshu">{t("voiceLongshu")}</option>
-                                    <option value="longtong">{t("voiceLongtong")}</option>
-                                    <option value="longfei_v2">{t("voiceLongfei")}</option>
-                                    <option value="longxiaobai_v2">{t("voiceLongxiaobai")}</option>
-                                </select>
+                                <SelectField label={t("fieldVoice")} description={t("fieldVoiceHint")} value={voiceId || "__none"} onChange={value => setVoiceId(value === "__none" ? "" : String(value))}
+                                    options={[{ id: "__none", label: t("fieldVoiceNone") }, { id: "longanyang", label: t("voiceLonganyang") }, { id: "longshu", label: t("voiceLongshu") }, { id: "longtong", label: t("voiceLongtong") }, { id: "longfei_v2", label: t("voiceLongfei") }, { id: "longxiaobai_v2", label: t("voiceLongxiaobai") }]} />
                             </div>
                         </>
                     )}

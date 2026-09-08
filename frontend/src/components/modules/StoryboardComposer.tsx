@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { SelectField, LoadingState } from "@omnistudio/ui";
+import { Fragment, useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -8,7 +9,9 @@ import {
     Trash2, Copy, Wand2, FileText, RefreshCw, Loader2, X, Lock, Unlock,
     Plus, ArrowUp, ArrowDown, Zap, Upload, Film
 } from "lucide-react";
-import { useProjectStore } from "@/store/projectStore";
+import { useProjectStore, mergeFrameStructure } from "@/store/projectStore";
+import { useAuthStore } from "@/store/authStore";
+import { useFrameStructure } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi } from "@/lib/api";
 import { getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
@@ -20,10 +23,22 @@ import StoryboardFrameEditor from "./StoryboardFrameEditor";
 export default function StoryboardComposer() {
     const t = useTranslations("storyboard");
     const tStep = useTranslations("stepHeader");
+    const tSave = useTranslations("storyboardR2V");
+    const tCommon = useTranslations("common");
     const currentProject = useProjectStore((state) => state.currentProject);
+    const structure = useFrameStructure(currentProject?.id);
     const selectedFrameId = useProjectStore((state) => state.selectedFrameId);
     const setSelectedFrameId = useProjectStore((state) => state.setSelectedFrameId);
     const updateProject = useProjectStore((state) => state.updateProject);
+    const userId = useAuthStore(state => state.user?.id);
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id);
+    const applyStructure = (frames: any[]) => {
+        const current = useProjectStore.getState().currentProject;
+        if (!current || current.id !== currentProject?.id || userId !== useAuthStore.getState().user?.id
+            || workspaceId !== useAuthStore.getState().activeWorkspace?.id) return false;
+        updateProject(current.id, { frames: mergeFrameStructure(current.frames, frames) });
+        return true;
+    };
 
     // Use global rendering state (persists across module switches)
     const renderingFrames = useProjectStore((state) => state.renderingFrames);
@@ -92,13 +107,16 @@ export default function StoryboardComposer() {
         if (!currentProject) return;
         if (!confirm(t("confirmDeleteFrame"))) return;
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            await crudApi.deleteFrame(currentProject.id, frameId);
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            const updatedProject = await crudApi.deleteFrame(currentProject.id, frameId);
+            applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to delete frame:", error);
             alert(t("deleteFrameFailed"));
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
@@ -106,31 +124,37 @@ export default function StoryboardComposer() {
         e.stopPropagation();
         if (!currentProject) return;
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            await crudApi.copyFrame(currentProject.id, frameId);
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            const updatedProject = await crudApi.copyFrame(currentProject.id, frameId);
+            applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to copy frame:", error);
             alert(t("copyFrameFailed"));
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
     const handleCreateFrame = async (data: any) => {
         if (!currentProject) return;
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            await crudApi.createFrame(currentProject.id, {
+            const updatedProject = await crudApi.createFrame(currentProject.id, {
                 ...data,
                 insert_at: insertIndex !== null ? insertIndex : undefined
             });
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            if (!applyStructure(updatedProject.frames)) return;
             setIsCreateDialogOpen(false);
             setInsertIndex(null);
         } catch (error) {
             console.error("Failed to create frame:", error);
             alert(t("createFrameFailed"));
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
@@ -148,18 +172,16 @@ export default function StoryboardComposer() {
 
         const newOrderIds = newFrames.map((f: any) => f.id);
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            // Optimistic update
-            updateProject(currentProject.id, { ...currentProject, frames: newFrames });
-
-            await crudApi.reorderFrames(currentProject.id, newOrderIds);
-            // No need to fetch again if optimistic update was correct, but good for safety
+            const updatedProject = await crudApi.reorderFrames(currentProject.id, newOrderIds);
+            applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to reorder frames:", error);
             alert(t("reorderFailed"));
-            // Revert on error would be ideal here by fetching project again
-            const project = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, project);
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
@@ -327,7 +349,7 @@ export default function StoryboardComposer() {
     };
 
     return (
-        <div className="flex flex-col h-full text-foreground overflow-hidden">
+        <div className="flex flex-col h-full text-foreground overflow-hidden" aria-busy={structure.pending}>
             <StepHeader
                 stepNumber={4}
                 totalSteps={6}
@@ -336,7 +358,8 @@ export default function StoryboardComposer() {
                 title={tStep("storyboardComposerTitle")}
                 subtitle={tStep("storyboardComposerSubtitle")}
                 trailing={(
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {structure.pending && <LoadingState inline className="shrink-0 whitespace-nowrap" label={tSave("saving")} />}
                         <span className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted">
                             <span className="text-foreground font-medium">{currentProject?.frames?.length || 0}</span>
                             <span className="ml-1.5">frames</span>
@@ -356,7 +379,7 @@ export default function StoryboardComposer() {
                             leftIcon={isAnalyzing ? undefined : <Zap />}
                             loading={isAnalyzing}
                             onClick={handleAnalyzeToStoryboard}
-                            disabled={isAnalyzing}
+                            disabled={isAnalyzing || structure.pending}
                             title={t("generateFromScript")}
                         >
                             {isAnalyzing ? t("generatingFrames") : t("generateStoryboard")}
@@ -366,7 +389,7 @@ export default function StoryboardComposer() {
             />
 
             {/* Frame List — full width */}
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8">
                 <div className="max-w-4xl mx-auto space-y-6">
                         {/* Add Frame Button (Top) */}
                         <div className="flex justify-center">
@@ -380,12 +403,11 @@ export default function StoryboardComposer() {
                         </div>
 
                         {currentProject?.frames?.map((frame: any, index: number) => (
-                            <>
+                            <Fragment key={frame.id}>
                                 <motion.div
-                                    key={frame.id}
                                     layoutId={frame.id}
                                     onClick={() => setSelectedFrameId(frame.id)}
-                                    className={`group relative flex gap-6 p-4 rounded-xl border transition-all cursor-pointer ${selectedFrameId === frame.id
+                                    className={`group relative flex flex-col xl:flex-row gap-4 p-4 rounded-xl border transition-all cursor-pointer ${selectedFrameId === frame.id
                                         ? "bg-glass border-primary ring-1 ring-primary"
                                         : "bg-surface border-border-subtle hover:border-glass-border"
                                         }`}
@@ -396,7 +418,7 @@ export default function StoryboardComposer() {
                                     </div>
 
                                     {/* Image Preview */}
-                                    <div className="w-64 aspect-video bg-surface rounded-lg border border-border-subtle overflow-hidden flex-shrink-0 relative">
+                                    <div className="w-full xl:w-64 aspect-video bg-surface rounded-lg border border-border-subtle overflow-hidden flex-shrink-0 relative">
                                         {frame.rendered_image_url || frame.image_url ? (
                                             <ImageWithRetry
                                                 key={frame.id + (frame.updated_at || 0)} // Force remount on refresh
@@ -408,7 +430,7 @@ export default function StoryboardComposer() {
                                         ) : (
                                             <div className="w-full h-full flex flex-col items-center justify-center text-text-muted gap-2">
                                                 <ImageIcon size={24} className="opacity-20" />
-                                                <span className="text-[0.625rem]">{t("noImage", { defaultMessage: "No Image" })}</span>
+                                                <span className="text-[0.625rem]">{t("noImage")}</span>
                                             </div>
                                         )
 
@@ -466,7 +488,7 @@ export default function StoryboardComposer() {
                                     </div>
 
                                     {/* Content */}
-                                    <div className="flex-1 flex flex-col gap-3">
+                                    <div className="min-w-0 flex-1 flex flex-col gap-3">
                                         <div className="flex items-start justify-between">
                                             <div className="space-y-1">
                                                 <div className="flex items-center gap-2">
@@ -491,11 +513,12 @@ export default function StoryboardComposer() {
                                         )}
 
                                         {/* Frame Actions */}
-                                        <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-border-subtle">
+                                        <div className="flex flex-wrap justify-end gap-2 mt-2 pt-2 border-t border-border-subtle">
                                             <div className="flex items-center gap-1 mr-auto">
                                                 <button
                                                     onClick={(e) => handleMoveFrame(index, 'up', e)}
-                                                    disabled={index === 0}
+                                                    disabled={structure.pending || index === 0}
+                                                    aria-label={t("moveUp")}
                                                     className="btn-tip p-2 hover:bg-hover-bg text-text-secondary hover:text-foreground rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                                                     data-tip={t("moveUp")}
                                                 >
@@ -503,7 +526,8 @@ export default function StoryboardComposer() {
                                                 </button>
                                                 <button
                                                     onClick={(e) => handleMoveFrame(index, 'down', e)}
-                                                    disabled={index === (currentProject.frames?.length || 0) - 1}
+                                                    disabled={structure.pending || index === (currentProject.frames?.length || 0) - 1}
+                                                    aria-label={t("moveDown")}
                                                     className="btn-tip p-2 hover:bg-hover-bg text-text-secondary hover:text-foreground rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                                                     data-tip={t("moveDown")}
                                                 >
@@ -513,6 +537,8 @@ export default function StoryboardComposer() {
 
                                             <button
                                                 onClick={(e) => handleCopyFrame(frame.id, e)}
+                                                disabled={structure.pending}
+                                                aria-label={t("duplicateFrame")}
                                                 className="btn-tip p-2 hover:bg-hover-bg text-text-secondary hover:text-foreground rounded-lg transition-colors"
                                                 data-tip={t("duplicateFrame")}
                                             >
@@ -543,6 +569,8 @@ export default function StoryboardComposer() {
                                             })()}
                                             <button
                                                 onClick={(e) => handleDeleteFrame(frame.id, e)}
+                                                disabled={structure.pending}
+                                                aria-label={tCommon("delete")}
                                                 className="btn-tip p-2 hover:bg-red-500/20 text-text-secondary hover:text-red-400 rounded-lg transition-colors"
                                                 data-tip="Delete"
                                             >
@@ -562,7 +590,7 @@ export default function StoryboardComposer() {
                                         <Plus size={16} />
                                     </button>
                                 </div>
-                            </>
+                            </Fragment>
                         ))}
                 </div>
             </div>
@@ -690,17 +718,8 @@ function CreateFrameDialog({ onClose, onCreate, scenes }: { onClose: () => void;
 
                 <div className="p-6 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-text-secondary mb-2">Scene</label>
-                        <select
-                            value={sceneId}
-                            onChange={(e) => setSceneId(e.target.value)}
-                            className="w-full px-4 py-3 bg-input-bg border border-glass-border rounded-lg text-foreground focus:border-primary/50 focus:outline-none appearance-none"
-                        >
-                            <option value="" disabled>Select a scene</option>
-                            {scenes.map((s: any) => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                        </select>
+                        <SelectField label="Scene" value={sceneId || null} placeholder="Select a scene" onChange={value => setSceneId(String(value))}
+                            options={scenes.map((scene: { id: string; name: string }) => ({ id: scene.id, label: scene.name }))} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-text-secondary mb-2">Action Description *</label>

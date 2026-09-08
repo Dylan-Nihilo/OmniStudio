@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -177,10 +178,12 @@ def test_pipeline_routes_minimax_to_moma_adapter(monkeypatch):
 
     monkeypatch.setattr("src.models.moma.MomaVideoModel", FakeMomaModel)
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     pipeline.scripts = {
         "script-1": SimpleNamespace(
             id="script-1",
             video_tasks=[task],
+            frames=[],
             characters=[],
             scenes=[],
             props=[],
@@ -221,10 +224,12 @@ def test_pipeline_keeps_minimax_for_direct_r2v_and_forwards_reference_images(mon
 
     monkeypatch.setattr("src.models.moma.MomaVideoModel", FakeMomaModel)
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     pipeline.scripts = {
         "script-1": SimpleNamespace(
             id="script-1",
             video_tasks=[task],
+            frames=[],
             characters=[],
             scenes=[],
             props=[],
@@ -246,6 +251,7 @@ def test_pipeline_keeps_minimax_for_direct_r2v_and_forwards_reference_images(mon
 
 def test_create_video_task_does_not_replace_multimodal_minimax_with_wan():
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     script = SimpleNamespace(
         id="script-1",
         frames=[SimpleNamespace(id="frame-1", dialogue="", dialogue_structured=None)],

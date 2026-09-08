@@ -20,8 +20,10 @@ export function shouldShowLocalCacheHint(
   cacheTimestamp: number,
   now: number,
   dismissedAt: number | null,
+  serverUpdatedAt = 0,
 ): boolean {
-  return now - cacheTimestamp < LOCAL_CACHE_MAX_AGE
+  return cacheTimestamp > serverUpdatedAt
+    && now - cacheTimestamp < LOCAL_CACHE_MAX_AGE
     && (!dismissedAt || dismissedAt < cacheTimestamp);
 }
 
@@ -41,51 +43,43 @@ function openDB(): Promise<IDBDatabase> {
 
 async function getCache(projectId: string): Promise<CachedDocument | undefined> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.get(projectId);
-    req.onsuccess = () => resolve(req.result as CachedDocument | undefined);
-    req.onerror = () => reject(req.error);
-  });
+  try {
+    return await new Promise<CachedDocument | undefined>((resolve, reject) => {
+      const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(projectId);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  } finally { db.close(); }
 }
 
 async function setCache(doc: CachedDocument): Promise<void> {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.put(doc);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+      tx.objectStore(STORE_NAME).put(doc);
+    });
+  } finally { db.close(); }
 }
 
-/**
- * IndexedDB 离线缓存 Hook
- *
- * 功能：
- * 1. 每次 autoSave 成功后，同时写入 IndexedDB
- * 2. 编辑器初始化时，检查本地缓存 vs 服务器数据的 timestamp
- * 3. 如果本地更新 → 显示恢复提示条
- * 4. 网络离线时继续写入 IndexedDB
- * 5. 网络恢复（online 事件）时自动同步到服务器
- */
-export function useOfflineCache(projectId: string | undefined, editor: Editor | null) {
+/** Cache edits locally and offer recovery when they are newer than the loaded document. */
+export function useOfflineCache(projectId: string | undefined, editor: Editor | null, serverDocument: object | null = null, serverUpdatedAt = 0) {
   const [hasNewerLocal, setHasNewerLocal] = useState(false);
   const [isOffline, setIsOffline] = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
   const cachedContentRef = useRef<object | null>(null);
   const cachedTimestampRef = useRef<number | null>(null);
-  const syncPendingRef = useRef(false);
+  const activeProjectRef = useRef(projectId);
+  activeProjectRef.current = projectId;
 
   // Monitor online/offline status
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false);
-      // Trigger sync when coming back online
-      syncPendingRef.current = true;
     };
     const handleOffline = () => setIsOffline(true);
 
@@ -99,12 +93,15 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
 
   // On mount or projectId change, check local cache
   useEffect(() => {
-    if (!projectId) return;
-
+    setHasNewerLocal(false);
+    cachedContentRef.current = null;
+    cachedTimestampRef.current = null;
+    if (!projectId || !serverDocument) return;
+    let cancelled = false;
     (async () => {
       try {
         const cached = await getCache(projectId);
-        if (cached) {
+        if (!cancelled && cached && JSON.stringify(cached.content) !== JSON.stringify(serverDocument)) {
           cachedContentRef.current = cached.content;
           cachedTimestampRef.current = cached.timestamp;
           let dismissedAt: number | null = null;
@@ -114,7 +111,7 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
           } catch {
             // Local storage can be unavailable in restricted contexts.
           }
-          if (shouldShowLocalCacheHint(cached.timestamp, Date.now(), dismissedAt)) {
+          if (shouldShowLocalCacheHint(cached.timestamp, Date.now(), dismissedAt, serverUpdatedAt)) {
             setHasNewerLocal(true);
           }
         }
@@ -122,9 +119,10 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
         // IndexedDB unavailable, ignore
       }
     })();
-  }, [projectId]);
+    return () => { cancelled = true; };
+  }, [projectId, serverDocument, serverUpdatedAt]);
 
-  // Save to local cache (called externally after each successful save or on edits while offline)
+  // Save to local cache (called externally after each successful save or on edits)
   const saveToLocal = useCallback(
     async (content: object, wordCount: number) => {
       if (!projectId) return;
@@ -135,6 +133,7 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
           timestamp: Date.now(),
           wordCount,
         });
+        if (activeProjectRef.current !== projectId) return;
         cachedContentRef.current = content;
         cachedTimestampRef.current = Date.now();
       } catch {
@@ -144,21 +143,23 @@ export function useOfflineCache(projectId: string | undefined, editor: Editor | 
     [projectId]
   );
 
-  // Auto-save to IndexedDB when editor content changes and offline
+  // Keep pending edits recoverable even when an in-app route change unmounts the editor.
   useEffect(() => {
-    if (!editor || !projectId || !isOffline) return;
-
+    if (!editor || !projectId) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending: { content: object; wordCount: number } | null = null;
+    const flush = () => {
+      if (pending) void saveToLocal(pending.content, pending.wordCount);
+      pending = null;
+    };
     const handleUpdate = () => {
-      const content = editor.getJSON();
-      const text = editor.getText();
-      saveToLocal(content, text.length);
+      pending = { content: editor.getJSON(), wordCount: editor.getText().length };
+      clearTimeout(timer);
+      timer = setTimeout(flush, 500);
     };
-
     editor.on('update', handleUpdate);
-    return () => {
-      editor.off('update', handleUpdate);
-    };
-  }, [editor, projectId, isOffline, saveToLocal]);
+    return () => { editor.off('update', handleUpdate); clearTimeout(timer); flush(); };
+  }, [editor, projectId, saveToLocal]);
 
   // Restore from local cache
   const restoreFromLocal = useCallback(() => {

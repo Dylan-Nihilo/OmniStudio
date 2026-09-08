@@ -8,14 +8,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh" className="atelier-dark" suppressHydrationWarning>
+    <html lang="zh" className="v3-paper omni-ui" suppressHydrationWarning>
       <head>
         <title>Omni Studio | 漫象工坊</title>
         <meta name="description" content="AI-native motion comic creation platform by Wanxiang Silicon Core Technology" />
         <link rel="icon" type="image/png" href="/omni-studio-logo.png" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var P=["atelier-dark","bridge-dark","brand-dark","atelier-light","brand-light"];var d=JSON.parse(localStorage.getItem("omni_studio-settings")||"{}");var s=d.state||{};var t=s.theme;var m=s.themeMode;if(m==="system"){var dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;t=dark?s.darkTheme:s.lightTheme;}document.documentElement.className=P.indexOf(t)>=0?t:"atelier-dark";}catch(e){document.documentElement.className="atelier-dark";}})();`,
+            __html: `(function(){try{var P=["v3-paper","atelier-dark","bridge-dark","brand-dark","atelier-light","brand-light"];var d=JSON.parse(localStorage.getItem("omni_studio-settings")||"{}");var s=d.state||{};var t=s.theme;var m=s.themeMode;if(m==="system"){var dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;t=dark?s.darkTheme:s.lightTheme;}document.documentElement.className=(P.indexOf(t)>=0?t:"v3-paper")+" omni-ui";}catch(e){document.documentElement.className="v3-paper omni-ui";}})();`,
           }}
         />
         {/* Desktop app: compact font-size for embedded windows (Tauri / pywebview).

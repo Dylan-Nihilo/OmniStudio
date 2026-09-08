@@ -1,17 +1,13 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Button, Dialog } from '@omnistudio/ui'
 import {
-  X,
   FileText,
   FileCode,
   FileDown,
   Printer,
   FileSpreadsheet,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
 } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import { useTranslations } from 'next-intl'
@@ -40,7 +36,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
     id: 'fountain',
     label: 'Fountain',
     descKey: 'dialogs.export.fountainDesc',
-    icon: <FileText size={20} className="text-green-400" />,
+    icon: <FileText size={20} className="text-primary" />,
     ext: '.fountain',
     backend: false,
   },
@@ -48,7 +44,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
     id: 'fdx',
     label: 'Final Draft (FDX)',
     descKey: 'dialogs.export.fdxDesc',
-    icon: <FileCode size={20} className="text-blue-400" />,
+    icon: <FileCode size={20} className="text-primary" />,
     ext: '.fdx',
     backend: false,
   },
@@ -56,7 +52,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
     id: 'txt',
     labelKey: 'dialogs.export.txtLabel',
     descKey: 'dialogs.export.txtDesc',
-    icon: <FileDown size={20} className="text-gray-400" />,
+    icon: <FileDown size={20} className="text-primary" />,
     ext: '.txt',
     backend: false,
   },
@@ -64,7 +60,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
     id: 'pdf',
     label: 'PDF',
     descKey: 'dialogs.export.pdfDesc',
-    icon: <Printer size={20} className="text-red-400" />,
+    icon: <Printer size={20} className="text-primary" />,
     ext: '.pdf',
     backend: true,
   },
@@ -72,7 +68,7 @@ const FORMAT_OPTIONS: FormatOption[] = [
     id: 'docx',
     label: 'DOCX',
     descKey: 'dialogs.export.docxDesc',
-    icon: <FileSpreadsheet size={20} className="text-indigo-400" />,
+    icon: <FileSpreadsheet size={20} className="text-primary" />,
     ext: '.docx',
     backend: true,
   },
@@ -98,6 +94,7 @@ function downloadText(content: string, filename: string, mimeType = 'text/plain'
 
 export default function ExportDialog({ open, onClose, projectId, editor }: ExportDialogProps) {
   const t = useTranslations('scriptEditor')
+  const tc = useTranslations('common')
   const [status, setStatus] = useState<'idle' | 'exporting' | 'success' | 'error'>('idle')
   const [activeFormat, setActiveFormat] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
@@ -111,7 +108,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
 
   const handleExport = useCallback(
     async (format: FormatOption) => {
-      if (!editor) return
+      if (!editor || status === 'exporting') return
 
       setActiveFormat(format.id)
       setStatus('exporting')
@@ -132,7 +129,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
               content = toFDX(doc)
               downloadText(content, filename, 'application/xml')
               setStatus('success')
-              setTimeout(handleClose, 800)
+              handleClose()
               return
             case 'txt':
               content = toPlainText(doc)
@@ -142,111 +139,32 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
           }
           downloadText(content, filename)
           setStatus('success')
-          setTimeout(handleClose, 800)
+          handleClose()
         } else {
           // Backend export (PDF/DOCX)
           const blob = await scriptEditorApi.exportDocument(projectId, doc, format.id)
           downloadBlob(blob, filename)
           setStatus('success')
-          setTimeout(handleClose, 800)
+          handleClose()
         }
       } catch (e: any) {
         setStatus('error')
         setErrorMsg(e?.response?.data?.detail || e?.message || t('dialogs.export.failed'))
       }
     },
-    [editor, projectId, handleClose]
+    [editor, projectId, handleClose, status, t]
   )
 
   if (!open) return null
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-overlay backdrop-blur-sm" onClick={handleClose} />
-
-          {/* Dialog */}
-          <motion.div
-            className="relative z-10 w-full max-w-md rounded-2xl border border-glass-border bg-surface p-6 shadow-2xl backdrop-blur-xl"
-            initial={{ scale: 0.95, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.95, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-foreground">{t('dialogs.export.title')}</h2>
-              <button
-                onClick={handleClose}
-                className="rounded-lg p-1.5 text-text-secondary hover:bg-hover-bg hover:text-foreground transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Format list */}
-            <div className="space-y-2">
-              {FORMAT_OPTIONS.map((format) => {
-                const isActive = activeFormat === format.id
-                const isExporting = isActive && status === 'exporting'
-                const isSuccess = isActive && status === 'success'
-                const isError = isActive && status === 'error'
-
-                return (
-                  <button
-                    key={format.id}
-                    onClick={() => handleExport(format)}
-                    disabled={status === 'exporting'}
-                    className={`
-                      w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all
-                      ${isActive
-                        ? isError
-                          ? 'border border-red-500/30 bg-red-500/10'
-                          : isSuccess
-                            ? 'border border-green-500/30 bg-green-500/10'
-                            : 'border border-blue-500/30 bg-blue-500/10'
-                        : 'border border-border-subtle bg-glass hover:bg-hover-bg hover:border-glass-border'
-                      }
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                    `}
-                  >
-                    <div className="shrink-0">
-                      {isExporting ? (
-                        <Loader2 size={20} className="text-blue-400 animate-spin" />
-                      ) : isSuccess ? (
-                        <CheckCircle2 size={20} className="text-green-400" />
-                      ) : isError ? (
-                        <AlertCircle size={20} className="text-red-400" />
-                      ) : (
-                        format.icon
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground">{format.labelKey ? t(format.labelKey) : format.label}</p>
-                      <p className="text-xs text-text-muted truncate">
-                        {isError ? errorMsg : t(format.descKey)}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-xs text-text-muted">{format.ext}</span>
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Footer */}
-            <p className="mt-4 text-xs text-text-muted text-center">
-              {t('dialogs.export.footer')}
-            </p>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
+  return <Dialog isOpen={open} onOpenChange={isOpen => { if (!isOpen) handleClose(); }} isDismissable={status !== 'exporting'} title={t('dialogs.export.title')} closeLabel={tc('close')}>
+    <div className="divide-y divide-border-subtle">
+      {FORMAT_OPTIONS.map(format => <Button key={format.id} variant="quiet" isDisabled={!editor || status === 'exporting'} isPending={activeFormat === format.id && status === 'exporting'} className="h-auto w-full justify-start gap-3 rounded-none py-4 text-left whitespace-normal" onPress={() => handleExport(format)}>
+        {format.icon}
+        <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{format.labelKey ? t(format.labelKey) : format.label}</span><span className="mt-1 block text-xs font-normal text-text-muted">{t(format.descKey)}</span></span>
+        <span className="font-mono text-xs text-text-muted">{format.ext}</span>
+      </Button>)}
+    </div>
+    {status === 'error' && <p role="alert" className="mt-3 text-sm text-status-failed-fg">{errorMsg}</p>}
+  </Dialog>
 }

@@ -1,3 +1,4 @@
+import threading
 import base64
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ def _write_output_png(rel_path: str) -> str:
 
 def _build_pipeline(script: Script, wanx_model: WanxModel) -> ComicGenPipeline:
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     pipeline.scripts = {script.id: script}
     pipeline._save_data = lambda: None
     pipeline._kling_model = None
