@@ -445,6 +445,7 @@ async function injectDefaultsIntoProject(projectId: string): Promise<Project | n
 }
 
 let selectionRequest = 0;
+let seriesRequest = 0;
 
 export const useProjectStore = create<ProjectStore>()(
     persist(
@@ -548,13 +549,15 @@ export const useProjectStore = create<ProjectStore>()(
 
             selectProject: async (id: string) => {
                 const request = ++selectionRequest;
+                const scope = projectStorageScope();
+                seriesRequest += 1;
                 const cachedProject = get().projects.find((p) => p.id === id);
                 set(state => ({ currentProject: cachedProject ?? null, ...(state.currentProject?.id !== id ? { pendingExtraction: null, pendingExtractionScript: null } : {}) }));
 
                 // Then fetch latest data from backend
                 try {
                     const latestProject = await api.getProject(id);
-                    if (request !== selectionRequest) return false;
+                    if (request !== selectionRequest || scope !== projectStorageScope()) return false;
 
                     // Update both currentProject and projects array with latest data
                     set((state) => ({
@@ -697,8 +700,10 @@ export const useProjectStore = create<ProjectStore>()(
             currentSeries: null,
 
             fetchSeriesList: async () => {
+                const scope = projectStorageScope();
                 try {
                     const seriesList = await api.listSeries();
+                    if (scope !== projectStorageScope()) return;
                     set({ seriesList });
                 } catch (error) {
                     console.error('Failed to fetch series list:', error);
@@ -706,8 +711,11 @@ export const useProjectStore = create<ProjectStore>()(
             },
 
             fetchSeries: async (id: string) => {
+                const scope = projectStorageScope();
+                const request = ++seriesRequest;
                 try {
                     const series = await api.getSeries(id);
+                    if (scope !== projectStorageScope() || request !== seriesRequest) return;
                     set((state) => ({
                         currentSeries: series,
                         seriesList: state.seriesList.some((s) => s.id === id)

@@ -241,7 +241,7 @@ function AuthenticatedHome() {
           onConfirm:async title => { await api.convertProjectToSeries(project.id, title); await syncAll(); }};
       } else {
         const preview = kind === "purge" ? await api.getProjectPurgeImpact(project.id) : await api.getProjectArchiveImpact(project.id);
-        action = {title:tp(kind), description:preview.message + "\n\n" + tp("retainedCounts", preview.impact) + (kind === "purge" ? "\n\n" + tp("purgeWarning") : ""), danger:kind === "purge", onClose:close,
+        action = {title:`${tp(kind)} · ${preview.title || project.title}`, description:preview.message + "\n\n" + tp("retainedCounts", preview.impact) + (kind === "purge" ? "\n\n" + tp("purgeWarning") : ""), danger:kind === "purge", onClose:close,
           onConfirm:async () => {
             if (kind === "archive") { await api.archiveProject(project.id); await syncAll(); return; }
             if (!("confirmation_token" in preview) || typeof preview.confirmation_token !== "string") throw new Error(tp("actionFailed"));

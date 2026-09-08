@@ -1,4 +1,4 @@
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, it, expect, beforeEach } from 'vitest';
 import { renderWithIntl } from '@/test/renderWithIntl';
 import SeriesDetailPage from '../SeriesDetailPage';
@@ -96,4 +96,19 @@ it('supports Escape cancellation without saving and gives an empty series a crea
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(mocks.createEpisodeForSeries).not.toHaveBeenCalled();
+});
+
+it('keeps the current archive confirmation when an older default preview arrives', async () => {
+  let finish!: (value: object) => void;
+  mocks.previewEpisodeDefaultPromotion.mockReturnValue(new Promise(resolve => {finish=resolve;}));
+  renderPage();
+  await screen.findByRole('heading', {name:'测试系列',level:1});
+  fireEvent.click(screen.getByRole('button', {name:'第 1 集操作'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name:'设为系列默认'}));
+  fireEvent.click(screen.getByRole('button', {name:'第 1 集操作'}));
+  fireEvent.click(await screen.findByRole('menuitem', {name:'归档'}));
+  expect(await screen.findByRole('dialog', {name:'归档'})).toBeVisible();
+  await act(async () => finish({sections:['model_settings'],changes:{model_settings:{before:{},after:{}}}}));
+  expect(screen.getByRole('dialog', {name:'归档'})).toBeVisible();
+  expect(mocks.promoteEpisodeDefaults).not.toHaveBeenCalled();
 });

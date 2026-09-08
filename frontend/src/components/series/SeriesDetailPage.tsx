@@ -75,19 +75,22 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
     [order[from], order[to]] = [order[to], order[from]];
     void perform(() => api.reorderSeriesEpisodes(seriesId, order.map(item => item.id)));
   };
+  const closeAction = () => { actionRequest.current += 1; setAction(null); };
   const toggleEpisodeArchive = (episode: Project) => {
+    closeAction();
     if (episode.archived) { void perform(() => api.restoreSeriesEpisode(seriesId, episode.id)); return; }
-    setAction({title:tp("archive"), description:t("archiveEpisodeHint", {title:episode.title}), onClose:() => setAction(null),
+    setAction({title:tp("archive"), description:t("archiveEpisodeHint", {title:episode.title}), onClose:closeAction,
       onConfirm:async () => { await api.archiveSeriesEpisode(seriesId, episode.id); refresh(); }});
   };
   const toggleSeriesArchive = async () => {
     if (!series) return;
+    closeAction();
     if (series.archived) { void perform(() => api.restoreSeries(seriesId)); return; }
     const request = ++actionRequest.current;
     try {
       const preview = await api.getSeriesArchiveImpact(seriesId);
       if (request !== actionRequest.current) return;
-      setAction({title:tp("archive"), description:preview.message + "\n\n" + tp("retainedCounts", preview.impact), onClose:() => setAction(null),
+      setAction({title:tp("archive"), description:preview.message + "\n\n" + tp("retainedCounts", preview.impact), onClose:closeAction,
         onConfirm:async () => { await api.archiveSeries(seriesId); refresh(); }});
     } catch { if (request === actionRequest.current) toast.error(tp("actionFailed")); }
   };
@@ -98,12 +101,13 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
       if (request !== actionRequest.current) return;
       const labels: Record<string,string> = {model_settings:ts("genSettings"), prompt_config:ts("promptConfig"), art_direction:t("art_direction"), workflow_mode:t("workflow"), default_generation_mode:t("generationMode")};
       const changes = Object.keys(preview.changes).map(key => labels[key] || key).join("、");
-      setAction({title:t("promoteDefaults"), description:t("promoteHint", {title:episode.title, changes:changes || t("noDefaultChanges")}), onClose:() => setAction(null),
+      setAction({title:t("promoteDefaults"), description:t("promoteHint", {title:episode.title, changes:changes || t("noDefaultChanges")}), onClose:closeAction,
         onConfirm:async () => { await api.promoteEpisodeDefaults(seriesId, episode.id, preview.sections); refresh(); toast.success(t("defaultsPromoted")); }});
     } catch { if (request === actionRequest.current) toast.error(tp("actionFailed")); }
   };
 
   const openDialog = (value: "edit" | "episode") => {
+    closeAction();
     setTitle(value === "edit" ? series?.title || "" : "");
     setDescription(series?.description || "");
     setSaveError(false);
@@ -161,9 +165,9 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
             {sections.map(item => <Button key={item} variant="quiet" aria-pressed={section === item} onPress={() => setSection(item)}>{t(item)}</Button>)}
             <ActionMenu label={t("moreSettings")} className={styles.moreSettings} items={[
               { id: "archive", label: tp(series.archived ? "restore" : "archive"), isDisabled: !online || actionBusy, onAction: () => { void toggleSeriesArchive(); } },
-              { id: "model", label: ts("genSettings"), isDisabled: !online, onAction: () => setSettings("model") },
-              { id: "prompt", label: ts("promptConfig"), isDisabled: !online, onAction: () => setSettings("prompt") },
-              { id: "import", label: ts("importAssets"), isDisabled: !online, onAction: () => setSettings("import") },
+              { id: "model", label: ts("genSettings"), isDisabled: !online, onAction: () => { closeAction(); setSettings("model"); } },
+              { id: "prompt", label: ts("promptConfig"), isDisabled: !online, onAction: () => { closeAction(); setSettings("prompt"); } },
+              { id: "import", label: ts("importAssets"), isDisabled: !online, onAction: () => { closeAction(); setSettings("import"); } },
             ]} />
           </nav>
           <PageTransition transitionKey={section}>
@@ -176,10 +180,10 @@ export default function SeriesDetailPage({ seriesId }: { seriesId: string }) {
                 <div className={styles.episodeCopy}><p>{t("episode", { number: episode.episode_number || 0 })}</p><h3>{episode.title}</h3><span>{episode.originalText || (episode as Project & { original_text?: string }).original_text || t("emptyScript")}</span></div>
                 <div className={styles.episodeMeta}><span>{t("shotProgress", { ready: progress.images, total: progress.total })}</span><StatusBadge tone={status === "completed" ? "success" : status === "processing" ? "info" : "neutral"}>{episode.archived ? tp("archived") : t(status)}</StatusBadge></div><ChevronRight size={18} />
               </a><ActionMenu label={t("episodeActions", {number:episode.episode_number || index + 1})} items={[
-                {id:"up", label:t("moveUp"), isDisabled:!online || actionBusy || index === 0, onAction:() => moveEpisode(episode, -1)},
-                {id:"down", label:t("moveDown"), isDisabled:!online || actionBusy || index === ordered.length - 1, onAction:() => moveEpisode(episode, 1)},
-                {id:"archive", label:tp(episode.archived ? "restore" : "archive"), isDisabled:!online || actionBusy, onAction:() => toggleEpisodeArchive(episode)},
-                {id:"defaults", label:t("promoteDefaults"), isDisabled:!online || actionBusy, onAction:() => { void promoteDefaults(episode); }},
+                {id:"up", label:t("moveUp"), isDisabled:!online || loading || loadError || actionBusy || index === 0, onAction:() => moveEpisode(episode, -1)},
+                {id:"down", label:t("moveDown"), isDisabled:!online || loading || loadError || actionBusy || index === ordered.length - 1, onAction:() => moveEpisode(episode, 1)},
+                {id:"archive", label:tp(episode.archived ? "restore" : "archive"), isDisabled:!online || loading || loadError || actionBusy, onAction:() => toggleEpisodeArchive(episode)},
+                {id:"defaults", label:t("promoteDefaults"), isDisabled:!online || loading || loadError || actionBusy, onAction:() => { void promoteDefaults(episode); }},
               ]} /></li>;
             })}</ol> : <EmptyState title={ts("noEpisodes")} description={t("emptyEpisodes")} media={<Film size={30} />} /> : section === "art_direction" ? <SeriesArtDirectionPanel seriesId={seriesId} onSaved={refresh} /> : assets?.length ? <><p className={styles.assetHint}>{ts("sharedAssetsEditHint")}</p><div className={styles.assets}>{assets.map(asset => <AssetCard key={asset.id} asset={asset} type={section as "characters" | "scenes" | "props"} />)}</div></> : <EmptyState title={ts("noAssets", { label: t(section) })} description={ts("assetsSharedHint")} media={<ImageIcon size={28} />} />}
           </PageTransition>

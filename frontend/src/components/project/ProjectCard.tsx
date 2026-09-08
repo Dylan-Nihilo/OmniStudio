@@ -1,13 +1,14 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Play, Film, Clock, Ellipsis, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Project } from "@/store/projectStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { getAssetUrl } from "@/lib/utils";
 import { coverGradient, GRAIN_URL } from "@/lib/atelierCover";
+import { toast } from "@/store/toastStore";
 import { api } from "@/lib/api";
 import { projectHref } from "@/lib/workspaceOverview";
 import { ActionMenu } from "@omnistudio/ui";
@@ -78,15 +79,19 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
     // gradient cover (same as no-image) instead of the ugly broken-img glyph.
     const [coverError, setCoverError] = useState(false);
 
-    const handleToggleStar = async (e: React.MouseEvent) => {
-        e.stopPropagation();
+    const starPending = useRef(false);
+    const handleToggleStar = async (e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        if (starPending.current) return;
+        starPending.current = true;
         const prev = starred;
         setStarred(!prev); // optimistic
         try {
             await api.toggleProjectStarred(project.id);
         } catch {
             setStarred(prev); // rollback on failure
-        }
+            toast.error(t("actionFailed"));
+        } finally { starPending.current = false; }
     };
 
     const handleOpen = () => {
@@ -96,7 +101,7 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
         window.location.hash = projectHref(project);
     };
 
-    const badge = project.archived ? { label: "已归档", cls: "text-text-secondary bg-surface-inset border-glass-border" } : {
+    const badge = project.archived ? { label: t("archived"), cls: "text-text-secondary bg-surface-inset border-glass-border" } : {
         completed: { label: t("statusCompleted"), cls: "text-status-completed-fg bg-status-completed-bg border-status-completed-border" },
         processing: { label: t("statusProcessing"), cls: "text-status-processing-fg bg-status-processing-bg border-status-processing-border" },
         pending: { label: t("statusDraft"), cls: "text-status-pending-fg bg-status-pending-bg border-status-pending-border" },
@@ -114,6 +119,7 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
 
     const actions = <div onClick={event => event.stopPropagation()}><ActionMenu label={t("moreActions")} icon={<Ellipsis size={18} />} items={[
         { id: "open", label: tCommon("open"), onAction: handleOpen },
+        { id: "star", label: t(starred ? "unstar" : "star"), onAction: () => { void handleToggleStar(); } },
         { id: "rename", label: t("rename"), onAction: () => onRename(project) },
         ...(!project.series_id && onConvert ? [{ id: "convert", label: t("convertToSeries"), onAction: () => onConvert(project) }] : []),
         { id: "archive", label: t(project.archived ? "restore" : "archive"), onAction: () => project.archived ? onRestore(project) : onArchive(project) },
