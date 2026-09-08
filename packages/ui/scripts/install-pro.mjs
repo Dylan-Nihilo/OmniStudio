@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { parseEnv } from 'node:util';
 import { PRODUCTS } from 'hpsetup/src/constants.js';
 import { downloadFromProxy } from 'hpsetup/src/download.js';
 import { patchPackageJson } from 'hpsetup/src/patch.js';
 
-const key = process.env.HEROUI_KEY;
+let key = process.env.HEROUI_KEY;
 try {
   const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
   const manifest = readJson('package.json');
@@ -19,7 +20,11 @@ try {
       return existsSync(path) && statSync(path).isFile() && statSync(path).size > 0;
     });
   if (process.argv.includes('--if-missing') && hasArtifacts()) process.exit(0);
-  assert(key, 'HEROUI_KEY is required for the configured Pro distribution.');
+  const root = resolve(manifest.name === '@omnistudio/ui' ? '../..' : '..');
+  for (const file of [resolve('.env.local'), join(root, '.env.local'), resolve('.env'), join(root, '.env')]) {
+    if (!key && existsSync(file)) key = parseEnv(readFileSync(file, 'utf8')).HEROUI_KEY;
+  }
+  assert(key, 'HEROUI_KEY is required in the environment or .env.local for the configured Pro distribution.');
   assert.equal(readJson(join(target, 'package.json')).version, version, 'Run npm ci with the pinned Pro version first.');
 
   // Use the existing distributor without the CLI's automatic dependency upgrades.
