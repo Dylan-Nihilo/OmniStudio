@@ -2027,67 +2027,60 @@ class ComicGenPipeline:
         return script
 
     def add_frame(self, script_id: str, scene_id: str = None, action_description: str = "", camera_angle: str = "medium_shot", insert_at: int = None) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        new_frame = StoryboardFrame(
-            id=f"frame_{uuid.uuid4().hex[:8]}",
-            scene_id=scene_id or (script.scenes[0].id if script.scenes else ""),
-            character_ids=[],
-            action_description=action_description,
-            camera_angle=camera_angle
-        )
-        
-        if insert_at is not None and 0 <= insert_at <= len(script.frames):
-            script.frames.insert(insert_at, new_frame)
-        else:
-            script.frames.append(new_frame)
-            
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            if insert_at is not None and not 0 <= insert_at <= len(script.frames):
+                raise ValueError("分镜插入位置已失效，请刷新后重试")
+            new_frame = StoryboardFrame(
+                id=f"frame_{uuid.uuid4().hex[:8]}",
+                scene_id=scene_id or (script.scenes[0].id if script.scenes else ""),
+                character_ids=[],
+                action_description=action_description,
+                camera_angle=camera_angle,
+            )
+            frames = list(script.frames)
+            frames.insert(len(frames) if insert_at is None else insert_at, new_frame)
+            self._save_fields(script, frames=frames)
+            return script
 
     def copy_frame(self, script_id: str, frame_id: str, insert_at: int = None) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-            
-        original_frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not original_frame:
-            raise ValueError(f"Frame {frame_id} not found")
-            
-        # Create a deep copy with new ID
-        new_frame = original_frame.copy()
-        new_frame.id = f"frame_{uuid.uuid4().hex[:8]}"
-        new_frame.updated_at = time.time()
-        # Reset generation status and URLs for the copy? 
-        # Usually copy implies copying content, but maybe we want to keep the image?
-        # Let's keep the image/content but reset status if it was processing?
-        # Actually, if we copy, we probably want the same image reference initially.
-        # But we should reset the "locked" status maybe?
-        new_frame.locked = False
-        
-        if insert_at is not None and 0 <= insert_at <= len(script.frames):
-            script.frames.insert(insert_at, new_frame)
-        else:
-            # Insert after the original frame by default
-            try:
-                original_index = script.frames.index(original_frame)
-                script.frames.insert(original_index + 1, new_frame)
-            except ValueError:
-                script.frames.append(new_frame)
-                
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            original_frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not original_frame:
+                raise LookupError(f"Frame {frame_id} not found")
+            if insert_at is not None and not 0 <= insert_at <= len(script.frames):
+                raise ValueError("分镜插入位置已失效，请刷新后重试")
+            # Reuse saved content and media, but jobs and video takes belong to the source frame.
+            new_frame = original_frame.model_copy(deep=True, update={
+                "id": f"frame_{uuid.uuid4().hex[:8]}", "updated_at": time.time(), "locked": False,
+                "status": GenerationStatus.COMPLETED if original_frame.status == GenerationStatus.COMPLETED else GenerationStatus.PENDING,
+                "selected_video_id": None, "final_take_id": None, "is_video_pinned": False,
+                "dubbed_video_url": None, "dubbed_video_task_id": None,
+                "preview_video_url": None, "preview_audio_url": None, "preview_video_task_id": None,
+                "preview_source_video_url": None, "preview_offset_ms": None,
+                **{f"{channel}_{field}": None for channel in ("image", "audio", "dub")
+                   for field in ("generation_status", "generation_id", "error")},
+            })
+            frames = list(script.frames)
+            frames.insert(script.frames.index(original_frame) + 1 if insert_at is None else insert_at, new_frame)
+            self._save_fields(script, frames=frames)
+            return script
 
     def delete_frame(self, script_id: str, frame_id: str) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        script.frames = [f for f in script.frames if f.id != frame_id]
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frames = [f for f in script.frames if f.id != frame_id]
+            if len(frames) == len(script.frames):
+                raise LookupError(f"Frame {frame_id} not found")
+            self._save_fields(script, frames=frames)
+            return script
 
     def reorder_frames(self, script_id: str, frame_ids: List[str]) -> Script:
         with self._save_lock:

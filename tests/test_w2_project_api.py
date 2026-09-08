@@ -117,6 +117,98 @@ def test_reordering_frames_rejects_incomplete_or_repeated_ids_without_losing_sho
     assert api_client.get(route).json()["frames"] == before[::-1]
 
 
+@pytest.mark.parametrize("operation", ["add", "copy", "delete"])
+def test_frame_structure_save_failure_preserves_memory_and_retry_round_trips(api_client, operation):
+    project = _create_project(api_client, "Frame structure save recovery")
+    route = f"/projects/{project['id']}"
+    for text in ["First shot", "Second shot"]:
+        assert api_client.post(route + "/frames", json={"action_description": text}).status_code == 200
+    before = api_client.get(route).json()["frames"]
+    first, second = [frame["id"] for frame in before]
+    method = api_client.delete if operation == "delete" else api_client.post
+    endpoint = route + {"add": "/frames", "copy": "/frames/copy", "delete": f"/frames/{first}"}[operation]
+    kwargs = {} if operation == "delete" else {"json": {"insert_at": 1, **({"frame_id": first} if operation == "copy" else {"action_description": "Inserted shot"})}}
+    with patch.object(api_module.pipeline.repository, "save_scripts", side_effect=StorageError("simulated write failure")):
+        failed = method(endpoint, **kwargs)
+    assert failed.status_code == 500, failed.text
+    # Inspect memory before GET reloads it, so an unsuccessful write cannot leak into a later save.
+    assert [frame.model_dump(mode="json") for frame in api_module.pipeline.scripts[project["id"]].frames] == before
+    assert api_client.get(route).json()["frames"] == before
+    response = method(endpoint, **kwargs)
+    assert response.status_code == 200, response.text
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    saved = api_client.get(route).json()["frames"]
+    assert saved == response.json()["frames"]
+    if operation == "delete":
+        assert [frame["id"] for frame in saved] == [second]
+    else:
+        assert len(saved) == 3 and saved[0] == before[0] and saved[2] == before[1]
+        assert saved[1]["id"] not in [first, second]
+        assert saved[1]["action_description"] == ("First shot" if operation == "copy" else "Inserted shot")
+
+
+@pytest.mark.parametrize("operation", ["add", "copy", "delete"])
+def test_frame_structure_rejects_invalid_targets_without_mutating_sequence(api_client, operation):
+    project = _create_project(api_client, "Frame structure validation")
+    route = f"/projects/{project['id']}"
+    before = api_client.post(route + "/frames", json={"action_description": "Keep this shot"}).json()["frames"]
+    if operation == "delete":
+        response = api_client.delete(route + "/frames/unknown-frame")
+        assert response.status_code == 404, response.text
+    else:
+        for position in [-1, 2]:
+            payload = {"insert_at": position}
+            if operation == "copy":
+                payload["frame_id"] = before[0]["id"]
+            response = api_client.post(route + ("/frames/copy" if operation == "copy" else "/frames"), json=payload)
+            assert response.status_code == 400, response.text
+    assert api_client.get(route).json()["frames"] == before
+
+
+def test_copied_frame_keeps_content_and_media_without_borrowing_generation_jobs(api_client):
+    from src.apps.comic_gen.models import GenerationStatus
+
+    project = _create_project(api_client, "Copy generation ownership")
+    route = f"/projects/{project['id']}"
+    api_client.post(route + "/frames", json={"action_description": "Keep this shot"})
+    source = api_module.pipeline.scripts[project["id"]].frames[0]
+    source.t2i_image_urls = ["output/storyboard/existing.png"]
+    source.audio_url = "output/audio/existing.wav"
+    source.dialogue_snapshot_text = "A saved line"
+    source.composition_data = {"layers": [{"label": "Original"}]}
+    source.selected_video_id = source.final_take_id = "source-take"
+    source.is_video_pinned = source.locked = True
+    source.status = GenerationStatus.PROCESSING
+    for channel in ["image", "audio", "dub"]:
+        setattr(source, f"{channel}_generation_status", GenerationStatus.PROCESSING)
+        setattr(source, f"{channel}_generation_id", f"source-{channel}")
+        setattr(source, f"{channel}_error", "Old error")
+    source.preview_video_url = "output/video/preview.mp4"
+    source.preview_video_task_id = "source-take"
+    source.dubbed_video_url = "output/video/applied.mp4"
+    source.dubbed_video_task_id = "source-take"
+    api_module.pipeline._save_data()
+    before = api_client.get(route).json()["frames"][0]
+    response = api_client.post(route + "/frames/copy", json={"frame_id": source.id})
+    assert response.status_code == 200, response.text
+    copied = response.json()["frames"][1]
+    for channel in ["image", "audio", "dub"]:
+        assert copied[f"{channel}_generation_status"] is None
+        assert copied[f"{channel}_generation_id"] is None
+        assert copied[f"{channel}_error"] is None
+    assert copied["status"] == "pending"
+    assert copied["selected_video_id"] is None and copied["final_take_id"] is None
+    assert copied["is_video_pinned"] is False and copied["locked"] is False
+    assert copied["preview_video_url"] is None and copied["dubbed_video_url"] is None
+    for field in ["action_description", "composition_data", "t2i_image_urls", "audio_url", "dialogue_snapshot_text"]:
+        assert copied[field] == before[field]
+    original_model, copy_model = api_module.pipeline.scripts[project["id"]].frames
+    copy_model.composition_data["layers"][0]["label"] = "Changed copy"
+    assert original_model.composition_data["layers"][0]["label"] == "Original"
+    restored = api_client.get(route).json()["frames"]
+    assert restored[0] == before and restored[1] == copied
+
+
 @pytest.fixture
 def dub_project(api_client):
     from src.apps.comic_gen.audio import _compute_dialogue_hash

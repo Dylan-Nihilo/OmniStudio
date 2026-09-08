@@ -4022,8 +4022,10 @@ def add_frame(script_id: str, request: AddFrameRequest):
             request.insert_at
         )
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4033,7 +4035,7 @@ def delete_frame(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.delete_frame(script_id, frame_id)
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -4048,8 +4050,10 @@ def copy_frame(script_id: str, request: CopyFrameRequest):
     try:
         updated_script = pipeline.copy_frame(script_id, request.frame_id, request.insert_at)
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
