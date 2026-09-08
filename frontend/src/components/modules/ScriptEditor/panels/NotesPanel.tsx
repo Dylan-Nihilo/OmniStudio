@@ -1,5 +1,6 @@
 'use client';
 
+import { Button } from '@omnistudio/ui';
 import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { StickyNote, Check, MessageSquare } from 'lucide-react';
@@ -91,18 +92,18 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
           { id: 'unresolved', label: t('panels.filterUnresolved') },
           { id: 'resolved', label: t('panels.filterResolved') },
         ] as const).map((f) => (
-          <button
+          <Button variant="quiet"
             key={f.id}
             type="button"
-            onClick={() => setFilter(f.id)}
-            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+            onPress={() => setFilter(f.id)} aria-pressed={filter === f.id}
+            className={`min-w-0 flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
               filter === f.id
                 ? 'bg-surface text-foreground'
                 : 'text-text-muted hover:text-text-secondary'
             }`}
           >
             {f.label}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -118,9 +119,9 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.15 }}
               className="rounded-lg border border-glass-border bg-surface p-3 cursor-pointer hover:border-primary/40 hover:bg-hover-bg transition-colors"
-              onClick={() => handleNoteClick(note.pos)}
+
             >
-              <div className="flex items-start gap-2">
+              <Button variant="quiet" onPress={() => handleNoteClick(note.pos)} className="h-auto w-full items-start justify-start whitespace-normal p-0 text-left">
                 <MessageSquare size={12} className="shrink-0 mt-0.5 text-text-secondary" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-foreground line-clamp-2">{note.content}</p>
@@ -135,11 +136,11 @@ export default function NotesPanel({ editor }: NotesPanelProps) {
                   </div>
                 </div>
                 {note.resolved && (
-                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-900/40">
-                    <Check size={10} className="text-green-400" />
+                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-done-bg">
+                    <Check size={10} className="text-status-done-fg" />
                   </div>
                 )}
-              </div>
+              </Button>
             </motion.div>
           ))}
         </div>

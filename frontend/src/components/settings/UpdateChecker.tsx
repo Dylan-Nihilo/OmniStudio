@@ -1,19 +1,10 @@
 "use client";
 
-/**
- * UpdateChecker — 关于页「检查更新」(Phase 2 设置规格 §B ⑥b)。
- *
- * 纯前端、自包含、无 props：SettingsPage 直接 <UpdateChecker /> 渲染即可。
- * 手动按钮 → 拉取 GitHub releases/latest(未授权,限流 ~60/hr)→ 与本地
- * 版本比对 → 有新版仅提示并打开发布页(绝不自更新)。
- *
- * 主题:仅语义 token(primary=teal 动作/链接,accent=amber 提示),
- * 状态文案用 text-text-secondary / text-text-muted。无硬编码色 / 无 white-alpha。
- */
-
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { RefreshCw, Loader2, Check, Sparkles, ExternalLink, CircleAlert } from "lucide-react";
+import { RefreshCw, Check, Sparkles, ExternalLink, CircleAlert } from "lucide-react";
+
+import { Button } from "@omnistudio/ui";
 
 // 本地版本常量,避免跨文件耦合(与 SettingsPage 的 APP_VERSION 同源)。
 const APP_VERSION = "v0.2.0";
@@ -62,6 +53,7 @@ export default function UpdateChecker() {
     window.open(url || RELEASES_URL, "_blank", "noopener,noreferrer");
 
   const handleCheck = async () => {
+    if (checking) return;
     setStatus("checking");
     setErrorMsg(t("updateError"));
     try {
@@ -135,31 +127,21 @@ export default function UpdateChecker() {
         </span>
 
         {showOpenButton && (
-          <button
-            type="button"
-            onClick={() => openReleases(status === "update" ? releaseUrl : undefined)}
-            className="inline-flex items-center gap-1 text-primary hover:underline text-[0.75rem] font-medium"
+          <Button
+            variant="quiet"
+            onPress={() => openReleases(status === "update" ? releaseUrl : undefined)}
+
             aria-label={t("updateOpenReleaseAria")}
           >
             {t("updateOpenRelease")}
             <ExternalLink size={12} />
-          </button>
+          </Button>
         )}
 
-        <button
-          type="button"
-          onClick={handleCheck}
-          disabled={checking}
-          aria-label={t("updateCheckAria")}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-glass-border text-primary hover:border-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-[0.75rem] font-medium"
-        >
-          {checking ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <RefreshCw size={13} />
-          )}
+        <Button variant="secondary" onPress={handleCheck} isPending={checking} aria-label={t("updateCheckAria")}>
+          <RefreshCw size={16} />
           {checking ? t("updateChecking") : t("updateCheck")}
-        </button>
+        </Button>
       </div>
     </div>
   );

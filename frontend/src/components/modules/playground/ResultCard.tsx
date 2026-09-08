@@ -2,15 +2,18 @@
 
 import { useState, useCallback } from 'react';
 import { Download, Video, Copy, Check, Replace, Crown, Bookmark } from 'lucide-react';
+import { LoadingState } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { playgroundApi } from '@/lib/api';
 import { apiStreamRequest } from '@/lib/apiClient';
 import { getAssetUrl } from '@/lib/utils';
+import { toast } from '@/store/toastStore';
 import { usePlaygroundStore, type PlaygroundGeneration } from './usePlaygroundStore';
 
 interface ResultCardProps {
   generation: PlaygroundGeneration;
   outputIndex?: number;
+  aspectRatio?: string;
   onGenerateVideo?: (imagePath: string) => void;
   onRetry?: (generation: PlaygroundGeneration) => void;
   onOpenDetail?: (generation: PlaygroundGeneration, outputId?: string) => void;
@@ -36,13 +39,6 @@ function formatTime(dateStr: string): string {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
-}
-
-function getElapsedProgress(createdAt: string): number {
-  const elapsed = Date.now() - new Date(createdAt).getTime();
-  // Estimate ~60s for generation, cap at 90%
-  const progress = Math.min(elapsed / 60000, 0.9);
-  return progress * 100;
 }
 
 function FailedCard({ generation, onRetry, onDelete }: { generation: PlaygroundGeneration; onRetry?: (g: PlaygroundGeneration) => void; onDelete?: (g: PlaygroundGeneration) => void }) {
@@ -125,7 +121,7 @@ function FailedCard({ generation, onRetry, onDelete }: { generation: PlaygroundG
   );
 }
 
-function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail }: { generation: PlaygroundGeneration; outputIndex: number; onGenerateVideo?: (path: string) => void; onOpenDetail?: (generation: PlaygroundGeneration, outputId?: string) => void }) {
+function CompletedCard({ generation, outputIndex, aspectRatio, onGenerateVideo, onOpenDetail }: { generation: PlaygroundGeneration; outputIndex: number; aspectRatio: string; onGenerateVideo?: (path: string) => void; onOpenDetail?: (generation: PlaygroundGeneration, outputId?: string) => void }) {
   const { prompt, model_id, mode, outputs, created_at } = generation;
   const t = useTranslations('playground');
   const output = outputs[outputIndex];
@@ -135,7 +131,7 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
 
   const saved = output?.saved_to_library ?? false;
   const mediaUrl = output?.media_path ? getMediaUrl(output.media_path) : null;
-  const updateGeneration = usePlaygroundStore((s) => s.updateGeneration);
+  const markOutputSaved = usePlaygroundStore((s) => s.markOutputSaved);
   const useResultAsReference = usePlaygroundStore((s) => s.useResultAsReference);
   const featuredByGen = usePlaygroundStore((s) => s.featuredByGen);
   const toggleFeatured = usePlaygroundStore((s) => s.toggleFeatured);
@@ -163,23 +159,18 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
 
   const handleSaveToLibrary = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!output || saving) return;
+    if (!output || saved || saving) return;
     setSaving(true);
     try {
-      const newSaved = !saved;
-      if (newSaved) {
-        await playgroundApi.saveToLibrary(generation.id, output.id);
-      }
-      const updatedOutputs = generation.outputs.map((o) =>
-        o.id === output.id ? { ...o, saved_to_library: newSaved } : o
-      );
-      updateGeneration({ ...generation, outputs: updatedOutputs });
+      await playgroundApi.saveToLibrary(generation.id, output.id);
+      markOutputSaved(generation.id, output.id);
     } catch (err) {
       console.error('[Playground] Save to library failed:', err);
+      toast.error(t('detail.saveFailed'));
     } finally {
       setSaving(false);
     }
-  }, [generation, output, saved, saving, updateGeneration]);
+  }, [generation.id, output, saved, saving, markOutputSaved, t]);
 
   const handleUseAsReference = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -193,16 +184,17 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
       onClick={() => onOpenDetail?.(generation, output.id)}
     >
       {/* Media area */}
-      <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio: '16/9' }}>
+      <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio }}>
         {mediaUrl ? (
           isVideo ? (
             <video
               data-testid="playground-result-video"
               src={mediaUrl}
               controls
+              onClick={event => event.stopPropagation()}
               preload="metadata"
               playsInline
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
           ) : imgError ? (
             <div className="w-full h-full bg-gradient-to-br from-elevated to-surface flex flex-col items-center justify-center gap-1.5">
@@ -250,8 +242,8 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
           </span>
         )}
 
-        {/* Bottom gradient toolbar — appears on hover */}
-        <div className="absolute bottom-0 left-0 right-0 z-[2] h-12 bg-gradient-to-t from-black/70 to-transparent flex items-end justify-end gap-1.5 px-3 pb-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      </div>
+        <div className="flex flex-wrap items-center justify-end gap-1.5 px-3 pt-3">
           <button
             onClick={handleDownload}
             className="w-7 h-7 rounded-full bg-elevated backdrop-blur-sm flex items-center justify-center hover:bg-hover-bg transition"
@@ -284,13 +276,14 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
           </button>
           <button
             onClick={handleSaveToLibrary}
+            disabled={saved || saving}
+            aria-busy={saving}
             className={`w-7 h-7 rounded-full backdrop-blur-sm flex items-center justify-center transition ${saved ? 'bg-primary/15' : 'bg-elevated hover:bg-hover-bg'}`}
             title={saved ? t('card.saved') : t('card.saveToLibrary')}
           >
             <Bookmark className={`w-3.5 h-3.5 ${saved ? 'text-primary fill-current' : 'text-foreground'}`} />
           </button>
         </div>
-      </div>
 
       {/* Info area */}
       <div className="px-3 py-[10px]">
@@ -326,7 +319,7 @@ function CompletedCard({ generation, outputIndex, onGenerateVideo, onOpenDetail 
   );
 }
 
-export default function ResultCard({ generation, outputIndex = 0, onGenerateVideo, onRetry, onOpenDetail, onDelete }: ResultCardProps) {
+export default function ResultCard({ generation, outputIndex = 0, aspectRatio = '16/9', onGenerateVideo, onRetry, onOpenDetail, onDelete }: ResultCardProps) {
   const { status, prompt, model_id, mode, created_at } = generation;
   const t = useTranslations('playground');
 
@@ -335,33 +328,9 @@ export default function ResultCard({ generation, outputIndex = 0, onGenerateVide
     return (
       <div className="rounded-[20px] border border-glass-border bg-glass atelier-asset-card overflow-hidden">
         {/* Media area */}
-        <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio: '16/9' }}>
-          {/* Skeleton shimmer */}
-          <div className="absolute inset-0 overflow-hidden">
-            <div
-              className="absolute inset-0 animate-shimmer"
-              style={{
-                background:
-                  'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%)',
-                backgroundSize: '200% 100%',
-              }}
-            />
-          </div>
-
-          {/* Centered spinner + text */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <div className="w-6 h-6 border-2 border-glass-border border-t-primary rounded-full animate-spin" />
-            <span className="font-mono text-[0.625rem] text-text-muted uppercase">
-              {status === 'pending' ? t('card.queued') : t('card.processing')}
-            </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-glass">
-            <div
-              className="h-full bg-primary transition-all duration-1000 ease-out"
-              style={{ width: `${getElapsedProgress(created_at)}%` }}
-            />
+        <div className="relative overflow-hidden bg-elevated" style={{ aspectRatio }}>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <LoadingState inline label={status === 'pending' ? t('card.queued') : t('card.processing')} />
           </div>
         </div>
 
@@ -387,5 +356,5 @@ export default function ResultCard({ generation, outputIndex = 0, onGenerateVide
   }
 
   // ─── COMPLETED STATE ────────────────────────────────────────────────────────
-  return <CompletedCard generation={generation} outputIndex={outputIndex} onGenerateVideo={onGenerateVideo} onOpenDetail={onOpenDetail} />;
+  return <CompletedCard generation={generation} outputIndex={outputIndex} aspectRatio={aspectRatio} onGenerateVideo={onGenerateVideo} onOpenDetail={onOpenDetail} />;
 }

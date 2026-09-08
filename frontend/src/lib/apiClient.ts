@@ -39,7 +39,7 @@ export const resolveAuthApiUrl = (apiUrl: string): string =>
 export const AUTH_API_URL = resolveAuthApiUrl(API_URL);
 export const AUTH_RETURN_TO_KEY = "omni_studio.auth.returnTo";
 export const AUTH_EXPIRED_EVENT = "omni_studio:auth-expired";
-const CSRF_COOKIE_NAME = "omni_studio_csrf";
+const CSRF_COOKIE_NAME = `${process.env.NEXT_PUBLIC_AUTH_COOKIE_PREFIX || "omni_studio"}_csrf`;
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 const ACTIVE_WORKSPACE_KEY = "omni_studio.activeWorkspaceId";
 export const CLIENT_INSTANCE_KEY = "omni_studio.clientInstanceId";

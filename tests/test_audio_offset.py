@@ -1,8 +1,11 @@
 from types import SimpleNamespace
+import threading
 
 import pytest
 
 from src.apps.comic_gen import pipeline as pipeline_module
+from src.apps.comic_gen.models import Script, StoryboardFrame, VideoTask
+from src.apps.comic_gen.audio import _compute_dialogue_hash
 from src.apps.comic_gen.pipeline import (
     ComicGenPipeline,
     _build_dub_filter,
@@ -48,17 +51,22 @@ def test_preview_dub_builds_expected_ffmpeg_filter(monkeypatch, offset_ms, has_b
     tts_path = "mock/tts.mp3"
     bg_path = "mock/background.wav"
 
-    frame = SimpleNamespace(
+    frame = StoryboardFrame(
         id="frame-1",
+        scene_id="scene-1",
         audio_url="audio/tts.mp3",
         preview_video_url=None,
         dubbed_video_task_id=None,
         dub_offset_ms=0,
+        dialogue="Dialogue",
+        dialogue_text_hash=_compute_dialogue_hash("Dialogue", None, None),
     )
-    video_task = SimpleNamespace(id="video-1", video_url="video/source.mp4")
-    script = SimpleNamespace(frames=[frame], video_tasks=[video_task])
+    video_task = VideoTask(id="video-1", project_id="script-1", frame_id=frame.id, status="completed", image_url="", prompt="", model="local", video_url="video/source.mp4")
+    script = Script(id="script-1", title="Local", original_text="", created_at=0, updated_at=0, frames=[frame], video_tasks=[video_task])
     pipeline = object.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     pipeline.scripts = {"script-1": script}
+    pipeline.resolve_episode_assets = lambda script: {"characters": []}
     pipeline._save_data = lambda: None
     pipeline._resolve_media_path = lambda url, suffix: (
         video_path if suffix == ".mp4" else tts_path
@@ -117,7 +125,8 @@ def test_preview_dub_builds_expected_ffmpeg_filter(monkeypatch, offset_ms, has_b
         ]
     assert ("amix=" in filter_str) is has_bg
     assert result is script
-    assert frame.dub_offset_ms == offset_ms
+    assert frame.preview_offset_ms == offset_ms
+    assert frame.dub_offset_ms == 0
     assert frame.preview_video_url.startswith("video/preview_frame-1_")
 
 

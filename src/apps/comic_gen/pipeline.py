@@ -12,7 +12,7 @@ import threading
 import platform
 import copy
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary
+from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
 from .storyboard import StoryboardGenerator
@@ -21,6 +21,7 @@ from .audio import AudioGenerator
 from .export import ExportManager
 from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
+from ...utils.model_catalog import load_generated_model_catalog
 from ...utils.provider_registry import resolve_provider_backend
 from ...utils.system_check import get_ffmpeg_path, get_ffprobe_path, get_ffmpeg_install_instructions
 from ...utils.workspace_env import workspace_getenv
@@ -34,6 +35,48 @@ from ...storage.migration import (
 from ...storage.schema import MigrationRun
 
 logger = get_logger(__name__)
+
+class GenerationInProgressError(Exception):
+    """A frame already has an active generation for this media type."""
+
+def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
+    """Select an uploaded master in the same container all renderers read."""
+    from .models import AssetUnit, ImageAsset, ImageVariant
+
+    asset.image_url = image_url
+    if asset_type == "character":
+        asset.avatar_url = image_url
+    if not image_url:
+        return
+    if asset_type == "character":
+        if asset.reference_sheet is None:
+            asset.reference_sheet = AssetUnit()
+        unit = asset.reference_sheet
+        if not unit.image_variants and asset.full_body_asset:
+            unit.image_variants = list(asset.full_body_asset.variants)
+        variants = unit.image_variants
+    else:
+        if asset.image_asset is None:
+            asset.image_asset = ImageAsset()
+        unit = asset.image_asset
+        variants = unit.variants
+    variant = next((item for item in variants if item.url == image_url), None)
+    if variant is None:
+        variant = ImageVariant(id=str(uuid.uuid4()), url=image_url, source="uploaded", is_uploaded_source=True)
+        variants.append(variant)
+    if asset_type == "character":
+        unit.selected_image_id = variant.id
+        unit.image_updated_at = time.time()
+    else:
+        unit.selected_id = variant.id
+
+
+def _model_supports_capability(model_name: str, capability: str) -> bool:
+    try:
+        model = load_generated_model_catalog().get("models", {}).get(model_name, {})
+        return capability in model.get("capabilities", [])
+    except Exception:
+        return False
 
 EPISODE_DEFAULT_SECTIONS = (
     "model_settings",
@@ -277,6 +320,7 @@ class ComicGenPipeline:
         self._kling_model = None
         self._vidu_model = None
         self._mulerouter_video_model = None
+        self._moma_video_model = None
 
         # Pre-download Demucs model in background so first dub request is fast
         self._demucs_ready = threading.Event()
@@ -300,7 +344,7 @@ class ComicGenPipeline:
     )
 
     def _recover_orphan_tasks(self) -> None:
-        """Sweep persisted state for video tasks left in pending/processing.
+        """Sweep persisted state for image/video work left in pending/processing.
 
         FastAPI's BackgroundTasks queue lives entirely in process memory:
         if uvicorn restarts (dev --reload, OOM, OS reboot, ctrl-C) every
@@ -322,6 +366,27 @@ class ComicGenPipeline:
         recovered = 0
 
         for script in self.scripts.values():
+            if script.storyboard_generation and script.storyboard_generation.status in STUCK:
+                script.storyboard_generation.status = GenerationStatus.FAILED
+                script.storyboard_generation.error = script.storyboard_generation.error or self._ORPHAN_RECOVERY_REASON
+                recovered += 1
+            if script.dialogue_audio_batch and script.dialogue_audio_batch.status in STUCK:
+                script.dialogue_audio_batch.status = GenerationStatus.FAILED
+                script.dialogue_audio_batch.error = script.dialogue_audio_batch.error or self._ORPHAN_RECOVERY_REASON
+                recovered += 1
+            for frame in script.frames:
+                if frame.image_generation_status in STUCK:
+                    frame.image_generation_status = GenerationStatus.FAILED
+                    frame.image_error = frame.image_error or self._ORPHAN_RECOVERY_REASON
+                    recovered += 1
+                if frame.audio_generation_status in STUCK:
+                    frame.audio_generation_status = GenerationStatus.FAILED
+                    frame.audio_error = frame.audio_error or self._ORPHAN_RECOVERY_REASON
+                    recovered += 1
+                if frame.dub_generation_status in STUCK:
+                    frame.dub_generation_status = GenerationStatus.FAILED
+                    frame.dub_error = frame.dub_error or self._ORPHAN_RECOVERY_REASON
+                    recovered += 1
             tasks = getattr(script, "video_tasks", None) or []
             for task in tasks:
                 if getattr(task, "status", None) in STUCK:
@@ -371,6 +436,7 @@ class ComicGenPipeline:
             task = next((t for t in tasks if getattr(t, "id", None) == task_id), None)
             if not task:
                 return None
+            previous_star, previous_label = task.is_starred, task.label
             if is_starred is not None:
                 task.is_starred = bool(is_starred)
             if clear_label:
@@ -381,7 +447,8 @@ class ComicGenPipeline:
             try:
                 self._save_data()
             except Exception:
-                logger.warning("annotate_video_task: save failed")
+                task.is_starred, task.label = previous_star, previous_label
+                raise
             return task
 
     _T2I_HISTORY_LIMIT = 10
@@ -479,6 +546,9 @@ class ComicGenPipeline:
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
+            if frame.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("A first-frame image is already being generated. Refresh its status before uploading.")
+            previous = (frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.updated_at)
             current = list(getattr(frame, "t2i_image_urls", None) or [])
             current.append(file_path)
             # Same FIFO cap as update_frame_workbench so uploads can't grow
@@ -489,11 +559,16 @@ class ComicGenPipeline:
             # Newly uploaded image becomes the active首帧 — Issue 10 design
             # requires the upload immediately unlocks Step 2.
             frame.t2i_selected_index = len(current) - 1
+            frame.status = GenerationStatus.COMPLETED
+            frame.image_error = None
+            frame.image_generation_status = None
+            frame.image_generation_id = None
             frame.updated_at = time.time()
             try:
                 self._save_data()
             except Exception:
-                logger.warning("upload_t2i_frame: save failed")
+                frame.t2i_image_urls, frame.t2i_selected_index, frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.updated_at = previous
+                raise
             return frame
 
     def mark_video_task_failed(
@@ -1331,18 +1406,19 @@ class ComicGenPipeline:
 
     def toggle_frame_lock(self, script_id: str, frame_id: str) -> Script:
         """Toggle the locked status of a frame."""
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
             
-        target_frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not target_frame:
-            raise ValueError(f"Frame {frame_id} not found")
+            target_frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not target_frame:
+                raise ValueError(f"Frame {frame_id} not found")
             
-        # Toggle the locked status
-        target_frame.locked = not target_frame.locked
-        self._save_data()
-        return script
+            # Toggle the locked status
+            target_frame.locked = not target_frame.locked
+            self._save_data()
+            return script
 
     def update_asset_image(self, script_id: str, asset_id: str, asset_type: str, image_url: str) -> Script:
         """Updates the image URL of an asset manually. Per A2 decision,
@@ -1356,12 +1432,7 @@ class ComicGenPipeline:
         if not target_asset:
             raise ValueError(f"Asset {asset_id} of type {asset_type} not found")
 
-        target_asset.image_url = image_url
-        # For characters, also update avatar if it's not set or if we want to sync them
-        # For now, let's assume the uploaded image is the main reference.
-        # If it's a character, we might want to set avatar_url to the same image for simplicity
-        if asset_type == "character":
-            target_asset.avatar_url = image_url
+        _set_asset_master_image(target_asset, asset_type, image_url)
 
         self._save_after_asset_mutation(source)
         return script
@@ -1563,15 +1634,39 @@ class ComicGenPipeline:
     # === STORYBOARD DRAMATIZATION v2 ===
 
     def analyze_text_to_frames(self, script_id: str, text: str) -> Script:
-        """
-        Analyzes script text and generates storyboard frames using LLM.
-        Replaces existing frames with newly generated ones.
-        """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        logger.info(f"Analyzing text to frames for project {script_id}")
+        """Generate off-model, then atomically replace an unchanged storyboard."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            prior = script.storyboard_generation
+            if prior and prior.status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("分镜生成或细化仍在进行，请先刷新状态")
+            if script.dialogue_audio_batch and script.dialogue_audio_batch.status == GenerationStatus.PROCESSING:
+                raise GenerationInProgressError("对白仍在生成，请等待本批完成")
+            snapshot = script.model_copy(deep=True)
+            generation = StoryboardGeneration(id=str(uuid.uuid4()), phase="analyze", frame_ids=[frame.id for frame in script.frames])
+            self._save_fields(script, storyboard_generation=generation)
+        try:
+            new_frames = self._analyze_storyboard_frames(snapshot, text)
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if not current:
+                    raise LookupError("Script not found")
+                if not current.storyboard_generation or current.storyboard_generation.id != generation.id or current.frames != snapshot.frames or current.original_text != snapshot.original_text:
+                    raise GenerationInProgressError("生成期间剧本或分镜已修改，已保留最新内容，请重新生成")
+                self._save_fields(current, frames=new_frames, updated_at=time.time(), storyboard_generation=generation.model_copy(update={"status": GenerationStatus.COMPLETED, "frame_ids": [frame.id for frame in new_frames]}))
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if current and current.storyboard_generation and current.storyboard_generation.id == generation.id:
+                    self._save_fields(current, storyboard_generation=current.storyboard_generation.model_copy(update={"status": GenerationStatus.FAILED, "error": str(error)}))
+            raise
+
+    def _analyze_storyboard_frames(self, script: Script, text: str) -> List[StoryboardFrame]:
+        """Build replacement frames without mutating the saved project."""
+        logger.info(f"Analyzing text to frames for project {script.id}")
 
         # Resolve assets (merge Series + Episode if applicable)
         resolved = self.resolve_episode_assets(script)
@@ -1652,26 +1747,25 @@ class ComicGenPipeline:
             )
             new_frames.append(frame)
         
-        # Replace existing frames with new ones
-        script.frames = new_frames
-        script.updated_at = time.time()
-        
-        logger.info(f"Generated {len(new_frames)} frames from text analysis")
-        self._save_data()
-        return script
+        return new_frames
 
-    def refine_frame(self, script_id: str, frame_id: str) -> Optional[StoryboardFrame]:
-        """Phase 2: Refine a single coarse frame into a rich frame."""
+    def refine_frame(self, script_id: str, frame_id: str, generation_id: Optional[str] = None) -> Optional[StoryboardFrame]:
+        """Refine a snapshot and merge only its generated fields into the current frame."""
         from .prompt_assembly import assemble_prompt, sync_dialogue_to_tts
         from .models import DialogueStructured, CameraMovementData, Blocking, AudioNote, LightingData, StageSubject
 
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
+        with self._save_lock:
+            current = self.scripts.get(script_id)
+            if not current:
+                raise LookupError("Script not found")
+            batch = current.storyboard_generation
+            if batch and batch.status == GenerationStatus.PROCESSING and batch.id != generation_id:
+                raise GenerationInProgressError("分镜生成或细化仍在进行，请先刷新状态")
+            script = current.model_copy(deep=True)
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise LookupError(f"Frame {frame_id} not found")
+            before = frame.model_copy(deep=True)
 
         frame_idx = script.frames.index(frame)
         resolved = self.resolve_episode_assets(script)
@@ -1715,7 +1809,7 @@ class ComicGenPipeline:
             coarse, char_assets, scene_assets, prev_ctx, next_ctx
         )
         if not result:
-            return frame
+            raise RuntimeError("分镜细化未返回结果，请重试")
 
         # Map result onto frame fields
         if result.get("visual_description"):
@@ -1798,46 +1892,73 @@ class ComicGenPipeline:
         frame.assembled_prompt = assemble_prompt(frame, all_characters)
         frame.updated_at = time.time()
 
-        self._save_data()
-        return frame
+        changes = {field: getattr(frame, field) for field in StoryboardFrame.model_fields if getattr(frame, field) != getattr(before, field)}
+        with self._save_lock:
+            current = self.scripts.get(script_id)
+            target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+            if not target:
+                raise LookupError(f"Frame {frame_id} not found")
+            inputs = ("action_description", "visual_description", "character_ids", "scene_id", "dialogue", "speaker", "shot_size", "camera_angle", "camera_movement", "duration")
+            if any(getattr(target, field) != getattr(before, field) for field in set(inputs) | changes.keys()):
+                raise GenerationInProgressError("细化期间镜头已修改，已保留最新内容，请重试")
+            self._save_fields(target, **changes)
+            return target
 
-    def refine_batch_generator(self, script_id: str):
-        """Phase 2: Generator that yields SSE events while refining all frames."""
+    def start_storyboard_refinement(self, script_id: str, frame_ids: Optional[List[str]] = None) -> StoryboardGeneration:
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            previous = script.storyboard_generation
+            # ponytail: process-local claim; multiple workers need a database claim.
+            if previous and previous.status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("分镜生成或细化仍在进行，请先刷新状态")
+            existing = {frame.id for frame in script.frames}
+            selected = list(dict.fromkeys(frame_ids if frame_ids is not None else [frame.id for frame in script.frames]))
+            if not selected or any(frame_id not in existing for frame_id in selected):
+                raise ValueError("请选择当前项目中需要细化的镜头")
+            generation = StoryboardGeneration(id=str(uuid.uuid4()), phase="refine", frame_ids=selected)
+            self._save_fields(script, storyboard_generation=generation)
+            return generation
+
+    def refine_batch_generator(self, script_id: str, generation_id: str):
+        """Persist each result before announcing it through the SSE connection."""
         script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-
-        total = len(script.frames)
-        success = 0
-        failed = 0
-
-        for idx, frame in enumerate(script.frames):
-            yield ("frame_refine_start", {
-                "frame_id": frame.id,
-                "frame_index": idx,
-                "total": total,
-                "label": frame.action_description[:40] if frame.action_description else f"Frame {idx+1}",
-            })
-            try:
-                self.refine_frame(script_id, frame.id)
-                success += 1
-                yield ("frame_refine_complete", {
-                    "frame_id": frame.id,
-                    "frame_index": idx,
-                    "total": total,
-                })
-            except Exception as exc:
-                failed += 1
-                logger.error(f"[refine_batch] frame={frame.id} error={exc}")
-                yield ("frame_refine_error", {
-                    "frame_id": frame.id,
-                    "frame_index": idx,
-                    # Don't leak exception details to the client (CodeQL
-                    # py/stack-trace-exposure); full error is in the log above.
-                    "error": f"分镜优化失败（{type(exc).__name__}），详情请查看服务端日志",
-                })
-
-        yield ("batch_complete", {"total": total, "success": success, "failed": failed})
+        generation = script.storyboard_generation if script else None
+        if not generation or generation.id != generation_id:
+            raise LookupError("Storyboard generation not found")
+        total = len(generation.frame_ids)
+        results = {}
+        def save(**changes):
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if not current:
+                    raise LookupError("Script not found")
+                if not current.storyboard_generation or current.storyboard_generation.id != generation_id:
+                    raise GenerationInProgressError("分镜批次已变化，请刷新状态")
+                self._save_fields(current, storyboard_generation=current.storyboard_generation.model_copy(update=changes))
+        try:
+            for idx, frame_id in enumerate(generation.frame_ids):
+                yield ("frame_refine_start", {"frame_id": frame_id, "frame_index": idx, "total": total})
+                try:
+                    self.refine_frame(script_id, frame_id, generation_id)
+                    results[frame_id] = "completed"
+                    event = "frame_refine_complete"
+                except Exception as error:
+                    results[frame_id] = "failed"
+                    event = "frame_refine_error"
+                    logger.error("[refine_batch] frame=%s error=%s", frame_id, error)
+                save(results=dict(results))
+                yield (event, {"frame_id": frame_id, "frame_index": idx, "total": total,
+                    **({"error": "分镜细化失败，原内容已保留，请重试"} if event == "frame_refine_error" else {})})
+            failed = sum(result == "failed" for result in results.values())
+            save(status=GenerationStatus.COMPLETED, error="部分镜头细化失败，请重试未完成项" if failed else None)
+            yield ("batch_complete", {"total": total, "success": total - failed, "failed": failed})
+        except (Exception, GeneratorExit) as error:
+            current = self.scripts.get(script_id)
+            if current and current.storyboard_generation and current.storyboard_generation.id == generation_id and current.storyboard_generation.status == GenerationStatus.PROCESSING:
+                save(status=GenerationStatus.FAILED, error=str(error) or "细化连接已中断，请重试未完成项")
+            raise
 
     def refine_frame_prompt(self, script_id: str, frame_id: str, raw_prompt: str, assets: List[Dict[str, Any]], feedback: str = "") -> Dict[str, Any]:
         """
@@ -1911,8 +2032,12 @@ class ComicGenPipeline:
             frame.image_prompt = kwargs['image_prompt']
         if kwargs.get('action_description') is not None:
             frame.action_description = kwargs['action_description']
+        if kwargs.get('visual_description') is not None:
+            frame.visual_description = kwargs['visual_description']
         if kwargs.get('dialogue') is not None:
             frame.dialogue = kwargs['dialogue']
+            if frame.dialogue_structured:
+                frame.dialogue_structured.line = kwargs['dialogue']
         if kwargs.get('camera_angle') is not None:
             frame.camera_angle = kwargs['camera_angle']
         if kwargs.get('scene_id') is not None:
@@ -1936,87 +2061,81 @@ class ComicGenPipeline:
                 )
         if kwargs.get('transition_hint') is not None:
             frame.transition_hint = kwargs['transition_hint']
+        if frame.visual_description is not None and any(kwargs.get(key) is not None for key in (
+            'visual_description', 'shot_size', 'camera_angle', 'camera_movement_description', 'transition_hint',
+        )):
+            from .prompt_assembly import assemble_prompt
+            frame.assembled_prompt = assemble_prompt(frame, self.resolve_episode_assets(script)["characters"])
         
         self._save_data()
         return script
 
     def add_frame(self, script_id: str, scene_id: str = None, action_description: str = "", camera_angle: str = "medium_shot", insert_at: int = None) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        new_frame = StoryboardFrame(
-            id=f"frame_{uuid.uuid4().hex[:8]}",
-            scene_id=scene_id or (script.scenes[0].id if script.scenes else ""),
-            character_ids=[],
-            action_description=action_description,
-            camera_angle=camera_angle
-        )
-        
-        if insert_at is not None and 0 <= insert_at <= len(script.frames):
-            script.frames.insert(insert_at, new_frame)
-        else:
-            script.frames.append(new_frame)
-            
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            if insert_at is not None and not 0 <= insert_at <= len(script.frames):
+                raise ValueError("分镜插入位置已失效，请刷新后重试")
+            new_frame = StoryboardFrame(
+                id=f"frame_{uuid.uuid4().hex[:8]}",
+                scene_id=scene_id or (script.scenes[0].id if script.scenes else ""),
+                character_ids=[],
+                action_description=action_description,
+                camera_angle=camera_angle,
+            )
+            frames = list(script.frames)
+            frames.insert(len(frames) if insert_at is None else insert_at, new_frame)
+            self._save_fields(script, frames=frames)
+            return script
 
     def copy_frame(self, script_id: str, frame_id: str, insert_at: int = None) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-            
-        original_frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not original_frame:
-            raise ValueError(f"Frame {frame_id} not found")
-            
-        # Create a deep copy with new ID
-        new_frame = original_frame.copy()
-        new_frame.id = f"frame_{uuid.uuid4().hex[:8]}"
-        new_frame.updated_at = time.time()
-        # Reset generation status and URLs for the copy? 
-        # Usually copy implies copying content, but maybe we want to keep the image?
-        # Let's keep the image/content but reset status if it was processing?
-        # Actually, if we copy, we probably want the same image reference initially.
-        # But we should reset the "locked" status maybe?
-        new_frame.locked = False
-        
-        if insert_at is not None and 0 <= insert_at <= len(script.frames):
-            script.frames.insert(insert_at, new_frame)
-        else:
-            # Insert after the original frame by default
-            try:
-                original_index = script.frames.index(original_frame)
-                script.frames.insert(original_index + 1, new_frame)
-            except ValueError:
-                script.frames.append(new_frame)
-                
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            original_frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not original_frame:
+                raise LookupError(f"Frame {frame_id} not found")
+            if insert_at is not None and not 0 <= insert_at <= len(script.frames):
+                raise ValueError("分镜插入位置已失效，请刷新后重试")
+            # Reuse saved content and media, but jobs and video takes belong to the source frame.
+            new_frame = original_frame.model_copy(deep=True, update={
+                "id": f"frame_{uuid.uuid4().hex[:8]}", "updated_at": time.time(), "locked": False,
+                "status": GenerationStatus.COMPLETED if original_frame.status == GenerationStatus.COMPLETED else GenerationStatus.PENDING,
+                "selected_video_id": None, "final_take_id": None, "is_video_pinned": False,
+                "dubbed_video_url": None, "dubbed_video_task_id": None,
+                "preview_video_url": None, "preview_audio_url": None, "preview_video_task_id": None,
+                "preview_source_video_url": None, "preview_offset_ms": None,
+                **{f"{channel}_{field}": None for channel in ("image", "audio", "dub")
+                   for field in ("generation_status", "generation_id", "error")},
+            })
+            frames = list(script.frames)
+            frames.insert(script.frames.index(original_frame) + 1 if insert_at is None else insert_at, new_frame)
+            self._save_fields(script, frames=frames)
+            return script
 
     def delete_frame(self, script_id: str, frame_id: str) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        script.frames = [f for f in script.frames if f.id != frame_id]
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frames = [f for f in script.frames if f.id != frame_id]
+            if len(frames) == len(script.frames):
+                raise LookupError(f"Frame {frame_id} not found")
+            self._save_fields(script, frames=frames)
+            return script
 
     def reorder_frames(self, script_id: str, frame_ids: List[str]) -> Script:
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-        
-        frame_map = {f.id: f for f in script.frames}
-        new_frames = []
-        for fid in frame_ids:
-            if fid in frame_map:
-                new_frames.append(frame_map[fid])
-        
-        script.frames = new_frames
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame_map = {frame.id: frame for frame in script.frames}
+            if len(frame_ids) != len(script.frames) or len(set(frame_ids)) != len(frame_ids) or set(frame_ids) != set(frame_map):
+                raise ValueError("分镜列表已变化，排序必须包含每个当前镜头且不重复，请刷新后重试")
+            self._save_fields(script, frames=[frame_map[fid] for fid in frame_ids])
+            return script
 
     def generate_motion_ref(
         self,
@@ -2187,20 +2306,34 @@ class ComicGenPipeline:
 
     def generate_storyboard_render(self, script_id: str, frame_id: str, composition_data: Optional[Dict[str, Any]], prompt: str, batch_size: int = 1) -> Script:
         """Step 3b: Render a specific frame from composition data."""
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-            
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-            
-        frame.status = GenerationStatus.PROCESSING
-        if composition_data:
-            frame.composition_data = composition_data
-        frame.image_prompt = prompt
-        self._save_data()
-        
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError(f"Frame {frame_id} not found")
+            # ponytail: one-process exclusion; multiple workers need a database claim.
+            if frame.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("A first-frame image is already being generated. Refresh its status before retrying.")
+            previous = (frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.image_prompt, frame.composition_data)
+            generation_id = str(uuid.uuid4())
+            frame.image_generation_status = GenerationStatus.PROCESSING
+            frame.image_generation_id = generation_id
+            frame.status = GenerationStatus.PROCESSING
+            frame.image_error = None
+            if composition_data:
+                frame.composition_data = composition_data
+            frame.image_prompt = prompt
+            try:
+                self._save_data()
+            except Exception:
+                frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.image_prompt, frame.composition_data = previous
+                raise
+            # The generator mutates its input. Keep those writes separate from concurrent edits.
+            frame = frame.model_copy(deep=True)
+            original_variant_ids = {v.id for v in frame.rendered_image_asset.variants} if frame.rendered_image_asset else set()
+
         try:
             # Extract reference image URL from composition data if available
             ref_image_url = None
@@ -2274,31 +2407,48 @@ class ComicGenPipeline:
                 model_name=i2i_model
             )
             
-            self._save_data()
-            return script
-        except Exception as e:
-            frame.status = GenerationStatus.FAILED
-            self._save_data()
-            raise e
-            # 1. Take the composition_data (positions of assets)
-            # 2. Construct a composite image (ControlNet input)
-            # 3. Call Img2Img with the composite + prompt
-            
-            logger.debug(f"Rendering frame {frame_id} with prompt: {prompt}")
-            time.sleep(1.5) # Simulate processing
-            
-            # Mock Result
-            mock_url = f"https://placehold.co/1280x720/2a2a2a/FFF?text=Rendered+Frame+{frame_id}"
-            frame.rendered_image_url = mock_url
-            frame.image_url = mock_url # Update main image too
-            frame.status = GenerationStatus.COMPLETED
-            
-        except Exception as e:
-            logger.error(f"Frame rendering failed: {e}")
-            frame.status = GenerationStatus.FAILED
-            
-        self._save_data()
-        return script
+            with self._save_lock:
+                # Project reads replace the cached Script while the provider is running.
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if not target:
+                    raise ValueError(f"Frame {frame_id} not found")
+                if target.image_generation_id != generation_id:
+                    return current
+                target.status = frame.status
+                target.image_generation_status = frame.status
+                target.image_error = frame.image_error
+                target.image_prompt = frame.image_prompt
+                generated = [v for v in frame.rendered_image_asset.variants if v.id not in original_variant_ids] if frame.rendered_image_asset else []
+                if generated:
+                    if target.rendered_image_asset is None:
+                        target.rendered_image_asset = frame.rendered_image_asset.model_copy(deep=True)
+                    else:
+                        known_ids = {v.id for v in target.rendered_image_asset.variants}
+                        target.rendered_image_asset.variants.extend(v for v in generated if v.id not in known_ids)
+                        target.rendered_image_asset.selected_id = generated[-1].id
+                    target.rendered_image_url = target.image_url = generated[-1].url
+                    target.updated_at = frame.updated_at
+                    urls = list(target.t2i_image_urls)
+                    for variant in generated:
+                        if variant.url not in urls:
+                            urls.append(variant.url)
+                    target.t2i_image_urls = urls[-self._T2I_HISTORY_LIMIT:]
+                    target.t2i_selected_index = target.t2i_image_urls.index(generated[-1].url)
+                self._save_data()
+                if frame.status == GenerationStatus.FAILED:
+                    raise RuntimeError(frame.image_error or "Image generation failed")
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if target and target.image_generation_id == generation_id:
+                    target.status = GenerationStatus.FAILED
+                    target.image_generation_status = GenerationStatus.FAILED
+                    target.image_error = str(error)
+                    self._save_data()
+            raise
 
     def generate_video(self, script_id: str) -> Script:
         """Step 4: Generate video clips."""
@@ -2324,7 +2474,13 @@ class ComicGenPipeline:
         # If R2V mode is selected, use the appropriate R2V model
         if generation_mode == "r2v":
             # Skip auto-switch if user already selected an R2V model directly
-            if not (model and model.endswith("-r2v")):
+            if not (
+                model
+                and (
+                    model.endswith("-r2v")
+                    or _model_supports_capability(model, "r2v")
+                )
+            ):
                 if model and model.startswith("happyhorse-"):
                     model = "happyhorse-1.1-r2v"
                 elif model and model.startswith("wan2.7-"):
@@ -2354,7 +2510,9 @@ class ComicGenPipeline:
         # now match on the "-r2v" suffix so new R2V families inherit
         # the check automatically. Only wan2.6-r2v (legacy) takes
         # video refs; everything else takes image refs.
-        is_r2v_model = isinstance(model, str) and model.endswith("-r2v")
+        is_r2v_model = generation_mode == "r2v" or (
+            isinstance(model, str) and model.endswith("-r2v")
+        )
         if is_r2v_model:
             needs_video_refs = model == "wan2.6-r2v"
             refs = (
@@ -2442,6 +2600,36 @@ class ComicGenPipeline:
 
         self._save_data()
         return script, task_id
+
+    def retry_video_task(self, script_id: str, task_id: str) -> Tuple[VideoTask, bool]:
+        """Reuse saved inputs without reassembling prompts from the current frame."""
+        # ponytail: reuse the process write lock; cross-worker deduplication needs database idempotency.
+        with self._save_lock:
+            script = self.get_script(script_id)
+            source = next((task for task in script.video_tasks if task.id == task_id), None) if script else None
+            if source is None or source.project_id != script_id:
+                raise KeyError("Video task not found")
+            if source.status != "failed":
+                raise ValueError("Only failed video tasks can be retried")
+            if source.frame_id and not any(frame.id == source.frame_id for frame in script.frames):
+                raise ValueError("The original frame no longer exists")
+            running = next((task for task in script.video_tasks if task.retry_of_task_id == task_id
+                and task.status in {"pending", "processing"}), None)
+            if running:
+                return running, False
+            task = source.model_copy(deep=True, update={
+                "id": str(uuid.uuid4()), "created_at": time.time(), "retry_of_task_id": task_id,
+                "status": "pending", "error": None, "video_url": None,
+                "provider_name": None, "provider_task_id": None, "provider_request_id": None,
+                "is_starred": False, "label": None,
+            })
+            script.video_tasks.append(task)
+            try:
+                self._save_data()
+            except Exception:
+                script.video_tasks = [existing for existing in script.video_tasks if existing.id != task.id]
+                raise
+            return task, True
 
     def extract_last_frame(self, script_id: str, frame_id: str, video_task_id: str) -> Script:
         """Extract the last frame from a video task and add it as a variant of the frame's rendered_image_asset."""
@@ -2610,71 +2798,74 @@ class ComicGenPipeline:
         """Manual select: user pins this video as the active take.
 
         Sets is_video_pinned=True so subsequent auto_select_latest_video
-        calls (fired by polling completion) skip this frame and don't
+        calls (at task completion) skip this frame and don't
         overwrite the user's hand-picked choice.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise KeyError("Script not found")
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise KeyError("Frame not found")
 
-        video = next((v for v in script.video_tasks if v.id == video_id), None)
-        if not video:
-            raise ValueError("Video task not found")
+            video = next((v for v in script.video_tasks if v.id == video_id), None)
+            if not video:
+                raise KeyError("Video task not found")
+            if video.project_id != script_id or video.frame_id != frame_id:
+                raise ValueError("Video task does not belong to this frame")
+            if video.status != GenerationStatus.COMPLETED or not video.video_url:
+                raise ValueError("Video task must be completed with a video before selection")
 
-        frame.selected_video_id = video_id
-        frame.video_url = video.video_url
-        frame.is_video_pinned = True
+            frame.selected_video_id = video_id
+            frame.video_url = video.video_url
+            frame.is_video_pinned = True
 
-        self._save_data()
-        return script
+            self._save_data()
+            return script
 
-    def auto_select_latest_video(self, script_id: str, frame_id: str) -> Script:
+    def auto_select_latest_video(self, script_id: str, frame_id: str, *, persist: bool = True) -> Script:
         """Auto select: pick the latest completed video task for this frame.
 
         Idempotent. Skips the update entirely if the frame is manually pinned
         (is_video_pinned=True) or asset-locked (locked=True). Both states protect
-        the current selection from latest-wins updates triggered by task polling.
+        the current selection when a new task finishes.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError("Frame not found")
 
-        if frame.is_video_pinned or frame.locked:
-            return script  # manual pin or asset lock protects the current take
+            if frame.is_video_pinned or frame.locked:
+                return script  # manual pin or asset lock protects the current take
 
-        # Latest completed task wins. VideoTask carries created_at
-        # (default_factory=time.time); we use it as the "completion order"
-        # proxy. Backend doesn't track per-task completion time, but tasks
-        # in the same batch are queued at roughly the same created_at and
-        # complete in arrival order — close enough for "show me what just
-        # came out" UX.
-        frame_tasks = [
-            t for t in script.video_tasks
-            if t.frame_id == frame_id
-            and t.status == GenerationStatus.COMPLETED
-            and t.video_url
-        ]
-        if not frame_tasks:
-            return script  # nothing to select yet
+            # Newest-created completed task wins. A slower, older task must not
+            # replace a newer take merely because it finished last.
+            frame_tasks = [
+                t for t in script.video_tasks
+                if t.project_id == script_id and t.frame_id == frame_id
+                and t.status == GenerationStatus.COMPLETED
+                and t.video_url
+            ]
+            if not frame_tasks:
+                return script  # nothing to select yet
 
-        latest = max(frame_tasks, key=lambda t: getattr(t, "created_at", 0) or 0)
-        if frame.selected_video_id == latest.id and frame.video_url == latest.video_url:
-            return script  # already selected — no-op
+            latest = max(frame_tasks, key=lambda t: getattr(t, "created_at", 0) or 0)
+            if frame.selected_video_id == latest.id and frame.video_url == latest.video_url:
+                return script  # already selected — no-op
 
-        frame.selected_video_id = latest.id
-        frame.video_url = latest.video_url
-        # is_video_pinned stays False — this is an auto-select
+            frame.selected_video_id = latest.id
+            frame.video_url = latest.video_url
+            # is_video_pinned stays False — this is an auto-select
 
-        self._save_data()
-        return script
+            if persist:
+                self._save_data()
+            return script
 
     def unpin_video(self, script_id: str, frame_id: str) -> Script:
         """Clear the manual pin so auto_select_latest_video resumes.
@@ -2683,20 +2874,21 @@ class ComicGenPipeline:
         user keeps seeing the same take until the next generation runs
         and auto_select picks a newer one.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError("Frame not found")
 
-        if not frame.is_video_pinned:
-            return script  # already unpinned — no-op
+            if not frame.is_video_pinned:
+                return script  # already unpinned — no-op
 
-        frame.is_video_pinned = False
-        self._save_data()
-        return script
+            frame.is_video_pinned = False
+            self._save_data()
+            return script
 
     def _resolve_media_path(self, url: str, suffix: str = "") -> Optional[str]:
         """Resolve a media URL to a local file path.
@@ -2828,7 +3020,7 @@ class ComicGenPipeline:
         """Ensure background audio is separated and cached for this frame's video.
 
         Returns absolute path to bg audio WAV, or None if video has no audio.
-        Caches result to output/audio/bg_{frame_id}.wav — only re-runs Demucs
+        Caches result to a unique output/audio/bg_*.wav file — only re-runs Demucs
         if video source changed.
         """
         if frame.bg_audio_url and frame.bg_audio_source_video == video_url:
@@ -2847,7 +3039,7 @@ class ComicGenPipeline:
                 frame.bg_audio_source_video = video_url
                 return None
 
-            cache_filename = f"bg_{frame.id}.wav"
+            cache_filename = f"bg_{frame.id}_{uuid.uuid4().hex}.wav"
             cache_path = _safe_resolve_path(os.path.join("output", "audio"), cache_filename)
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
             shutil.copy2(bg_path, cache_path)
@@ -2859,60 +3051,91 @@ class ComicGenPipeline:
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
+    def _save_fields(self, frame: Script | StoryboardFrame, **changes) -> None:
+        """Save named fields atomically; callers hold the project save lock."""
+        previous = {field: getattr(frame, field) for field in changes}
+        for field, value in changes.items():
+            setattr(frame, field, value)
+        try:
+            self._save_data()
+        except Exception:
+            for field, value in previous.items():
+                setattr(frame, field, value)
+            raise
+
+    def _validate_dub_audio(self, script: Script, frame: StoryboardFrame) -> None:
+        from .audio import dialogue_audio_is_stale
+        if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+            raise GenerationInProgressError("Dialogue audio is still being generated")
+        resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
+        if not frame.audio_url or dialogue_audio_is_stale(frame, self._resolve_dialogue_speaker(resolved, frame)):
+            raise ValueError("Generate current dialogue audio before previewing or applying a dub")
+
     def preview_dub(self, script_id: str, frame_id: str, video_task_id: str, offset_ms: int = 0) -> "Script":
-        """Generate a preview dubbed video (Demucs cached + offset+amix+mux).
-
-        Replaces any existing preview_video_url (lazy cleanup).
-        Does NOT touch dubbed_video_url.
-        """
         _validate_safe_id(script_id, "script_id")
-        # Force a bounded numeric type so FFmpeg filter strings stay shell-safe.
         offset_ms = _validate_dub_offset_ms(offset_ms)
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if not frame:
+                raise LookupError("Frame not found")
+            self._validate_dub_audio(script, frame)
+            task = next((task for task in script.video_tasks if task.id == video_task_id), None)
+            if not task or task.frame_id != frame_id or task.status != "completed" or not task.video_url:
+                raise ValueError("Select a completed video belonging to this shot")
+            # ponytail: process-local claim; use a database claim for multiple workers.
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("A dub preview is already being generated")
+            generation_id = str(uuid.uuid4())
+            self._save_fields(frame, dub_generation_status=GenerationStatus.PROCESSING, dub_generation_id=generation_id, dub_error=None)
+            source = frame.model_copy(deep=True)
+            video_url = task.video_url
+        try:
+            preview_url = self._render_dub_preview(source, video_url, offset_ms)
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if not target:
+                    raise LookupError("Frame not found")
+                task = next((task for task in current.video_tasks if task.id == video_task_id), None)
+                if target.dub_generation_id != generation_id or target.audio_url != source.audio_url or not task or task.frame_id != frame_id or task.status != "completed" or task.video_url != video_url:
+                    raise ValueError("The source media changed. Generate a new dub preview")
+                self._save_fields(target, preview_video_url=preview_url, preview_audio_url=source.audio_url,
+                    preview_video_task_id=video_task_id, preview_source_video_url=video_url, preview_offset_ms=offset_ms,
+                    bg_audio_url=source.bg_audio_url, bg_audio_source_video=source.bg_audio_source_video,
+                    dub_generation_status=GenerationStatus.COMPLETED, dub_error=None)
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if target and target.dub_generation_id == generation_id:
+                    self._save_fields(target, dub_generation_status=GenerationStatus.FAILED, dub_error=str(error))
+            raise
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-
-        if not frame.audio_url:
-            raise ValueError("Frame has no TTS audio (audio_url). Generate dialogue audio first.")
-
-        video_task = next((t for t in script.video_tasks if t.id == video_task_id), None)
-        if not video_task or not video_task.video_url:
-            raise ValueError(f"Video task {video_task_id} not found or has no video_url")
-
+    def _render_dub_preview(self, frame: StoryboardFrame, video_url: str, offset_ms: int) -> str:
+        """Render a unique file from a detached frame; publication happens after rendering."""
         ffmpeg_path = get_ffmpeg_path()
         if not ffmpeg_path:
             raise RuntimeError("FFmpeg is required for audio dubbing but was not found.")
 
-        video_path = self._resolve_media_path(video_task.video_url, suffix=".mp4")
+        video_path = self._resolve_media_path(video_url, suffix=".mp4")
         tts_path = self._resolve_media_path(frame.audio_url, suffix=".mp3")
 
         if not video_path or not os.path.exists(video_path):
-            raise ValueError(f"Video file not found: {video_task.video_url}")
+            raise ValueError(f"Video file not found: {video_url}")
         if not tts_path or not os.path.exists(tts_path):
             raise ValueError(f"Audio file not found: {frame.audio_url}")
         if os.path.getsize(tts_path) < 1000:
             raise ValueError("TTS audio file is invalid or empty. Please regenerate dialogue audio.")
 
-        # Delete old preview (lazy cleanup)
-        if frame.preview_video_url:
-            old_preview = _safe_resolve_path("output", frame.preview_video_url)
-            if os.path.exists(old_preview):
-                try:
-                    os.remove(old_preview)
-                except OSError:
-                    pass
-
         # frame.id comes from the store (== frame_id), keeping ffmpeg args taint-free.
-        output_filename = f"preview_{frame.id}_{int(time.time())}.mp4"
+        output_filename = f"preview_{frame.id}_{uuid.uuid4().hex}.mp4"
         output_path = _safe_resolve_path(os.path.join("output", "video"), output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         # Ensure background audio is cached (Demucs runs only on first call or video change)
-        bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_task.video_url)
+        bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_url)
 
         video_input_args = ["-i", video_path]
         if offset_ms < 0:
@@ -2997,7 +3220,14 @@ class ComicGenPipeline:
                 logger.info(f"[DUB] Simple replacement ({offset_note})")
                 subprocess.run(cmd, check=True, capture_output=True, timeout=120)
 
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
+            if os.path.exists(output_path):
+                try:
+                    os.unlink(output_path)
+                except OSError:
+                    logger.warning("Could not remove failed dub preview output")
+            if not isinstance(e, subprocess.CalledProcessError):
+                raise
             stderr_msg = e.stderr.decode() if e.stderr else "No error output"
             logger.error(f"[DUB] FFmpeg failed: {stderr_msg[:400]}")
             raise RuntimeError(f"Audio dubbing failed: {stderr_msg[:200]}")
@@ -3005,73 +3235,45 @@ class ComicGenPipeline:
             import shutil
             shutil.rmtree(work_dir, ignore_errors=True)
 
-        if not os.path.exists(output_path):
+        if not os.path.exists(output_path) or not os.path.getsize(output_path):
             raise RuntimeError("Preview video was not created")
 
-        frame.preview_video_url = f"video/{output_filename}"
-        frame.dubbed_video_task_id = video_task_id
-        frame.dub_offset_ms = offset_ms
-        self._save_data()
-
-        logger.info(f"[DUB] Preview generated: {output_filename}")
-        return script
+        return f"video/{output_filename}"
 
     def apply_dub(self, script_id: str, frame_id: str) -> "Script":
-        """Promote preview_video_url to dubbed_video_url."""
         _validate_safe_id(script_id, "script_id")
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-
-        if not frame.preview_video_url:
-            raise ValueError("No preview to apply. Generate a preview first.")
-
-        # Delete old dubbed file
-        if frame.dubbed_video_url:
-            old_path = _safe_resolve_path("output", frame.dubbed_video_url)
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except OSError:
-                    pass
-
-        frame.dubbed_video_url = frame.preview_video_url
-        frame.preview_video_url = None
-        self._save_data()
-
-        logger.info(f"[DUB] Applied: {frame.dubbed_video_url}")
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if not frame:
+                raise LookupError("Frame not found")
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Wait for the dub preview to finish")
+            self._validate_dub_audio(script, frame)
+            task = next((task for task in script.video_tasks if task.id == frame.preview_video_task_id), None)
+            if not frame.preview_video_url or not task or task.frame_id != frame_id or task.status != "completed" or frame.selected_video_id not in (None, task.id) or frame.preview_audio_url != frame.audio_url or frame.preview_source_video_url != task.video_url:
+                raise ValueError("The preview no longer matches the selected audio and video. Generate a new preview")
+            if not os.path.isfile(_safe_resolve_path("output", frame.preview_video_url)):
+                raise ValueError("The preview file is missing. Generate a new preview")
+            # ponytail: retain replaced files; cleanup needs reference-aware media GC.
+            self._save_fields(frame, dubbed_video_url=frame.preview_video_url, dubbed_video_task_id=task.id,
+                dub_offset_ms=frame.preview_offset_ms or 0, preview_video_url=None, preview_audio_url=None,
+                preview_video_task_id=None, preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
+            return script
 
     def revert_dub(self, script_id: str, frame_id: str) -> "Script":
-        """Revert dubbing — clear dubbed and preview, keep bg cache."""
         _validate_safe_id(script_id, "script_id")
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
-
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError(f"Frame {frame_id} not found")
-
-        for url_field in ("dubbed_video_url", "preview_video_url"):
-            url = getattr(frame, url_field)
-            if url:
-                path = _safe_resolve_path("output", url)
-                if os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
-                setattr(frame, url_field, None)
-
-        frame.dub_offset_ms = 0
-        frame.dubbed_video_task_id = None
-        self._save_data()
-        return script
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if not frame:
+                raise LookupError("Frame not found")
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Wait for the dub preview to finish")
+            self._save_fields(frame, dubbed_video_url=None, dubbed_video_task_id=None, dub_offset_ms=0,
+                preview_video_url=None, preview_audio_url=None, preview_video_task_id=None,
+                preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
+            return script
 
     def precheck_merge(self, script_id: str) -> dict:
         """Check merge inputs and disk capacity before starting an export."""
@@ -3962,8 +4164,13 @@ class ComicGenPipeline:
 
         try:
             # Update status to processing
-            task.status = "processing"
-            self._save_data()
+            with self._save_lock:
+                script = self.get_script(script_id)
+                task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
+                if not task or task.status != "pending":
+                    return
+                task.status = "processing"
+                self._save_data()
             
             # Download image to temp file
             img_path = None
@@ -4015,8 +4222,24 @@ class ComicGenPipeline:
             use_mulerouter = backend == "mulerouter" and (
                 model_name_lower.startswith("seedance")
             )
+            use_moma = backend == "moma" and model_name_lower.startswith("minimax")
 
-            if use_mulerouter:
+            if use_moma:
+                if self._moma_video_model is None:
+                    from ...models.moma import MomaVideoModel
+                    self._moma_video_model = MomaVideoModel({})
+                video_path, _ = self._moma_video_model.generate(
+                    prompt=task.prompt,
+                    output_path=output_path,
+                    model=task.model,
+                    image_urls=([img_url] if img_url else []) + list(task.reference_image_urls),
+                    video_urls=list(task.reference_video_urls),
+                    audio_urls=[final_audio_url] if final_audio_url else [],
+                    resolution=task.resolution,
+                    duration=task.duration,
+                    ratio=task.ratio or "16:9",
+                )
+            elif use_mulerouter:
                 if self._mulerouter_video_model is None:
                     from ...models.mulerouter import MuleRouterVideoModel
                     self._mulerouter_video_model = MuleRouterVideoModel({})
@@ -4076,11 +4299,15 @@ class ComicGenPipeline:
                 # the long polling loop. Lets the user copy them from the queue
                 # panel even mid-generation if the task hangs.
                 def _capture_provider_ids(provider_name: str, ptask_id: Optional[str], preq_id: Optional[str]) -> None:
-                    task.provider_name = provider_name
-                    task.provider_task_id = ptask_id
-                    task.provider_request_id = preq_id
                     try:
-                        self._save_data()
+                        with self._save_lock:
+                            current_script = self.get_script(script_id)
+                            current_task = next((t for t in current_script.video_tasks if t.id == task_id), None) if current_script else None
+                            if current_task:
+                                current_task.provider_name = provider_name
+                                current_task.provider_task_id = ptask_id
+                                current_task.provider_request_id = preq_id
+                                self._save_data()
                     except Exception:
                         logger.warning("Failed to persist provider IDs mid-flight; will retry at task completion")
                 video_path, _ = self.video_generator.model.generate(
@@ -4110,22 +4337,46 @@ class ComicGenPipeline:
                     on_provider_ids=_capture_provider_ids,
                 )
             
-            task.video_url = os.path.relpath(output_path, "output")
-            task.status = "completed"
-            
-            # Sync with asset if this is an asset video
-            if task.asset_id:
-                self._sync_asset_video_task(script, task)
+            # Project reads replace cached objects. Commit onto the current task,
+            # preserving edits and terminal cancellation made during generation.
+            # ponytail: process-local lock; multiple workers need database-level serialization.
+            with self._save_lock:
+                script = self.get_script(script_id)
+                task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
+                if not task or task.status != "processing":
+                    return
+                frame = next((f for f in script.frames if f.id == task.frame_id), None)
+                old_task = task.status, task.error
+                old_selection = (frame.selected_video_id, frame.video_url) if frame else None
+                task.video_url = os.path.relpath(output_path, "output")
+                task.status = "completed"
+                task.error = None
+                if task.asset_id:
+                    self._sync_asset_video_task(script, task)
+                if frame:
+                    self.auto_select_latest_video(script_id, frame.id, persist=False)
+                try:
+                    self._save_data()
+                except Exception:
+                    # Keep the generated file reference even when persisting its
+                    # completion fails, so error recovery does not orphan the media.
+                    task.status, task.error = old_task
+                    if frame:
+                        frame.selected_video_id, frame.video_url = old_selection
+                    raise
             
         except Exception as e:
-            import traceback
             logger.exception("Failed to process video task")
             logger.error(f"Video generation failed: {e}")
-            task.status = "failed"
-            if task.asset_id:
-                self._sync_asset_video_task(script, task)
-            
-        self._save_data()
+            with self._save_lock:
+                script = self.get_script(script_id)
+                task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
+                if task and task.status in ("pending", "processing"):
+                    task.status = "failed"
+                    task.error = str(e)
+                    if task.asset_id:
+                        self._sync_asset_video_task(script, task)
+                    self._save_data()
 
     def _sync_asset_video_task(self, script: Script, task: VideoTask):
         """Syncs the updated task status/url back to the asset's video_assets list."""
@@ -4305,44 +4556,147 @@ class ComicGenPipeline:
         custom voices (clone/design) we resolve the target_model/family
         override here so generation reuses the registered voice model.
         """
-        script = self.scripts.get(script_id)
-        if not script:
-            raise ValueError("Script not found")
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            target = next((f for f in script.frames if f.id == frame_id), None)
+            if not target:
+                raise LookupError("Frame not found")
+            from .audio import _effective_dialogue_text
+            if not _effective_dialogue_text(target).strip():
+                raise ValueError("The dialogue is empty")
+            resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
+            speaker = self._resolve_dialogue_speaker(resolved, target)
+            if not speaker or not speaker.voice_id:
+                raise ValueError("Assign a voice to the speaking character before generating dialogue")
+            # ponytail: process-local exclusion; multiple workers need a database claim.
+            if target.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
+            previous = (target.audio_generation_status, target.audio_generation_id, target.audio_error)
+            generation_id = str(uuid.uuid4())
+            target.audio_generation_status = GenerationStatus.PROCESSING
+            target.audio_generation_id = generation_id
+            target.audio_error = None
+            try:
+                self._save_data()
+            except Exception:
+                target.audio_generation_status, target.audio_generation_id, target.audio_error = previous
+                raise
+            frame = target.model_copy(deep=True)
+            speaker = speaker.model_copy(deep=True)
 
-        frame = next((f for f in script.frames if f.id == frame_id), None)
-        if not frame:
-            raise ValueError("Frame not found")
+        try:
+            repository = getattr(self, "repository", None)
+            custom = self.find_custom_voice(speaker.voice_id, repository.workspace_for_script(script_id) if repository else None)
+            self.audio_generator.generate_dialogue(
+                frame, speaker, speed, pitch, volume, instructions=instructions,
+                model_override=custom.target_model if custom else None,
+                family_override=custom.family if custom else None,
+            )
+            if frame.audio_error or not frame.audio_url:
+                raise RuntimeError(frame.audio_error or "TTS did not produce audio")
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if not target:
+                    raise LookupError("Frame not found")
+                if target.audio_generation_id != generation_id:
+                    return current
+                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_text_hash")
+                previous_output = {name: getattr(target, name) for name in fields}
+                for name in fields:
+                    setattr(target, name, getattr(frame, name))
+                target.audio_generation_status = GenerationStatus.COMPLETED
+                try:
+                    self._save_data()
+                except Exception:
+                    for name, value in previous_output.items():
+                        setattr(target, name, value)
+                    raise
+                return current
+        except Exception as error:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                if target and target.audio_generation_id == generation_id:
+                    target.audio_generation_status = GenerationStatus.FAILED
+                    target.audio_error = str(error)
+                    self._save_data()
+            raise
 
-        dialogue_text = (
-            (frame.dialogue_structured.line if frame.dialogue_structured else None)
-            or frame.dialogue
-        )
-        if dialogue_text:
-            speaker = self._resolve_dialogue_speaker(script, frame)
+    def generate_dialogue_audio_batch(self, script_id: str, instructions: Optional[Dict[str, str]] = None) -> Script:
+        from .audio import _effective_dialogue_text, dialogue_audio_is_stale
+        instructions = instructions or {}
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame_ids = {frame.id for frame in script.frames}
+            if any(frame_id not in frame_ids or not isinstance(value, str) or len(value) > 256 for frame_id, value in instructions.items()):
+                raise ValueError("Dialogue instructions must belong to this project and contain at most 256 characters")
+            previous = script.dialogue_audio_batch
+            # ponytail: process-local exclusion; multiple workers need a database claim.
+            if previous and previous.status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
+            batch = DialogueAudioBatch(id=str(uuid.uuid4()), frame_ids=[frame.id for frame in script.frames if _effective_dialogue_text(frame).strip()], instructions=dict(instructions))
+            script.dialogue_audio_batch = batch
+            try:
+                self._save_data()
+            except Exception:
+                script.dialogue_audio_batch = previous
+                raise
 
-            if speaker:
-                model_override = None
-                family_override = None
-                if speaker.voice_id:
-                    repository = getattr(self, "repository", None)
-                    custom = self.find_custom_voice(
-                        speaker.voice_id,
-                        repository.workspace_for_script(script_id)
-                        if repository is not None
-                        else None,
-                    )
-                    if custom:
-                        model_override = custom.target_model
-                        family_override = custom.family
-                self.audio_generator.generate_dialogue(
-                    frame, speaker, speed, pitch, volume,
-                    instructions=instructions,
-                    model_override=model_override,
-                    family_override=family_override,
-                )
+        def save_progress(frame_id=None, result=None, **changes):
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if not current:
+                    raise LookupError("Script not found")
+                prior = current.dialogue_audio_batch
+                if not prior or prior.id != batch.id:
+                    raise GenerationInProgressError("The dialogue batch changed. Refresh its status")
+                if frame_id is not None:
+                    changes["results"] = {**prior.results, frame_id: result}
+                current.dialogue_audio_batch = prior.model_copy(update=changes)
+                try:
+                    self._save_data()
+                except Exception:
+                    current.dialogue_audio_batch = prior
+                    raise
+                return current
 
-        self._save_data()
-        return script
+        try:
+            for frame_id in batch.frame_ids:
+                with self._save_lock:
+                    current = self.scripts.get(script_id)
+                    if not current:
+                        raise LookupError("Script not found")
+                    frame = next((frame for frame in current.frames if frame.id == frame_id), None)
+                    resolved = current.model_copy(update={"characters": self.resolve_episode_assets(current)["characters"]})
+                    speaker = self._resolve_dialogue_speaker(resolved, frame) if frame else None
+                    probe = frame.model_copy(update={"dialogue_instructions": instructions[frame_id]}) if frame and frame_id in instructions else frame
+                    result = ("skipped" if not frame or not _effective_dialogue_text(frame).strip()
+                        else "busy" if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING)
+                        else "no_voice" if not speaker or not speaker.voice_id
+                        else "skipped" if frame.audio_url and frame.dialogue_snapshot_text is not None and not dialogue_audio_is_stale(probe, speaker)
+                        else None)
+                if result is None:
+                    try:
+                        self.generate_dialogue_line(script_id, frame_id, speaker.voice_speed, speaker.voice_pitch, speaker.voice_volume, instructions=instructions.get(frame_id))
+                        result = "generated"
+                    except GenerationInProgressError:
+                        result = "busy"
+                    except LookupError:
+                        result = "skipped"
+                    except Exception:
+                        result = "failed"
+                save_progress(frame_id, result)
+            return save_progress(status=GenerationStatus.COMPLETED)
+        except Exception as error:
+            current = self.scripts.get(script_id)
+            if current and current.dialogue_audio_batch and current.dialogue_audio_batch.id == batch.id:
+                save_progress(status=GenerationStatus.FAILED, error=str(error))
+            raise
 
     def bind_voice(self, script_id: str, char_id: str, voice_id: str, voice_name: str) -> Script:
         """Binds a voice to a character."""
@@ -4849,7 +5203,10 @@ class ComicGenPipeline:
             asset = self._find_library_asset(asset_type, asset_id, workspace_id)
             for key, value in (patch or {}).items():
                 if hasattr(asset, key) and key not in ("id", "status"):
-                    setattr(asset, key, value)
+                    if key == "image_url" and value:
+                        _set_asset_master_image(asset, asset_type, value)
+                    else:
+                        setattr(asset, key, value)
             self._save_library_data_unlocked()
             return asset
 
@@ -5959,9 +6316,7 @@ class ComicGenPipeline:
         """Updates the image URL of a Series asset."""
         with self._save_lock:
             series, target_asset = self._find_series_asset(series_id, asset_id, asset_type)
-            target_asset.image_url = image_url
-            if asset_type == "character":
-                target_asset.avatar_url = image_url
+            _set_asset_master_image(target_asset, asset_type, image_url)
             self._save_series_data_unlocked()
             return series
 

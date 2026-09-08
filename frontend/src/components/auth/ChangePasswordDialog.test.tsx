@@ -1,0 +1,23 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
+import ChangePasswordDialog from './ChangePasswordDialog';
+const { changePassword } = vi.hoisted(() => ({ changePassword: vi.fn() }));
+vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+vi.mock('@/store/authStore', () => ({ useAuthStore: (select: (state: unknown) => unknown) => select({ changePassword }) }));
+it('uses password controls, retains failed input and prevents dismissal while saving', async () => {
+  let reject!: (error: Error) => void;
+  changePassword.mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+  const close = vi.fn();
+  render(<ChangePasswordDialog isOpen onClose={close} />);
+  const inputs = ['oldPassword', 'newPassword', 'confirmNewPassword'].map(label => screen.getByLabelText(label));
+  inputs.forEach((input, index) => fireEvent.change(input, { target: { value: index ? 'new-example-123' : 'old-example-123' } }));
+  expect(screen.getAllByRole('button', { name: 'showPassword' })).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button', { name: 'save' }));
+  await waitFor(() => expect(changePassword).toHaveBeenCalledWith({ current_password: 'old-example-123', new_password: 'new-example-123' }));
+  expect(screen.getByRole('button', { name: 'cancel' })).toBeDisabled();
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+  expect(close).not.toHaveBeenCalled();
+  reject(new Error('offline'));
+  expect(await screen.findByRole('alert')).toHaveTextContent('errorChangePasswordFailed');
+  expect(screen.getByLabelText('newPassword')).toHaveValue('new-example-123');
+});

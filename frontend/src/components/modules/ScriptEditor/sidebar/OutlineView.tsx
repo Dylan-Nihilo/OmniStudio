@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
+import { Button } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, TreePine, Film } from 'lucide-react';
@@ -8,6 +9,7 @@ import type { Editor } from '@tiptap/react';
 
 export interface OutlineViewProps {
   editor: Editor | null;
+  onNavigate?: () => void;
 }
 
 interface OutlineSection {
@@ -24,7 +26,7 @@ interface OutlineScene {
   pos: number;
 }
 
-export default function OutlineView({ editor }: OutlineViewProps) {
+export default function OutlineView({ editor, onNavigate }: OutlineViewProps) {
   const t = useTranslations('scriptEditor');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -78,8 +80,9 @@ export default function OutlineView({ editor }: OutlineViewProps) {
       if (!editor) return;
       editor.commands.setTextSelection(pos + 1);
       editor.commands.scrollIntoView();
+      onNavigate?.();
     },
-    [editor]
+    [editor, onNavigate]
   );
 
   const toggleSection = useCallback((id: string) => {
@@ -104,11 +107,11 @@ export default function OutlineView({ editor }: OutlineViewProps) {
     <div className="p-2">
       {/* Flat scenes (no section) */}
       {outline.flatScenes.map((scene) => (
-        <button
+        <Button variant="quiet"
           key={scene.id}
           type="button"
-          onClick={() => handleJump(scene.pos)}
-          className="flex w-full items-center gap-2 px-2 py-1.5 text-left rounded hover:bg-white/5 transition-colors"
+          onPress={() => handleJump(scene.pos)}
+          className="h-auto min-h-9 justify-start flex w-full items-center gap-2 px-2 py-1.5 text-left rounded hover:bg-hover-bg transition-colors"
         >
             <Film size={12} className="shrink-0 text-text-secondary" />
           <span className="text-sm text-foreground truncate">
@@ -117,16 +120,16 @@ export default function OutlineView({ editor }: OutlineViewProps) {
             )}
             {scene.title}
           </span>
-        </button>
+        </Button>
       ))}
 
       {/* Sections with nested scenes */}
       {outline.sections.map((section) => (
         <div key={section.id} className="mb-1">
-          <button
+          <Button variant="quiet"
             type="button"
-            onClick={() => toggleSection(section.id)}
-            className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left rounded hover:bg-white/5 transition-colors"
+            aria-expanded={!collapsed[section.id]} onPress={() => toggleSection(section.id)}
+            className="h-auto min-h-9 justify-start flex w-full items-center gap-1.5 px-2 py-1.5 text-left rounded hover:bg-hover-bg transition-colors"
           >
             <motion.div
               animate={{ rotate: collapsed[section.id] ? 0 : 90 }}
@@ -141,7 +144,7 @@ export default function OutlineView({ editor }: OutlineViewProps) {
             <span className="ml-auto text-[10px] text-text-muted">
               {section.scenes.length}
             </span>
-          </button>
+          </Button>
 
           <AnimatePresence>
             {!collapsed[section.id] && (
@@ -154,11 +157,11 @@ export default function OutlineView({ editor }: OutlineViewProps) {
               >
                 <div className="ml-4 border-l border-border-subtle pl-2">
                   {section.scenes.map((scene) => (
-                    <button
+                    <Button variant="quiet"
                       key={scene.id}
                       type="button"
-                      onClick={() => handleJump(scene.pos)}
-                      className="flex w-full items-center gap-2 px-2 py-1 text-left rounded hover:bg-white/5 transition-colors"
+                      onPress={() => handleJump(scene.pos)}
+                      className="h-auto min-h-9 justify-start flex w-full items-center gap-2 px-2 py-1 text-left rounded hover:bg-hover-bg transition-colors"
                     >
                       <Film size={10} className="shrink-0 text-text-secondary" />
                       <span className="text-xs text-text-secondary truncate">
@@ -167,7 +170,7 @@ export default function OutlineView({ editor }: OutlineViewProps) {
                         )}
                         {scene.title}
                       </span>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </motion.div>

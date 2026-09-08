@@ -98,7 +98,7 @@ export default function EpisodeMiniList({
         // Preserve the activeStep via URL hash. ProjectClient reads
         // hash on mount to restore the step.
         const stepFragment = activeStep ? `#${activeStep}` : "";
-        window.location.hash = `/project/${epId}${stepFragment}`;
+        window.location.hash = `/series/${seriesId}/episode/${epId}${stepFragment}`;
     };
 
     return (

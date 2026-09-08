@@ -1,5 +1,6 @@
 'use client';
 
+import { Button, IconButton } from '@omnistudio/ui';
 import { useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,10 +16,10 @@ type ResultGroup = {
 function ConfidenceBadge({ value, label }: { value: number; label: string }) {
   const color =
     value > 0.8
-      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+      ? 'bg-status-done-bg text-status-done-fg border-status-done-border'
       : value > 0.6
-        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-        : 'bg-red-500/20 text-red-400 border-red-500/30';
+        ? 'bg-status-warning-bg text-status-warning-fg border-status-warning-border'
+        : 'bg-status-failed-bg text-status-failed-fg border-status-failed-border';
 
   return (
     <span
@@ -31,18 +32,14 @@ function ConfidenceBadge({ value, label }: { value: number; label: string }) {
 
 function ResultCard({
   item,
-  onApply,
   onReject,
   confidenceLabel,
-  applyLabel,
   rejectLabel,
   sceneLabel,
 }: {
   item: L3Result;
-  onApply: () => void;
   onReject: () => void;
   confidenceLabel: string;
-  applyLabel: string;
   rejectLabel: string;
   sceneLabel: string;
 }) {
@@ -69,23 +66,15 @@ function ResultCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
+        <div className="flex items-center gap-1 shrink-0">
+          <IconButton
             type="button"
-            onClick={onApply}
-            title={applyLabel}
-            className="flex h-6 w-6 items-center justify-center rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
-          >
-            <Check size={12} />
-          </button>
-          <button
-            type="button"
-            onClick={onReject}
-            title={rejectLabel}
-            className="flex h-6 w-6 items-center justify-center rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+            onPress={onReject}
+            aria-label={rejectLabel}
+
           >
             <X size={12} />
-          </button>
+          </IconButton>
         </div>
       </div>
     </motion.div>
@@ -130,14 +119,6 @@ export default function L3CompletionPanel() {
       }));
   }, [l3Results, t]);
 
-  const handleApply = useCallback(
-    (item: L3Result) => {
-      // Placeholder: apply entity to confirmed list
-      console.log('[L3] Apply entity:', item);
-    },
-    []
-  );
-
   const handleReject = useCallback(
     (item: L3Result) => {
       if (!l3Results) return;
@@ -172,7 +153,7 @@ export default function L3CompletionPanel() {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-inset mb-3">
-          <Loader2 size={20} className="text-indigo-400 animate-spin" />
+          <Loader2 size={20} className="text-primary animate-spin" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.aiLoading')}</p>
       </div>
@@ -183,18 +164,18 @@ export default function L3CompletionPanel() {
   if (l3Status === 'error') {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-900/30 mb-3">
-          <X size={20} className="text-red-400" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-status-failed-bg mb-3">
+          <X size={20} className="text-status-failed-fg" />
         </div>
         <p className="text-sm text-text-muted">{t('panels.aiError')}</p>
-        <button
+        <Button variant="secondary"
           type="button"
-          onClick={handleRetry}
+          onPress={handleRetry}
           className="mt-3 flex items-center gap-1.5 rounded-md bg-surface-inset px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover-bg transition-colors"
         >
           <RefreshCw size={12} />
           {t('panels.aiRetry')}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -215,7 +196,7 @@ export default function L3CompletionPanel() {
   return (
     <div className="p-3">
       <div className="flex items-center gap-2 mb-3">
-        <Sparkles size={14} className="text-indigo-400" />
+        <Sparkles size={14} className="text-primary" />
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t('panels.aiCompletion')}
         </span>
@@ -233,10 +214,8 @@ export default function L3CompletionPanel() {
                   <ResultCard
                     key={`${item.type}-${item.name}`}
                     item={item}
-                    onApply={() => handleApply(item)}
                     onReject={() => handleReject(item)}
                     confidenceLabel={t('panels.aiConfidence')}
-                    applyLabel={t('panels.aiApply')}
                     rejectLabel={t('panels.aiReject')}
                     sceneLabel={t('panels.sceneLabel', { number: '' }).trim()}
                   />

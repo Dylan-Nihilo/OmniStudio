@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from .csrf import issue_csrf_token, verify_csrf
-from .dependencies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, get_auth_service, get_current_user
+from .dependencies import ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, CSRF_COOKIE_NAME, get_auth_service, get_current_user
 from .schemas import (
     AcceptInvitationRequest,
     ChangePasswordRequest,
@@ -44,7 +44,6 @@ from ....storage.legacy_claim import LegacyClaimError, LegacyClaimService
 from ..audit import record_request_event
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-CSRF_COOKIE_NAME = "omni_studio_csrf"
 
 
 def _utc(value: float) -> str:

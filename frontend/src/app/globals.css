@@ -1,19 +1,108 @@
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "@omnistudio/ui/styles.css";
+@import "./component-theme.css";
+@config "../../tailwind.config.ts";
+@source "../../node_modules/@omnistudio/ui/src";
 
-/* ─── Theme: 5-preset token system (Tasty Sam) ───
+/* ─── Theme: 6-preset token system (Tasty Sam) ───
    架构：seed (品牌 DNA) → semantic (语义角色) → component (组件级)。
    命名 100% 对齐组件用的 Tailwind 语义类（bg-surface/text-foreground/...）。
-   默认 :root === atelier-dark。落地选择器用 html.<id>（与 Providers/layout 一致）。
+   默认 :root === v3-paper（2026-09-03 V3 暖纸 editorial 定案，Figma MANGIX V3）。
+   落地选择器用 html.<id>（与 Providers/layout 一致）。
    每个 block 额外保留 --foreground-rgb / --background-*-rgb（body 渐变在用，
    tokens.css 未含，故在此补齐）。 */
 
-/* ===== 主题 1 · atelier-dark · Full Atelier（★ 默认）===== */
+/* ===== 主题 0 · v3-paper · V3 Editorial（★ 默认，定案）=====
+   令牌值取自 Figma 最新画布调色板（2026-09-04，画布内 "hex" 标注条）：
+   canvas #ffffff / rail #f5f7f9 / hairline #d7dce1 /
+   ink #141a22 / body #414a55 / meta #68727d /
+   accent #1d3a5f / t-accent #152c47。
+   注：09-03 暖纸陶土版（#f8f6f2/#a45116）已被该冷调版本取代。 */
 :root,
+html.v3-paper {
+  color-scheme: light;
+
+  --seed-primary:   #1d3a5f;
+  --seed-primary-2: #152c47;
+  --seed-accent:    #1d3a5f;
+  --seed-accent-2:  #152c47;
+  --seed-ink:       #141a22;
+  --seed-base:      #ffffff;
+
+  --color-bg-base:     #ffffff;
+  --color-bg-surface:  #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-inset:    #f5f7f9;
+  --color-bg-input:    #ffffff;
+  --color-bg-hover:    rgba(20, 26, 34, 0.045);
+  --color-glass:       rgba(255, 255, 255, 0.72);
+  --color-overlay:     rgba(20, 26, 34, 0.28);
+
+  --color-border-default: #d7dce1;
+  --color-border-subtle:  rgba(20, 26, 34, 0.06);
+
+  --color-text-primary:   #141a22;
+  --color-text-secondary: #414a55;
+  --color-text-muted:     #68727d;
+
+  --color-primary:       var(--seed-primary);
+  --color-primary-hover: var(--seed-primary-2);
+  --color-accent:        var(--seed-accent);
+  --color-accent-hover:  var(--seed-accent-2);
+  --color-on-accent:     #ffffff;
+  --color-on-warm:       oklch(0.99 0 0);
+
+  /* body 渐变（保留现有机制） */
+  --foreground-rgb:      20, 26, 34;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb:   255, 255, 255;
+
+  /* 状态语义：低饱和、白纸可读的 tint（pending=info / processing=warning /
+     completed=success / failed=砖红 / starred=藏青）。 */
+  --color-status-pending-fg:     #285d7d;
+  --color-status-pending-border: rgba(40, 93, 125, 0.38);
+  --color-status-pending-bg:     rgba(40, 93, 125, 0.08);
+  --color-status-processing-fg:     #8b5a13;
+  --color-status-processing-border: rgba(139, 90, 19, 0.38);
+  --color-status-processing-bg:     rgba(139, 90, 19, 0.08);
+  --color-status-completed-fg:     #1f6658;
+  --color-status-completed-border: rgba(31, 102, 88, 0.38);
+  --color-status-completed-bg:     rgba(31, 102, 88, 0.08);
+  --color-status-failed-fg:     #a63d2a;
+  --color-status-failed-border: rgba(166, 61, 42, 0.42);
+  --color-status-failed-bg:     rgba(166, 61, 42, 0.08);
+  --color-status-starred-fg:     #1d3a5f;
+  --color-status-starred-border: rgba(29, 58, 95, 0.42);
+  --color-status-starred-bg:     #e8eef5;
+  --color-status-starred-solid:  #1d3a5f;
+
+  /* 无霓虹发光：只留发丝描边与克制的投影。 */
+  --glow-primary: 0 0 0 1px rgba(29, 58, 95, 0.26), 0 2px 10px -4px rgba(29, 58, 95, 0.22);
+  --glow-accent:  0 0 0 1px rgba(29, 58, 95, 0.26), 0 2px 10px -4px rgba(29, 58, 95, 0.22);
+  --halation:     inset 0 0 36px -12px rgba(29, 58, 95, 0.08);
+  --bloom:        radial-gradient(60% 50% at 18% 0%, rgba(29, 58, 95, 0.03), transparent 70%);
+  --grain-op: 0;
+
+  --font-inter:          'Noto Sans SC', 'Inter', sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', monospace;
+  --font-space-grotesk:  'Space Grotesk', sans-serif;
+  --font-display:        'Space Grotesk', 'Noto Sans SC', sans-serif;
+
+  --card-bg:      var(--color-bg-surface);
+  --card-border:  var(--color-border-default);
+  --card-radius:  12px;
+  --btn-pri-bg:   var(--color-primary);
+  --btn-pri-fg:   #ffffff;
+  --btn-pri-glow: 0 1px 1px rgba(15, 23, 42, 0.04);
+  --input-bg:     #ffffff;
+  --input-border: var(--color-border-default);
+  --sidebar-bg:   var(--color-bg-inset);
+  --logo-filter:  none;
+}
+
+/* ===== 主题 1 · atelier-dark · Full Atelier ===== */
 html.atelier-dark {
   color-scheme: dark;
 
@@ -515,7 +604,7 @@ html {
     background: #07100f;
   }
 
-  :is(html.atelier-light, html.brand-light) .auth-surface {
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-surface {
     --auth-fg: #241f1a;
     --auth-secondary: #5d564d;
     --auth-muted: #81786c;
@@ -548,11 +637,28 @@ html {
       linear-gradient(115deg, rgba(6, 14, 13, 0.98), rgba(5, 10, 10, 0.86));
   }
 
-  :is(html.atelier-light, html.brand-light) .auth-surface::before {
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-surface::before {
     background:
       radial-gradient(ellipse at 50% 0%, rgba(29, 156, 141, 0.12), transparent 46%),
       radial-gradient(ellipse at 100% 100%, rgba(232, 133, 43, 0.1), transparent 40%),
       linear-gradient(115deg, rgba(246, 241, 233, 0.98), rgba(255, 253, 249, 0.9));
+  }
+
+  /* V3 Editorial：auth 表面对齐最新画布令牌（白输入 + #d7dce1 描边 + 白底）。
+     覆盖上方亮色族的 teal 氛围光，保持藏青单强调色纪律。 */
+  html.v3-paper .auth-surface {
+    --auth-input-bg: #ffffff;
+    --auth-input-focus-bg: #ffffff;
+    --auth-input-border: #d7dce1;
+    --auth-input-fg: #141a22;
+    --auth-autofill-bg: #f5f7f9;
+    background: #ffffff;
+  }
+
+  html.v3-paper .auth-surface::before {
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(29, 58, 95, 0.04), transparent 46%),
+      linear-gradient(115deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 249, 0.9));
   }
 
   .auth-storyboard {
@@ -698,17 +804,17 @@ html {
   .auth-claim-panel [class~="text-primary"] { color: #43d6c0; }
   .auth-claim-panel [class~="bg-primary"] { color: #032a25; background: #43d6c0; }
 
-  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-foreground"] { color: var(--auth-fg); }
-  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-text-secondary"] { color: var(--auth-secondary); }
-  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-text-muted"] { color: var(--auth-muted); }
-  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="text-primary"] { color: var(--color-primary); }
-  :is(html.atelier-light, html.brand-light) .auth-claim-panel [class~="bg-primary"] { color: white; background: var(--color-primary); }
-  :is(html.atelier-light, html.brand-light) .auth-setup-panel [class~="text-amber-100"] { color: #92400e; }
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-claim-panel [class~="text-foreground"] { color: var(--auth-fg); }
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-claim-panel [class~="text-text-secondary"] { color: var(--auth-secondary); }
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-claim-panel [class~="text-text-muted"] { color: var(--auth-muted); }
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-claim-panel [class~="text-primary"] { color: var(--color-primary); }
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-claim-panel [class~="bg-primary"] { color: white; background: var(--color-primary); }
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-setup-panel [class~="text-amber-100"] { color: #92400e; }
 
   .auth-input {
     width: 100%;
     border: 1px solid var(--auth-input-border);
-    border-radius: 6px;
+    border-radius: 12px;
     padding: 0.7rem 0.8rem;
     color: var(--auth-input-fg);
     background: var(--auth-input-bg);
@@ -718,9 +824,9 @@ html {
   }
 
   .auth-input:focus {
-    border-color: #2dd4bf;
+    border-color: var(--color-primary);
     background: var(--auth-input-focus-bg);
-    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.13);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
   }
 
   .auth-input:-webkit-autofill,
@@ -737,21 +843,21 @@ html {
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 0.78rem 1rem;
-    color: #032a25;
-    background: #43d6c0;
+    color: #ffffff;
+    background: var(--color-primary);
     font-size: 0.875rem;
     font-weight: 700;
-    box-shadow: 0 10px 24px rgba(45, 212, 191, 0.2);
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
     transition: background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
   }
 
-  .auth-submit:hover { background: #76ead7; box-shadow: 0 12px 28px rgba(45, 212, 191, 0.3); }
+  .auth-submit:hover { background: var(--color-primary-hover); box-shadow: 0 2px 10px -4px rgba(29, 58, 95, 0.22); }
   .auth-submit:active { transform: translateY(1px); }
   .auth-submit:disabled { cursor: not-allowed; opacity: 0.58; }
 
-  :is(html.atelier-light, html.brand-light) .auth-panel [role="alert"] {
+  :is(html.atelier-light, html.brand-light, html.v3-paper) .auth-panel [role="alert"] {
     border-color: rgba(185, 28, 28, 0.2);
     color: #991b1b;
     background: rgba(254, 226, 226, 0.72);

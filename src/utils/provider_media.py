@@ -238,8 +238,8 @@ def _resolve_vendor_url_mode(
             return _resolved(signed_url, source_ref=ref, media_ref_type=ref_type)
 
     raise ValueError(
-        f"{provider_label} vendor {modality} input requires a URL-compatible media source. "
-        "Configure OSS for local/object-key references, or switch provider mode to dashscope."
+        f"{provider_label} {modality} input requires a URL-compatible media source. "
+        "Configure OSS or provide a remote HTTPS URL."
     )
 
 
@@ -299,11 +299,14 @@ def resolve_media_input(
         mode.startswith("vidu_vendor_")
         or mode.startswith("kling_vendor_")
         or mode.startswith("pixverse_vendor_")
+        or mode.startswith("moma_content_")
     ):
         if mode.startswith("vidu_vendor_"):
             provider_label = "Vidu"
         elif mode.startswith("kling_vendor_"):
             provider_label = "Kling"
+        elif mode.startswith("moma_content_"):
+            provider_label = "MOMA"
         else:
             provider_label = "Pixverse"
         return _resolve_vendor_url_mode(

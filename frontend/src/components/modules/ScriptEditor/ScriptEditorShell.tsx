@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { ActionMenu, Button, Dialog, IconButton } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { EditorContent } from '@tiptap/react';
 import type { JSONContent } from '@tiptap/core';
-import { ArrowLeft, BookOpen, Loader2, Minimize2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, WifiOff, RotateCcw, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Loader2, Minimize2, PanelLeftOpen, PanelRightOpen, WifiOff, RotateCcw, X, MoreHorizontal, Upload, Download, History, Save, Keyboard } from 'lucide-react';
 import { useEditorStore } from '@/store/editorStore';
 import type { Project } from '@/store/projectStore';
 import { api } from '@/lib/api';
@@ -25,8 +26,11 @@ import { PasteHintBar } from './components/PasteHintBar';
 import { ShortcutHelpPanel } from './components/ShortcutHelpPanel';
 import { ContinuityIndicator } from './components/ContinuityIndicator';
 import RightPanelContainer from './panels';
-import LeftSidebar from './sidebar';
+import LeftSidebar, { type SidebarTab } from './sidebar';
 import StoryboardView from './views/StoryboardView';
+import ImportDialog from './dialogs/ImportDialog';
+import ExportDialog from './dialogs/ExportDialog';
+import SnapshotListDialog from './dialogs/SnapshotListDialog';
 
 export interface ScriptEditorShellProps {
   mode?: 'full' | 'embedded' | 'focus';
@@ -44,14 +48,28 @@ export default function ScriptEditorShell({
   initialContent,
 }: ScriptEditorShellProps) {
   const t = useTranslations('scriptEditor');
+  const tc = useTranslations('common');
+  const [wide, setWide] = useState(false);
+  const [serverDocument, setServerDocument] = useState<object | null>(null);
+  const [serverUpdatedAt, setServerUpdatedAt] = useState(0);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('scenes');
+  const [mobilePanel, setMobilePanel] = useState<'left' | 'right' | null>(null);
+  const [dialog, setDialog] = useState<'import' | 'export' | 'snapshots' | 'leave' | null>(null);
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1280px)');
+    const update = () => { setWide(media.matches); setMobilePanel(null); };
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
   const { editor, isReady } = useEditorSetup({ content: initialContent });
   const { showHint, analysis, applyFormatting, dismissHint } = usePasteHandler(editor);
-  const { showShortcutHelp, closeShortcutHelp } = useKeyboardShortcuts(editor);
+  const { showShortcutHelp, closeShortcutHelp, toggleShortcutHelp } = useKeyboardShortcuts(editor);
   const continuityReport = useContinuityCheck(editor);
-  const { enabled: foldingEnabled, isAllExpanded, totalScenes: foldingTotal } = useSceneFolding(editor);
+  const { enabled: foldingEnabled, isAllExpanded } = useSceneFolding(editor);
   const { mode: viewMode, setMode: setViewMode, isReadOnly, showToolbar, showSidebars } = useViewMode();
-  const { hasNewerLocal, restoreFromLocal, dismissLocalRestore, isOffline, saveToLocal } = useOfflineCache(projectId, editor);
-  const { isSaving, saveError } = useAutoSave(editor, projectId ?? null, saveToLocal);
+  const { hasNewerLocal, restoreFromLocal, dismissLocalRestore, isOffline, saveToLocal } = useOfflineCache(projectId, editor, serverDocument, serverUpdatedAt);
+  const { save, isSaving, saveError } = useAutoSave(editor, projectId ?? null, saveToLocal);
   const { runDerivation } = useDerivation(editor);
   useL3Completion(editor, projectId ?? null);
   const [documentState, setDocumentState] = useState<'loading' | 'ready' | 'error'>(projectId ? 'loading' : 'ready');
@@ -73,11 +91,13 @@ export default function ScriptEditorShell({
       confidenceScore: 0,
     });
     setProjectData(null);
+    setServerDocument(null);
+    setServerUpdatedAt(0);
 
     if (!projectId) {
       setDocumentState('ready');
       setDocumentError(null);
-      editor?.setEditable(true);
+      editor?.setEditable(true, false);
       return;
     }
 
@@ -89,7 +109,7 @@ export default function ScriptEditorShell({
     let cancelled = false;
     setDocumentState('loading');
     setDocumentError(null);
-    editor.setEditable(false);
+    editor.setEditable(false, false);
 
     const load = async () => {
       try {
@@ -100,6 +120,7 @@ export default function ScriptEditorShell({
         const project = projectResult.status === 'fulfilled'
           ? projectResult.value as Project
           : null;
+        if (cancelled) return;
         if (project) setProjectData(project);
         if (documentResult.status === 'rejected') {
           throw documentResult.reason;
@@ -127,14 +148,16 @@ export default function ScriptEditorShell({
           : persistedContent;
 
         editor.commands.setContent(content, { emitUpdate: false });
+        setServerDocument(editor.getJSON());
+        setServerUpdatedAt(Date.parse(String(rawResponse.updated_at || '')) || 0);
         runDerivation();
-        editor.setEditable(true);
+        editor.setEditable(true, false);
         store.setDirty(false);
         store.setLoading(false);
         setDocumentState('ready');
       } catch (error) {
         if (cancelled) return;
-        editor.setEditable(false);
+        editor.setEditable(false, false);
         store.setLoading(false);
         setDocumentError(error instanceof Error ? error.message : t('shell.loadDocumentFailed'));
         setDocumentState('error');
@@ -162,6 +185,35 @@ export default function ScriptEditorShell({
   const showRight = mode === 'full' && !rightCollapsed && showSidebars;
   const hideAllSidebars = mode === 'focus' || viewMode === 'focus';
   const hideLeftOnly = mode === 'embedded';
+  const ready = documentState === 'ready';
+  useEffect(() => { editor?.setEditable(ready && !isReadOnly, false); }, [editor, ready, isReadOnly]);
+
+  useEffect(() => {
+    const openSearch = () => {
+      if (mode !== 'full') return;
+      setViewMode('edit');
+      setSidebarTab('search');
+      if (wide && leftCollapsed) toggleLeft();
+      if (!wide) setMobilePanel('left');
+    };
+    document.addEventListener('script-editor:focus-search', openSearch);
+    return () => document.removeEventListener('script-editor:focus-search', openSearch);
+  }, [mode, wide, leftCollapsed, toggleLeft, setViewMode]);
+
+  const applyDocument = (content: JSONContent, persisted = false) => {
+    editor?.commands.setContent(content, { emitUpdate: !persisted });
+    runDerivation();
+    useEditorStore.getState().setDirty(!persisted);
+    if (persisted) {
+      useEditorStore.getState().setLastSavedAt(new Date());
+      setServerDocument(content);
+      setServerUpdatedAt(Date.now());
+    }
+  };
+  const changeProject = () => {
+    if (isDirty || isSaving) setDialog('leave');
+    else onChangeProject?.();
+  };
   const statusText = documentState === 'loading'
     ? t('shell.loadingDocument')
     : documentState === 'error'
@@ -199,85 +251,44 @@ export default function ScriptEditorShell({
   return (
     <div
       data-testid="script-editor-shell"
-      className="flex h-full w-full flex-col overflow-hidden bg-background text-foreground"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background text-foreground"
     >
-      {/* Format Toolbar */}
-      {!hideAllSidebars && showToolbar && (
-        <FormatToolbar editor={editor} viewMode={viewMode} onViewModeChange={setViewMode} />
-      )}
-
-      {/* Top Toolbar */}
-      {!hideAllSidebars && showToolbar && (
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-glass-border px-4">
-          <div className="flex items-center gap-3">
-            {onChangeProject && (
-              <button
-                type="button"
-                onClick={onChangeProject}
-                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted transition-colors hover:bg-white/5 hover:text-foreground"
-                aria-label={t('shell.changeProject')}
-                title={t('shell.changeProject')}
-              >
-                <ArrowLeft size={14} />
-                {t('shell.changeProject')}
-              </button>
-            )}
-            {mode === 'full' && (
-              <button
-                type="button"
-                onClick={toggleLeft}
-                className="text-text-muted hover:text-foreground transition-colors"
-                aria-label="Toggle left sidebar"
-              >
-                {leftCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-              </button>
-            )}
-            <span className="text-sm font-medium text-foreground">
-              {projectTitle || t('shell.title')}
-            </span>
-            {projectId && !projectTitle && <span className="text-xs text-text-muted">{projectId}</span>}
+      {!hideAllSidebars ? (
+        <>
+          <header className="flex min-h-20 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 sm:px-6">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              {onChangeProject && <IconButton aria-label={t('shell.changeProject')} onPress={changeProject}><ArrowLeft size={18} /></IconButton>}
+              <div className="min-w-0">
+                <p className="mb-1 text-xs text-text-muted">{t('shell.title')}</p>
+                <h1 className="truncate text-lg font-semibold">{projectTitle || projectData?.title || t('shell.title')}</h1>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {viewMode === 'read' && <Button variant="secondary" onPress={() => setViewMode('edit')}>{t('views.edit')}</Button>}
+              <Button isDisabled={!ready || isSaving} isPending={isSaving} onPress={() => void save(true)}><Save size={16} />{t('toolbar.save')}</Button>
+              <ActionMenu label={t('toolbar.actions')} icon={<MoreHorizontal size={18} />} items={[
+                { id: 'import', label: t('dialogs.import.title'), icon: <Upload size={16} />, isDisabled: !ready || isSaving, onAction: () => setDialog('import') },
+                { id: 'export', label: t('toolbar.export'), icon: <Download size={16} />, isDisabled: !ready, onAction: () => setDialog('export') },
+                { id: 'snapshots', label: t('snapshots.title'), icon: <History size={16} />, isDisabled: !ready || isSaving, onAction: () => setDialog('snapshots') },
+                { id: 'shortcuts', label: t('shortcuts.title'), icon: <Keyboard size={16} />, onAction: toggleShortcutHelp },
+              ]} />
+            </div>
+          </header>
+          {showToolbar && <FormatToolbar editor={editor} viewMode={viewMode} onViewModeChange={setViewMode} />}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-4 py-2">
+            {mode === 'full' && <IconButton aria-label={t('shell.outline')} aria-pressed={wide ? showLeft : mobilePanel === 'left'} onPress={() => wide ? toggleLeft() : setMobilePanel('left')}><PanelLeftOpen size={16} /></IconButton>}
+            <p role={saveError ? 'alert' : undefined} aria-live="polite" className={`min-w-0 flex-1 text-xs ${saveError || documentState === 'error' ? 'text-status-failed-fg' : 'text-text-muted'}`}>{statusText}</p>
+            <IconButton aria-label={t('shell.inspector')} aria-pressed={wide ? showRight : mobilePanel === 'right'} onPress={() => wide ? toggleRight() : setMobilePanel('right')}><PanelRightOpen size={16} /></IconButton>
           </div>
-          <div className="flex items-center gap-3">
-            <span className={`max-w-[360px] truncate text-xs ${saveError || documentState === 'error' ? 'text-red-300' : 'text-text-muted'}`}>
-              {statusText}
-            </span>
-            {mode === 'full' && (
-              <button
-                type="button"
-                onClick={toggleRight}
-                className="text-text-muted hover:text-foreground transition-colors"
-                aria-label="Toggle right sidebar"
-              >
-                {rightCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {hideAllSidebars && (
-        <div className="fixed right-4 top-4 z-40 flex items-center gap-2 rounded-lg border border-glass-border bg-surface/95 px-2 py-1.5 text-xs text-text-muted shadow-lg backdrop-blur-xl">
-          <button
-            type="button"
-            onClick={() => setViewMode('edit')}
-            aria-label={t('views.exitFocus')}
-            title={t('views.exitFocus')}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 font-medium text-foreground transition-colors hover:bg-hover-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-          >
-            <Minimize2 size={14} aria-hidden="true" />
-            <span>{t('views.exitFocus')}</span>
-          </button>
-          <span aria-hidden="true" className="h-4 w-px bg-glass-border" />
-          <span className="pr-1 whitespace-nowrap">{t('views.exitFocusHint')}</span>
-        </div>
-      )}
+        </>
+      ) : <div className="flex shrink-0 items-center justify-end gap-3 border-b border-border-subtle px-4 py-2"><span className="text-xs text-text-muted">{t('views.exitFocusHint')}</span><Button variant="quiet" onPress={() => setViewMode('edit')} aria-label={t('views.exitFocus')}><Minimize2 size={16} />{t('views.exitFocus')}</Button></div>}
 
       {/* Main content area: Three-column layout */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        {!hideAllSidebars && !hideLeftOnly && showLeft && (
-          <aside className="w-[260px] shrink-0 border-r border-glass-border bg-glass backdrop-blur-xl overflow-hidden">
-            <LeftSidebar editor={editor} />
+        {!hideAllSidebars && !hideLeftOnly && wide && showLeft && (
+          <aside className="w-[220px] shrink-0 border-r border-border-subtle bg-surface-inset overflow-hidden">
+            <LeftSidebar editor={editor} tab={sidebarTab} onTabChange={setSidebarTab} onNavigate={() => setMobilePanel(null)} />
           </aside>
         )}
 
@@ -292,34 +303,31 @@ export default function ScriptEditorShell({
           }`}>
             {/* Offline / local restore banner */}
             {isOffline && (
-              <div className="sticky top-0 z-10 flex items-center gap-2 bg-amber-900/30 px-4 py-2 text-xs text-amber-200 border-b border-amber-700/30">
+              <div className="sticky top-0 z-10 flex items-center gap-2 bg-status-warning-bg px-4 py-2 text-xs text-status-warning-fg border-b border-status-warning-border">
                 <WifiOff size={14} />
                 <span>{t('status.offlineBanner')}</span>
               </div>
             )}
             {hasNewerLocal && (
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-primary/25 bg-primary/10 px-4 py-2 text-xs text-primary">
+              <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-primary/25 bg-primary/10 px-4 py-2 text-xs text-primary">
                 <div className="flex items-center gap-2">
                   <RotateCcw size={14} />
                   <span>{t('status.localCacheFound')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={restoreFromLocal}
+                  <Button
+                    onPress={restoreFromLocal}
                     className="rounded bg-primary px-2.5 py-1 text-xs font-medium text-on-accent transition-colors hover:bg-primary-hover"
                   >
                     {t('status.restore')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={dismissLocalRestore}
+                  </Button>
+                  <IconButton
+                    onPress={dismissLocalRestore}
                     aria-label={t('status.dismissLocalCache')}
-                    title={t('status.dismissLocalCache')}
                     className="rounded p-1 text-primary/70 transition-colors hover:bg-primary/10 hover:text-primary"
                   >
                     <X size={14} />
-                  </button>
+                  </IconButton>
                 </div>
               </div>
             )}
@@ -331,7 +339,7 @@ export default function ScriptEditorShell({
               onDismiss={dismissHint}
             />
             <div
-              className={`script-editor script-editor-content mx-auto w-full min-w-0 px-8 py-10 ${
+              className={`script-editor script-editor-content mx-auto w-full min-w-0 px-4 py-8 sm:px-8 sm:py-10 ${
                 viewMode === 'focus' ? 'max-w-[860px]' : 'max-w-[720px]'
               }`}
               data-format={currentFormat}
@@ -342,7 +350,7 @@ export default function ScriptEditorShell({
                   <EditorContent
                     editor={editor}
                     className={`w-full min-w-0 prose max-w-none text-foreground focus:outline-none min-h-[60vh] ${
-                      isReadOnly || documentState !== 'ready' ? 'pointer-events-none opacity-60' : ''
+                      documentState !== 'ready' ? 'pointer-events-none opacity-60' : ''
                     }`}
                   />
                   {documentState === 'loading' && (
@@ -358,20 +366,19 @@ export default function ScriptEditorShell({
                       <div className="max-w-sm rounded-xl border border-status-failed-border bg-surface p-5 text-center shadow-xl">
                         <p className="text-sm font-medium text-status-failed-fg">{t('shell.loadDocumentFailed')}</p>
                         <p className="mt-2 break-words text-xs leading-5 text-text-muted">{documentError}</p>
-                        <button
-                          type="button"
-                          onClick={() => setLoadAttempt((attempt) => attempt + 1)}
-                          className="mt-4 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-500"
+                        <Button
+                          onPress={() => setLoadAttempt((attempt) => attempt + 1)}
+                          className="mt-4"
                         >
                           {t('shell.retryLoadDocument')}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
                   {documentState === 'ready' && editor?.isEmpty && (
                     <div className="pointer-events-none absolute inset-x-0 top-24 flex justify-center px-6">
-                      <div className="flex max-w-sm items-start gap-3 rounded-xl border border-glass-border bg-surface px-4 py-3 text-left shadow-lg">
-                        <BookOpen size={17} className="mt-0.5 shrink-0 text-indigo-300" />
+                      <div className="flex max-w-sm items-start gap-3 px-4 py-3 text-left">
+                        <BookOpen size={17} className="mt-0.5 shrink-0 text-primary" />
                         <div>
                           <p className="text-sm font-medium text-foreground">{t('shell.emptyDocument')}</p>
                           <p className="mt-1 text-xs leading-5 text-text-muted">{t('shell.emptyDocumentHint')}</p>
@@ -390,8 +397,8 @@ export default function ScriptEditorShell({
         )}
 
         {/* Right Sidebar - Panel */}
-        {!hideAllSidebars && (showRight || mode === 'embedded') && (
-          <aside className="w-[320px] shrink-0 border-l border-glass-border bg-glass backdrop-blur-xl overflow-hidden">
+        {!hideAllSidebars && wide && (showRight || (mode === 'embedded' && !rightCollapsed)) && (
+          <aside className="w-[300px] shrink-0 border-l border-border-subtle bg-surface overflow-hidden">
             <RightPanelContainer
               editor={editor}
               mode={mode}
@@ -404,7 +411,7 @@ export default function ScriptEditorShell({
 
       {/* Status Bar */}
       {!hideAllSidebars && showToolbar && (
-        <div className="flex h-8 shrink-0 items-center gap-4 border-t border-glass-border px-4 text-xs text-text-muted">
+        <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-subtle px-4 py-2 text-xs text-text-muted">
           <span>{t('status.wordCount', { count: wordCount })}</span>
           <span className="text-text-muted">|</span>
           <span>
@@ -428,11 +435,21 @@ export default function ScriptEditorShell({
           <span className="text-text-muted">|</span>
           <ContinuityIndicator report={continuityReport} />
           <span className="ml-auto text-text-muted/60">
-            {currentFormat} / {currentRendering}
+            {t(`formats.${currentFormat}`)} · {t(`renderings.${currentRendering}`)}
           </span>
         </div>
       )}
 
+      {mobilePanel && <Dialog isOpen onOpenChange={open => { if (!open) setMobilePanel(null); }} title={t(mobilePanel === 'left' ? 'shell.outline' : 'shell.inspector')} closeLabel={tc('close')} className="max-w-lg">
+        <div className="h-[min(60dvh,600px)] min-h-0">{mobilePanel === 'left' ? <LeftSidebar editor={editor} tab={sidebarTab} onTabChange={setSidebarTab} onNavigate={() => setMobilePanel(null)} /> : <RightPanelContainer editor={editor} mode={mode} projectId={projectId} project={projectData} />}</div>
+      </Dialog>}
+      {projectId && dialog === 'import' && <ImportDialog open onClose={() => setDialog(null)} projectId={projectId} onImportSuccess={applyDocument} />}
+      {projectId && dialog === 'export' && <ExportDialog open onClose={() => setDialog(null)} projectId={projectId} editor={editor} />}
+      {projectId && dialog === 'snapshots' && <SnapshotListDialog open onClose={() => setDialog(null)} projectId={projectId} onRestore={content => applyDocument(content, true)} />}
+      <Dialog isOpen={dialog === 'leave'} onOpenChange={open => { if (!open) setDialog(null); }} isDismissable={!isSaving} title={t('shell.unsavedTitle')} closeLabel={tc('close')} footer={<><Button variant="quiet" isDisabled={isSaving} onPress={() => setDialog(null)}>{tc('cancel')}</Button><Button variant="secondary" isDisabled={isSaving} onPress={() => { setDialog(null); onChangeProject?.(); }}>{t('shell.discardAndLeave')}</Button><Button isPending={isSaving} isDisabled={isSaving} onPress={async () => { if (await save(false)) { setDialog(null); onChangeProject?.(); } }}>{t('shell.saveAndLeave')}</Button></>}>
+        <p className="text-sm text-text-secondary">{t('shell.unsavedHint')}</p>
+        {saveError && <p role="alert" className="mt-3 text-sm text-status-failed-fg">{statusText}</p>}
+      </Dialog>
       {/* Shortcut Help Panel */}
       <ShortcutHelpPanel open={showShortcutHelp} onClose={closeShortcutHelp} />
     </div>

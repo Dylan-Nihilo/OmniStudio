@@ -41,7 +41,7 @@ import traceback
 import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
-from .pipeline import ComicGenPipeline, LibraryAssetInUseError, _resolve_export_settings
+from .pipeline import ComicGenPipeline, GenerationInProgressError, LibraryAssetInUseError, _resolve_export_settings
 from .models import (
     ArtDirection,
     PromptConfig,
@@ -138,6 +138,8 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "MULEROUTER_API_KEY",
     "MULEROUTER_BASE_URL",
     "MULEROUTER_SITE",
+    "MOMA_API_KEY",
+    "MOMA_BASE_URL",
     "IMAGE_PROVIDER",
 }
 
@@ -152,11 +154,16 @@ def _context_iterator(iterable):
 
     def iterate():
         iterator = iter(iterable)
-        while True:
-            try:
-                yield context.run(next, iterator)
-            except StopIteration:
-                return
+        try:
+            while True:
+                try:
+                    yield context.run(next, iterator)
+                except StopIteration:
+                    return
+        finally:
+            close = getattr(iterator, "close", None)
+            if close:
+                context.run(close)
 
     return iterate()
 
@@ -2531,6 +2538,7 @@ class EnvConfig(ProviderRoutingConfig):
     KLING_SECRET_KEY: Optional[str] = None
     VIDU_API_KEY: Optional[str] = None
     MULEROUTER_API_KEY: Optional[str] = None
+    MOMA_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -2704,13 +2712,13 @@ def get_project(script_id: str, request: Request):
     Response model dropped from `Script` because the `source` field
     is a presentation-layer concern (never persisted, derived from
     container membership at read time)."""
-    script = pipeline.repository.load_scripts().get(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Project not found")
-    pipeline.scripts[script_id] = script
-
-    payload = script.model_dump()
-    payload["_revision"] = pipeline.repository.script_revision(script_id)
+    with pipeline._save_lock:
+        script = pipeline.repository.load_scripts().get(script_id)
+        if not script:
+            raise HTTPException(status_code=404, detail="Project not found")
+        pipeline.scripts[script_id] = script
+        payload = script.model_dump()
+        payload["_revision"] = pipeline.repository.script_revision(script_id)
 
     # Episode-local entries always carry source="episode".
     for asset_list in (payload.get("characters", []),
@@ -3436,8 +3444,12 @@ def analyze_to_storyboard(script_id: str, request: AnalyzeToStoryboardRequest):
     try:
         updated_script = pipeline.analyze_text_to_frames(script_id, request.text)
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in analyze_to_storyboard: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -3485,25 +3497,43 @@ def refine_single_frame(script_id: str, frame_id: str):
         if not frame:
             raise HTTPException(status_code=500, detail="Refine returned no result")
         return frame.model_dump() if hasattr(frame, 'model_dump') else frame.dict()
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in refine_single_frame: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/projects/{script_id}/storyboard/refine_batch")
-def refine_storyboard_batch(script_id: str):
-    """Phase 2: Batch refine all coarse frames. Streams SSE events."""
-    from fastapi.responses import StreamingResponse
+class RefineBatchRequest(BaseModel):
+    frame_ids: Optional[List[str]] = None
 
-    script = pipeline.get_script(script_id)
-    if not script:
-        raise HTTPException(status_code=404, detail="Script not found")
+
+@app.post("/projects/{script_id}/storyboard/refine_batch")
+def refine_storyboard_batch(script_id: str, request: Optional[RefineBatchRequest] = None):
+    """Refine selected frames; preserve progress independently of SSE delivery."""
+    from fastapi.responses import StreamingResponse
+    try:
+        generation = pipeline.start_storyboard_refinement(script_id, request.frame_ids if request else None)
+    except GenerationInProgressError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
     def event_stream():
-        for event_type, data in _context_iterator(pipeline.refine_batch_generator(script_id)):
-            yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        iterator = _context_iterator(pipeline.refine_batch_generator(script_id, generation.id))
+        try:
+            for event_type, data in iterator:
+                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        finally:
+            iterator.close()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -3615,13 +3645,17 @@ def annotate_video_task(script_id: str, task_id: str, request: AnnotateVideoTask
     """Set the user's star + label on a video task. Used by Storyboard's
     candidates panel for shortlist marking (multi-select) and short
     free-text notes (≤20 chars, truncated server-side)."""
-    task = pipeline.annotate_video_task(
-        script_id,
-        task_id,
-        is_starred=request.is_starred,
-        label=request.label,
-        clear_label=request.clear_label,
-    )
+    try:
+        task = pipeline.annotate_video_task(
+            script_id,
+            task_id,
+            is_starred=request.is_starred,
+            label=request.label,
+            clear_label=request.clear_label,
+        )
+    except Exception:
+        logger.exception("Could not save candidate annotations")
+        raise HTTPException(status_code=500, detail="Could not save candidate annotations")
     if task is None:
         raise HTTPException(status_code=404, detail="Video task not found")
     return signed_response(task)
@@ -3681,6 +3715,22 @@ def cancel_video_task(script_id: str, task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Video task not found")
     return signed_response(task)
+
+
+@app.post("/projects/{script_id}/video_tasks/{task_id}/retry", response_model=VideoTask)
+def retry_video_task(script_id: str, task_id: str, background_tasks: BackgroundTasks):
+    try:
+        task, created = pipeline.retry_video_task(script_id, task_id)
+        if created:
+            background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task.id))
+        return signed_response(task)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=error.args[0])
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception:
+        logger.exception("Unable to persist video retry")
+        raise HTTPException(status_code=500, detail="Unable to create video retry")
 
 
 @app.post("/projects/{script_id}/video_tasks", response_model=List[VideoTask])
@@ -4548,6 +4598,14 @@ def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudi
             instructions=request.instructions,
         )
         return signed_response(updated_script)
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4652,9 +4710,13 @@ def preview_dub(script_id: str, frame_id: str, request: DubPreviewRequest):
             offset_ms=request.offset_ms,
         )
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except RuntimeError as e:
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4664,8 +4726,14 @@ def apply_dub(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.apply_dub(script_id, frame_id)
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/projects/{script_id}/frames/{frame_id}/dub")
@@ -4674,62 +4742,35 @@ def revert_frame_dub(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.revert_dub(script_id, frame_id)
         return signed_response(updated_script)
-    except ValueError as e:
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DialogueAudioBatchRequest(BaseModel):
+    instructions: Dict[str, str] = Field(default_factory=dict)
 
 
 @app.post("/projects/{script_id}/dialogue_audio/batch")
-def generate_dialogue_audio_batch(script_id: str):
-    """PR-3j · Generate audio for every frame that has dialogue.
-
-    Idempotent re-use: frames whose audio is already up-to-date (matching
-    text/voice/instructions hash) are skipped. Stale + missing frames get
-    regenerated using each character's bound voice.
-
-    Returns the updated script plus _batch_stats with generated/skipped/failed counts.
-    """
-    from .audio import dialogue_audio_is_stale
+def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudioBatchRequest] = None):
+    """Generate current dialogue and persist progress so retries can reuse completed audio."""
     try:
-        script = pipeline.get_script(script_id)
-        if not script:
-            raise HTTPException(status_code=404, detail="Script not found")
-        generated = 0
-        skipped = 0
-        failed = 0
-        no_voice = 0
-        for frame in script.frames:
-            dialogue_text = (
-                (frame.dialogue_structured.line if hasattr(frame, 'dialogue_structured') and frame.dialogue_structured else None)
-                or frame.dialogue
-            )
-            if not dialogue_text:
-                continue
-            speaker = pipeline._resolve_dialogue_speaker(script, frame)
-            if not speaker or not speaker.voice_id:
-                no_voice += 1
-                continue
-            if frame.audio_url and not dialogue_audio_is_stale(frame, speaker):
-                skipped += 1
-                continue
-            try:
-                pipeline.generate_dialogue_line(
-                    script_id,
-                    frame.id,
-                    speed=speaker.voice_speed,
-                    pitch=speaker.voice_pitch,
-                    volume=speaker.voice_volume,
-                )
-                generated += 1
-            except Exception as exc:
-                logger.error(f"[batch_dialogue_audio] frame={frame.id} error={exc}")
-                failed += 1
-        logger.info(f"[batch_dialogue_audio] script={script_id} generated={generated} skipped={skipped} failed={failed} no_voice={no_voice}")
-        script = pipeline.get_script(script_id)
-        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
-        response_data["_batch_stats"] = {"generated": generated, "skipped": skipped, "failed": failed, "no_voice": no_voice}
-        return signed_response(response_data)
-    except HTTPException:
-        raise
+        script = pipeline.generate_dialogue_audio_batch(script_id, request.instructions if request else None)
+        payload = script.model_dump()
+        results = script.dialogue_audio_batch.results.values()
+        payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
+        return signed_response(payload)
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4780,6 +4821,7 @@ class UpdateFrameRequest(BaseModel):
     frame_id: str
     image_prompt: Optional[str] = None
     action_description: Optional[str] = None
+    visual_description: Optional[str] = None
     dialogue: Optional[str] = None
     camera_angle: Optional[str] = None
     scene_id: Optional[str] = None
@@ -4798,6 +4840,7 @@ def update_frame(script_id: str, request: UpdateFrameRequest):
             request.frame_id,
             image_prompt=request.image_prompt,
             action_description=request.action_description,
+            visual_description=request.visual_description,
             dialogue=request.dialogue,
             camera_angle=request.camera_angle,
             scene_id=request.scene_id,
@@ -4831,8 +4874,10 @@ def add_frame(script_id: str, request: AddFrameRequest):
             request.insert_at
         )
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4842,7 +4887,7 @@ def delete_frame(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.delete_frame(script_id, frame_id)
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -4857,8 +4902,10 @@ def copy_frame(script_id: str, request: CopyFrameRequest):
     try:
         updated_script = pipeline.copy_frame(script_id, request.frame_id, request.insert_at)
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4871,8 +4918,10 @@ def reorder_frames(script_id: str, request: ReorderFramesRequest):
     try:
         updated_script = pipeline.reorder_frames(script_id, request.frame_ids)
         return signed_response(updated_script)
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4897,6 +4946,8 @@ def render_frame(script_id: str, request: RenderFrameRequest):
             request.batch_size
         )
         return signed_response(updated_script)
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -4914,8 +4965,10 @@ def select_video(script_id: str, frame_id: str, request: SelectVideoRequest):
     try:
         updated_script = pipeline.select_video_for_frame(script_id, frame_id, request.video_id)
         return signed_response(updated_script)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e.args[0]))
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -4925,9 +4978,8 @@ def auto_select_latest_video(script_id: str, frame_id: str):
     """Auto-pick the latest completed video as this frame's active take.
 
     Idempotent; skipped when the frame is pinned (is_video_pinned=True).
-    Frontend calls this on every task-completion poll so the freshly
-    generated take surfaces on the hero — unless the user has explicitly
-    pinned a different take.
+    Task processing now saves adoption with completion. This endpoint remains
+    available for older clients and explicit reconciliation.
     """
     try:
         updated_script = pipeline.auto_select_latest_video(script_id, frame_id)
@@ -5065,10 +5117,18 @@ async def upload_t2i_frame(script_id: str, frame_id: str, request: Request, file
         # block the event loop for the ~50ms write. Matches the pattern
         # used by create_project / reparse_project / analyze_script_for_styles.
         loop = asyncio.get_event_loop()
-        frame = await loop.run_in_executor(
-            None,
-            _context_call(pipeline.upload_t2i_frame, script_id, frame_id, rel_path),
-        )
+        try:
+            frame = await loop.run_in_executor(
+                None,
+                _context_call(pipeline.upload_t2i_frame, script_id, frame_id, rel_path),
+            )
+        except Exception:
+            # No frame reference was saved; remove only this request's uploaded file.
+            try:
+                os.unlink(abs_path)
+            except OSError:
+                pass
+            raise
         if frame is None:
             # Roll back the file — frame/script gone, no reference will exist
             if os.path.exists(abs_path):
@@ -5080,6 +5140,8 @@ async def upload_t2i_frame(script_id: str, frame_id: str, request: Request, file
         return signed_response(frame)
     except HTTPException:
         raise
+    except GenerationInProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception("upload_t2i_frame unexpected error")
         raise HTTPException(status_code=500, detail=str(e))
@@ -5643,6 +5705,7 @@ SECRET_FIELDS = {
     "KLING_SECRET_KEY",
     "VIDU_API_KEY",
     "MULEROUTER_API_KEY",
+    "MOMA_API_KEY",
 }
 
 # Bullet sentinel: never appears in a real key, so the save path can detect an
@@ -5697,6 +5760,7 @@ def get_env_config():
             "KLING_SECRET_KEY": _mask_secret(workspace_getenv("KLING_SECRET_KEY")),
             "VIDU_API_KEY": _mask_secret(workspace_getenv("VIDU_API_KEY")),
             "MULEROUTER_API_KEY": _mask_secret(workspace_getenv("MULEROUTER_API_KEY")),
+            "MOMA_API_KEY": _mask_secret(workspace_getenv("MOMA_API_KEY")),
             # Non-secret config.
             "OSS_BUCKET_NAME": workspace_getenv("OSS_BUCKET_NAME", ""),
             "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),

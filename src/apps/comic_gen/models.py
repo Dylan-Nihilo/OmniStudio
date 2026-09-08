@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 import time
 from pydantic import BaseModel, Field
@@ -194,6 +194,7 @@ class VideoTask(BaseModel):
     prompt: str
     status: str = "pending"  # pending, processing, completed, failed
     error: Optional[str] = Field(None, description="Failure reason, if any (set by pipeline / cancel / orphan recovery)")
+    retry_of_task_id: Optional[str] = Field(None, description="Failed task whose saved inputs were retried")
     video_url: Optional[str] = None
     duration: int = Field(5, description="Video duration in seconds (model-specific range)")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
@@ -416,12 +417,18 @@ class StoryboardFrame(BaseModel):
     image_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Storyboard image asset container")
     rendered_image_url: Optional[str] = Field(None, description="URL of the high-fidelity rendered image (Legacy)")
     rendered_image_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Rendered image asset container")
+    image_error: Optional[str] = Field(None, description="Image generation error message")
+    image_generation_status: Optional[GenerationStatus] = Field(None, description="First-frame render state, independent of audio and video")
+    image_generation_id: Optional[str] = Field(None, description="Identity of the latest first-frame render")
     
     video_prompt: Optional[str] = Field(None, description="Optimized prompt for I2V")
     video_url: Optional[str] = Field(None, description="URL of the generated video clip")
     
     audio_url: Optional[str] = Field(None, description="URL of the generated dialogue audio")
     audio_error: Optional[str] = Field(None, description="Audio generation error message")
+    audio_generation_status: Optional[GenerationStatus] = None
+    audio_generation_id: Optional[str] = None
+    dialogue_snapshot_text: Optional[str] = Field(None, description="Dialogue actually used to generate the current audio")
     sfx_url: Optional[str] = Field(None, description="URL of the generated sound effect")
     # PR-3j · Stale detection for dialogue audio. text_hash combines
     # dialogue text + voice_id + instructions; UI flags audio as STALE
@@ -436,6 +443,13 @@ class StoryboardFrame(BaseModel):
     bg_audio_url: Optional[str] = Field(None, description="Cached background audio (Demucs no_vocals) path")
     bg_audio_source_video: Optional[str] = Field(None, description="Video URL that bg_audio_url was separated from (cache key)")
     preview_video_url: Optional[str] = Field(None, description="Current preview dubbed video (temporary, not committed)")
+    preview_audio_url: Optional[str] = None
+    preview_video_task_id: Optional[str] = None
+    preview_source_video_url: Optional[str] = None
+    preview_offset_ms: Optional[int] = None
+    dub_generation_status: Optional[GenerationStatus] = None
+    dub_generation_id: Optional[str] = None
+    dub_error: Optional[str] = None
 
     selected_video_id: Optional[str] = Field(None, description="ID of the selected VideoTask for this frame")
     is_video_pinned: bool = Field(False, description="True when the user has manually pinned an active video take; auto_select_latest_video skips pinned frames so newly generated takes don't overwrite a hand-picked selection")
@@ -537,6 +551,24 @@ class PromptConfig(BaseModel):
     # 显式覆盖时用于切到 vision-capable 或更便宜的模型（qwen3.6-flash、kimi-k2.6 等）。
     polish_model: str = Field("", description="Override LLM model id used for polish calls; empty = use system default")
 
+class StoryboardGeneration(BaseModel):
+    id: str
+    phase: Literal["analyze", "refine"]
+    status: GenerationStatus = GenerationStatus.PROCESSING
+    frame_ids: List[str] = Field(default_factory=list)
+    results: Dict[str, Literal["completed", "failed", "skipped"]] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
+class DialogueAudioBatch(BaseModel):
+    id: str
+    status: GenerationStatus = GenerationStatus.PROCESSING
+    frame_ids: List[str]
+    instructions: Dict[str, str] = Field(default_factory=dict)
+    results: Dict[str, Literal["generated", "skipped", "failed", "no_voice", "busy"]] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
 class Script(BaseModel):
     id: str = Field(..., description="Unique identifier for the script project")
     title: str = Field(..., description="Title of the comic/video")
@@ -547,6 +579,8 @@ class Script(BaseModel):
     props: List[Prop] = Field(default_factory=list)
     frames: List[StoryboardFrame] = Field(default_factory=list)
     video_tasks: List[VideoTask] = Field(default_factory=list)
+    dialogue_audio_batch: Optional[DialogueAudioBatch] = None
+    storyboard_generation: Optional[StoryboardGeneration] = None
     
     # Global style settings (legacy, will be replaced by art_direction)
     style_preset: str = Field("realistic", description="Global style preset for all image generations")

@@ -144,3 +144,11 @@ def test_openai_compatible_image_env_config_is_explicit_and_secret_is_masked():
     assert config.OPENAI_IMAGE_MODEL == "gpt-image-2"
     assert "OPENAI_IMAGE_API_KEY" in SECRET_FIELDS
     assert _mask_secret(config.OPENAI_IMAGE_API_KEY) == "sk-••••••••cret"
+
+
+def test_moma_video_env_config_is_explicit_and_secret_is_masked():
+    config = EnvConfig(MOMA_API_KEY="moma-secret")
+
+    assert config.MOMA_API_KEY == "moma-secret"
+    assert "MOMA_API_KEY" in SECRET_FIELDS
+    assert _mask_secret(config.MOMA_API_KEY) == "••••••••cret"

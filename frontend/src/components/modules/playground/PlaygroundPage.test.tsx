@@ -1,6 +1,6 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PlaygroundPage from "./PlaygroundPage";
@@ -38,6 +38,7 @@ vi.mock("./ResultGallery", () => ({ default: () => null }));
 
 describe("PlaygroundPage", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -79,6 +80,7 @@ describe("PlaygroundPage", () => {
     usePlaygroundStore.setState({ prompt: "A cinematic portrait" });
 
     render(<PlaygroundPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "compose.generate" })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "compose.generate" }));
 
     await waitFor(() => {
@@ -88,6 +90,58 @@ describe("PlaygroundPage", () => {
         ]),
       );
     });
+  });
+
+  it("shows history loading and allows retry after a failed read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let rejectRead!: (error: Error) => void;
+    getHistory.mockImplementationOnce(() => new Promise((_, reject) => { rejectRead = reject; }));
+    usePlaygroundStore.setState({ prompt: "A cinematic portrait" });
+    render(<PlaygroundPage />);
+    expect(screen.getByRole("status")).toHaveTextContent("results.loading");
+    expect(screen.getByRole("button", { name: "compose.generate" })).toBeDisabled();
+    rejectRead(new Error("offline"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("results.loadFailed"));
+    fireEvent.click(screen.getByRole("button", { name: "card.retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(getHistory).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "compose.generate" })).not.toBeDisabled();
+  });
+
+  it("resumes running history, retries a read failure, and ignores a response after cancellation", async () => {
+    const running = { id: "restored", mode: "t2i", model_id: "image-model", prompt: "Sea", input_media: [], parameters: {}, batch_size: 1, outputs: [], status: "processing", created_at: new Date().toISOString() };
+    getHistory.mockResolvedValue([running]);
+    getGeneration.mockRejectedValueOnce(new Error("offline"));
+    vi.useFakeTimers();
+    await act(async () => { render(<PlaygroundPage />); });
+    expect(usePlaygroundStore.getState().activeGenerationIds).toEqual(["restored"]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByRole("alert")).toHaveTextContent("results.pollFailed");
+    let finishRead!: (value: unknown) => void;
+    getGeneration.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(getGeneration).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(getGeneration).toHaveBeenCalledTimes(2);
+    act(() => usePlaygroundStore.getState().updateGeneration({ ...usePlaygroundStore.getState().history[0], status: "failed", error: "Canceled" }));
+    await act(async () => { finishRead(running); });
+    expect(usePlaygroundStore.getState().history[0].status).toBe("failed");
+    expect(usePlaygroundStore.getState().activeGenerationIds).toEqual([]);
+  });
+
+  it("releases concurrency when a submitted generation is already terminal", async () => {
+    let sequence = 0;
+    generate.mockImplementation(async () => ({ id: `done-${++sequence}`, status: "completed", mode: "t2i", outputs: [] }));
+    usePlaygroundStore.setState({ prompt: "Sea" });
+    render(<PlaygroundPage />);
+    const button = screen.getByRole("button", { name: "compose.generate" });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(usePlaygroundStore.getState().history).toHaveLength(1));
+    fireEvent.click(button);
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    expect(usePlaygroundStore.getState().activeGenerationIds).toEqual([]);
+    expect(usePlaygroundStore.getState().isGenerating).toBe(false);
   });
 
 });

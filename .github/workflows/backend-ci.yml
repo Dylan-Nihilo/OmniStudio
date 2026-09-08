@@ -39,6 +39,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-docker.txt pytest
 
+      - name: Install media test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
       - name: Prepare output directories
         run: mkdir -p output/{assets,audio,export,storyboard,uploads,video,video_inputs,projects,series,omni_studio}
 
@@ -66,10 +73,21 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        env:
+          HEROUI_KEY: ${{ secrets.HEROUI_KEY }}
+        run: |
+          npm ci
+          npm run heroui:setup
+          git diff --exit-code -- package.json package-lock.json ../packages/ui/package.json ../packages/ui/package-lock.json
 
       - name: Run frontend tests
         run: npm run test:all
+
+      - name: Test dependency configuration
+        working-directory: packages/ui
+        run: |
+          npm ci --ignore-scripts
+          npm run test:install
 
       - name: Run typecheck
         run: npm run typecheck

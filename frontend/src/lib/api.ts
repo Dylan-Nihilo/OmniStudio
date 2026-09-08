@@ -1,6 +1,24 @@
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 
+export interface StoryboardGeneration {
+    id: string;
+    phase: "analyze" | "refine";
+    status: "pending" | "processing" | "completed" | "failed";
+    frame_ids: string[];
+    results: Record<string, "completed" | "failed" | "skipped">;
+    error?: string | null;
+}
+
+export interface DialogueAudioBatch {
+    id: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    frame_ids: string[];
+    instructions: Record<string, string>;
+    results: Record<string, "generated" | "skipped" | "failed" | "no_voice" | "busy">;
+    error?: string | null;
+}
+
 export { API_URL } from "@/lib/apiClient";
 export type ProviderMode = "dashscope" | "vendor";
 export type LlmProvider = "dashscope" | "openai";
@@ -65,6 +83,7 @@ export interface EnvConfigPayload {
     KLING_ACCESS_KEY?: string;
     KLING_SECRET_KEY?: string;
     VIDU_API_KEY?: string;
+    MOMA_API_KEY?: string;
     endpoint_overrides?: Record<string, string>;
     // Secrets from GET are masked (bullets + last 4 chars). This map reports
     // which credential fields are actually configured on the backend.
@@ -321,6 +340,7 @@ export interface VideoTask {
     ratio?: string;
     /** Failure reason set by pipeline / cancel / orphan recovery. */
     error?: string | null;
+    retry_of_task_id?: string | null;
     /** User-starred shortlist flag (multi-select per shot) — set via
      *  PATCH /annotate. Optional on the wire so older task records
      *  parse unchanged. */
@@ -514,6 +534,8 @@ export interface RefineSSEEvent {
     frame_index?: number;
     total?: number;
     error?: string;
+    success?: number;
+    failed?: number;
 }
 
 /**
@@ -899,6 +921,11 @@ export const api = {
         return res.data;
     },
 
+    retryVideoTask: async (scriptId: string, taskId: string): Promise<VideoTask> => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/video_tasks/${taskId}/retry`);
+        return res.data;
+    },
+
     /**
      * Upload an asset image as a new variant.
      * The uploaded image will be marked as the 'upload source' for reverse generation.
@@ -1010,6 +1037,13 @@ export const api = {
         return res.data;
     },
 
+    updateSeriesAssetImage: async (seriesId: string, assetId: string, assetType: string, imageUrl: string) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/update_image`, {
+            asset_id: assetId, asset_type: assetType, image_url: imageUrl,
+        });
+        return res.data;
+    },
+
     selectAssetVariant: async (scriptId: string, assetId: string, assetType: string, variantId: string, generationType?: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/variant/select`, {
             asset_id: assetId,
@@ -1087,9 +1121,7 @@ export const api = {
     },
 
     selectVideo: async (scriptId: string, frameId: string, videoId: string) => {
-        // Manual pick — sets frame.is_video_pinned=true so future
-        // auto_select_latest_video calls (fired by R2V poll completion)
-        // skip this frame.
+        // Manual pick protects the frame from adoption when later tasks finish.
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/select_video`, {
             video_id: videoId
         });
@@ -1097,9 +1129,7 @@ export const api = {
     },
 
     autoSelectLatestVideo: async (scriptId: string, frameId: string) => {
-        // Fire-and-forget on every R2V poll completion. Backend picks the
-        // latest completed task for this frame and updates frame.video_url
-        // unless the user has pinned a different take.
+        // Compatibility reconciliation; new tasks are adopted by the processor.
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/auto_select_latest_video`);
         return res.data;
     },
@@ -1230,6 +1260,7 @@ export const api = {
     updateFrame: async (scriptId: string, frameId: string, data: {
         image_prompt?: string;
         action_description?: string;
+        visual_description?: string;
         dialogue?: string;
         camera_angle?: string;
         scene_id?: string;
@@ -1434,16 +1465,16 @@ export const api = {
             speed,
             pitch,
             volume,
-            instructions: instructions || null,
+            instructions: instructions ?? null,
         });
         return res.data;
     },
 
     /** PR-3j · Generate dialogue audio for every frame with dialogue.
      *  Skips frames whose snapshot hash still matches. */
-    generateDialogueAudioBatch: async (scriptId: string): Promise<{ _batch_stats: { generated: number; skipped: number; failed: number; no_voice: number } }> => {
-        const res = await apiClient.post<{ _batch_stats: { generated: number; skipped: number; failed: number; no_voice: number } }>(
-            `${API_URL}/projects/${scriptId}/dialogue_audio/batch`,
+    generateDialogueAudioBatch: async (scriptId: string, instructions: Record<string, string> = {}) => {
+        const res = await apiClient.post<{ frames: any[]; dialogue_audio_batch: DialogueAudioBatch }>(
+            `${API_URL}/projects/${scriptId}/dialogue_audio/batch`, { instructions },
         );
         return res.data;
     },
@@ -1472,36 +1503,60 @@ export const api = {
         return res.data;
     },
 
-    /** Schema v2 · Batch refine all frames via SSE stream. */
+    /** Read complete SSE records; a closed stream alone is not proof of success. */
     refineBatchFrames: async (
         scriptId: string,
         onEvent: (event: RefineSSEEvent) => void,
-    ): Promise<void> => {
-        const response = await apiStreamRequest(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
-            method: "POST",
-        });
-        if (!response.ok) throw new Error("Failed to start batch refine");
-        const reader = response.body?.getReader();
-        if (!reader) return;
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            let currentEventType = "";
-            for (const line of lines) {
-                if (line.startsWith("event: ")) {
-                    currentEventType = line.slice(7).trim();
-                } else if (line.startsWith("data: ")) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        onEvent({ type: currentEventType as RefineSSEEvent["type"], ...data });
-                    } catch { /* skip malformed lines */ }
+        frameIds?: string[],
+    ): Promise<{ total: number; success: number; failed: number }> => {
+        const controller = new AbortController();
+        let timer = setTimeout(() => controller.abort(), 120_000);
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+        try {
+            const response = await apiStreamRequest(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
+                method: "POST", signal: controller.signal,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ frame_ids: frameIds }),
+            });
+            if (!response.ok) throw new Error("Failed to start batch refinement");
+            reader = response.body?.getReader();
+            if (!reader) throw new Error("Batch refinement returned no stream");
+            const decoder = new TextDecoder();
+            let buffer = "", eventType = "", data: string[] = [];
+            while (true) {
+                clearTimeout(timer);
+                // A stalled connection must yield to project readback, not wait indefinitely.
+                timer = setTimeout(() => controller.abort(), 120_000);
+                const { done, value } = await reader.read();
+                buffer += done ? decoder.decode() + "\n\n" : decoder.decode(value, { stream: true });
+                let end: number;
+                while ((end = buffer.indexOf("\n")) >= 0) {
+                    const line = buffer.slice(0, end).replace(/\r$/, "");
+                    buffer = buffer.slice(end + 1);
+                    if (line.startsWith("event:")) eventType = line.slice(6).trim();
+                    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+                    else if (!line) {
+                        if (data.length) {
+                            const payload = JSON.parse(data.join("\n"));
+                            if (["frame_refine_start", "frame_refine_complete", "frame_refine_error", "batch_complete"].includes(eventType)) {
+                                onEvent({ ...payload, type: eventType as RefineSSEEvent["type"] });
+                                if (eventType === "batch_complete") {
+                                    const { total, success, failed } = payload;
+                                    if (![total, success, failed].every(value => Number.isInteger(value) && value >= 0) || success + failed !== total) throw new Error("Invalid batch refinement result");
+                                    return { total, success, failed };
+                                }
+                            }
+                        }
+                        eventType = ""; data = [];
+                    }
                 }
+                if (done) throw new Error("Batch refinement ended before completion");
             }
+        } finally {
+            clearTimeout(timer);
+            await reader?.cancel().catch(() => {});
+            reader?.releaseLock();
+            controller.abort();
         }
     },
 

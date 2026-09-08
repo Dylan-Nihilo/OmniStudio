@@ -65,7 +65,7 @@ export default function SetupPage() {
           </div>
 
           {setupStatus && !setupStatus.setup_allowed ? (
-            <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100">
+            <div className="rounded-xl border border-status-processing-border bg-status-processing-bg p-4 text-sm leading-6 text-status-processing-fg">
               {t("setupNotAllowed")}
             </div>
           ) : (
@@ -99,7 +99,7 @@ export default function SetupPage() {
               </label>
 
               {error && (
-                <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5 text-sm text-red-200">
+                <div role="alert" className="flex items-start gap-2 rounded-lg border border-status-failed-border bg-status-failed-bg px-3 py-2.5 text-sm text-status-failed-fg">
                   <AlertCircle className="mt-0.5 shrink-0" size={15} />
                   <span>{error}</span>
                 </div>

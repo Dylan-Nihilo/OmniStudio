@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { Save, Loader2, ChevronDown, ChevronRight, FolderOpen, WifiOff, Copy, Check } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
@@ -15,20 +15,12 @@ import {
 } from "@/lib/modelCatalog";
 import { useSettingsStore, type Locale, type ThemePreset } from "@/store/settingsStore";
 import { toast } from "@/store/toastStore";
-import { rovingKeyDown } from "@/lib/a11y";
-import { Image, Video, Layout, User, Building, Box } from "lucide-react";
-import GroupedModelGrid from "@/components/common/GroupedModelGrid";
+import { Button, IconButton, LoadingState, SelectField, Tabs, TextAreaField, TextField } from "@omnistudio/ui";
 import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import UpdateChecker from "./UpdateChecker";
+import styles from "./SettingsPage.module.css";
 type SettingsCategory = "general" | "models" | "prompts" | "apikeys" | "storage" | "about";
-import {
-  FormRow,
-  FieldLabel,
-  KeyField,
-  Toggle,
-  ModeSegment,
-  settingsInputClass,
-} from "./SettingsControls";
+import { SectionCard as Section, FormRow, KeyField, Toggle } from "./SettingsControls";
 
 const APP_VERSION = "v0.2.0";
 
@@ -55,6 +47,7 @@ type EnvConfig = EnvConfigPayload & {
   KLING_SECRET_KEY: string;
   VIDU_API_KEY: string;
   MULEROUTER_API_KEY: string;
+  MOMA_API_KEY: string;
   MULERUN_CLI_LOGGED_IN?: boolean;
   endpoint_overrides: Record<string, string>;
 };
@@ -64,6 +57,7 @@ const ENDPOINT_PROVIDERS = [
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
   { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },
+  { key: "MOMA_BASE_URL", label: "MOMA / MiniMax", placeholder: "https://moma.cmecloud.cn/v1" },
 ];
 
 const DEFAULT_CONFIG: EnvConfig = {
@@ -89,6 +83,7 @@ const DEFAULT_CONFIG: EnvConfig = {
   KLING_SECRET_KEY: "",
   VIDU_API_KEY: "",
   MULEROUTER_API_KEY: "",
+  MOMA_API_KEY: "",
   endpoint_overrides: {},
 };
 
@@ -101,7 +96,7 @@ const normalizeEnvConfig = (existing: EnvConfig, data?: EnvConfigPayload): EnvCo
   LLM_PROVIDER: normalizeLlmProvider(data?.LLM_PROVIDER ?? existing.LLM_PROVIDER),
   OPENAI_BASE_URL: data?.OPENAI_BASE_URL || existing.OPENAI_BASE_URL || "https://api.openai.com/v1",
   OPENAI_MODEL: data?.OPENAI_MODEL || existing.OPENAI_MODEL || "gpt-4o",
-  IMAGE_PROVIDER: data?.IMAGE_PROVIDER === "openai" ? "openai" : (existing.IMAGE_PROVIDER || "mulerouter"),
+  IMAGE_PROVIDER: data?.IMAGE_PROVIDER ?? existing.IMAGE_PROVIDER ?? "mulerouter",
   OPENAI_IMAGE_BASE_URL: data?.OPENAI_IMAGE_BASE_URL || existing.OPENAI_IMAGE_BASE_URL || "https://api.openai.com/v1",
   OPENAI_IMAGE_MODEL: data?.OPENAI_IMAGE_MODEL || existing.OPENAI_IMAGE_MODEL || "gpt-image-2",
   KLING_PROVIDER_MODE: normalizeProviderMode(data?.KLING_PROVIDER_MODE ?? existing.KLING_PROVIDER_MODE),
@@ -128,6 +123,9 @@ const getValidationErrors = (env: EnvConfig): string[] => {
   }
   return errors;
 };
+
+const STORAGE_FIELDS = ['OSS_ENABLE', 'OSS_BUCKET_NAME', 'OSS_ENDPOINT', 'OSS_BASE_PATH', 'ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'] as const;
+const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY', 'IMAGE_PROVIDER', 'OPENAI_IMAGE_API_KEY', 'OPENAI_IMAGE_BASE_URL', 'OPENAI_IMAGE_MODEL', 'MOMA_API_KEY'] as const;
 
 const LS_KEY_MODEL = "omni_studio_default_model_settings";
 const LS_KEY_PROMPT = "omni_studio_default_prompt_config";
@@ -162,12 +160,13 @@ function loadFromLS<T>(key: string, fallback: T): T {
 
 // `name` / `desc` hold i18n keys (relative to the `settings` namespace) so the
 // module-scope list can be resolved with t(...) at render time.
-const THEME_OPTIONS: { id: ThemePreset; name: string; desc: string; base: string; primary: string; accent: string }[] = [
-  { id: "atelier-dark",  name: "themeAtelierDark",  desc: "themeAtelierDarkDesc",  base: "#0c0b0e", primary: "#34d8c4", accent: "#ffa94d" },
-  { id: "bridge-dark",   name: "themeBridgeDark",   desc: "themeBridgeDarkDesc",   base: "#0a0a0d", primary: "#646cff", accent: "#ffa94d" },
-  { id: "brand-dark",    name: "themeBrandDark",    desc: "themeBrandDarkDesc",    base: "#050508", primary: "#646cff", accent: "#ff0080" },
-  { id: "atelier-light", name: "themeAtelierLight", desc: "themeAtelierLightDesc", base: "#f6f1e9", primary: "#1d9c8d", accent: "#e8852b" },
-  { id: "brand-light",   name: "themeBrandLight",   desc: "themeBrandLightDesc",   base: "#f8f9fa", primary: "#646cff", accent: "#ff0080" },
+const THEME_OPTIONS: { id: ThemePreset; name: string; desc: string }[] = [
+  { id: "v3-paper",      name: "themeV3Paper",      desc: "themeV3PaperDesc" },
+  { id: "atelier-dark",  name: "themeAtelierDark",  desc: "themeAtelierDarkDesc" },
+  { id: "bridge-dark",   name: "themeBridgeDark",   desc: "themeBridgeDarkDesc" },
+  { id: "brand-dark",    name: "themeBrandDark",    desc: "themeBrandDarkDesc" },
+  { id: "atelier-light", name: "themeAtelierLight", desc: "themeAtelierLightDesc" },
+  { id: "brand-light",   name: "themeBrandLight",   desc: "themeBrandLightDesc" },
 ];
 
 interface SystemReport {
@@ -175,54 +174,28 @@ interface SystemReport {
   status?: string;
 }
 
-/* Atelier section panel — restored per Line B mockup `.panel` (translucent
-   warm-graphite card via glass-panel + atelier-card: surface + blur + soft
-   shadow + hairline border, so sections read as distinct grouped cards).
-   The page <header> stays frameless (mockup .main-head has no bg); only the
-   content sections are carded. Model cards / inputs keep their own surfaces. */
-function Section({
-  id,
-  title,
-  desc,
-  children,
-}: {
-  id?: string;
-  title: string;
-  desc?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      id={id}
-      aria-labelledby={id ? `${id}-title` : undefined}
-      className="glass-panel atelier-card rounded-[20px] overflow-hidden"
-    >
-      <div className="atelier-card-head px-[22px] pt-[18px] pb-3.5 border-b border-glass-border">
-        <h2
-          id={id ? `${id}-title` : undefined}
-          className="font-display atelier-display text-[1.1875rem] font-semibold text-foreground tracking-tight"
-        >
-          {title}
-        </h2>
-        {desc && <p className="text-[0.75rem] text-text-secondary mt-1 leading-relaxed">{desc}</p>}
-      </div>
-      <div className="px-[22px] pt-[18px] pb-[22px]">{children}</div>
-    </section>
-  );
-}
-
-export default function SettingsPage() {
+export default function SettingsPage({ initialCategory = "general", onProviderConfigSaved, onSavingChange }: {
+  initialCategory?: SettingsCategory;
+  onProviderConfigSaved?: () => void;
+  onSavingChange?: (saving: boolean) => void;
+} = {}) {
   const t = useTranslations("settings");
   const { locale, theme, animations, setLocale, setTheme, setAnimations } = useSettingsStore();
 
-  const [active, setActive] = useState<SettingsCategory>("general");
+  const [active, setActive] = useState<SettingsCategory>(initialCategory);
 
   // ── API Config ──
   const [config, setConfig] = useState<EnvConfig>(DEFAULT_CONFIG);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const savedConfigRef = useRef<EnvConfig>(DEFAULT_CONFIG);
+  const configRequest = useRef(0);
+  const mounted = useRef(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [endpointsOpen, setEndpointsOpen] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const clearFeedback = () => { setSaveError(null); setSaved(false); };
 
   // ── Default Model Settings ──
   const [modelSettings, setModelSettings] = useState<FrontendModelSettings>(() =>
@@ -237,6 +210,7 @@ export default function SettingsPage() {
   const [promptConfig, setPromptConfig] = useState<DefaultPromptConfig>(() =>
     loadFromLS(LS_KEY_PROMPT, EMPTY_PROMPT_CONFIG)
   );
+  const editedPrompts = useRef(new Set<keyof DefaultPromptConfig>());
   const [promptDefaults, setPromptDefaults] = useState<Record<string, string>>({});
 
   // ── About / system ──
@@ -249,20 +223,26 @@ export default function SettingsPage() {
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
 
   const loadConfig = useCallback(async () => {
+    const request = ++configRequest.current;
     setLoading(true);
     setLoadError(null);
     try {
       const data = await api.getEnvConfig();
-      setConfig((prev) => normalizeEnvConfig(prev, data));
+      if (!mounted.current || request !== configRequest.current) return;
+      const loaded = normalizeEnvConfig(DEFAULT_CONFIG, data);
+      savedConfigRef.current = loaded;
+      setConfig(loaded);
     } catch {
-      setLoadError(t("loadConfigFailed"));
+      if (mounted.current && request === configRequest.current) setLoadError(t("loadConfigFailed"));
     } finally {
-      setLoading(false);
+      if (mounted.current && request === configRequest.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    mounted.current = true;
     loadConfig();
+    return () => { mounted.current = false; configRequest.current += 1; };
   }, [loadConfig]);
 
   // Pre-fill the prompt fields with the real built-in defaults so users can see
@@ -280,7 +260,7 @@ export default function SettingsPage() {
           const next = { ...prev };
           (Object.keys(EMPTY_PROMPT_CONFIG) as (keyof DefaultPromptConfig)[]).forEach((k) => {
             const d = defaults[k];
-            if (typeof d === "string" && d && !prev[k]) next[k] = d;
+            if (typeof d === "string" && d && !prev[k] && !editedPrompts.current.has(k)) next[k] = d;
           });
           return next;
         });
@@ -310,6 +290,7 @@ export default function SettingsPage() {
     (async () => {
       try {
         const h = await api.healthCheck();
+        if (!mounted.current) return;
         if (h.log_dir) setLogDir(h.log_dir);
         if (h.log_file) {
           // data dir = parent of logs dir (logs lives under <data>/logs)
@@ -326,15 +307,16 @@ export default function SettingsPage() {
     setSystemLoading(true);
     try {
       const r = await api.checkSystem();
+      if (!mounted.current) return;
       setSystem({ ffmpeg: r.dependencies?.ffmpeg, status: r.status });
       // Lock only on success so a recovered backend is reflected without
       // forcing a manual retry, while a successful read won't re-run.
       setSystemChecked(true);
     } catch {
-      setSystem(null);
+      if (mounted.current) setSystem(null);
       // Leave systemChecked=false: re-entering the About tab retries once.
     } finally {
-      setSystemLoading(false);
+      if (mounted.current) setSystemLoading(false);
     }
   }, []);
 
@@ -351,41 +333,51 @@ export default function SettingsPage() {
     }
   }, [active, systemChecked, systemLoading, loadSystem]);
 
-  const handleSaveApiConfig = async () => {
-    const errors = getValidationErrors(config);
-    if (errors.length > 0) {
-      toast.error(t("fillRequired"), { body: `- ${errors.join("\n- ")}` });
-      return;
+  const saveEnvScope = async (scope: 'apikeys' | 'storage') => {
+    if (saving || loading || loadError || !online) return;
+    clearFeedback();
+    if (scope === 'apikeys') {
+      const errors = getValidationErrors(config);
+      if (errors.length) { setSaveError(`${t('fillRequired')}: ${errors.join(', ')}`); return; }
     }
+    const fields = scope === 'storage' ? STORAGE_FIELDS : PROVIDER_FIELDS;
+    const payload: EnvConfigPayload = {};
+    for (const key of fields) {
+      const value = config[key];
+      if (value !== savedConfigRef.current[key] && !(typeof value === 'string' && value.includes('•'))) Object.assign(payload, { [key]: value });
+    }
+    if (scope === 'apikeys') {
+      const endpoints = Object.fromEntries(Object.entries(config.endpoint_overrides).filter(([key,value]) => value !== savedConfigRef.current.endpoint_overrides[key]));
+      if (Object.keys(endpoints).length) payload.endpoint_overrides = endpoints;
+    }
+    if (!Object.keys(payload).length) { setSaved(true); if (scope === "apikeys") onProviderConfigSaved?.(); return; }
     setSaving(true);
     try {
-      await api.saveEnvConfig(config);
-      toast.success(t("saveSuccess"));
+      await api.saveEnvConfig(payload);
+      if (!mounted.current) return;
+      savedConfigRef.current = normalizeEnvConfig(savedConfigRef.current, {
+        ...payload,
+        endpoint_overrides: {...savedConfigRef.current.endpoint_overrides, ...payload.endpoint_overrides},
+      });
+      setSaved(true);
+      toast.success(t('saveSuccess'));
+      if (scope === 'apikeys') onProviderConfigSaved?.();
     } catch {
-      toast.error(t("saveConfigFailed"));
+      if (mounted.current) setSaveError(t('saveConfigFailed'));
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
-
-  // Storage(OSS) 保存不应被 DashScope / 生成相关必填项挡住——它们与存储无关。
-  const handleSaveStorage = async () => {
-    setSaving(true);
-    try {
-      await api.saveEnvConfig(config);
-      toast.success(t("saveSuccess"));
-    } catch {
-      toast.error(t("saveConfigFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const handleSaveApiConfig = () => saveEnvScope('apikeys');
+  const handleSaveStorage = () => saveEnvScope('storage');
 
   const handleChange = (key: keyof EnvConfig, value: string) => {
+    clearFeedback();
     setConfig((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleEndpointChange = (envKey: string, value: string) => {
+    clearFeedback();
     setConfig((prev) => ({
       ...prev,
       endpoint_overrides: { ...prev.endpoint_overrides, [envKey]: value },
@@ -401,9 +393,12 @@ export default function SettingsPage() {
       i2i_model: normalized.t2i_model,
       image_model: normalized.t2i_model,
     };
-    localStorage.setItem(LS_KEY_MODEL, JSON.stringify(merged));
-    setModelSettings(merged);
-    toast.success(t("saved"));
+    clearFeedback();
+    try {
+      localStorage.setItem(LS_KEY_MODEL, JSON.stringify(merged));
+      setModelSettings(merged);
+      setSaved(true);
+    } catch { setSaveError(t("saveLocalFailed")); }
   };
 
   const handleSavePromptDefaults = () => {
@@ -414,238 +409,111 @@ export default function SettingsPage() {
       const text = promptConfig[k] ?? "";
       delta[k] = text === promptDefaults[k] ? "" : text;
     });
-    localStorage.setItem(LS_KEY_PROMPT, JSON.stringify(delta));
-    toast.success(t("saved"));
-  };
-
-  const copyPath = async (p: string) => {
-    if (!p) return;
+    clearFeedback();
     try {
-      await navigator.clipboard.writeText(p);
-      setCopiedPath(p);
-      setTimeout(() => setCopiedPath(null), 1200);
-    } catch {
-      /* clipboard blocked */
-    }
+      localStorage.setItem(LS_KEY_PROMPT, JSON.stringify(delta));
+      setSaved(true);
+    } catch { setSaveError(t("saveLocalFailed")); }
   };
 
-  // MuleRun 登录轮询的 interval 句柄：卸载时清理，避免轮询泄漏 + setConfig-after-unmount。
-  const mulerunPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => () => {
-    if (mulerunPollRef.current) clearInterval(mulerunPollRef.current);
+  const copyPath = async (path: string) => {
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopiedPath(path);
+    } catch { toast.error(t("copyFailed")); }
+  };
+
+  const [loginPending, setLoginPending] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const loginRun = useRef(0);
+  const loginPoll = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loginTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopLogin = useCallback(() => {
+    loginRun.current += 1;
+    if (loginPoll.current) clearTimeout(loginPoll.current);
+    if (loginTimeout.current) clearTimeout(loginTimeout.current);
   }, []);
+  useEffect(() => stopLogin, [stopLogin]);
 
-  const PathField = ({ value, label }: { value: string; label: string }) => (
-    <div>
-      <FieldLabel>{label}</FieldLabel>
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={value || "—"}
-          disabled
-          className={settingsInputClass + " font-mono text-[0.71875rem] opacity-70 cursor-not-allowed"}
-        />
-        <button
-          type="button"
-          onClick={() => copyPath(value)}
-          disabled={!value}
-          title={t("copyPath")}
-          className="flex-shrink-0 px-3 rounded-md border border-glass-border bg-surface text-text-secondary hover:text-foreground transition-colors disabled:opacity-40 flex items-center gap-1.5 text-xs"
-        >
-          {copiedPath === value ? <Check size={13} className="text-emerald-400" /> : <FolderOpen size={13} />}
-          {copiedPath === value ? t("copied") : t("copy")}
-        </button>
+  const startLogin = async () => {
+    if (loginPending || !online || saving) return;
+    stopLogin();
+    const run = loginRun.current;
+    setLoginPending(true);
+    setLoginError(null);
+    const current = () => mounted.current && run === loginRun.current;
+    const finish = (error?: string) => {
+      if (!current()) return;
+      stopLogin();
+      setLoginPending(false);
+      setLoginError(error || null);
+    };
+    loginTimeout.current = setTimeout(() => finish(t("loginTimedOut")), 120000);
+    try {
+      await api.triggerMulerunLogin();
+      if (!current()) return;
+      const poll = async () => {
+        try {
+          const env = await api.getEnvConfig();
+          if (!current()) return;
+          if (env.MULERUN_CLI_LOGGED_IN) {
+            setConfig(c => ({...c, MULERUN_CLI_LOGGED_IN:true}));
+            finish();
+            return;
+          }
+        } catch { /* Retry while the user completes browser login. */ }
+        if (current()) loginPoll.current = setTimeout(poll, 3000);
+      };
+      loginPoll.current = setTimeout(poll, 3000);
+    } catch { finish(t("loginFailed")); }
+  };
+
+  const pathField = (label: string, value: string) => <div className="flex items-end gap-2">
+    <TextField label={label} value={value || "—"} isReadOnly className="min-w-0 flex-1 [&_input]:font-mono" />
+    <IconButton aria-label={`${t("copyPath")} · ${label}`} isDisabled={!value} onPress={() => copyPath(value)}>
+      {copiedPath === value && value ? <Check size={16} /> : <Copy size={16} />}
+    </IconButton>
+  </div>;
+  const keyField = (key: keyof EnvConfig, label: string, placeholder?: string) => <KeyField label={label} value={String(config[key] || "")} onChange={value => handleChange(key, value)} placeholder={placeholder} isDisabled={saving} />;
+  const envField = (key: keyof EnvConfig, label: string, placeholder?: string, type: "text" | "url" = "text") => <TextField label={label} value={String(config[key] || "")} onChange={value => handleChange(key, value)} placeholder={placeholder} type={type} isDisabled={saving} className="[&_input]:font-mono" />;
+  const updateModel = (key: keyof FrontendModelSettings, value: string) => {
+    clearFeedback();
+    setModelSettings(s => key === "t2i_model" ? {...s, t2i_model:value, i2i_model:value, image_model:value} : {...s, [key]:value});
+  };
+  const ratioField = (key: keyof FrontendModelSettings, label: string) => <SelectField label={label} value={String(modelSettings[key])} onChange={value => updateModel(key, String(value))} options={ASPECT_RATIOS.map(r => ({id:r.id, label:r.name}))} />;
+
+  const renderGeneral = () => <Section id="general" title={t("secGeneralTitle")}>
+    <FormRow label={t("language")} hint={t("languageDesc")}>
+      <SelectField label={t("language")} className="[&>.label]:sr-only" value={locale} onChange={value => setLocale(value as Locale)} options={[{id:"zh", label:t("chinese")}, {id:"en", label:t("english")}]} />
+    </FormRow>
+    <FormRow label={t("theme")} hint={t("themeDesc")}>
+      <SelectField label={t("theme")} className="[&>.label]:sr-only" value={theme} onChange={value => setTheme(value as ThemePreset)} options={THEME_OPTIONS.map(p => ({id:p.id, label:t(p.name), description:t(p.desc)}))} />
+    </FormRow>
+    <FormRow label={t("motionLabel")} hint={t("motionHint")}>
+      <Toggle checked={animations} onChange={setAnimations} label={animations ? t("motionOn") : t("motionReduced")} sub={t("motionSub")} ariaLabel={t("motionToggleAria")} />
+    </FormRow>
+  </Section>;
+
+  const renderModels = () => <Section id="models" title={t("secModelsTitle")} desc={t("secModelsDesc")}>
+    <FormRow label={t("imageModelLabel")} hint={t("imageModelHint")}>
+      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+    </FormRow>
+    <FormRow label={t("assetAspectLabel")} hint={t("assetAspectHint")}>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {ratioField("character_aspect_ratio", t("assetCharacter"))}
+        {ratioField("scene_aspect_ratio", t("assetScene"))}
+        {ratioField("prop_aspect_ratio", t("assetProp"))}
       </div>
-    </div>
-  );
-
-  /* ── Section renderers ──────────────────────────────────────── */
-
-  const renderGeneral = () => (
-    <Section id="general" title={t("secGeneralTitle")}>
-      <FormRow label={t("language")} hint={t("languageDesc")}>
-        <FieldLabel>LANGUAGE</FieldLabel>
-        <ModeSegment
-          value={locale}
-          onChange={(v) => setLocale(v as Locale)}
-          options={[
-            { id: "zh", label: t("chinese") },
-            { id: "en", label: t("english") },
-          ]}
-        />
-      </FormRow>
-
-      <FormRow label={t("theme")} hint={t("themeDesc")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="radiogroup" aria-label={t("theme")} onKeyDown={rovingKeyDown}>
-          {THEME_OPTIONS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              role="radio"
-              aria-checked={theme === preset.id}
-              tabIndex={theme === preset.id ? 0 : -1}
-              onClick={() => setTheme(preset.id)}
-              className={`group relative flex flex-col gap-2 p-3 rounded-xl border text-left transition-all ${
-                theme === preset.id
-                  ? "border-primary/60 bg-primary/10 ring-1 ring-primary/30"
-                  : "border-glass-border bg-hover-bg hover:border-text-muted"
-              }`}
-            >
-              <div
-                className="h-10 w-full rounded-lg border border-glass-border overflow-hidden flex items-end p-1.5 gap-1"
-                style={{ background: preset.base }}
-              >
-                <span className="h-3 w-3 rounded-full" style={{ background: preset.primary }} />
-                <span className="h-3 w-3 rounded-full" style={{ background: preset.accent }} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-foreground truncate">{t(preset.name)}</div>
-                <div className="text-[0.625rem] text-text-muted truncate">{t(preset.desc)}</div>
-              </div>
-              {theme === preset.id && (
-                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary" />
-              )}
-            </button>
-          ))}
-        </div>
-      </FormRow>
-
-      <FormRow label={t("motionLabel")} hint={t("motionHint")}>
-        <Toggle
-          checked={animations}
-          onChange={setAnimations}
-          label={animations ? t("motionOn") : t("motionReduced")}
-          sub={t("motionSub")}
-          ariaLabel={t("motionToggleAria")}
-        />
-      </FormRow>
-    </Section>
-  );
-
-  const aspectButtons = (key: keyof FrontendModelSettings) => (
-    <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label={t("aspectRatioAria")} onKeyDown={rovingKeyDown}>
-      {ASPECT_RATIOS.map((ratio) => (
-        <button
-          key={ratio.id}
-          type="button"
-          role="radio"
-          aria-checked={modelSettings[key] === ratio.id}
-          tabIndex={modelSettings[key] === ratio.id ? 0 : -1}
-          onClick={() => setModelSettings((s) => ({ ...s, [key]: ratio.id }))}
-          className={`flex flex-col items-center py-2 px-2 rounded-lg border transition-all ${
-            modelSettings[key] === ratio.id
-              ? "border-primary/50 bg-primary/10"
-              : "border-glass-border hover:border-text-muted bg-glass"
-          }`}
-        >
-          <span className="text-xs font-medium text-foreground">{ratio.name}</span>
-        </button>
-      ))}
-    </div>
-  );
-
-  const renderModels = () => (
-    <Section
-      id="models"
-      title={t("secModelsTitle")}
-      desc={t("secModelsDesc")}
-    >
-      {/* Image model (T2I + I2I unified) */}
-      <FormRow label={t("imageModelLabel")} hint={t("imageModelHint")}>
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
-          <Image size={15} className="text-emerald-400" />
-          <span>{t("imageModelCaption")}</span>
-        </div>
-        <GroupedModelGrid
-          models={GLOBAL_IMAGE_MODELS}
-          selectedId={modelSettings.t2i_model}
-          onSelect={(id) => setModelSettings((s) => ({ ...s, t2i_model: id, i2i_model: id, image_model: id }))}
-        />
-      </FormRow>
-
-      {/* Asset aspect ratios */}
-      <FormRow label={t("assetAspectLabel")} hint={t("assetAspectHint")}>
-        <div className="grid grid-cols-3 gap-4">
-          {(
-            [
-              { key: "character_aspect_ratio" as const, label: t("assetCharacter"), icon: User },
-              { key: "scene_aspect_ratio" as const, label: t("assetScene"), icon: Building },
-              { key: "prop_aspect_ratio" as const, label: t("assetProp"), icon: Box },
-            ] as const
-          ).map(({ key, label, icon: Icon }) => (
-            <div key={key} className="space-y-2">
-              <div className="flex items-center gap-1 text-xs text-text-secondary">
-                <Icon size={12} />
-                <label>{label}</label>
-              </div>
-              <div className="space-y-1">
-                {ASPECT_RATIOS.map((ratio) => (
-                  <button
-                    key={ratio.id}
-                    type="button"
-                    onClick={() => setModelSettings((s) => ({ ...s, [key]: ratio.id }))}
-                    className={`w-full flex flex-col items-center py-2 px-2 rounded border transition-all ${
-                      modelSettings[key] === ratio.id
-                        ? "border-emerald-500/50 bg-emerald-500/10"
-                        : "border-glass-border hover:border-text-muted bg-glass"
-                    }`}
-                  >
-                    <span className="text-xs font-medium text-foreground">{ratio.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </FormRow>
-
-      {/* Storyboard aspect ratio */}
-      <FormRow label={t("storyboardAspectLabel")} hint={t("storyboardAspectHint")}>
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
-          <Layout size={15} className="text-primary" />
-          <span>Storyboard Aspect Ratio</span>
-        </div>
-        {aspectButtons("storyboard_aspect_ratio")}
-      </FormRow>
-
-      {/* I2V */}
-      <FormRow label={t("i2vModelLabel")} hint={t("i2vModelHint")}>
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
-          <Video size={15} className="text-purple-400" />
-          <span>Image-to-Video</span>
-        </div>
-        <GroupedModelGrid
-          models={GLOBAL_I2V_MODELS}
-          selectedId={modelSettings.i2v_model}
-          onSelect={(id) => setModelSettings((s) => ({ ...s, i2v_model: id }))}
-        />
-      </FormRow>
-
-      {/* R2V */}
-      <FormRow label={t("r2vModelLabel")} hint={t("r2vModelHint")}>
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-3">
-          <Video size={15} className="text-purple-400" />
-          <span>Reference-to-Video</span>
-        </div>
-        <GroupedModelGrid
-          models={GLOBAL_R2V_MODELS}
-          selectedId={modelSettings.r2v_model ?? ""}
-          onSelect={(id) => setModelSettings((s) => ({ ...s, r2v_model: id }))}
-        />
-      </FormRow>
-
-      <div className="flex justify-end pt-4">
-        <button
-          type="button"
-          onClick={handleSaveModelDefaults}
-          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-on-accent text-sm font-medium rounded-lg transition-all"
-        >
-          <Save size={16} />
-          {t("saveDefaults")}
-        </button>
-      </div>
-    </Section>
-  );
+    </FormRow>
+    <FormRow label={t("storyboardAspectLabel")} hint={t("storyboardAspectHint")}>{ratioField("storyboard_aspect_ratio", t("storyboardAspectLabel"))}</FormRow>
+    <FormRow label={t("i2vModelLabel")} hint={t("i2vModelHint")}>
+      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+    </FormRow>
+    <FormRow label={t("r2vModelLabel")} hint={t("r2vModelHint")}>
+      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+    </FormRow>
+  </Section>;
 
   const PROMPT_FIELDS: { key: keyof DefaultPromptConfig; label: string; desc: string }[] = [
     { key: "entity_extraction", label: t("promptEntityLabel"), desc: t("promptEntityDesc") },
@@ -655,603 +523,121 @@ export default function SettingsPage() {
     { key: "video_polish", label: t("promptVideoPolishLabel"), desc: t("promptVideoPolishDesc") },
     { key: "r2v_polish", label: t("promptR2vPolishLabel"), desc: t("promptR2vPolishDesc") },
   ];
+  const renderPrompts = () => <Section id="prompts" title={t("secPromptsTitle")} desc={t("secPromptsDesc")}>
+    {PROMPT_FIELDS.map(f => <FormRow key={f.key} label={f.label} hint={f.desc}>
+      <TextAreaField label={f.label} className="[&>.label]:sr-only [&_textarea]:font-mono" rows={6} value={promptConfig[f.key]} onChange={value => {editedPrompts.current.add(f.key); clearFeedback(); setPromptConfig(prev => ({...prev, [f.key]:value}));}} placeholder={t("promptPlaceholder")} />
+    </FormRow>)}
+  </Section>;
 
-  const renderPrompts = () => (
-    <Section
-      id="prompts"
-      title={t("secPromptsTitle")}
-      desc={t("secPromptsDesc")}
-    >
-      <div className="space-y-5">
-        {PROMPT_FIELDS.map((f) => (
-          <div key={f.key} className="space-y-2">
-            <h3 className="text-sm font-semibold text-foreground">{f.label}</h3>
-            <p className="text-[0.6875rem] text-text-muted">{f.desc}</p>
-            <textarea
-              value={promptConfig[f.key]}
-              onChange={(e) => setPromptConfig((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              placeholder={t("promptPlaceholder")}
-              className="w-full h-32 bg-input-bg border border-glass-border rounded-lg p-3 text-xs text-foreground resize-y focus:outline-none focus:border-primary/50 font-mono placeholder-text-muted"
-            />
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-end pt-4">
-        <button
-          type="button"
-          onClick={handleSavePromptDefaults}
-          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-on-accent text-sm font-medium rounded-lg transition-colors"
-        >
-          <Save size={16} />
-          {t("saveDefaults")}
-        </button>
-      </div>
-    </Section>
-  );
-
-  const renderApiKeys = () => (
-    <Section
-      id="apikeys"
-      title={t("secApiTitle")}
-      desc={t("secApiDesc")}
-    >
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 size={24} className="animate-spin text-primary" />
-          <span className="ml-2 text-text-secondary">{t("loadingConfig")}</span>
+  const configGuard = loading ? <LoadingState label={t("loadingConfig")} className="py-12" /> : loadError ? <div role="alert" className="flex flex-wrap items-center gap-4 py-8 text-sm text-status-failed-fg">{loadError}<Button variant="secondary" onPress={loadConfig}>{t("retryLoad")}</Button></div> : null;
+  const vendorOptions = [{id:"dashscope", label:"DashScope"}, {id:"vendor", label:t("vendorDirect")}];
+  const renderApiKeys = () => <Section id="apikeys" title={t("secApiTitle")} desc={t("secApiDesc")}>
+    {configGuard || <>
+      <FormRow label={t("llmProviderLabel")} hint={t("llmProviderHint")}>
+        <SelectField label={t("llmProviderLabel")} className="[&>.label]:sr-only" value={config.LLM_PROVIDER} onChange={value => handleChange("LLM_PROVIDER", String(value))} isDisabled={saving} options={[{id:"dashscope", label:"DashScope"}, {id:"openai", label:t("openaiCompatible")}]} />
+      </FormRow>
+      {config.LLM_PROVIDER === "openai" ? <FormRow label={t("openaiKeyLabel")} hint={t("openaiKeyHint")}>
+        <div className="space-y-4">
+          {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
+          {envField("OPENAI_BASE_URL", t("openaiBaseUrlLabel"), "https://api.openai.com/v1", "url")}
+          {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
         </div>
-      ) : loadError ? (
-        <div className="bg-status-failed-bg border border-status-failed-border rounded-lg p-4 text-sm text-status-failed-fg">
-          {loadError}
+      </FormRow> : <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>{keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}</FormRow>}
+      <FormRow label={t("imageProviderLabel")} hint={t("imageProviderHint")}>
+        <div className="space-y-4">
+          <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
+          {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
         </div>
-      ) : (
-        <div className="space-y-1">
-          <FormRow label={t("llmProviderLabel")} hint={t("llmProviderHint")}>
-            <ModeSegment
-              value={config.LLM_PROVIDER}
-              onChange={(v) => handleChange("LLM_PROVIDER", normalizeLlmProvider(v))}
-              options={[
-                { id: "dashscope", label: "DashScope" },
-                { id: "openai", label: t("openaiCompatible") },
-              ]}
-            />
-          </FormRow>
-
-          {config.LLM_PROVIDER === "openai" ? (
-            <FormRow label={t("openaiKeyLabel")} hint={t("openaiKeyHint")}>
-              <FieldLabel>OPENAI_API_KEY *</FieldLabel>
-              <KeyField
-                value={config.OPENAI_API_KEY}
-                onChange={(v) => handleChange("OPENAI_API_KEY", v)}
-                placeholder="sk-..."
-                status={
-                  config.OPENAI_API_KEY?.trim()
-                    ? { kind: "ok", text: t("filled") }
-                    : { kind: "warn", text: t("notConfiguredUnavailable") }
-                }
-              />
-              <div className="grid gap-3 mt-3 sm:grid-cols-2">
-                <div>
-                  <FieldLabel>OPENAI_BASE_URL</FieldLabel>
-                  <input
-                    type="url"
-                    value={config.OPENAI_BASE_URL}
-                    onChange={(e) => handleChange("OPENAI_BASE_URL", e.target.value)}
-                    placeholder="https://api.openai.com/v1"
-                    className={settingsInputClass + " font-mono text-[0.71875rem]"}
-                  />
-                </div>
-                <div>
-                  <FieldLabel>OPENAI_MODEL</FieldLabel>
-                  <input
-                    type="text"
-                    value={config.OPENAI_MODEL}
-                    onChange={(e) => handleChange("OPENAI_MODEL", e.target.value)}
-                    placeholder="gpt-4o"
-                    className={settingsInputClass + " font-mono text-[0.71875rem]"}
-                  />
-                </div>
-              </div>
-            </FormRow>
-          ) : (
-          <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>
-            <FieldLabel>DASHSCOPE_API_KEY *</FieldLabel>
-            <KeyField
-              value={config.DASHSCOPE_API_KEY}
-              onChange={(v) => handleChange("DASHSCOPE_API_KEY", v)}
-              placeholder="sk-..."
-              status={
-                config.DASHSCOPE_API_KEY?.trim()
-                  ? { kind: "ok", text: t("filled") }
-                  : { kind: "warn", text: t("notConfiguredUnavailable") }
-              }
-            />
-          </FormRow>
-          )}
-
-          <FormRow label="图片生成接口" hint="选择 GPT 图片模型使用的服务；其他图片模型仍按模型目录走对应 provider。">
-            <ModeSegment
-              value={config.IMAGE_PROVIDER}
-              onChange={(v) => handleChange("IMAGE_PROVIDER", v as ImageProvider)}
-              options={[
-                { id: "mulerouter", label: "MuleRouter" },
-                { id: "openai", label: "OpenAI 兼容" },
-              ]}
-            />
-            {config.IMAGE_PROVIDER === "openai" && (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <FieldLabel>OPENAI_IMAGE_API_KEY *</FieldLabel>
-                  <KeyField value={config.OPENAI_IMAGE_API_KEY} onChange={(v) => handleChange("OPENAI_IMAGE_API_KEY", v)} placeholder="sk-..." />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>OPENAI_IMAGE_BASE_URL</FieldLabel>
-                    <input type="url" value={config.OPENAI_IMAGE_BASE_URL} onChange={(e) => handleChange("OPENAI_IMAGE_BASE_URL", e.target.value)} placeholder="https://api.openai.com/v1" className={settingsInputClass + " font-mono text-[0.71875rem]"} />
-                  </div>
-                  <div>
-                    <FieldLabel>OPENAI_IMAGE_MODEL</FieldLabel>
-                    <input type="text" value={config.OPENAI_IMAGE_MODEL} onChange={(e) => handleChange("OPENAI_IMAGE_MODEL", e.target.value)} placeholder="gpt-image-2" className={settingsInputClass + " font-mono text-[0.71875rem]"} />
-                  </div>
-                </div>
-              </div>
-            )}
-          </FormRow>
-
-          <FormRow label={t("klingLabel")} hint={t("klingHint")}>
-            <ModeSegment
-              value={config.KLING_PROVIDER_MODE}
-              onChange={(v) => handleChange("KLING_PROVIDER_MODE", v)}
-              options={[
-                { id: "dashscope", label: "DashScope" },
-                { id: "vendor", label: t("vendorDirect") },
-              ]}
-            />
-            {config.KLING_PROVIDER_MODE === "vendor" && (
-              <div className="space-y-3 mt-3">
-                <div>
-                  <FieldLabel>KLING_ACCESS_KEY *</FieldLabel>
-                  <KeyField value={config.KLING_ACCESS_KEY} onChange={(v) => handleChange("KLING_ACCESS_KEY", v)} placeholder="Kling Access Key" />
-                </div>
-                <div>
-                  <FieldLabel>KLING_SECRET_KEY *</FieldLabel>
-                  <KeyField value={config.KLING_SECRET_KEY} onChange={(v) => handleChange("KLING_SECRET_KEY", v)} placeholder="Kling Secret Key" />
-                </div>
-              </div>
-            )}
-          </FormRow>
-
-          <FormRow label="Vidu" hint={t("viduHint")}>
-            <ModeSegment
-              value={config.VIDU_PROVIDER_MODE}
-              onChange={(v) => handleChange("VIDU_PROVIDER_MODE", v)}
-              options={[
-                { id: "dashscope", label: "DashScope" },
-                { id: "vendor", label: t("vendorDirect") },
-              ]}
-            />
-            {config.VIDU_PROVIDER_MODE === "vendor" && (
-              <div className="mt-3">
-                <FieldLabel>VIDU_API_KEY *</FieldLabel>
-                <KeyField value={config.VIDU_API_KEY} onChange={(v) => handleChange("VIDU_API_KEY", v)} placeholder="Vidu API Key" />
-              </div>
-            )}
-          </FormRow>
-
-          <FormRow label={t("mulerunLabel")} hint={t("mulerunHint")}>
-            {!config.MULEROUTER_API_KEY && !config.MULERUN_CLI_LOGGED_IN && (
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await api.triggerMulerunLogin();
-                    if (mulerunPollRef.current) clearInterval(mulerunPollRef.current); // 重入守卫
-                    const stop = () => {
-                      if (mulerunPollRef.current) {
-                        clearInterval(mulerunPollRef.current);
-                        mulerunPollRef.current = null;
-                      }
-                    };
-                    mulerunPollRef.current = setInterval(async () => {
-                      try {
-                        const env = await api.getEnvConfig();
-                        if (env.MULERUN_CLI_LOGGED_IN) {
-                          stop();
-                          setConfig((c) => ({ ...c, MULERUN_CLI_LOGGED_IN: true }));
-                        }
-                      } catch {
-                        /* silent */
-                      }
-                    }, 3000);
-                    setTimeout(stop, 120000);
-                  } catch (err: any) {
-                    toast.error(err?.response?.data?.detail || t("loginFailed"));
-                  }
-                }}
-                className="w-full py-2.5 rounded-lg bg-primary text-on-accent text-sm font-medium hover:bg-primary-hover transition-colors mb-3"
-              >
-                {t("mulerunLogin")}
-              </button>
-            )}
-            {!config.MULEROUTER_API_KEY && config.MULERUN_CLI_LOGGED_IN && (
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex items-center gap-2 text-sm text-emerald-400">
-                  <Check size={16} />
-                  {t("mulerunLoggedIn")}
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await api.triggerMulerunLogin();
-                    } catch (err: any) {
-                      toast.error(err?.response?.data?.detail || t("loginFailed"));
-                    }
-                  }}
-                  className="text-xs text-text-secondary hover:text-foreground transition-colors underline underline-offset-2"
-                >
-                  {t("reLogin")}
-                </button>
-              </div>
-            )}
-            <FieldLabel>MULEROUTER_API_KEY</FieldLabel>
-            <KeyField
-              value={config.MULEROUTER_API_KEY}
-              onChange={(v) => setConfig((c) => ({ ...c, MULEROUTER_API_KEY: v }))}
-              placeholder="muk-..."
-            />
-            <details className="group mt-3">
-              <summary className="text-xs text-primary cursor-pointer hover:underline flex items-center gap-1">
-                <ChevronRight size={12} className="transition-transform group-open:rotate-90" />
-                {t("manualGetKey")}
-              </summary>
-              <div className="mt-2 space-y-2 pl-4 border-l border-glass-border">
-                {[
-                  { n: "1", label: t("stepInstallCli"), cmd: "npm i -g @mulerunai/cli" },
-                  { n: "2", label: t("stepBrowserLogin"), cmd: "mulerun login" },
-                  { n: "3", label: t("stepCopyKey"), cmd: "mulerun studio config" },
-                ].map((step) => (
-                  <div key={step.n} className="flex items-center gap-2 text-xs text-text-secondary">
-                    <span className="shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[0.625rem] font-bold">
-                      {step.n}
-                    </span>
-                    <span>{step.label}</span>
-                    <code
-                      className="ml-auto px-2 py-0.5 bg-glass rounded text-[0.6875rem] font-mono select-all cursor-pointer"
-                      onClick={(e) => {
-                        navigator.clipboard.writeText(step.cmd);
-                        const el = e.currentTarget;
-                        el.style.outline = "1px solid var(--color-primary)";
-                        setTimeout(() => (el.style.outline = ""), 800);
-                      }}
-                    >
-                      {step.cmd}
-                    </code>
-                  </div>
-                ))}
-                <p className="text-[0.6875rem] text-text-muted mt-1">{t("mulerunKeyHint")}</p>
-              </div>
-            </details>
-          </FormRow>
-
-          <FormRow label={t("advancedEndpointsLabel")} hint={t("advancedEndpointsHint")}>
-            <button
-              type="button"
-              onClick={() => setEndpointsOpen(!endpointsOpen)}
-              className="flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-foreground transition-colors"
-            >
-              {endpointsOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              {endpointsOpen ? t("collapseEndpoints") : t("expandEndpoints")}
-            </button>
-            {endpointsOpen && (
-              <div className="mt-3 space-y-3">
-                {ENDPOINT_PROVIDERS.map(({ key, label, placeholder }) => (
-                  <div key={key}>
-                    <FieldLabel>{label} BASE URL</FieldLabel>
-                    <input
-                      type="text"
-                      value={config.endpoint_overrides[key] || ""}
-                      onChange={(e) => handleEndpointChange(key, e.target.value)}
-                      placeholder={placeholder}
-                      className={settingsInputClass + " font-mono text-[0.71875rem]"}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </FormRow>
-
-          <div className="flex justify-end pt-4">
-            <button
-              type="button"
-              onClick={handleSaveApiConfig}
-              disabled={saving || loading || !online}
-              className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-on-accent text-sm font-medium rounded-lg transition-all disabled:opacity-50"
-            >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              {saving ? t("saving") : t("saveConfig")}
-            </button>
-          </div>
+      </FormRow>
+      <FormRow label="MOMA / MiniMax H3" hint={t("momaHint")}>{keyField("MOMA_API_KEY", "MOMA API Key")}</FormRow>
+      <FormRow label={t("klingLabel")} hint={t("klingHint")}>
+        <div className="space-y-4">
+          <SelectField label={t("klingProvider")} value={config.KLING_PROVIDER_MODE} onChange={value => handleChange("KLING_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
+          {config.KLING_PROVIDER_MODE === "vendor" && <>{keyField("KLING_ACCESS_KEY", "Kling Access Key")}{keyField("KLING_SECRET_KEY", "Kling Secret Key")}</>}
         </div>
-      )}
-    </Section>
-  );
+      </FormRow>
+      <FormRow label="Vidu" hint={t("viduHint")}>
+        <div className="space-y-4">
+          <SelectField label={t("viduProvider")} value={config.VIDU_PROVIDER_MODE} onChange={value => handleChange("VIDU_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
+          {config.VIDU_PROVIDER_MODE === "vendor" && keyField("VIDU_API_KEY", "Vidu API Key")}
+        </div>
+      </FormRow>
+      <FormRow label={t("mulerunLabel")} hint={t("mulerunHint")}>
+        <div className="space-y-4">
+          {!config.MULEROUTER_API_KEY && <div className="space-y-3">
+            {config.MULERUN_CLI_LOGGED_IN && <p role="status" className="flex items-center gap-2 text-sm text-status-completed-fg"><Check size={16} />{t("mulerunLoggedIn")}</p>}
+            <Button variant="secondary" onPress={startLogin} isPending={loginPending} isDisabled={saving || !online}>{loginPending ? t("loginWaiting") : config.MULERUN_CLI_LOGGED_IN ? t("reLogin") : t("mulerunLogin")}</Button>
+          </div>}
+          {loginError && <p role="alert" className="text-sm text-status-failed-fg">{loginError}</p>}
+          {keyField("MULEROUTER_API_KEY", "MuleRouter API Key", "muk-...")}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("manualGetKey")}</summary>
+            <ol className="mt-4 space-y-3">
+              {[{label:t("stepInstallCli"), cmd:"npm i -g @mulerunai/cli"}, {label:t("stepBrowserLogin"), cmd:"mulerun login"}, {label:t("stepCopyKey"), cmd:"mulerun studio config"}].map((step, index) => <li key={step.cmd} className="flex flex-wrap items-center gap-2"><span className="text-text-muted">{index + 1}. {step.label}</span><code className="break-all rounded bg-surface px-2 py-1 font-mono text-xs select-all">{step.cmd}</code><IconButton aria-label={`${t("copy")} ${step.cmd}`} onPress={() => copyPath(step.cmd)}>{copiedPath === step.cmd ? <Check size={14} /> : <Copy size={14} />}</IconButton></li>)}
+            </ol>
+            <p className="mt-3 text-xs leading-6 text-text-muted">{t("mulerunKeyHint")}</p>
+          </details>
+        </div>
+      </FormRow>
+      <FormRow label={t("advancedEndpointsLabel")} hint={t("advancedEndpointsHint")}>
+        <details><summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandEndpoints")}</summary>
+          <div className="mt-4 space-y-4">{ENDPOINT_PROVIDERS.map(({key, label, placeholder}) => <TextField key={key} label={`${label} Base URL`} type="url" value={config.endpoint_overrides[key] || ""} onChange={value => handleEndpointChange(key, value)} placeholder={placeholder} isDisabled={saving} className="[&_input]:font-mono" />)}</div>
+        </details>
+      </FormRow>
+    </>}
+  </Section>;
 
-  const renderStorage = () => (
-    <Section
-      id="storage"
-      title={t("secStorageTitle")}
-      desc={t("secStorageDesc")}
-    >
+  const renderStorage = () => <Section id="storage" title={t("secStorageTitle")} desc={t("secStorageDesc")}>
+    {configGuard || <>
       <FormRow label={t("cloudStorageLabel")}>
-        <Toggle
-          checked={config.OSS_ENABLE}
-          onChange={(v) => setConfig((c) => ({ ...c, OSS_ENABLE: v }))}
-          label={t("enableCloudStorage")}
-          sub={t("enableCloudStorageSub")}
-          ariaLabel={t("enableCloudStorageAria")}
-        />
+        <Toggle checked={config.OSS_ENABLE} onChange={value => {clearFeedback(); setConfig(c => ({...c, OSS_ENABLE:value}));}} label={t("enableCloudStorage")} sub={t("enableCloudStorageSub")} ariaLabel={t("enableCloudStorageAria")} isDisabled={saving} />
       </FormRow>
-
       <FormRow label={t("ossAkSkLabel")} hint={t("ossAkSkHint")}>
-        <div className="space-y-3">
-          <div>
-            <FieldLabel>ALIBABA_CLOUD_ACCESS_KEY_ID</FieldLabel>
-            <KeyField
-              value={config.ALIBABA_CLOUD_ACCESS_KEY_ID}
-              onChange={(v) => handleChange("ALIBABA_CLOUD_ACCESS_KEY_ID", v)}
-              placeholder={t("ossOptionalMirror")}
-            />
-          </div>
-          <div>
-            <FieldLabel>ALIBABA_CLOUD_ACCESS_KEY_SECRET</FieldLabel>
-            <KeyField
-              value={config.ALIBABA_CLOUD_ACCESS_KEY_SECRET}
-              onChange={(v) => handleChange("ALIBABA_CLOUD_ACCESS_KEY_SECRET", v)}
-              placeholder={t("ossOptionalMirror")}
-            />
-          </div>
-          <a
-            href="https://help.aliyun.com/zh/ram/user-guide/create-an-accesskey-pair"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[0.75rem] text-primary hover:underline"
-          >
-            {t("howToGetAccessKey")}
-          </a>
+        <div className="space-y-4">{keyField("ALIBABA_CLOUD_ACCESS_KEY_ID", "Access Key ID", t("ossOptionalMirror"))}{keyField("ALIBABA_CLOUD_ACCESS_KEY_SECRET", "Access Key Secret", t("ossOptionalMirror"))}
+          <a href="https://help.aliyun.com/zh/ram/user-guide/create-an-accesskey-pair" target="_blank" rel="noopener noreferrer" className="inline-block text-sm text-primary underline underline-offset-4">{t("howToGetAccessKey")}</a>
         </div>
       </FormRow>
+      <FormRow label={t("bucketLabel")} hint={t("bucketHint")}>{envField("OSS_BUCKET_NAME", t("bucketLabel"), t("bucketPlaceholder"))}</FormRow>
+      <FormRow label="Endpoint" hint={t("endpointHint")}>{envField("OSS_ENDPOINT", "OSS Endpoint", t("endpointPlaceholder"))}</FormRow>
+      <FormRow label="Base Path" hint={t("basePathHint")}>{envField("OSS_BASE_PATH", "Base Path", "omni-studio")}</FormRow>
+      <FormRow label={t("dataDirLabel")} hint={t("dataDirHint")}>{pathField(t("dataDirLabel"), dataDir)}</FormRow>
+      <FormRow label={t("logDirLabel")} hint={t("logDirHint")}>{pathField(t("logDirLabel"), logDir)}</FormRow>
+    </>}
+  </Section>;
 
-      <FormRow label={t("bucketLabel")} hint={t("bucketHint")}>
-        <FieldLabel>OSS_BUCKET</FieldLabel>
-        <input
-          type="text"
-          value={config.OSS_BUCKET_NAME}
-          onChange={(e) => handleChange("OSS_BUCKET_NAME", e.target.value)}
-          placeholder={t("bucketPlaceholder")}
-          className={settingsInputClass + " font-mono text-[0.71875rem]"}
-        />
-      </FormRow>
+  const renderAbout = () => <Section id="about" title={t("secAboutTitle")}>
+    <div className="py-6"><OmniStudioBranding size="md" showSlogan={false} /><p className="mt-3 text-sm text-text-muted">{t("aboutTagline")}</p></div>
+    <UpdateChecker />
+    <FormRow label={t("aboutAppVersion")}><span className="font-mono text-sm">Omni Studio {APP_VERSION}</span></FormRow>
+    <FormRow label={t("aboutBackendApi")}><span className="break-all font-mono text-sm">{API_URL}</span></FormRow>
+    <FormRow label={t("aboutDataDir")}>{pathField(t("aboutDataDir"), dataDir)}</FormRow>
+    <FormRow label={t("aboutLogDir")}>{pathField(t("aboutLogDir"), logDir)}</FormRow>
+    <FormRow label="FFmpeg"><div className="flex flex-wrap items-center justify-between gap-3">
+      <p role="status" className="text-sm text-text-secondary">{systemLoading ? t("ffmpegChecking") : system?.ffmpeg ? system.ffmpeg.available ? t("ffmpegAvailable") : t("ffmpegMissing") : t("ffmpegUnknown")}</p>
+      <Button variant="secondary" onPress={loadSystem} isPending={systemLoading}><RefreshCw size={16} />{t("recheck")}</Button>
+    </div></FormRow>
+  </Section>;
 
-      <FormRow label="Endpoint" hint={t("endpointHint")}>
-        <FieldLabel>OSS_ENDPOINT</FieldLabel>
-        <input
-          type="text"
-          value={config.OSS_ENDPOINT}
-          onChange={(e) => handleChange("OSS_ENDPOINT", e.target.value)}
-          placeholder={t("endpointPlaceholder")}
-          className={settingsInputClass + " font-mono text-[0.71875rem]"}
-        />
-      </FormRow>
-
-      <FormRow label="Base Path" hint={t("basePathHint")}>
-        <FieldLabel>OSS_BASE_PATH</FieldLabel>
-        <input
-          type="text"
-          value={config.OSS_BASE_PATH}
-          onChange={(e) => handleChange("OSS_BASE_PATH", e.target.value)}
-          placeholder="omni-studio"
-          className={settingsInputClass + " font-mono text-[0.71875rem]"}
-        />
-      </FormRow>
-
-      <FormRow label={t("dataDirLabel")} hint={t("dataDirHint")}>
-        <PathField value={dataDir} label="DATA_DIR · MANAGED" />
-      </FormRow>
-
-      <FormRow label={t("logDirLabel")} hint={t("logDirHint")}>
-        <PathField value={logDir} label="LOG_DIR · MANAGED" />
-      </FormRow>
-
-      <div className="flex justify-end pt-4">
-        <button
-          type="button"
-          onClick={handleSaveStorage}
-          disabled={saving || loading || !online}
-          className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-on-accent text-sm font-medium rounded-lg transition-all disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-          {saving ? t("saving") : t("saveConfig")}
-        </button>
-      </div>
-    </Section>
-  );
-
-  const renderAbout = () => {
-    const ff = system?.ffmpeg;
-    const aboutRows: { k: string; v: string; tone?: "ok" | "warn" }[] = [
-      { k: t("aboutAppVersion"), v: `Omni Studio ${APP_VERSION}` },
-      { k: t("aboutBackendApi"), v: API_URL },
-      { k: t("aboutDataDir"), v: dataDir || "—" },
-      { k: t("logDirLabel"), v: logDir || "—" },
-    ];
-    return (
-      <Section id="about" title={t("secAboutTitle")}>
-        {/* Line B brand signature block — teal-glow logo, serif name, amber tagline */}
-        <div className="flex flex-col items-start gap-3 pb-6 mb-6 border-b border-glass-border">
-          <OmniStudioBranding size="md" showSlogan={false} />
-          <p className="font-display atelier-display text-base italic text-accent leading-snug">
-            “Stories, Rendered Alive.”
-          </p>
-          <div className="font-mono text-[0.625rem] tracking-[0.08em] text-text-muted uppercase">
-            VERSION {APP_VERSION.replace(/^v/, "")} · BUILD 20260613
-          </div>
-          <p className="text-[0.78125rem] text-text-secondary leading-relaxed max-w-md">
-            {t("aboutTagline")}
-          </p>
-        </div>
-
-        {/* Check for updates — compares APP_VERSION against latest GitHub release */}
-        <div className="mb-6">
-          <UpdateChecker />
-        </div>
-
-        {/* Technical info table */}
-        <div className="font-mono text-[0.59375rem] uppercase tracking-[0.1em] text-text-muted mb-3">
-          {t("aboutTechInfo")}
-        </div>
-        <div className="space-y-0">
-          {aboutRows.map((r) => (
-            <div key={r.k} className="flex justify-between items-center py-2.5 border-b border-glass-border last:border-b-0 text-[0.78125rem] gap-3">
-              <span className="text-text-secondary shrink-0">{r.k}</span>
-              <span className="font-mono text-[0.71875rem] text-foreground truncate text-right">{r.v}</span>
-            </div>
-          ))}
-          {/* FFmpeg row with live detection */}
-          <div className="flex justify-between items-center py-2.5 border-b border-glass-border last:border-b-0 text-[0.78125rem] gap-3">
-            <span className="text-text-secondary shrink-0">FFmpeg</span>
-            <span className="font-mono text-[0.71875rem] text-right truncate">
-              {systemLoading ? (
-                <span className="inline-flex items-center gap-1.5 text-text-muted">
-                  <Loader2 size={12} className="animate-spin" /> {t("ffmpegChecking")}
-                </span>
-              ) : ff ? (
-                ff.available ? (
-                  <span className="text-emerald-400" title={ff.message}>{t("ffmpegAvailable")}</span>
-                ) : (
-                  <span className="text-amber-400" title={ff.message}>{t("ffmpegMissing")}</span>
-                )
-              ) : (
-                <span className="text-text-muted">{t("ffmpegUnknown")}</span>
-              )}
-            </span>
-          </div>
-        </div>
-        <div className="flex justify-end pt-4">
-          <button
-            type="button"
-            onClick={loadSystem}
-            disabled={systemLoading}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-glass-border bg-surface text-text-secondary hover:text-foreground transition-colors disabled:opacity-50"
-          >
-            {systemLoading ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
-            {t("recheck")}
-          </button>
-        </div>
-      </Section>
-    );
-  };
-
-  const renderActive = () => {
-    switch (active) {
-      case "general":
-        return renderGeneral();
-      case "models":
-        return renderModels();
-      case "prompts":
-        return renderPrompts();
-      case "apikeys":
-        return renderApiKeys();
-      case "storage":
-        return renderStorage();
-      case "about":
-        return renderAbout();
-      default:
-        return null;
-    }
-  };
-
-  const CATEGORY_TITLE: Record<SettingsCategory, string> = {
-    general: t("eyebrowGeneral"),
-    models: t("eyebrowModels"),
-    prompts: t("eyebrowPrompts"),
-    apikeys: t("eyebrowApikeys"),
-    storage: t("eyebrowStorage"),
-    about: t("eyebrowAbout"),
-  };
-
-  // 横向 Tab 短标签（取代竖向 SettingsSidebar；与全局品牌侧栏轴向正交，不再撞脸）。
-  const TABS: { id: SettingsCategory; label: string }[] = [
-    { id: "general", label: t("tabGeneral") },
-    { id: "models", label: t("tabModels") },
-    { id: "prompts", label: t("eyebrowPrompts") },
-    { id: "apikeys", label: t("eyebrowApikeys") },
-    { id: "storage", label: t("tabStorage") },
-    { id: "about", label: t("eyebrowAbout") },
+  const tabs: { id: SettingsCategory; label: string }[] = [
+    {id:"general", label:t("tabGeneral")}, {id:"models", label:t("tabModels")}, {id:"prompts", label:t("tabPrompts")},
+    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")}, {id:"about", label:t("tabAbout")},
   ];
-
-  return (
-    <div className="relative h-full flex flex-col">
-      {/* Atelier signature layers — inert on non-atelier themes. */}
-      <div className="atelier-page-bloom" aria-hidden="true" />
-      <div className="atelier-page-grain" aria-hidden="true" />
-
-      {/* Head: eyebrow(当前分类) + 「设置」标题 + 横向 Tab —— 取代竖向子栏 */}
-      <header className="flex-shrink-0 border-b border-glass-border px-4 md:px-7 pt-6 pb-4 relative z-10">
-        <div className="w-full">
-        <div className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.2em] text-text-muted">
-          SETTINGS · <span className="text-primary font-semibold">{CATEGORY_TITLE[active]}</span>
-        </div>
-        <h1 className="font-display atelier-display text-[1.625rem] md:text-[2.125rem] font-semibold text-foreground mt-2 tracking-tight">
-          {t("title")}
-        </h1>
-        <nav className="flex flex-wrap gap-1 mt-5" role="tablist" aria-label={t("tabsAria")} onKeyDown={rovingKeyDown}>
-          {TABS.map((tab) => {
-            const isActive = active === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                tabIndex={isActive ? 0 : -1}
-                onClick={() => setActive(tab.id)}
-                className={`px-3.5 py-1.5 rounded-full text-[0.8125rem] transition-colors ${
-                  isActive
-                    ? "bg-primary/10 text-foreground font-semibold"
-                    : "text-text-muted hover:text-foreground hover:bg-hover-bg font-medium"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-        </div>
-      </header>
-
-      {/* Scroll area */}
-      <div className="flex-1 overflow-y-auto px-10 py-8 relative z-10">
-        <div className="max-w-6xl mx-auto flex flex-col gap-6">
-          {!online && (
-            <div
-              role="status"
-              className="flex items-center gap-3 px-4 py-3 rounded-lg bg-status-processing-bg border border-status-processing-border"
-            >
-              <WifiOff size={18} className="text-status-processing-fg flex-shrink-0" />
-              <div className="flex-1">
-                <div className="text-[0.78125rem] font-semibold text-foreground">{t("offlineTitle")}</div>
-                <div className="text-[0.6875rem] text-text-secondary mt-0.5">
-                  {t("offlineBody")}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {renderActive()}
-          <div className="pb-8" />
-        </div>
-      </div>
-    </div>
-  );
+  const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), about:t("eyebrowAbout")};
+  const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, about:renderAbout};
+  const saveAction = active === "models" ? handleSaveModelDefaults : active === "prompts" ? handleSavePromptDefaults : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
+  const remoteConfig = active === "apikeys" || active === "storage";
+  const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };
+  return <div className="relative flex h-full min-w-0 flex-col bg-background text-foreground">
+    <header className="flex min-h-24 shrink-0 items-center justify-between gap-4 border-b border-glass-border px-4 py-4 md:px-8">
+      <div className="min-w-0"><p className="text-xs text-text-muted">{t("title")}</p><h1 className="mt-1 text-xl font-semibold tracking-tight">{titles[active]}</h1></div>
+      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
+    </header>
+    {saveError && <p role="alert" className="shrink-0 bg-status-failed-bg px-4 py-3 text-sm text-status-failed-fg md:px-8">{saveError}</p>}
+    {saved && <p role="status" className="flex shrink-0 items-center gap-2 px-4 py-3 text-sm text-status-completed-fg md:px-8"><Check size={16} />{t("saved")}</p>}
+    <div className="shrink-0 px-4 pt-4 md:px-8 sm:hidden"><SelectField label={t("tabsAria")} value={active} onChange={value => selectCategory(String(value))} options={tabs} isDisabled={saving} /></div>
+    <Tabs aria-label={t("tabsAria")} selectedKey={active} onSelectionChange={key => selectCategory(String(key))} className={`${styles.tabs} px-4 md:px-8`} items={tabs.map(tab => ({...tab, isDisabled:saving, content:active === tab.id ? <div className="max-w-6xl">
+      {!online && <div role="status" className="mb-5 flex items-center gap-3 rounded-lg border border-glass-border bg-surface p-4 text-sm"><WifiOff size={18} /><div><p>{t("offlineTitle")}</p><p className="mt-1 text-xs text-text-muted">{t("offlineSettingsBody")}</p></div></div>}
+      {renderers[active]()}
+    </div> : null}))} />
+  </div>;
 }

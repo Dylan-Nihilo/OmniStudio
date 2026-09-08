@@ -1,7 +1,7 @@
-/** @vitest-environment jsdom */
+/** @vitest-environment happy-dom */
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TaskCenter from "@/components/tasks/TaskCenter";
 import { toTaskViewModel } from "@/components/tasks/taskCenterModel";
 
@@ -14,9 +14,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api", () => ({ api: mocks }));
-vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => ({ failed: "失败", retry: "重试", cancel: "取消" })[key] ?? key,
-}));
+const t = vi.hoisted(() => (key: string) => ({ failed: "失败", retry: "重试", cancel: "取消" })[key] ?? key);
+vi.mock("next-intl", () => ({ useTranslations: () => t }));
 
 const failedJob = {
   id: "job-failed",
@@ -70,6 +69,35 @@ describe("taskCenterModel", () => {
 });
 
 describe("TaskCenter", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("retains the task after retry failure and resumes polling when a later retry starts work", async () => {
+    render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByText("PROVIDER_TIMEOUT");
+    mocks.retryTask.mockRejectedValueOnce(new Error("Retry unavailable"));
+    fireEvent.click(screen.getByRole("button", {name:"重试"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Retry unavailable");
+    expect(screen.getByText("PROVIDER_TIMEOUT")).toBeInTheDocument();
+    mocks.listTasks.mockResolvedValue({items:[runningJob], total:1});
+    mocks.getTaskSummary.mockResolvedValue({running:1, failed:0, succeeded:0, total:1});
+    vi.useFakeTimers();
+    await act(async () => fireEvent.click(screen.getByRole("button", {name:"重试"})));
+    const calls = mocks.listTasks.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(mocks.listTasks).toHaveBeenCalledTimes(calls + 1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores task results arriving from the previous workspace", async () => {
+    let finish!: (value: object) => void;
+    mocks.listTasks.mockReturnValueOnce(new Promise(resolve => {finish = resolve;})).mockResolvedValue({items:[],total:0});
+    const view = render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />);
+    view.rerender(<TaskCenter workspaceId="workspace-2" onOpenObject={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByText("empty");
+    await act(async () => finish({items:[failedJob],total:1}));
+    expect(screen.queryByText("PROVIDER_TIMEOUT")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listTasks.mockResolvedValue({ items: [failedJob], page: 1, page_size: 10, total: 1 });
@@ -77,7 +105,6 @@ describe("TaskCenter", () => {
     mocks.getTask.mockResolvedValue({ job: failedJob, events: [] });
     mocks.cancelTask.mockResolvedValue({ ...runningJob, status: "canceled" });
     mocks.retryTask.mockResolvedValue({ ...failedJob, status: "processing" });
-    vi.stubGlobal("confirm", vi.fn(() => true));
   });
 
   it("renders a failed task with a retry action", async () => {
@@ -98,8 +125,10 @@ describe("TaskCenter", () => {
 
     expect(await screen.findByText("45%")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(mocks.cancelTask).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", {name:"confirmCancelAction"}));
     await waitFor(() => expect(mocks.cancelTask).toHaveBeenCalledWith("job-running"));
-    fireEvent.click(screen.getByRole("button", { name: "openTaskObject" }));
+    fireEvent.click(screen.getByRole("button", { name: "openObject" }));
     expect(onOpenObject).toHaveBeenCalledWith(expect.objectContaining({ projectId: "project-1" }));
   });
 

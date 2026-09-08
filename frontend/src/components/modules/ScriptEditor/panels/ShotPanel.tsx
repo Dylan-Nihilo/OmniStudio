@@ -1,11 +1,11 @@
 'use client';
 
+import { Button } from '@omnistudio/ui';
 import { useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { Film, Camera, Plus, Eye } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
-import { useEditorStore } from '@/store/editorStore';
 import type { Project } from '@/store/projectStore';
 import PreviewImage from '@/components/shared/preview/PreviewImage';
 import PreviewVideo from '@/components/shared/preview/PreviewVideo';
@@ -30,12 +30,12 @@ interface ShotBlockData {
 
 const STATUS_CLASSNAMES: Record<ShotStatus, string> = {
   suggested: 'bg-surface-inset text-text-secondary',
-  reviewing: 'bg-blue-600/30 text-blue-300',
-  confirmed: 'bg-green-600/30 text-green-300',
-  queued: 'bg-yellow-600/30 text-yellow-300',
-  generating: 'bg-orange-600/30 text-orange-300 animate-pulse',
-  done: 'bg-green-600/40 text-green-200',
-  failed: 'bg-red-600/30 text-red-300',
+  reviewing: 'bg-primary/10 text-primary',
+  confirmed: 'bg-status-done-bg text-status-done-fg',
+  queued: 'bg-status-warning-bg text-status-warning-fg',
+  generating: 'bg-status-warning-bg text-status-warning-fg animate-pulse',
+  done: 'bg-status-done-bg text-status-done-fg',
+  failed: 'bg-status-failed-bg text-status-failed-fg',
 };
 
 function ShotCard({
@@ -65,8 +65,7 @@ function ShotCard({
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-3 rounded-lg border border-glass-border bg-surface p-3 cursor-pointer hover:border-primary/40 hover:bg-hover-bg transition-colors"
-      onClick={onClick}
+      className="flex items-center gap-3 rounded-lg border border-glass-border bg-surface p-3 hover:border-primary/40 hover:bg-hover-bg transition-colors"
     >
       {/* Thumbnail placeholder */}
       <div className="flex h-10 w-14 shrink-0 items-center justify-center overflow-hidden rounded bg-surface-inset border border-border-subtle">
@@ -75,7 +74,7 @@ function ShotCard({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">#{shot.shotNumber}</span>
+          <Button variant="quiet" onPress={onClick} className="h-auto min-h-9 px-1 text-sm">#{shot.shotNumber}</Button>
           {shot.shotType && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-surface-inset text-text-secondary">
               {shot.shotType}
@@ -97,7 +96,6 @@ function ShotCard({
 
 export default function ShotPanel({ editor, project }: ShotPanelProps) {
   const t = useTranslations('scriptEditor');
-  const derivedScenes = useEditorStore((s) => s.derivedScenes);
 
   // Extract ShotBlock nodes from editor JSON
   const shotBlocks = useMemo<ShotBlockData[]>(() => {
@@ -148,7 +146,7 @@ export default function ShotPanel({ editor, project }: ShotPanelProps) {
   );
 
   const handleAddShot = useCallback(() => {
-    if (!editor) return;
+    if (!editor?.isEditable) return;
     // Insert a new ShotBlock node at the end of the current selection
     editor.chain().focus().insertContent({
       type: 'shotBlock',
@@ -165,14 +163,14 @@ export default function ShotPanel({ editor, project }: ShotPanelProps) {
         </div>
         <p className="text-sm text-text-muted">{t('panels.shotsEmpty')}</p>
         <p className="text-xs text-text-muted/60 mt-1">{t('panels.shotsEmptyHint')}</p>
-        <button
+        <Button variant="secondary" isDisabled={!editor?.isEditable}
           type="button"
-          onClick={handleAddShot}
+          onPress={handleAddShot}
           className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-inset hover:bg-hover-bg text-sm text-foreground transition-colors"
         >
           <Plus size={14} />
           {t('panels.addShot')}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -199,14 +197,14 @@ export default function ShotPanel({ editor, project }: ShotPanelProps) {
       </div>
 
       {/* Add shot button */}
-      <button
+      <Button variant="secondary" isDisabled={!editor?.isEditable}
         type="button"
-        onClick={handleAddShot}
+        onPress={handleAddShot}
         className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-glass-border py-2.5 text-sm text-text-muted hover:text-foreground hover:border-primary/40 transition-colors"
       >
         <Plus size={14} />
         {t('panels.addShot')}
-      </button>
+      </Button>
     </div>
   );
 }

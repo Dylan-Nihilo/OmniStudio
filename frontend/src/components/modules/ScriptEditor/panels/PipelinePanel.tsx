@@ -1,7 +1,7 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { Clapperboard, Users, Clock, FileText, ArrowRight, Loader2 } from 'lucide-react';
+import { Button } from '@omnistudio/ui';
+import { Clapperboard, Users, Clock, FileText, ArrowRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEditorStore } from '@/store/editorStore';
 import type { Project } from '@/store/projectStore';
@@ -14,7 +14,7 @@ export interface PipelinePanelProps {
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg bg-surface border border-border-subtle px-3 py-2.5">
+    <div className="flex items-center gap-2.5 border-b border-border-subtle px-3 py-2.5">
       <div className="flex h-7 w-7 items-center justify-center rounded bg-surface-inset">
         {icon}
       </div>
@@ -35,7 +35,7 @@ function formatDuration(seconds: number, t: (key: string, values?: Record<string
   return t('panels.durationMin', { min: mins });
 }
 
-export default function PipelinePanel({ projectId, project, onEnterPipeline }: PipelinePanelProps) {
+export default function PipelinePanel({ project, onEnterPipeline }: PipelinePanelProps) {
   const t = useTranslations('scriptEditor');
   const derivedScenes = useEditorStore((s) => s.derivedScenes);
   const derivedCharacters = useEditorStore((s) => s.derivedCharacters);
@@ -46,8 +46,6 @@ export default function PipelinePanel({ projectId, project, onEnterPipeline }: P
   const isEmbedded = editorMode === 'embedded';
   const sceneCount = project?.scenes?.length ?? derivedScenes.length;
   const characterCount = project?.characters?.length ?? derivedCharacters.length;
-  const propCount = project?.props?.length ?? 0;
-  const frameCount = project?.frames?.length ?? 0;
 
   return (
     <div className="p-3 space-y-4">
@@ -61,22 +59,22 @@ export default function PipelinePanel({ projectId, project, onEnterPipeline }: P
         </div>
         <div className="grid grid-cols-2 gap-2">
           <StatCard
-            icon={<Clapperboard size={13} className="text-blue-400" />}
+            icon={<Clapperboard size={13} className="text-text-secondary" />}
             label={t('panels.statScenes')}
             value={sceneCount}
           />
           <StatCard
-            icon={<Users size={13} className="text-purple-400" />}
+            icon={<Users size={13} className="text-text-secondary" />}
             label={t('panels.statCharacters')}
             value={characterCount}
           />
           <StatCard
-            icon={<Clock size={13} className="text-amber-400" />}
+            icon={<Clock size={13} className="text-text-secondary" />}
             label={t('panels.statDuration')}
             value={formatDuration(estimatedDuration, t)}
           />
           <StatCard
-            icon={<FileText size={13} className="text-green-400" />}
+            icon={<FileText size={13} className="text-text-secondary" />}
             label={t('panels.statWordCount')}
             value={wordCount.toLocaleString()}
           />
@@ -84,40 +82,17 @@ export default function PipelinePanel({ projectId, project, onEnterPipeline }: P
       </div>
 
       {/* Enter pipeline CTA - hidden in embedded mode */}
-      {!isEmbedded && (
-        <motion.button
+      {!isEmbedded && onEnterPipeline && (
+        <Button
           type="button"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={onEnterPipeline}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-900/30 hover:shadow-purple-900/50 transition-shadow"
+          onPress={onEnterPipeline}
+          className="w-full"
         >
           {t('panels.enterPipeline')}
           <ArrowRight size={16} />
-        </motion.button>
+        </Button>
       )}
 
-      {/* Progress dashboard placeholder */}
-      <div className="rounded-lg border border-border-subtle bg-surface-inset p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Loader2 size={14} className="text-text-muted" />
-          <span className="text-xs font-medium text-text-muted">{t('panels.generationProgress')}</span>
-        </div>
-        <div className="flex items-center justify-center py-4">
-          <p className="text-xs text-text-muted/60 italic">{frameCount > 0 || propCount > 0 ? `${frameCount} shots · ${propCount} props` : t('panels.noActiveTasks')}</p>
-        </div>
-      </div>
-
-      {/* Recent history placeholder */}
-      <div className="rounded-lg border border-border-subtle bg-surface-inset p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Clock size={14} className="text-text-muted" />
-          <span className="text-xs font-medium text-text-muted">{t('panels.recentGeneration')}</span>
-        </div>
-        <div className="flex items-center justify-center py-4">
-          <p className="text-xs text-text-muted/60 italic">{t('panels.noHistory')}</p>
-        </div>
-      </div>
     </div>
   );
 }
