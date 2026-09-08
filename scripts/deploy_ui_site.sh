@@ -6,12 +6,14 @@ umask 077
 readonly release_sha="${1:-}"
 readonly site_root=/opt/omnistudio-ui
 readonly production_root=/opt/omnistudio/app
-readonly ui_port="${UI_PORT:-3001}"
-readonly public_origin="${UI_PUBLIC_ORIGIN:-http://47.236.165.75:$ui_port}"
+readonly ui_port="${UI_PORT:-80}"
+default_origin=http://47.236.165.75
+[[ "$ui_port" = 80 ]] || default_origin+=":$ui_port"
+readonly public_origin="${UI_PUBLIC_ORIGIN:-$default_origin}"
 
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a full commit SHA' >&2; exit 2; }
-[[ "$ui_port" =~ ^[0-9]{4,5}$ ]] && (( ui_port > 1023 && ui_port < 65536 && ui_port != 3000 )) || exit 2
-[[ "$public_origin" =~ ^https?://[a-zA-Z0-9.-]+:$ui_port$ ]] || exit 2
+[[ "$ui_port" =~ ^(80|[1-9][0-9]{3,4})$ ]] && (( (ui_port == 80 || ui_port > 1023) && ui_port < 65536 && ui_port != 3000 )) || exit 2
+[[ "$public_origin" =~ ^https?://[a-zA-Z0-9.-]+:$ui_port$ ]] || [[ "$ui_port" = 80 && "$public_origin" =~ ^http://[a-zA-Z0-9.-]+$ ]] || exit 2
 readonly release_dir="$site_root/releases/$release_sha"
 test -s "$release_dir/frontend/out/index.html"
 test -s "$release_dir/Dockerfile.ui-site"
@@ -49,23 +51,29 @@ if [[ ! -s "$site_root/.initialized" ]]; then
         docker cp omni-studio-backend:/root/.omni-studio/config.json "$site_root/runtime-config/config.json"
         chmod 600 "$site_root/runtime-config/config.json"
     fi
-    UI_SITE_ROOT="$site_root" UI_SITE_ORIGIN="$public_origin" python3 - <<'PY'
+    printf '%s\n' 'Independent snapshot; never resync production data on updates.' > "$site_root/.initialized"
+fi
+
+if [[ -s "$site_root/.release.env" ]]; then
+    cp "$site_root/.ui.env" "$site_root/.previous-ui.env"
+fi
+UI_SITE_ROOT="$site_root" UI_SITE_ORIGIN="$public_origin" python3 - <<'PY'
 import os
 import secrets
 from pathlib import Path
 root = Path(os.environ['UI_SITE_ROOT'])
+settings_path = root / '.ui.env'
+previous = dict(line.split('=', 1) for line in settings_path.read_text().splitlines()) if settings_path.exists() else {}
 values = {
     'APP_ENV': 'production',
     'OMNI_STUDIO_AUTH_COOKIE_PREFIX': 'omni_studio_ui',
-    'OMNI_STUDIO_AUTH_SIGNING_SECRET': secrets.token_urlsafe(48),
+    'OMNI_STUDIO_AUTH_SIGNING_SECRET': previous.get('OMNI_STUDIO_AUTH_SIGNING_SECRET') or secrets.token_urlsafe(48),
     'OMNI_STUDIO_AUTH_ALLOWED_ORIGINS': os.environ['UI_SITE_ORIGIN'],
     'OMNI_STUDIO_AUTH_COOKIE_SECURE': str(os.environ['UI_SITE_ORIGIN'].startswith('https:')).lower(),
     'OMNI_STUDIO_AUTH_TEST_BYPASS': 'false',
 }
-(root / '.ui.env').write_text(''.join(f'{key}={value}\n' for key, value in values.items()))
-(root / '.initialized').write_text('Independent snapshot; never resync production data on updates.\n')
+settings_path.write_text(''.join(f'{key}={value}\n' for key, value in values.items()))
 PY
-fi
 
 if [[ -s "$site_root/.release.env" ]]; then
     cp "$site_root/docker-compose.ui.yml" "$site_root/docker-compose.ui.previous.yml"
@@ -86,6 +94,7 @@ rollback() {
     local status=$?
     trap - ERR
     if [[ -s "$site_root/.previous-release.env" ]]; then
+        cp "$site_root/.previous-ui.env" "$site_root/.ui.env"
         cp "$site_root/docker-compose.ui.previous.yml" "$site_root/docker-compose.ui.yml"
         "${compose[@]}" --env-file "$site_root/.previous-release.env" up -d --no-build --wait --wait-timeout 180 || true
     else
