@@ -1,9 +1,10 @@
-"""HTTP API for the Source domain (SRC-00)."""
+"""HTTP API for the Source domain (SRC-00 through SRC-06)."""
 
 from __future__ import annotations
 
 import uuid
 import hashlib
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Query, Request
@@ -17,6 +18,12 @@ from .source_models import (
     SourceDocumentCreate,
     SourceDocumentList,
     SourceDocumentRead,
+    SourceEpisodeSplitConfirmRequest,
+    SourceEpisodeSplitConfirmResponse,
+    SourceEpisodeSplitPatch,
+    SourceEpisodeSplitPreviewRead,
+    SourceEpisodeSplitPreviewRequest,
+    SourceEpisodeSplitProposal,
     SourceEpisodeList,
     SourceLinkResponse,
     SourceImportBoundaryPatch,
@@ -41,6 +48,58 @@ from .source_import import (
 
 
 router = APIRouter(tags=["sources"])
+logger = logging.getLogger(__name__)
+
+
+def _pipeline(request: Request):
+    """Resolve the pipeline matching the request's test/runtime storage engine."""
+    engine = getattr(request.app.state, "storage_engine", None)
+    candidate = getattr(request.app.state, "comic_pipeline", None)
+    if candidate is not None and (engine is None or candidate.storage_engine is engine):
+        return candidate
+    # The fallback keeps test fixtures that replace api.pipeline isolated while
+    # avoiding an import cycle during module initialization.
+    from . import api as api_module
+
+    return api_module.pipeline
+
+
+def _normalize_episode_split_proposals(
+    raw: object, *, user_input: bool = False
+) -> list[dict[str, object]]:
+    error_code = "SOURCE_EPISODE_SPLIT_INVALID_INPUT" if user_input else "SOURCE_AI_SPLIT_INVALID"
+    error_status = 422 if user_input else 502
+    if not isinstance(raw, list) or not raw:
+        raise SourceRepositoryError(
+            "SOURCE_EPISODE_SPLIT_EMPTY" if user_input else "SOURCE_AI_SPLIT_EMPTY",
+            "至少需要一个分集提案" if user_input else "AI 未返回有效的分集提案",
+            status_code=error_status,
+        )
+    normalized: list[dict[str, object]] = []
+    numbers: set[int] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise SourceRepositoryError(error_code, "分集提案格式无效", status_code=error_status)
+        candidate = dict(item)
+        if candidate.get("estimated_duration") is not None:
+            candidate["estimated_duration"] = str(candidate["estimated_duration"])
+        try:
+            proposal = SourceEpisodeSplitProposal.model_validate(candidate)
+        except ValidationError as exc:
+            raise SourceRepositoryError(
+                error_code,
+                "分集提案格式无效" if user_input else "AI 返回的分集提案格式无效",
+                status_code=error_status,
+            ) from exc
+        if proposal.episode_number in numbers:
+            raise SourceRepositoryError(
+                error_code,
+                "分集提案包含重复的集数" if user_input else "AI 返回了重复的集数",
+                status_code=error_status,
+            )
+        numbers.add(proposal.episode_number)
+        normalized.append(proposal.model_dump())
+    return sorted(normalized, key=lambda item: int(item["episode_number"]))
 
 
 def _repository(request: Request) -> SourceRepository:
@@ -216,6 +275,201 @@ def list_sources(request: Request):
 @router.get("/sources/{source_id}", response_model=SourceDocumentRead)
 def get_source(source_id: str, request: Request):
     return _repository(request).get_document(_workspace_id(request), source_id)
+
+
+@router.post(
+    "/sources/{source_id}/episode-splits/preview",
+    response_model=SourceEpisodeSplitPreviewRead,
+    status_code=201,
+)
+@router.post(
+    "/sources/{source_id}/episode-split/preview",
+    response_model=SourceEpisodeSplitPreviewRead,
+    status_code=201,
+)
+@router.post(
+    "/sources/{source_id}/episodes/split/preview",
+    response_model=SourceEpisodeSplitPreviewRead,
+    status_code=201,
+)
+def preview_source_episode_split(
+    source_id: str,
+    request: Request,
+    payload: SourceEpisodeSplitPreviewRequest,
+):
+    repository = _repository(request)
+    source, content, _ = repository.get_source_episode_split_input(
+        _workspace_id(request), source_id
+    )
+    try:
+        raw_proposals = _pipeline(request).import_file_and_split(
+            content, payload.suggested_episodes
+        )
+        proposals = _normalize_episode_split_proposals(raw_proposals)
+    except SourceRepositoryError:
+        raise
+    except ValueError as exc:
+        raise SourceRepositoryError(
+            "SOURCE_AI_SPLIT_UNAVAILABLE", str(exc), status_code=503
+        ) from exc
+    except RuntimeError as exc:
+        raise SourceRepositoryError(
+            "SOURCE_AI_SPLIT_FAILED", "AI 拆集失败，请稍后重试", status_code=502
+        ) from exc
+    except Exception as exc:
+        raise SourceRepositoryError(
+            "SOURCE_AI_SPLIT_FAILED", "AI 拆集失败，请稍后重试", status_code=502
+        ) from exc
+    result = repository.create_episode_split_preview(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        suggested_episodes=payload.suggested_episodes,
+        proposals=proposals,
+        user_id=_user_id(request),
+    )
+    record_request_event(
+        request,
+        action="source.episode_split.preview",
+        object_type="source_episode_split_preview",
+        object_id=result["id"],
+        metadata={"source_document_id": source_id, "proposal_count": len(proposals)},
+    )
+    return result
+
+
+@router.get(
+    "/sources/episode-split-previews/{preview_id}",
+    response_model=SourceEpisodeSplitPreviewRead,
+)
+@router.get(
+    "/sources/episode-splits/previews/{preview_id}",
+    response_model=SourceEpisodeSplitPreviewRead,
+)
+def get_source_episode_split_preview(preview_id: str, request: Request):
+    return _repository(request).get_episode_split_preview(_workspace_id(request), preview_id)
+
+
+@router.patch(
+    "/sources/episode-split-previews/{preview_id}",
+    response_model=SourceEpisodeSplitPreviewRead,
+)
+def patch_source_episode_split_preview(
+    preview_id: str,
+    request: Request,
+    payload: SourceEpisodeSplitPatch,
+):
+    proposals = _normalize_episode_split_proposals(
+        [item.model_dump() for item in payload.proposals], user_input=True
+    )
+    result = _repository(request).update_episode_split_preview(
+        workspace_id=_workspace_id(request), preview_id=preview_id, proposals=proposals
+    )
+    record_request_event(
+        request,
+        action="source.episode_split.preview.update",
+        object_type="source_episode_split_preview",
+        object_id=preview_id,
+    )
+    return result
+
+
+@router.post(
+    "/sources/episode-split-previews/{preview_id}/cancel",
+    response_model=SourceEpisodeSplitPreviewRead,
+)
+def cancel_source_episode_split_preview(preview_id: str, request: Request):
+    result = _repository(request).cancel_episode_split_preview(
+        workspace_id=_workspace_id(request), preview_id=preview_id
+    )
+    record_request_event(
+        request,
+        action="source.episode_split.preview.cancel",
+        object_type="source_episode_split_preview",
+        object_id=preview_id,
+    )
+    return result
+
+
+@router.post(
+    "/sources/episode-split-previews/{preview_id}/confirm",
+    response_model=SourceEpisodeSplitConfirmResponse,
+)
+def confirm_source_episode_split(
+    preview_id: str,
+    request: Request,
+    payload: SourceEpisodeSplitConfirmRequest,
+):
+    repository = _repository(request)
+    workspace_id = _workspace_id(request)
+    preview, content = repository.get_episode_split_preview_input(workspace_id, preview_id)
+    if preview["status"] == "confirmed":
+        episode_ids = [str(item) for item in preview["episode_ids"]]
+        episodes = repository.list_episode_split_episodes(
+            workspace_id, str(preview["series_id"]), episode_ids
+        )
+        return {
+            "preview_id": preview_id,
+            "status": "confirmed",
+            "source_document_id": preview["source_document_id"],
+            "series_id": preview["series_id"],
+            "episode_ids": episode_ids,
+            "episodes": episodes,
+        }
+    if preview["status"] == "canceled":
+        raise SourceRepositoryError(
+            "SOURCE_EPISODE_SPLIT_PREVIEW_CANCELED", "拆集预览已取消，不能确认", status_code=409
+        )
+    proposals = _normalize_episode_split_proposals(preview["proposals"])
+    title = (payload.title or str(preview["title"])).strip()
+    if not title:
+        raise SourceRepositoryError("SOURCE_INVALID_INPUT", "剧集标题不能为空", status_code=422)
+    repository.assert_episode_split_preview_source_current(workspace_id, preview_id)
+    pipeline = _pipeline(request)
+    try:
+        result = pipeline.create_series_from_import(
+            title, content, proposals, payload.description
+        )
+        legacy_repository = getattr(pipeline, "repository", None)
+        if legacy_repository is None:
+            raise SourceRepositoryError(
+                "SOURCE_STORAGE_UNAVAILABLE", "剧集存储不可用", status_code=503
+            )
+        series_id = str(result["series"]["id"])
+        episode_ids = [str(item["id"]) for item in result["episodes"]]
+        legacy_repository.assign_workspace_for_series(series_id, workspace_id)
+        for episode_id in episode_ids:
+            legacy_repository.assign_workspace_for_script(episode_id, workspace_id)
+        confirmed = repository.confirm_episode_split_preview(
+            workspace_id=workspace_id,
+            preview_id=preview_id,
+            series_id=series_id,
+            episode_ids=episode_ids,
+        )
+        episodes = repository.list_episode_split_episodes(
+            workspace_id, series_id, episode_ids
+        )
+    except SourceRepositoryError:
+        raise
+    except Exception as exc:
+        logger.exception("Source episode split confirmation failed")
+        raise SourceRepositoryError(
+            "SOURCE_EPISODE_SPLIT_CONFIRM_FAILED", "确认拆集失败，请稍后重试", status_code=500
+        ) from exc
+    record_request_event(
+        request,
+        action="source.episode_split.confirm",
+        object_type="source_episode_split_preview",
+        object_id=preview_id,
+        metadata={"series_id": series_id, "episode_ids": episode_ids},
+    )
+    return {
+        "preview_id": preview_id,
+        "status": confirmed["status"],
+        "source_document_id": confirmed["source_document_id"],
+        "series_id": series_id,
+        "episode_ids": episode_ids,
+        "episodes": episodes,
+    }
 
 
 @router.get("/sources/{source_id}/chapters", response_model=SourceChapterList)

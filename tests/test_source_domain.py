@@ -10,6 +10,7 @@ import src.apps.comic_gen.api as api_module
 from src.apps.comic_gen.auth.service import AuthService
 from src.apps.comic_gen.auth.settings import AuthSettings
 from src.apps.comic_gen.pipeline import ComicGenPipeline
+from src.apps.comic_gen.source_models import SourceEpisodeSplitProposal
 from src.storage.auth_repository import AuthRepository
 from src.storage.source_repository import SourceRepository, SourceRepositoryError
 from tests.auth_test_helpers import make_client
@@ -277,6 +278,127 @@ def test_source_episode_links_are_bidirectional_many_to_many_and_idempotent(sour
     assert unlinked.status_code == 200 and unlinked.json()["linked"] is False
     assert client.get(f"/sources/{sources[0]['id']}/episodes").json()["total"] == 1
     assert client.get(f"/episodes/{projects[0].id}/sources").json()["total"] == 1
+
+
+def test_source_ai_episode_split_is_preview_only_until_confirmation(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "AI拆集来源"}).json()
+    for number, title, content in (
+        (1, "开端", "主角在雨夜收到密信。"),
+        (2, "追踪", "她沿着线索追到旧码头。"),
+    ):
+        created = client.post(
+            f"/sources/{source['id']}/chapters",
+            json={"chapter_number": number, "title": title, "content": content},
+        )
+        assert created.status_code == 201, created.text
+
+    proposals = [
+        {
+            "episode_number": 1,
+            "title": "雨夜密信",
+            "summary": "主角收到改变命运的密信。",
+            "start_marker": "开端",
+            "end_marker": "密信。",
+            "estimated_duration": "2",
+        },
+        {
+            "episode_number": 2,
+            "title": "旧码头追踪",
+            "summary": "主角循线索抵达旧码头。",
+            "start_marker": "追踪",
+            "end_marker": "旧码头。",
+            "estimated_duration": "3",
+        },
+    ]
+    monkeypatch.setattr(
+        pipeline,
+        "import_file_and_split",
+        lambda text, suggested: proposals,
+    )
+    preview_response = client.post(
+        f"/sources/{source['id']}/episode-splits/preview",
+        json={"suggested_episodes": 2},
+    )
+    assert preview_response.status_code == 201, preview_response.text
+    preview = preview_response.json()
+    assert preview["status"] == "previewing"
+    assert preview["source_document_id"] == source["id"]
+    assert [item["title"] for item in preview["proposals"]] == ["雨夜密信", "旧码头追踪"]
+    assert client.get(f"/sources/{source['id']}/episodes").json()["total"] == 0
+    assert client.get("/projects").json() == []
+
+    edited = client.patch(
+        f"/sources/episode-split-previews/{preview['id']}",
+        json={
+            "proposals": [
+                SourceEpisodeSplitProposal.model_validate(proposals[0]).model_dump(),
+                {**proposals[1], "title": "码头追踪"},
+            ]
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["proposals"][1]["title"] == "码头追踪"
+
+    confirmed = client.post(
+        f"/sources/episode-split-previews/{preview['id']}/confirm",
+        json={"title": "AI拆集剧集", "description": "确认后的剧集"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    result = confirmed.json()
+    assert result["status"] == "confirmed"
+    assert len(result["episode_ids"]) == 2
+    assert [item["title"] for item in result["episodes"]] == ["雨夜密信", "码头追踪"]
+    assert client.get(f"/sources/{source['id']}/episodes").json()["total"] == 2
+    assert len(client.get("/projects").json()) == 2
+
+    repeated = client.post(f"/sources/episode-split-previews/{preview['id']}/confirm", json={})
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["episode_ids"] == result["episode_ids"]
+    assert repeated.json()["series_id"] == result["series_id"]
+
+
+def test_source_ai_episode_split_rejects_stale_or_canceled_preview(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "拆集状态来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "原始正文"},
+    ).json()
+    proposals = [{
+        "episode_number": 1,
+        "title": "第一集",
+        "summary": "摘要",
+        "start_marker": "第一章",
+        "end_marker": "正文",
+        "estimated_duration": "1",
+    }]
+    monkeypatch.setattr(pipeline, "import_file_and_split", lambda text, suggested: proposals)
+
+    stale = client.post(f"/sources/{source['id']}/episode-splits/preview", json={}).json()
+    edited = client.patch(
+        f"/sources/{source['id']}/chapters/{chapter['id']}",
+        json={"content": "修改后的正文"},
+    )
+    assert edited.status_code == 200
+    stale_confirm = client.post(
+        f"/sources/episode-split-previews/{stale['id']}/confirm", json={}
+    )
+    assert stale_confirm.status_code == 409
+    assert stale_confirm.json()["error"]["code"] == "SOURCE_EPISODE_SPLIT_SOURCE_CHANGED"
+    assert client.get(f"/sources/{source['id']}/episodes").json()["total"] == 0
+    assert client.get("/projects").json() == []
+
+    canceled = client.post(f"/sources/{source['id']}/episode-splits/preview", json={}).json()
+    cancel_response = client.post(
+        f"/sources/episode-split-previews/{canceled['id']}/cancel"
+    )
+    assert cancel_response.status_code == 200
+    canceled_confirm = client.post(
+        f"/sources/episode-split-previews/{canceled['id']}/confirm", json={}
+    )
+    assert canceled_confirm.status_code == 409
+    assert canceled_confirm.json()["error"]["code"] == "SOURCE_EPISODE_SPLIT_PREVIEW_CANCELED"
 
 
 def test_source_errors_are_stable_and_workspace_scoped(source_client):

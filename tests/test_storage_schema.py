@@ -17,6 +17,7 @@ from src.storage.schema import (
     SourceChapter,
     SourceDocument,
     SourceEpisodeLink,
+    SourceEpisodeSplitPreview,
     SourceImportPreview,
     SourceRevision,
     User,
@@ -65,6 +66,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_revisions",
         "source_episode_links",
         "source_import_previews",
+        "source_episode_split_previews",
     }
 
     expected_indexes = {
@@ -126,6 +128,10 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_source_import_previews_workspace_updated",
             "ix_source_import_previews_status",
         },
+        "source_episode_split_previews": {
+            "ix_source_episode_split_previews_source_updated",
+            "ix_source_episode_split_previews_status",
+        },
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -155,6 +161,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_revisions",
         "source_episode_links",
         "source_import_previews",
+        "source_episode_split_previews",
     }
 
 

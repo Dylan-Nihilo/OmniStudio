@@ -286,6 +286,7 @@ def workspace_permission_error_handler(request: Request, exc: WorkspacePermissio
     )
 
 app.state.storage_engine = pipeline.storage_engine
+app.state.comic_pipeline = pipeline
 app.state.auth_settings = auth_settings
 app.state.auth_service = AuthService(AuthRepository(pipeline.storage_engine), auth_settings)
 app.state.legacy_claim_service = LegacyClaimService(
@@ -483,6 +484,10 @@ def _workspace_for_resource_path(path: str, repository, source_repository=None) 
     if resource_type == "sources":
         if resource_id == "import" and len(parts) >= 4 and parts[2] == "previews":
             return source_repository.workspace_for_import_preview(parts[3]) if source_repository else None
+        if resource_id == "episode-split-previews" and len(parts) >= 3:
+            return source_repository.workspace_for_episode_split_preview(parts[2]) if source_repository else None
+        if resource_id == "episode-splits" and len(parts) >= 4 and parts[2] == "previews":
+            return source_repository.workspace_for_episode_split_preview(parts[3]) if source_repository else None
         return source_repository.workspace_for_source(resource_id) if source_repository else None
     if resource_type == "episodes":
         return source_repository.workspace_for_episode(resource_id) if source_repository else None

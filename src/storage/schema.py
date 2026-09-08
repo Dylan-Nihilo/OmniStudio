@@ -581,6 +581,54 @@ class SourceImportPreview(Base):
     )
 
 
+class SourceEpisodeSplitPreview(Base):
+    """Durable AI episode-split draft; confirmation is the only write path."""
+
+    __tablename__ = "source_episode_split_previews"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_episodes: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="previewing")
+    series_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode_ids_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("length(trim(title)) > 0", name="ck_source_episode_split_previews_title"),
+        CheckConstraint("length(trim(content)) > 0", name="ck_source_episode_split_previews_content"),
+        CheckConstraint("length(content_sha256) = 64", name="ck_source_episode_split_previews_sha256"),
+        CheckConstraint("suggested_episodes BETWEEN 1 AND 50", name="ck_source_episode_split_previews_count"),
+        CheckConstraint(
+            "status IN ('previewing', 'confirmed', 'canceled')",
+            name="ck_source_episode_split_previews_status",
+        ),
+        CheckConstraint("json_valid(proposals_json)", name="ck_source_episode_split_previews_proposals_json"),
+        CheckConstraint("json_valid(episode_ids_json)", name="ck_source_episode_split_previews_episode_ids_json"),
+        Index("ix_source_episode_split_previews_source_updated", "source_document_id", "updated_at"),
+        Index("ix_source_episode_split_previews_status", "workspace_id", "status", "updated_at"),
+    )
+
+
 class Script(Base):
     __tablename__ = "scripts"
 
@@ -771,6 +819,7 @@ __all__ = [
     "SourceRevision",
     "SourceEpisodeLink",
     "SourceImportPreview",
+    "SourceEpisodeSplitPreview",
     "Script",
     "ScriptEditLease",
     "Job",

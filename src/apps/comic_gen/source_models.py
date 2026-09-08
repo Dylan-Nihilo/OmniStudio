@@ -192,6 +192,73 @@ class SourceImportPreviewRead(BaseModel):
     updated_at: float
 
 
+class SourceEpisodeSplitProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    episode_number: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=200)
+    summary: str = Field(default="", max_length=2000)
+    start_marker: str = Field(default="", max_length=500)
+    end_marker: str = Field(default="", max_length=500)
+    estimated_duration: str = Field(default="", max_length=64)
+
+
+class SourceEpisodeSplitPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggested_episodes: int = Field(default=3, ge=1, le=50)
+
+
+class SourceEpisodeSplitPreviewRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    workspace_id: str
+    source_document_id: str
+    title: str
+    content_sha256: str
+    suggested_episodes: int = Field(ge=1, le=50)
+    proposals: list[SourceEpisodeSplitProposal] = Field(min_length=1)
+    status: Literal["previewing", "confirmed", "canceled"]
+    series_id: str | None = None
+    episode_ids: list[str] = Field(default_factory=list)
+    created_at: float
+    updated_at: float
+
+
+class SourceEpisodeSplitPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposals: list[SourceEpisodeSplitProposal] = Field(min_length=1, max_length=50)
+
+
+class SourceEpisodeSplitConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+
+
+class SourceEpisodeSplitCreatedEpisode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    episode_number: int
+    text_length: int = Field(ge=0)
+
+
+class SourceEpisodeSplitConfirmResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preview_id: str
+    status: Literal["confirmed"]
+    source_document_id: str
+    series_id: str
+    episode_ids: list[str] = Field(min_length=1)
+    episodes: list[SourceEpisodeSplitCreatedEpisode] = Field(min_length=1)
+
+
 class SourceImportBoundaryPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -218,6 +285,13 @@ SourceRevision = SourceRevisionRead
 __all__ = [
     "SourceChapterCreate",
     "SourceChapterUpdate",
+    "SourceEpisodeSplitConfirmRequest",
+    "SourceEpisodeSplitConfirmResponse",
+    "SourceEpisodeSplitCreatedEpisode",
+    "SourceEpisodeSplitPatch",
+    "SourceEpisodeSplitPreviewRead",
+    "SourceEpisodeSplitPreviewRequest",
+    "SourceEpisodeSplitProposal",
     "SourceChapter",
     "SourceChapterList",
     "SourceChapterRead",

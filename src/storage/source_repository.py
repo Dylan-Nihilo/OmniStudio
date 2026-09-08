@@ -15,9 +15,12 @@ from .db import begin_immediate
 from .schema import (
     Episode,
     Project,
+    Script,
+    Series,
     SourceChapter,
     SourceDocument,
     SourceEpisodeLink,
+    SourceEpisodeSplitPreview,
     SourceImportPreview,
     SourceRevision,
 )
@@ -89,6 +92,17 @@ class SourceRepository:
             raise SourceRepositoryError("SOURCE_IMPORT_PREVIEW_NOT_FOUND", "导入预览不存在", status_code=404)
         return row
 
+    def _episode_split_preview_row(self, connection, preview_id: str, workspace_id: str):
+        row = connection.execute(
+            select(SourceEpisodeSplitPreview.__table__).where(
+                SourceEpisodeSplitPreview.id == self._id(preview_id, "preview_id"),
+                SourceEpisodeSplitPreview.workspace_id == self._id(workspace_id, "workspace_id"),
+            )
+        ).mappings().first()
+        if row is None:
+            raise SourceRepositoryError("SOURCE_EPISODE_SPLIT_PREVIEW_NOT_FOUND", "拆集预览不存在", status_code=404)
+        return row
+
     @staticmethod
     def _document_payload(row: Mapping[str, Any], chapter_count: int, episode_count: int) -> dict[str, Any]:
         metadata = _metadata(str(row["metadata_json"]))
@@ -147,6 +161,52 @@ class SourceRepository:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+
+    @staticmethod
+    def _episode_split_preview_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(row["id"]),
+            "workspace_id": str(row["workspace_id"]),
+            "source_document_id": str(row["source_document_id"]),
+            "title": str(row["title"]),
+            "content_sha256": str(row["content_sha256"]),
+            "suggested_episodes": int(row["suggested_episodes"]),
+            "proposals": json.loads(str(row["proposals_json"])),
+            "status": str(row["status"]),
+            "series_id": row["series_id"],
+            "episode_ids": json.loads(str(row["episode_ids_json"])),
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+        }
+
+    def _source_split_content(self, connection, source_id: str, workspace_id: str) -> tuple[dict[str, Any], str, str]:
+        source = self._source_row(connection, source_id, workspace_id)
+        rows = connection.execute(
+            select(
+                SourceChapter.chapter_number,
+                SourceChapter.title,
+                SourceChapter.current_revision_id,
+                SourceRevision.content,
+            )
+            .join(SourceRevision, SourceRevision.id == SourceChapter.current_revision_id)
+            .where(SourceChapter.source_document_id == source_id)
+            .order_by(SourceChapter.chapter_number, SourceChapter.id)
+        ).all()
+        if not rows:
+            raise SourceRepositoryError("SOURCE_NO_CHAPTERS", "来源资料至少需要一个章节才能拆集", status_code=422)
+        content = "\n\n".join(
+            f"{str(row.title).strip()}\n{str(row.content)}" for row in rows
+        ).strip()
+        if not content:
+            raise SourceRepositoryError("SOURCE_NO_CONTENT", "来源资料没有可拆分的正文", status_code=422)
+        content_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return source, content, content_sha256
+
+    def get_source_episode_split_input(
+        self, workspace_id: str, source_id: str
+    ) -> tuple[dict[str, Any], str, str]:
+        with self.engine.connect() as connection:
+            return self._source_split_content(connection, source_id, workspace_id)
 
     @staticmethod
     def _episode_payload(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -264,6 +324,262 @@ class SourceRepository:
                     select(SourceImportPreview.__table__).where(SourceImportPreview.id == preview_id)
                 ).mappings().one()
         return self._preview_payload(row)
+
+    def create_episode_split_preview(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        suggested_episodes: int,
+        proposals: list[Mapping[str, Any]],
+        user_id: str | None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        if suggested_episodes < 1 or suggested_episodes > 50:
+            raise SourceRepositoryError("SOURCE_INVALID_EPISODE_COUNT", "建议集数应在 1-50 之间", status_code=422)
+        if not proposals:
+            raise SourceRepositoryError("SOURCE_AI_SPLIT_EMPTY", "AI 未返回有效的分集提案", status_code=502)
+        preview_id = str(uuid.uuid4())
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                source, content, content_sha256 = self._source_split_content(
+                    connection, source_id, workspace_id
+                )
+                connection.execute(
+                    SourceEpisodeSplitPreview.__table__.insert().values(
+                        id=preview_id,
+                        workspace_id=workspace_id,
+                        source_document_id=source_id,
+                        title=str(source["title"]),
+                        content=content,
+                        content_sha256=content_sha256,
+                        suggested_episodes=suggested_episodes,
+                        proposals_json=json.dumps(proposals, ensure_ascii=False, separators=(",", ":")),
+                        status="previewing",
+                        series_id=None,
+                        episode_ids_json="[]",
+                        created_by_user_id=user_id,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+                row = connection.execute(
+                    select(SourceEpisodeSplitPreview.__table__).where(
+                        SourceEpisodeSplitPreview.id == preview_id
+                    )
+                ).mappings().one()
+        return self._episode_split_preview_payload(row)
+
+    def get_episode_split_preview(self, workspace_id: str, preview_id: str) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            return self._episode_split_preview_payload(
+                self._episode_split_preview_row(connection, preview_id, workspace_id)
+            )
+
+    def workspace_for_episode_split_preview(self, preview_id: str) -> str | None:
+        if not isinstance(preview_id, str) or not preview_id.strip():
+            return None
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(SourceEpisodeSplitPreview.workspace_id).where(
+                    SourceEpisodeSplitPreview.id == preview_id
+                )
+            ).first()
+        return str(row[0]) if row else None
+
+    def get_episode_split_preview_input(
+        self, workspace_id: str, preview_id: str
+    ) -> tuple[dict[str, Any], str]:
+        with self.engine.connect() as connection:
+            row = self._episode_split_preview_row(connection, preview_id, workspace_id)
+            return self._episode_split_preview_payload(row), str(row["content"])
+
+    def assert_episode_split_preview_source_current(
+        self, workspace_id: str, preview_id: str
+    ) -> None:
+        """Reject confirmation before any Series/Episode write when source changed."""
+        with self.engine.connect() as connection:
+            row = self._episode_split_preview_row(connection, preview_id, workspace_id)
+            _, _, current_sha256 = self._source_split_content(
+                connection, str(row["source_document_id"]), workspace_id
+            )
+            if current_sha256 != row["content_sha256"]:
+                raise SourceRepositoryError(
+                    "SOURCE_EPISODE_SPLIT_SOURCE_CHANGED",
+                    "来源正文在预览后发生变化，请重新生成拆集预览",
+                    status_code=409,
+                )
+
+    def list_episode_split_episodes(
+        self, workspace_id: str, series_id: str, episode_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        if not episode_ids:
+            return []
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    Episode.id,
+                    Episode.title,
+                    Episode.episode_number,
+                    func.length(Script.original_text).label("text_length"),
+                )
+                .join(Project, Project.id == Episode.project_id)
+                .join(Script, Script.episode_id == Episode.id)
+                .where(
+                    Project.workspace_id == self._id(workspace_id, "workspace_id"),
+                    Episode.project_id == self._id(series_id, "series_id"),
+                    Episode.id.in_([self._id(item, "episode_id") for item in episode_ids]),
+                )
+            ).mappings().all()
+        by_id = {str(row["id"]): row for row in rows}
+        if set(by_id) != set(episode_ids):
+            raise SourceRepositoryError("EPISODE_NOT_FOUND", "剧集不存在", status_code=404)
+        return [
+            {
+                "id": episode_id,
+                "title": str(by_id[episode_id]["title"]),
+                "episode_number": int(by_id[episode_id]["episode_number"]),
+                "text_length": int(by_id[episode_id]["text_length"] or 0),
+            }
+            for episode_id in episode_ids
+        ]
+
+    def update_episode_split_preview(
+        self,
+        *,
+        workspace_id: str,
+        preview_id: str,
+        proposals: list[Mapping[str, Any]],
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        if not proposals:
+            raise SourceRepositoryError("SOURCE_AI_SPLIT_EMPTY", "至少需要一个分集提案", status_code=422)
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = self._episode_split_preview_row(connection, preview_id, workspace_id)
+                if row["status"] != "previewing":
+                    raise SourceRepositoryError("SOURCE_EPISODE_SPLIT_PREVIEW_CLOSED", "该拆集预览已关闭，不能修改", status_code=409)
+                connection.execute(
+                    update(SourceEpisodeSplitPreview)
+                    .where(SourceEpisodeSplitPreview.id == preview_id)
+                    .values(
+                        proposals_json=json.dumps(proposals, ensure_ascii=False, separators=(",", ":")),
+                        updated_at=timestamp,
+                    )
+                )
+                updated = connection.execute(
+                    select(SourceEpisodeSplitPreview.__table__).where(
+                        SourceEpisodeSplitPreview.id == preview_id
+                    )
+                ).mappings().one()
+        return self._episode_split_preview_payload(updated)
+
+    def cancel_episode_split_preview(
+        self, *, workspace_id: str, preview_id: str, now: float | None = None
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = self._episode_split_preview_row(connection, preview_id, workspace_id)
+                if row["status"] == "confirmed":
+                    raise SourceRepositoryError("SOURCE_EPISODE_SPLIT_PREVIEW_CLOSED", "已确认的拆集预览不能取消", status_code=409)
+                connection.execute(
+                    update(SourceEpisodeSplitPreview)
+                    .where(SourceEpisodeSplitPreview.id == preview_id)
+                    .values(status="canceled", updated_at=timestamp)
+                )
+                canceled = connection.execute(
+                    select(SourceEpisodeSplitPreview.__table__).where(
+                        SourceEpisodeSplitPreview.id == preview_id
+                    )
+                ).mappings().one()
+        return self._episode_split_preview_payload(canceled)
+
+    def confirm_episode_split_preview(
+        self,
+        *,
+        workspace_id: str,
+        preview_id: str,
+        series_id: str,
+        episode_ids: list[str],
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        if not episode_ids:
+            raise SourceRepositoryError("SOURCE_AI_SPLIT_EMPTY", "没有可绑定的剧集", status_code=422)
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = self._episode_split_preview_row(connection, preview_id, workspace_id)
+                if row["status"] == "canceled":
+                    raise SourceRepositoryError("SOURCE_EPISODE_SPLIT_PREVIEW_CANCELED", "拆集预览已取消，不能确认", status_code=409)
+                if row["status"] == "confirmed":
+                    return self._episode_split_preview_payload(row)
+                source, _, current_sha256 = self._source_split_content(
+                    connection, str(row["source_document_id"]), workspace_id
+                )
+                if current_sha256 != row["content_sha256"]:
+                    raise SourceRepositoryError(
+                        "SOURCE_EPISODE_SPLIT_SOURCE_CHANGED",
+                        "来源正文在预览后发生变化，请重新生成拆集预览",
+                        status_code=409,
+                    )
+                valid_series = connection.execute(
+                    select(Series.id)
+                    .join(Project, Project.id == Series.project_id)
+                    .where(
+                        Series.id == self._id(series_id, "series_id"),
+                        Project.workspace_id == self._id(workspace_id, "workspace_id"),
+                    )
+                ).scalar_one_or_none()
+                if valid_series is None:
+                    raise SourceRepositoryError("SERIES_NOT_FOUND", "目标剧集不存在", status_code=404)
+                valid_ids = set(
+                    connection.execute(
+                        select(Episode.id)
+                        .join(Project, Project.id == Episode.project_id)
+                        .where(
+                            Episode.id.in_([self._id(item, "episode_id") for item in episode_ids]),
+                            Episode.project_id == series_id,
+                            Project.workspace_id == workspace_id,
+                        )
+                    ).scalars().all()
+                )
+                if valid_ids != set(episode_ids):
+                    raise SourceRepositoryError("EPISODE_NOT_FOUND", "确认结果中包含不存在或无权访问的剧集", status_code=404)
+                for episode_id in episode_ids:
+                    connection.execute(
+                        insert(SourceEpisodeLink)
+                        .values(
+                            source_document_id=row["source_document_id"],
+                            episode_id=episode_id,
+                            created_by_user_id=row["created_by_user_id"],
+                            created_at=timestamp,
+                        )
+                        .prefix_with("OR IGNORE")
+                    )
+                connection.execute(
+                    update(SourceEpisodeSplitPreview)
+                    .where(SourceEpisodeSplitPreview.id == preview_id)
+                    .values(
+                        status="confirmed",
+                        series_id=series_id,
+                        episode_ids_json=json.dumps(episode_ids, ensure_ascii=False, separators=(",", ":")),
+                        updated_at=timestamp,
+                    )
+                )
+                connection.execute(
+                    update(SourceDocument)
+                    .where(SourceDocument.id == row["source_document_id"])
+                    .values(updated_at=timestamp)
+                )
+                confirmed = connection.execute(
+                    select(SourceEpisodeSplitPreview.__table__).where(
+                        SourceEpisodeSplitPreview.id == preview_id
+                    )
+                ).mappings().one()
+                return self._episode_split_preview_payload(confirmed)
 
     def get_import_preview(self, workspace_id: str, preview_id: str) -> dict[str, Any]:
         with self.engine.connect() as connection:

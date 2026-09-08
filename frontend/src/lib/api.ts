@@ -201,6 +201,50 @@ export interface SourceEpisode {
     linked_at: number;
 }
 
+export interface SourceEpisodeSplitProposal {
+    episode_number: number;
+    title: string;
+    summary: string;
+    start_marker: string;
+    end_marker: string;
+    estimated_duration: string;
+}
+
+export interface SourceEpisodeSplitPreviewRequest {
+    suggested_episodes?: number;
+}
+
+export interface SourceEpisodeSplitPreview {
+    id: string;
+    workspace_id: string;
+    source_document_id: string;
+    title: string;
+    content_sha256: string;
+    suggested_episodes: number;
+    proposals: SourceEpisodeSplitProposal[];
+    status: "previewing" | "confirmed" | "canceled";
+    series_id: string | null;
+    episode_ids: string[];
+    created_at: number;
+    updated_at: number;
+}
+
+export interface SourceEpisodeSplitCreatedEpisode {
+    id: string;
+    title: string;
+    episode_number: number;
+    text_length: number;
+}
+
+export interface SourceEpisodeSplitConfirmResponse {
+    preview_id: string;
+    status: "confirmed";
+    source_document_id: string;
+    series_id: string;
+    episode_ids: string[];
+    episodes: SourceEpisodeSplitCreatedEpisode[];
+}
+
 export interface SourceDocument {
     id: string;
     workspace_id: string;
@@ -284,6 +328,11 @@ export const sourceApi = {
     listRevisions: (sourceId: string, chapterId: string) => apiClient.get<SourceList<SourceRevision>>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`).then((response) => response.data),
     createRevision: (sourceId: string, chapterId: string, payload: SourceRevisionCreate) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`, payload).then((response) => response.data),
     restoreRevision: (sourceId: string, chapterId: string, revisionId: string) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions/${revisionId}/restore`).then((response) => response.data),
+    previewEpisodeSplit: (sourceId: string, payload?: SourceEpisodeSplitPreviewRequest) => apiClient.post<SourceEpisodeSplitPreview>(`${API_URL}/sources/${sourceId}/episode-splits/preview`, payload ?? {}).then((response) => response.data),
+    getEpisodeSplitPreview: (previewId: string) => apiClient.get<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}`).then((response) => response.data),
+    updateEpisodeSplitPreview: (previewId: string, proposals: SourceEpisodeSplitProposal[]) => apiClient.patch<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}`, { proposals }).then((response) => response.data),
+    cancelEpisodeSplitPreview: (previewId: string) => apiClient.post<SourceEpisodeSplitPreview>(`${API_URL}/sources/episode-split-previews/${previewId}/cancel`).then((response) => response.data),
+    confirmEpisodeSplit: (previewId: string, payload?: { title?: string; description?: string }) => apiClient.post<SourceEpisodeSplitConfirmResponse>(`${API_URL}/sources/episode-split-previews/${previewId}/confirm`, payload ?? {}).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
