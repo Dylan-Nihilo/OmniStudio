@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePlaygroundStore } from './usePlaygroundStore';
 import { getModelParams, getModelDuration } from './playgroundModels';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { SelectField } from '@omnistudio/ui';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -17,7 +18,7 @@ const FALLBACK_RATIOS = ['16:9', '9:16', '1:1'];
 const FALLBACK_RESOLUTIONS = ['720P', '1080P'];
 
 // ---------------------------------------------------------------------------
-// ParamDropdown — custom styled dropdown (replaces native <select>)
+// Model-specific options use the shared accessible select.
 // ---------------------------------------------------------------------------
 
 /** Compute aspect ratio label from a "WxH" or "W*H" size string. */
@@ -47,62 +48,8 @@ function ParamDropdown({
   disabled?: boolean;
   formatOption?: (opt: string) => string;
 }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  const display = formatOption ?? ((o: string) => o);
-
-  return (
-    <div className="flex flex-col gap-[6px]">
-      <span className="font-mono text-[0.625rem] uppercase tracking-[0.08em] text-text-muted">{label}</span>
-      <div ref={containerRef} className="relative">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => !disabled && setOpen((o) => !o)}
-          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-[14px] bg-surface-inset border border-border-subtle text-foreground text-xs font-medium transition cursor-pointer ${
-            disabled
-              ? 'opacity-50 cursor-not-allowed'
-              : 'hover:border-foreground/30'
-          }`}
-        >
-          <span>{display(value)}</span>
-          {!disabled && <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`} />}
-        </button>
-
-        {open && (
-          <div className="absolute top-full mt-1 w-full bg-elevated atelier-card border border-border-subtle z-30 max-h-48 overflow-y-auto">
-            {options.map((opt) => (
-              <div
-                key={opt}
-                onClick={() => {
-                  onChange(opt);
-                  setOpen(false);
-                }}
-                className="px-3 py-2 text-xs flex items-center justify-between hover:bg-hover-bg cursor-pointer"
-              >
-                <span className={opt === value ? 'text-foreground' : 'text-text-secondary'}>
-                  {display(opt)}
-                </span>
-                {opt === value && <Check className="w-3 h-3 text-primary" />}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <SelectField label={label} value={value} onChange={key => onChange(String(key))} isDisabled={disabled}
+    options={options.map(option => ({ id: option, label: formatOption ? formatOption(option) : option }))} />;
 }
 
 /** Format image size with aspect ratio: "1024x1024" → "1024×1024 (1:1)" */

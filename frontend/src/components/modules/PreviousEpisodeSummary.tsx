@@ -15,12 +15,12 @@
  * Phase 3 ships v1 scope; future v2 extensions noted in docs.
  */
 import { useEffect, useState } from "react";
-import { Loader2, Sparkles, RefreshCw, AlertCircle, ScrollText, Pencil, Check, X, ArrowRight } from "lucide-react";
+import { Sparkles, AlertCircle, ScrollText } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { useProjectStore } from "@/store/projectStore";
 import SidePanelHeader from "@/components/shared/SidePanelHeader";
-import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
+import { Button, EmptyState, LoadingState, TextAreaField } from "@omnistudio/ui";
 
 interface PreviousEpisodeSummaryProps {
     scriptId: string | null;
@@ -116,9 +116,7 @@ export default function PreviousEpisodeSummary({ scriptId }: PreviousEpisodeSumm
 
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 {loading ? (
-                    <div className="flex h-full items-center justify-center text-text-muted">
-                        <Loader2 size={20} className="animate-spin" />
-                    </div>
+                    <LoadingState label={t("loading")} />
                 ) : error ? (
                     <div className="p-6">
                         <div className="rounded-lg border border-status-failed-border/40 bg-status-failed-bg/50 px-4 py-3 flex items-start gap-2.5">
@@ -135,7 +133,7 @@ export default function PreviousEpisodeSummary({ scriptId }: PreviousEpisodeSumm
                     // THIS episode's text, not the previous one.
                     <div className="flex flex-col">
                         <div className="py-12">
-                            <EmptyState title={t("firstEpisodeTitle")} body={t("firstEpisodeBody")} />
+                            <EmptyState title={t("firstEpisodeTitle")} description={t("firstEpisodeBody")} />
                         </div>
                         <div className="px-5 pb-5">
                             <NextHookSection
@@ -179,47 +177,37 @@ export default function PreviousEpisodeSummary({ scriptId }: PreviousEpisodeSumm
                                     {t("aiSummary")}
                                 </h4>
                                 {data.ai_summary && data.ai_summary_stale && (
-                                    <span className="font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-amber-300">
+                                    <span className="font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-status-pending-fg">
                                         {t("stale")}
                                     </span>
                                 )}
                             </div>
                             {!data.ai_summary ? (
-                                <WorkflowActionButton
+                                <Button
                                     variant="secondary"
                                     size="sm"
-                                    loading={generating}
-                                    leftIcon={<Sparkles />}
-                                    onClick={handleGenerate}
+                                    isPending={generating}
+                                    onPress={handleGenerate}
                                     className="w-full justify-center"
                                 >
                                     {t("generateBtn")}
-                                </WorkflowActionButton>
+                                </Button>
                             ) : editing ? (
-                                <div className="rounded-lg border border-primary/40 bg-primary/[0.08] px-3.5 py-3 space-y-2">
-                                    <textarea
-                                        value={draft}
-                                        onChange={(e) => setDraft(e.target.value)}
-                                        rows={6}
-                                        className="w-full bg-transparent text-foreground text-[0.8125rem] leading-relaxed resize-none focus:outline-none"
-                                        placeholder={t("editPlaceholder")}
-                                        autoFocus
-                                    />
+                                <div className="rounded-lg border border-glass-border bg-elevated px-3.5 py-3 space-y-2">
+                                    <TextAreaField label={t("editPlaceholder")} value={draft} onChange={setDraft} rows={6} autoFocus isDisabled={savingEdit} />
                                     <div className="flex items-center justify-end gap-2">
-                                        <WorkflowActionButton
-                                            variant="ghost"
+                                        <Button
+                                            variant="quiet"
                                             size="sm"
-                                            leftIcon={<X />}
-                                            onClick={() => { setEditing(false); setDraft(data.ai_summary || ""); }}
+                                            isDisabled={savingEdit} onPress={() => { setEditing(false); setDraft(data.ai_summary || ""); }}
                                         >
                                             {t("editCancel")}
-                                        </WorkflowActionButton>
-                                        <WorkflowActionButton
+                                        </Button>
+                                        <Button
                                             variant="primary"
                                             size="sm"
-                                            loading={savingEdit}
-                                            leftIcon={<Check />}
-                                            onClick={async () => {
+                                            isPending={savingEdit}
+                                            onPress={async () => {
                                                 if (!scriptId) return;
                                                 setSavingEdit(true);
                                                 try {
@@ -232,34 +220,32 @@ export default function PreviousEpisodeSummary({ scriptId }: PreviousEpisodeSumm
                                             }}
                                         >
                                             {t("editSave")}
-                                        </WorkflowActionButton>
+                                        </Button>
                                     </div>
                                 </div>
                             ) : (
-                                <div className="rounded-lg border border-primary/25 bg-primary/[0.06] px-3.5 py-3 space-y-2 group/summary">
+                                <div className="rounded-lg border border-glass-border bg-elevated px-3.5 py-3 space-y-2 group/summary">
                                     <p className="text-[0.8125rem] leading-relaxed text-foreground whitespace-pre-wrap">
                                         {data.ai_summary}
                                     </p>
                                     <div className="flex items-center justify-between gap-2">
                                         {data.ai_summary_stale ? (
-                                            <WorkflowActionButton
-                                                variant="ghost"
+                                            <Button
+                                                variant="quiet"
                                                 size="sm"
-                                                loading={generating}
-                                                leftIcon={<RefreshCw />}
-                                                onClick={handleGenerate}
+                                                isPending={generating}
+                                                onPress={handleGenerate}
                                             >
                                                 {t("refreshBtn")}
-                                            </WorkflowActionButton>
+                                            </Button>
                                         ) : <span />}
-                                        <WorkflowActionButton
-                                            variant="ghost"
+                                        <Button
+                                            variant="quiet"
                                             size="sm"
-                                            leftIcon={<Pencil />}
-                                            onClick={() => { setDraft(data.ai_summary || ""); setEditing(true); }}
+                                            onPress={() => { setDraft(data.ai_summary || ""); setEditing(true); }}
                                         >
                                             {t("editBtn")}
-                                        </WorkflowActionButton>
+                                        </Button>
                                     </div>
                                 </div>
                             )}
@@ -270,7 +256,7 @@ export default function PreviousEpisodeSummary({ scriptId }: PreviousEpisodeSumm
                             <h4 className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.18em] text-text-muted">
                                 {t("rawSnippet")}
                             </h4>
-                            <div className="rounded-lg border border-glass-border bg-black/30 px-3.5 py-3">
+                            <div className="rounded-lg border border-glass-border bg-surface px-3.5 py-3">
                                 <p className="text-[0.78125rem] leading-relaxed text-text-secondary whitespace-pre-wrap font-mono">
                                     …{data.raw_snippet}
                                 </p>
@@ -329,61 +315,53 @@ function NextHookSection({ hookData, generating, editing, draft, saving, onGener
     return (
         <section className="space-y-2 pt-4 border-t border-glass-border">
             <div className="flex items-center justify-between gap-2">
-                <h4 className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.18em] text-pink-300/80 inline-flex items-center gap-1.5">
+                <h4 className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.18em] text-primary inline-flex items-center gap-1.5">
                     <Sparkles size={11} />
                     {t("title")}
                 </h4>
                 {hookData.hook && hookData.stale && (
-                    <span className="font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-amber-300">
+                    <span className="font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-status-pending-fg">
                         {t("stale")}
                     </span>
                 )}
             </div>
             <p className="text-[0.6875rem] text-text-muted leading-relaxed">{t("subtitle")}</p>
             {!hookData.hook && !editing ? (
-                <WorkflowActionButton
+                <Button
                     variant="secondary"
                     size="sm"
-                    loading={generating}
-                    leftIcon={<Sparkles />}
-                    onClick={onGenerate}
+                    isPending={generating}
+                    onPress={onGenerate}
                     className="w-full justify-center"
                 >
                     {t("generateBtn")}
-                </WorkflowActionButton>
+                </Button>
             ) : editing ? (
-                <div className="rounded-lg border border-pink-300/40 bg-pink-300/[0.08] px-3.5 py-3 space-y-2">
-                    <textarea
-                        value={draft}
-                        onChange={(e) => onDraftChange(e.target.value)}
-                        rows={5}
-                        className="w-full bg-transparent text-foreground text-[0.8125rem] leading-relaxed resize-none focus:outline-none"
-                        placeholder={t("editPlaceholder")}
-                        autoFocus
-                    />
+                <div className="rounded-lg border border-glass-border bg-elevated px-3.5 py-3 space-y-2">
+                    <TextAreaField label={t("editPlaceholder")} value={draft} onChange={onDraftChange} rows={5} autoFocus isDisabled={saving} />
                     <div className="flex items-center justify-end gap-2">
-                        <WorkflowActionButton variant="ghost" size="sm" leftIcon={<X />} onClick={onEditCancel}>
+                        <Button variant="quiet" size="sm" isDisabled={saving} onPress={onEditCancel}>
                             {t("editCancel")}
-                        </WorkflowActionButton>
-                        <WorkflowActionButton variant="primary" size="sm" loading={saving} leftIcon={<Check />} onClick={onSave}>
+                        </Button>
+                        <Button variant="primary" size="sm" isPending={saving} onPress={onSave}>
                             {t("editSave")}
-                        </WorkflowActionButton>
+                        </Button>
                     </div>
                 </div>
             ) : (
-                <div className="rounded-lg border border-pink-300/30 bg-pink-300/[0.06] px-3.5 py-3 space-y-2">
+                <div className="rounded-lg border border-glass-border bg-elevated px-3.5 py-3 space-y-2">
                     <p className="text-[0.8125rem] leading-relaxed text-foreground whitespace-pre-wrap">
                         {hookData.hook}
                     </p>
                     <div className="flex items-center justify-between gap-2">
                         {hookData.stale ? (
-                            <WorkflowActionButton variant="ghost" size="sm" loading={generating} leftIcon={<RefreshCw />} onClick={onGenerate}>
+                            <Button variant="quiet" size="sm" isPending={generating} onPress={onGenerate}>
                                 {t("refreshBtn")}
-                            </WorkflowActionButton>
+                            </Button>
                         ) : <span />}
-                        <WorkflowActionButton variant="ghost" size="sm" leftIcon={<Pencil />} onClick={onEditStart}>
+                        <Button variant="quiet" size="sm" onPress={onEditStart}>
                             {t("editBtn")}
-                        </WorkflowActionButton>
+                        </Button>
                     </div>
                 </div>
             )}
@@ -391,13 +369,3 @@ function NextHookSection({ hookData, generating, editing, draft, saving, onGener
     );
 }
 
-function EmptyState({ title, body }: { title: string; body: string }) {
-    return (
-        <div className="flex h-full items-center justify-center px-6 text-center">
-            <div className="max-w-xs space-y-2">
-                <p className="font-display text-base font-medium text-foreground">{title}</p>
-                <p className="text-[0.75rem] leading-relaxed text-text-muted">{body}</p>
-            </div>
-        </div>
-    );
-}

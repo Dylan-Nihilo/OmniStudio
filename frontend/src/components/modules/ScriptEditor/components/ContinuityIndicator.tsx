@@ -1,5 +1,6 @@
 'use client';
 
+import { Button, Dialog } from '@omnistudio/ui';
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle, ChevronDown, ChevronUp, MapPin, User } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -12,13 +13,13 @@ interface ContinuityIndicatorProps {
 function WarningIcon({ type }: { type: ContinuityWarning['type'] }) {
   switch (type) {
     case 'character_disappeared':
-      return <User size={12} className="text-amber-400" />;
+      return <User size={12} className="text-status-warning-fg" />;
     case 'location_reuse':
-      return <MapPin size={12} className="text-blue-400" />;
+      return <MapPin size={12} className="text-primary" />;
     case 'character_stats':
       return <User size={12} className="text-text-muted" />;
     default:
-      return <AlertTriangle size={12} className="text-amber-400" />;
+      return <AlertTriangle size={12} className="text-status-warning-fg" />;
   }
 }
 
@@ -26,12 +27,13 @@ function WarningIcon({ type }: { type: ContinuityWarning['type'] }) {
  * 连贯性指示器组件
  * - 显示连贯性警告计数徽章
  * - 点击展开警告列表
- * - 每条警告：图标 + 消息 + 点击跳转到相关场景
+ * - 每条警告：图标、消息与相关场景
  * - 警告为空时显示绿色 ✓ "故事连贯"
  */
 export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
   const [expanded, setExpanded] = useState(false);
   const t = useTranslations('scriptEditor');
+  const tc = useTranslations('common');
   const { warnings, characterStats, locationStats } = report;
 
   const hasWarnings = warnings.length > 0;
@@ -39,13 +41,13 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
   return (
     <div className="relative">
       {/* Badge / Indicator Button */}
-      <button
+      <Button variant="quiet"
         type="button"
-        onClick={() => setExpanded(!expanded)}
-        className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs transition-colors ${
+        onPress={() => setExpanded(!expanded)}
+        className={`h-auto min-h-7 items-center gap-1.5 px-2 text-xs ${
           hasWarnings
-            ? 'text-amber-400 hover:bg-amber-400/10'
-            : 'text-emerald-400 hover:bg-emerald-400/10'
+            ? 'text-status-warning-fg hover:bg-hover-bg'
+            : 'text-status-done-fg hover:bg-hover-bg'
         }`}
         aria-label={hasWarnings ? t('continuity.warningsCount', { count: warnings.length }) : t('continuity.allGood')}
       >
@@ -61,11 +63,11 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
           </>
         )}
         {expanded ? <ChevronDown size={10} /> : <ChevronUp size={10} />}
-      </button>
+      </Button>
 
       {/* Expanded Panel */}
       {expanded && (
-        <div className="absolute bottom-full left-0 mb-2 w-[360px] rounded-lg border border-glass-border bg-surface shadow-xl z-40 max-h-[320px] overflow-y-auto">
+        <Dialog isOpen onOpenChange={setExpanded} title={t(hasWarnings ? 'continuity.warnings' : 'continuity.allGood')} closeLabel={tc('close')}>
           {/* Stats Summary */}
           <div className="border-b border-glass-border px-4 py-3">
             <div className="flex items-center gap-4 text-xs text-text-muted">
@@ -82,12 +84,11 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
 
           {/* Warnings List */}
           {hasWarnings ? (
-            <div className="divide-y divide-white/5">
+            <div className="divide-y divide-border-subtle">
               {warnings.map((warning, idx) => (
                 <div
                   key={`${warning.relatedEntity}-${warning.sceneIndex}-${idx}`}
-                  className="flex items-start gap-2 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer"
-                  title={t('continuity.jumpToScene', { index: warning.sceneIndex })}
+                  className="flex items-start gap-2 px-4 py-2.5 "
                 >
                   <div className="mt-0.5 shrink-0">
                     <WarningIcon type={warning.type} />
@@ -105,11 +106,11 @@ export function ContinuityIndicator({ report }: ContinuityIndicatorProps) {
             </div>
           ) : (
             <div className="px-4 py-6 text-center">
-              <CheckCircle size={20} className="mx-auto text-emerald-400 mb-2" />
+              <CheckCircle size={20} className="mx-auto text-status-done-fg mb-2" />
               <p className="text-xs text-text-muted">{t('continuity.allConsistent')}</p>
             </div>
           )}
-        </div>
+        </Dialog>
       )}
     </div>
   );

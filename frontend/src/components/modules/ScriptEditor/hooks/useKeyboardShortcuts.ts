@@ -41,6 +41,7 @@ export function useKeyboardShortcuts(editor: Editor | null) {
     if (!editor) return;
 
     const handler = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('input, textarea, select, [role=dialog]'))) return;
       const mod = e.metaKey || e.ctrlKey;
 
       // Cmd+Shift+E: 切换场景折叠/展开
@@ -65,21 +66,21 @@ export function useKeyboardShortcuts(editor: Editor | null) {
       }
 
       // Cmd+B: 加粗切换
-      if (mod && !e.shiftKey && e.key === 'b') {
+      if (editor.isEditable && mod && !e.shiftKey && e.key === 'b') {
         e.preventDefault();
         editor.chain().focus().toggleBold().run();
         return;
       }
 
       // Cmd+I: 斜体切换
-      if (mod && !e.shiftKey && e.key === 'i') {
+      if (editor.isEditable && mod && !e.shiftKey && e.key === 'i') {
         e.preventDefault();
         editor.chain().focus().toggleItalic().run();
         return;
       }
 
       // Cmd+D: 插入 DualDialogue 结构
-      if (mod && !e.shiftKey && e.key === 'd') {
+      if (editor.isEditable && mod && !e.shiftKey && e.key === 'd') {
         e.preventDefault();
         // 插入双人对话结构：两个连续的 characterCue + dialogue
         try {

@@ -85,14 +85,15 @@ describe('settingsStore', () => {
         }
     });
 
-    it('exposes exactly the five expected presets', () => {
+    it('exposes exactly the six expected presets', () => {
         expect(THEME_PRESETS).toEqual([
+            'v3-paper',
             'atelier-dark',
             'bridge-dark',
             'brand-dark',
             'atelier-light',
             'brand-light',
         ]);
-        expect(DEFAULT_THEME).toBe('atelier-dark');
+        expect(DEFAULT_THEME).toBe('v3-paper');
     });
 });

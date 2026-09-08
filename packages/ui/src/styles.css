@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@heroui-pro/react/css";
+
+/* Live prototype 221:12 overrides the older foundations palette. */
+@layer base {
+  .omni-ui {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #141a22;
+    --surface: #ffffff;
+    --surface-foreground: #141a22;
+    --surface-secondary: #f5f7f9;
+    --surface-tertiary: #e8eef5;
+    --overlay: #ffffff;
+    --overlay-foreground: #141a22;
+    --muted: #68727d;
+    --omni-body: #414a55;
+    --default: #f5f7f9;
+    --default-foreground: #141a22;
+    --accent: #1d3a5f;
+    --accent-hover: #152c47;
+    --accent-foreground: #ffffff;
+    --accent-soft: #e8eef5;
+    --accent-soft-foreground: #1d3a5f;
+    --border: #d7dce1;
+    --separator: #d7dce1;
+    --focus: #1d3a5f;
+    --link: #152c47;
+    --field-background: #ffffff;
+    --field-foreground: #141a22;
+    --field-placeholder: #68727d;
+    --field-border: #d7dce1;
+    --field-border-width: 1px;
+    --field-radius: 12px;
+    --field-shadow: none;
+    --radius: 8px;
+    --success: #1f6658;
+    --success-foreground: #ffffff;
+    --warning: #8b5a13;
+    --warning-foreground: #ffffff;
+    --danger: #a63d2a;
+    --danger-foreground: #ffffff;
+    --omni-info: #285d7d;
+    --backdrop: rgb(20 26 34 / 28%);
+    --surface-shadow: 0 0 0 1px var(--border);
+    --overlay-shadow: 0 12px 40px rgb(20 26 34 / 12%);
+    font-family: 'Noto Sans SC', 'Inter', sans-serif;
+    color: var(--foreground);
+    background: var(--background);
+  }
+}
+
+@layer components {
+  .omni-button {
+    height: 40px;
+    border-radius: 8px;
+    line-height: 20px;
+    flex-shrink: 0;
+  }
+  .omni-button.button--sm { height: 32px; }
+  .omni-button.button--lg { height: 48px; }
+  .omni-button.button--primary { box-shadow: 0 1px 1px rgb(15 23 42 / 4%); }
+  .omni-button.button--icon-only { width: 40px; }
+  .omni-field { width: 100%; min-width: 0; gap: 6px; }
+  .omni-field > .label { font-size: 12px; font-weight: 500; line-height: 16px; }
+  .omni-field .input, .omni-field .select__trigger {
+    width: 100%;
+    height: 40px;
+    min-height: 40px;
+    padding-inline: 12px;
+    font-size: 14px;
+    line-height: 20px;
+    border-radius: 12px;
+  }
+  .omni-field .text-area { padding: 12px; font-size: 14px; line-height: 22px; resize: vertical; }
+  .omni-field .description, .omni-field .field-error { font-size: 12px; line-height: 18px; }
+  .omni-password { position: relative; }
+  .omni-password > .input { padding-right: 44px; }
+  .omni-password > .omni-button { position: absolute; inset: 0 0 0 auto; width: 40px; }
+  .omni-checkbox { font-size: 13px; color: var(--omni-body); }
+  .omni-checkbox .checkbox__control { width: 16px; height: 16px; border-radius: 4px; }
+  .omni-checkbox .checkbox__control::before { inset: calc(-1 * var(--field-border-width)); border-radius: inherit; }
+  .omni-select-popover { max-width: calc(100vw - 24px); border: 1px solid var(--border); border-radius: 12px; }
+  .omni-tabs .tabs__tab { min-height: 40px; font-size: 14px; }
+  .omni-tabs .tabs__panel { padding-top: 20px; }
+  .omni-dialog { border: 1px solid var(--border); border-radius: 16px; }
+  .omni-dialog .modal__header { padding-right: 32px; }
+  .omni-status { padding: 0; gap: 8px; height: auto; font-size: 13px; color: var(--muted); }
+  .omni-status-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+  .omni-status[data-tone='info'] { color: var(--omni-info); }
+  .omni-status[data-tone='success'] { color: var(--success); }
+  .omni-status[data-tone='warning'] { color: var(--warning); }
+  .omni-status[data-tone='danger'] { color: var(--danger); }
+  .omni-empty-state { padding: 32px 24px; border: 1px dashed var(--border); border-radius: 12px; }
+  .omni-empty-state .empty-state__title { font-size: 18px; font-weight: 500; }
+  .omni-empty-state .empty-state__description { font-size: 14px; color: var(--omni-body); }
+  .omni-navigation { min-height: 0; width: 240px; max-width: 100%; }
+  .omni-navigation > .sidebar__group { width: 100%; padding: 0; }
+  .omni-navigation .sidebar__menu { gap: 2px; }
+  .omni-navigation .sidebar__menu-item { min-height: 36px; padding: 0; color: var(--omni-body); font-size: 13px; }
+  .omni-navigation .sidebar__menu-item-content { min-height: 36px; border: 1px solid transparent; border-radius: 8px; padding-inline: 10px; }
+  .omni-navigation .sidebar__menu-item[data-current='true'] .sidebar__menu-item-content { color: var(--accent); border-color: var(--border); box-shadow: none; background: var(--surface); }
+  .omni-navigation .sidebar__menu-item[data-current='true'] .sidebar__menu-icon { color: var(--accent); }
+  .omni-navigation .sidebar__menu-item[data-focus-visible='true'] .sidebar__menu-item-content { outline: 2px solid var(--focus); outline-offset: -2px; }
+  .omni-workflow-steps { min-width: 0; }
+  @media (max-width: 640px) {
+    .omni-workflow-steps.stepper--horizontal { overflow-x: auto; padding-bottom: 12px; }
+    .omni-workflow-steps.stepper--horizontal > li { min-width: 64px; }
+  }
+}
+
+@layer components {
+  .omni-ui {
+    --omni-motion-fast: 150ms;
+    --omni-motion-enter: 180ms;
+    --omni-motion-ease: cubic-bezier(.22, 1, .36, 1);
+  }
+  .omni-loading { display: flex; min-height: 240px; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--muted); font-size: 13px; }
+  .omni-loading--inline { min-height: 0; flex-direction: row; gap: 8px; }
+  .omni-skeleton { background: var(--surface-secondary); }
+  .omni-page-transition { height: 100%; min-height: 0; animation: omni-page-enter var(--omni-motion-enter, 180ms) var(--omni-motion-ease, ease-out); }
+  @keyframes omni-page-enter { from { opacity: 0; } to { opacity: 1; } }
+  .omni-button { transition-duration: var(--omni-motion-fast); }
+  .no-motion .omni-page-transition, .no-motion .omni-loading .spinner, .no-motion .omni-button .spinner, .no-motion .omni-skeleton, .no-motion .omni-skeleton::before { animation: none !important; transition: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    .omni-page-transition, .omni-loading .spinner, .omni-button .spinner, .omni-skeleton, .omni-skeleton::before { animation: none !important; transition: none !important; }
+  }
+}

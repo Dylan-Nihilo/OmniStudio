@@ -5,11 +5,13 @@ import { useToastStore } from './toastStore';
 export type Locale = 'zh' | 'en';
 
 /**
- * 5 预设主题（Tasty Sam 主题系统）。
- * 3 暗（atelier-dark 默认 / bridge-dark / brand-dark）+ 2 亮（atelier-light / brand-light）。
+ * 6 预设主题（Tasty Sam 主题系统）。
+ * v3-paper（V3 纯白与藏青主题，默认）
+ * + 3 暗（atelier-dark / bridge-dark / brand-dark）+ 2 亮（atelier-light / brand-light）。
  * 与 globals.css 的 html.<id> block、Providers/layout 切换逻辑一一对应。
  */
 export type ThemePreset =
+    | 'v3-paper'
     | 'atelier-dark'
     | 'bridge-dark'
     | 'brand-dark'
@@ -17,6 +19,7 @@ export type ThemePreset =
     | 'brand-light';
 
 export const THEME_PRESETS: ThemePreset[] = [
+    'v3-paper',
     'atelier-dark',
     'bridge-dark',
     'brand-dark',
@@ -24,9 +27,9 @@ export const THEME_PRESETS: ThemePreset[] = [
     'brand-light',
 ];
 
-export const DEFAULT_THEME: ThemePreset = 'atelier-dark';
+export const DEFAULT_THEME: ThemePreset = 'v3-paper';
 export const DEFAULT_DARK_THEME: ThemePreset = 'atelier-dark';
-export const DEFAULT_LIGHT_THEME: ThemePreset = 'atelier-light';
+export const DEFAULT_LIGHT_THEME: ThemePreset = 'v3-paper';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 

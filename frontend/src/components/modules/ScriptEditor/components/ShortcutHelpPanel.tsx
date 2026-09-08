@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { Dialog } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 
 interface ShortcutHelpPanelProps {
@@ -62,56 +61,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
  * - 暗色主题，支持 Escape 关闭
  */
 export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('scriptEditor');
-
-  // Escape 关闭
-  useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', handleKey, true);
-    return () => document.removeEventListener('keydown', handleKey, true);
-  }, [open, onClose]);
-
-  // 点击外部关闭
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
-      <div
-        ref={panelRef}
-        className="relative w-[520px] max-h-[80vh] overflow-y-auto rounded-xl border border-glass-border bg-surface shadow-2xl"
-      >
-        {/* Header */}
-        <div className="sticky top-0 flex items-center justify-between border-b border-glass-border bg-surface px-6 py-4">
-          <h2 className="text-base font-semibold text-foreground">{t('shortcuts.title')}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-            aria-label={t('shortcuts.close')}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
+  return <Dialog isOpen={open} onOpenChange={value => { if (!value) onClose(); }} title={t('shortcuts.title')} closeLabel={t('shortcuts.close')}>
         {/* Shortcut Groups */}
         <div className="px-6 py-4 space-y-6">
           {SHORTCUT_GROUPS.map((group) => (
@@ -123,7 +74,7 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
                 {group.items.map((item) => (
                   <div
                     key={item.keys}
-                    className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.03] transition-colors"
+                    className="flex items-center justify-between gap-3 py-1.5 px-2 rounded hover:bg-hover-bg transition-colors"
                   >
                     <span className="text-sm text-text-secondary">{t(item.descKey)}</span>
                     <kbd className="inline-flex items-center gap-0.5 rounded border border-glass-border bg-surface-inset px-2 py-0.5 text-xs font-mono text-text-muted">
@@ -136,13 +87,5 @@ export function ShortcutHelpPanel({ open, onClose }: ShortcutHelpPanelProps) {
           ))}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-glass-border px-6 py-3">
-          <p className="text-xs text-text-muted/60 text-center">
-            {t('shortcuts.footer')}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+    </Dialog>;
 }

@@ -1,0 +1,16 @@
+.dialog { max-width: none; width: min(480px, calc(100vw - 32px)); border-radius: 8px; padding: 0; }
+.dialog :global(.modal__header) { padding: 20px 48px 18px 24px; border-bottom: 1px solid var(--border); }
+.dialog :global(.modal__heading) { font-size: 20px; line-height: 28px; }
+.dialog :global(.modal__body) { padding: 24px; }
+.dialog :global(.modal__footer) { padding: 16px 24px; border-top: 1px solid var(--border); gap: 12px; }
+.form { display: flex; flex-direction: column; gap: 20px; }
+.description { color: var(--omni-body); font-size: 13px; line-height: 21px; }
+.series { color: var(--accent); font-size: 12px; }
+.upload { display: grid; gap: 12px; font-size: 12px; }
+.upload input { width: 100%; min-width: 0; color: var(--foreground); }
+.upload input::file-selector-button { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-right: 12px; background: var(--surface); color: var(--foreground); cursor: pointer; }
+.workflow { color: var(--omni-body); font-size: 12px; }
+.workflow summary { cursor: pointer; padding-block: 4px; }
+.workflow[open] summary { margin-bottom: 12px; }
+.error { border: 1px solid var(--color-status-failed-border); padding: 12px; border-radius: 8px; background: var(--color-status-failed-bg); color: var(--danger); font-size: 13px; }
+@media (max-height: 600px) { .dialog :global(.modal__body) { padding-block: 16px; } .form { gap: 12px; } }

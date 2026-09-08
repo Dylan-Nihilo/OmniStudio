@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { motion } from "framer-motion";
-import { Plus, Loader2, Sparkles, PanelBottomOpen, PanelBottomClose } from "lucide-react";
-import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
+import { create } from "zustand";
+import { Button, EmptyState } from "@omnistudio/ui";
+import styles from "./StoryboardR2V.module.css";
+import { Plus, Film, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useProjectStore } from "@/store/projectStore";
+import { useProjectStore, mergeFrameStructure, addedFrame } from "@/store/projectStore";
+import { useAuthStore } from "@/store/authStore";
+import { useShotDrafts, mergeRefinementFields } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi, type VideoTask, type RefineSSEEvent } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
@@ -14,34 +17,76 @@ import type { BatchSummary } from "./storyboard-r2v/shot-panel/CandidatesSection
 import { getR2vRouteModelId, isR2vImageBased, VIDEO_I2V_MODELS, VIDEO_R2V_MODELS, DEFAULT_I2V_MODEL_ID, DEFAULT_R2V_MODEL_ID } from "@/lib/modelCatalog";
 import ShotCard, { type ShotNode } from "./storyboard-r2v/ShotCard";
 import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
-import DialogueAudioRow from "./storyboard-r2v/DialogueAudioRow";
+import DialogueAudioRow, { useDialogueAudioRequests } from "./storyboard-r2v/DialogueAudioRow";
 import StoryboardGenerateDialog from "./storyboard-r2v/StoryboardGenerateDialog";
 import { toast } from "@/store/toastStore";
-import { Wand2 } from "lucide-react";
 import AssetDrawer from "./storyboard-r2v/AssetDrawer";
 import { type VideoConfig, DEFAULT_VIDEO_CONFIG } from "./storyboard-r2v/VideoConfigModal";
 import {
     migrateShotNode,
-    appendT2IImage,
+    extractT2IImageUrl,
     setActiveT2IIndex,
     removeT2IImage,
     getActiveT2IImageUrl,
     frameToShotNode,
+    resolveDialogueSpeaker,
 } from "./storyboard-r2v/shotNodeHelpers";
 import { overridePanelSectionState } from "./storyboard-r2v/shot-panel/usePanelSectionState";
 import ParamsSection, { type ParamsState } from "./storyboard-r2v/shot-panel/ParamsSection";
-import T2ISubsection from "./storyboard-r2v/shot-panel/T2ISubsection";
+import T2ISubsection, { type T2IUploadError } from "./storyboard-r2v/shot-panel/T2ISubsection";
 import CandidatesSection from "./storyboard-r2v/shot-panel/CandidatesSection";
 import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
 import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
-import { GenerationBanner, type BannerState } from "./storyboard-r2v/GenerationBanner";
+import { GenerationBanner } from "./storyboard-r2v/GenerationBanner";
+
+// Pending retries outlive the panel so navigation cannot dispatch the same request twice.
+// Reload recovery uses the frame's persisted image state; live requests stay in this tab.
+const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string; recovering?: boolean; previousGenerationId?: string }>>>(() => ({}));
+const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
+const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash"] as const;
+const dubFields = ["preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
+const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
+const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
+// Live submissions outlive the page; persisted jobs provide full-reload recovery.
+export const useStoryboardRequests = create<Partial<Record<string, {
+    id: string; phase: "analyze" | "refine"; pending?: boolean; submitted?: boolean; recovering?: boolean;
+    previousGenerationId?: string; frameIds?: string[]; progress?: { current: number; total: number }; error?: string;
+    baselineFrames?: any[];
+}>>>(() => ({}));
 
 export default function StoryboardR2V() {
+    const projectId = useProjectStore(state => state.currentProject?.id);
+    const userId = useAuthStore(state => state.user?.id);
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id);
+    return <StoryboardWorkbench key={JSON.stringify([userId, workspaceId, projectId])} />;
+}
+
+function StoryboardWorkbench() {
     const currentProject = useProjectStore((state) => state.currentProject);
     const updateProject = useProjectStore((state) => state.updateProject);
     const t = useTranslations("storyboardR2V");
-    const tStep = useTranslations("stepHeader");
+    const tStudio = useTranslations("studioPage");
+    const selectedFrameId = useProjectStore(state => state.selectedFrameId);
+    const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
+
+    const firstFrameRequests = useFirstFrameRequests();
+    const dialogueRequests = useDialogueAudioRequests();
+    const storyboardRequests = useStoryboardRequests();
+    const firstFrameContext = useRef({
+        userId: useAuthStore.getState().user?.id,
+        workspaceId: useAuthStore.getState().activeWorkspace?.id,
+    }).current;
+    const firstFrameKey = useCallback((frameId: string) => JSON.stringify([
+        firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id, frameId,
+    ]), [firstFrameContext, currentProject?.id]);
+    const isCurrentProject = useCallback(() => useAuthStore.getState().user?.id === firstFrameContext.userId
+        && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+        && useProjectStore.getState().currentProject?.id === currentProject?.id, [firstFrameContext, currentProject?.id]);
+
+
+    const draftSave = useShotDrafts(currentProject?.id);
+    const { queue: queueDraft, flush: flushDrafts, discard: discardDraft, materialize, resolveId, refine, refinedVersion, restore: restoreDraft } = draftSave;
 
     // Derive shots from project frames. Workbench state (T2I 抽卡
     // history, last-active tab, batch count) now comes from backend-
@@ -52,10 +97,18 @@ export default function StoryboardR2V() {
     const [shots, setShots] = useState<ShotNode[]>(() => {
         if (currentProject?.frames && currentProject.frames.length > 0) {
             const videoTasks: any[] = (currentProject as any).video_tasks ?? [];
-            return currentProject.frames.map((frame: any) => frameToShotNode(frame, videoTasks));
+            return [...currentProject.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks))), ...draftSave.localShots()];
         }
+        if (draftSave.localShots().length) return draftSave.localShots();
         return [migrateShotNode({ id: `shot_${Date.now()}`, prompt: "", tabMode: "direct_r2v" })];
     });
+
+    const shotsRef = useRef(shots);
+    shotsRef.current = shots;
+    const structurePendingRef = useRef(false);
+    const { structurePending, beginStructure, endStructure, localShots } = draftSave;
+    structurePendingRef.current = structurePending || draftSave.materializing;
+    const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
 
     // Global video config (with localStorage persistence for model selection)
     const [videoConfig, setVideoConfig] = useState<VideoConfig>(() => {
@@ -125,13 +178,13 @@ export default function StoryboardR2V() {
     // to peek at queue" UI affordance, not a saved layout preference.
     const [queueOpen, setQueueOpen] = useState(false);
 
-    // Compare-mode selection: a Set of task ids the user shift-clicked
-    // in any shot's candidate panel. Multi-shot compare is a future
-    // feature; for now the same Set is shared across shots so user
-    // can only effectively compare within one shot at a time. Cleared
-    // on Compare modal close.
+    // Compare up to four completed takes within the selected shot and tab.
     const [compareSelectedIds, setCompareSelectedIds] = useState<Set<string>>(() => new Set());
     const [compareModalOpen, setCompareModalOpen] = useState(false);
+    useEffect(() => {
+        setCompareSelectedIds(new Set());
+        setCompareModalOpen(false);
+    }, [selectedShot?.id, selectedShot?.tabMode]);
 
     // Refs map for textareas (for asset insertion from drawer)
     const textareaRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map());
@@ -178,187 +231,96 @@ export default function StoryboardR2V() {
     // workbench_generate_count so user choices survive refresh.
     const [shotCounts, setShotCounts] = useState<Record<string, number>>(() => {
         const out: Record<string, number> = {};
-        const frames: any[] = currentProject?.frames ?? [];
+        const frames: any[] = [...(currentProject?.frames ?? []), ...draftSave.localShots()];
         for (const f of frames) {
-            if (typeof f.workbench_generate_count === "number") {
-                out[f.id] = f.workbench_generate_count;
+            const count = draftSave.countFor(f.id) ?? f.workbench_generate_count;
+            if (typeof count === "number") {
+                out[f.id] = count;
             }
         }
         return out;
     });
 
-    // Issue 16 — per-shot expand state (P plan). Default: all collapsed
-    // (browse mode). Set persists per project to localStorage so coming back
-    // to the project restores the user's last working layout.
-    const expandStorageKey = currentProject ? `storyboard-r2v-expanded-${currentProject.id}` : null;
-    const [expandedShots, setExpandedShots] = useState<Set<string>>(() => {
-        if (typeof window === "undefined" || !expandStorageKey) return new Set();
-        try {
-            const raw = window.localStorage.getItem(expandStorageKey);
-            if (raw) {
-                const arr = JSON.parse(raw);
-                if (Array.isArray(arr)) return new Set(arr.filter(x => typeof x === "string"));
-            }
-        } catch { /* corrupt localStorage value — ignore */ }
-        return new Set();
-    });
-    // Persist on change.
+    // Creation and ID handoff outlive this panel, just like its drafts.
     useEffect(() => {
-        if (typeof window === "undefined" || !expandStorageKey) return;
-        try {
-            window.localStorage.setItem(expandStorageKey, JSON.stringify(Array.from(expandedShots)));
-        } catch { /* quota exceeded — ignore */ }
-    }, [expandedShots, expandStorageKey]);
-
-    const toggleShotExpanded = useCallback((shotId: string) => {
-        setExpandedShots(prev => {
-            const next = new Set(prev);
-            if (next.has(shotId)) next.delete(shotId);
-            else next.add(shotId);
-            return next;
+        setShots(previous => {
+            const next = previous.map(shot => resolveId(shot.id) === shot.id ? shot : { ...shot, id: resolveId(shot.id) });
+            return next.some((shot, index) => shot !== previous[index]) ? next : previous;
         });
-    }, []);
-    const expandAllShots = useCallback(() => {
-        const ids = shots.map(s => s.id);
-        // Force every inner section open — overrides each shot's sticky
-        // preference. Section keys must match what ParamsSection /
-        // CandidatesSection register inside their SectionShells.
-        overridePanelSectionState(ids, ["params", "candidates"], true);
-        setExpandedShots(new Set(ids));
-    }, [shots]);
-    const collapseAllShots = useCallback(() => {
-        // Don't reset section preferences here — sticky memory should
-        // survive a global collapse so re-expanding a shot returns to
-        // the user's chosen drawer state.
-        setExpandedShots(new Set());
-    }, []);
+        setShotCounts(previous => Object.fromEntries(Object.entries(previous).map(([id, count]) => [resolveId(id), count])));
+        setShotSeeds(previous => Object.fromEntries(Object.entries(previous).map(([id, seed]) => [resolveId(id), seed])));
+    }, [resolveId]);
 
-    // Debounced backend writer for workbench state. Coalesces rapid
-    // changes (e.g. user clicking through T2I thumbs) into one PATCH
-    // per shot per second. Per-shot map ensures one shot's pending
-    // write doesn't get overwritten by another's.
-    const workbenchPendingRef = useRef<Map<string, {
-        timer: number;
-        patch: Parameters<typeof api.updateFrameWorkbench>[2];
-    }>>(new Map());
-    const persistWorkbench = useCallback((
-        shotId: string,
-        patch: Parameters<typeof api.updateFrameWorkbench>[2],
-    ) => {
-        if (!currentProject?.id) return;
-        // Synthetic shot id (not yet materialized on backend) — skip; the
-        // workbench state will be re-applied after createFrame swaps the id.
-        if (shotId.startsWith("shot_")) return;
-        const projectId = currentProject.id;
-        const map = workbenchPendingRef.current;
-        const existing = map.get(shotId);
-        const merged = { ...(existing?.patch ?? {}), ...patch };
-        if (existing) {
-            window.clearTimeout(existing.timer);
+    // Another mount can complete a structure request. Reconcile order and IDs while
+    // retaining local shot edits and any creation draft that has not received its ID.
+    useEffect(() => {
+        if (!currentProject) return;
+        setShots(previous => {
+            const existing = new Map(previous.map(shot => {
+                const id = resolveId(shot.id);
+                return [id, id === shot.id ? shot : { ...shot, id }];
+            }));
+            const next = currentProject.frames.map(frame => existing.get(frame.id)
+                ?? restoreDraft(frameToShotNode(frame, currentProject.video_tasks ?? [], currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v")));
+            const localIds = new Set(localShots().map(shot => shot.id));
+            previous.forEach((shot, index) => {
+                if (resolveId(shot.id) === shot.id && (localIds.has(shot.id)
+                    || !currentProject.frames.length && previous.length === 1 && shot.id.startsWith("shot_") && !shot.prompt)) {
+                    next.splice(Math.min(index, next.length), 0, shot);
+                }
+            });
+            return next.length === previous.length && next.every((shot, index) => shot === previous[index]) ? previous : next;
+        });
+    }, [currentProject?.frames, resolveId, restoreDraft, localShots]);
+
+    const materializeShot = materialize;
+
+    const saveAllDrafts = useCallback(async () => {
+        try {
+            for (const [index, shot] of shots.entries()) {
+                if (shot.id.startsWith("shot_") && (shot.prompt || draftSave.pending)) await materializeShot(shot, index);
+            }
+            return await flushDrafts();
+        } catch (error) {
+            toast.error(t("saveFailed"), { body: error instanceof Error ? error.message : t("unknownError") });
+            return false;
         }
-        const timer = window.setTimeout(() => {
-            map.delete(shotId);
-            api.updateFrameWorkbench(projectId, shotId, merged)
-                .then(() => {
-                    // Sync store so other tabs (or remount on tab switch)
-                    // see the latest workbench state. Read store live to
-                    // avoid stale closure.
-                    const proj = useProjectStore.getState().currentProject;
-                    if (!proj || proj.id !== projectId) return;
-                    const nextFrames = (proj.frames ?? []).map((f: any) =>
-                        f.id === shotId ? { ...f, ...merged } : f,
-                    );
-                    updateProject(projectId, { frames: nextFrames });
-                })
-                .catch((err) => {
-                    debugLog.warn("Studio", "Failed to persist workbench state:", err);
-                });
-        }, 1000);
-        map.set(shotId, { timer, patch: merged });
-    }, [currentProject?.id, updateProject]);
+    }, [shots, draftSave.pending, materializeShot, flushDrafts, t]);
 
-    // Prompt edits hit a different endpoint (POST /frames/update with
-    // action_description) — debounced separately from workbench so a
-    // user typing fast doesn't push 6 PATCH /workbench every keystroke.
-    const promptPendingRef = useRef<Map<string, { timer: number; prompt: string }>>(new Map());
+    useEffect(() => {
+        if (!draftSave.pending || draftSave.hasError || !shots.some(shot => shot.id.startsWith("shot_"))) return;
+        const timer = window.setTimeout(() => { void saveAllDrafts(); }, 800);
+        return () => window.clearTimeout(timer);
+    }, [shots, draftSave.pending, draftSave.hasError, saveAllDrafts]);
+
+    const persistWorkbench = useCallback((shotId: string, patch: Parameters<typeof api.updateFrameWorkbench>[2]) => {
+        queueDraft(shotId, "workbench", patch, 1000);
+    }, [queueDraft]);
     const persistPrompt = useCallback((shotId: string, prompt: string) => {
-        if (!currentProject?.id) return;
-        if (shotId.startsWith("shot_")) return;
-        const projectId = currentProject.id;
-        const map = promptPendingRef.current;
-        const existing = map.get(shotId);
-        if (existing) window.clearTimeout(existing.timer);
-        const timer = window.setTimeout(() => {
-            map.delete(shotId);
-            api.updateFrame(projectId, shotId, { action_description: prompt })
-                .then(() => {
-                    const proj = useProjectStore.getState().currentProject;
-                    if (!proj || proj.id !== projectId) return;
-                    const nextFrames = (proj.frames ?? []).map((f: any) =>
-                        f.id === shotId ? { ...f, action_description: prompt } : f,
-                    );
-                    updateProject(projectId, { frames: nextFrames });
-                })
-                .catch((err) => debugLog.warn("Studio", "persistPrompt failed", err));
-        }, 800);
-        map.set(shotId, { timer, prompt });
-    }, [currentProject?.id, updateProject]);
-
-    // Flush all pending writes on unmount (e.g. user switches step tab)
-    // so the last keystroke / param change isn't stranded in the debounce
-    // window. All queues (workbench, prompt, field) drain in parallel.
-    useEffect(() => {
-        const wbMap = workbenchPendingRef.current;
-        const pMap = promptPendingRef.current;
-        const fMap = fieldPendingRef.current;
-        return () => {
-            const projectId = currentProject?.id;
-            if (!projectId) return;
-            for (const [shotId, entry] of Array.from(wbMap.entries())) {
-                window.clearTimeout(entry.timer);
-                api.updateFrameWorkbench(projectId, shotId, entry.patch).catch(() => {});
-            }
-            wbMap.clear();
-            for (const [shotId, entry] of Array.from(pMap.entries())) {
-                window.clearTimeout(entry.timer);
-                api.updateFrame(projectId, shotId, { action_description: entry.prompt }).catch(() => {});
-            }
-            pMap.clear();
-            for (const [shotId, entry] of Array.from(fMap.entries())) {
-                window.clearTimeout(entry.timer);
-                api.updateFrame(projectId, shotId, entry.fields).catch(() => {});
-            }
-            fMap.clear();
-        };
-    }, [currentProject?.id]);
-
-    // beforeunload guard: warn when structured field edits are pending
-    useEffect(() => {
-        const handler = (e: BeforeUnloadEvent) => {
-            if (fieldPendingRef.current.size > 0 || promptPendingRef.current.size > 0) {
-                e.preventDefault();
-            }
-        };
-        window.addEventListener("beforeunload", handler);
-        return () => window.removeEventListener("beforeunload", handler);
-    }, []);
+        const frame = useProjectStore.getState().currentProject?.frames.find(frame => frame.id === shotId);
+        queueDraft(shotId, "fields", frame?.visual_description != null ? { visual_description: prompt } : { action_description: prompt }, 800);
+    }, [queueDraft]);
 
     const characters = currentProject?.characters || [];
     const scenes = currentProject?.scenes || [];
     const props = currentProject?.props || [];
 
-    // ────────────────────────────────────────────────────────────────────
-    // Shot mutations — Optimistic UI + 异步同步后端 + store 更新
-    //   Pattern: 立即改本地 state（无闪烁），后台 fire-and-forget call
-    //   到 backend，成功后 swap synthetic id with real id（addShot/duplicate）
-    //   并 updateProject(store) 让 currentProject.frames 保持权威。
-    //   失败仅 log warn，不回滚（避免 UI 闪烁；用户可重试）。
-    //   切 step tab → unmount 时 useEffect cleanup 已经 flush pending
-    //   debounce writes，所以打字到一半切走也不丢字。
-    // ────────────────────────────────────────────────────────────────────
+    const updateT2IWorkbench = useCallback((shotId: string, change: (shot: ShotNode) => ShotNode) => {
+        const shot = shotsRef.current.find(candidate => candidate.id === shotId);
+        if (!shot) return;
+        const next = change(shot);
+        persistWorkbench(shotId, { t2i_image_urls: next.t2iImageUrls ?? [], t2i_selected_index: next.t2iSelectedIndex ?? 0 });
+        shotsRef.current = shotsRef.current.map(candidate => candidate.id === shotId ? next : candidate);
+        setShots(shotsRef.current);
+    }, [persistWorkbench]);
 
+    // New shots keep a local draft until materialized; deletion and ordering await confirmation.
     // Add a new shot after the given index
     const addShot = useCallback(async (afterIndex: number) => {
+        if (!currentProject?.id || structurePendingRef.current) return;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
+        structurePendingRef.current = true;
         const synthId = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         // PR-3e · pick default tabMode from project preference (inherited from
         // series). "i2v" (画面优先) → t2i_i2v; "r2v" (节奏优先, default) → direct_r2v.
@@ -373,310 +335,366 @@ export default function StoryboardR2V() {
             updated.splice(afterIndex + 1, 0, newShot);
             return updated;
         });
-        // Issue 16 — newly-created shots default to expanded so the user
-        // can immediately operate on them. Existing shots keep their state.
-        setExpandedShots(prev => {
-            const next = new Set(prev);
-            next.add(synthId);
-            return next;
-        });
-        if (!currentProject?.id) return;
+        setSelectedFrameId(synthId);
+
+        queueDraft(synthId, "workbench", { workbench_tab_mode: defaultMode }, 1000);
         try {
-            const resp = await crudApi.createFrame(currentProject.id, {
-                scene_id: "",
-                action_description: "",
-                insert_at: afterIndex + 1,
-            });
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            const realFrame = frames?.[Math.min(afterIndex + 1, frames.length - 1)];
-            if (realFrame?.id) {
-                setShots(prev => prev.map(s => s.id === synthId ? { ...s, id: realFrame.id } : s));
-                setExpandedShots(prev => {
-                    if (!prev.has(synthId)) return prev;
-                    const next = new Set(prev);
-                    next.delete(synthId);
-                    next.add(realFrame.id);
-                    return next;
-                });
-            }
-            if (frames) updateProject(currentProject.id, { frames });
+            await materializeShot(newShot, afterIndex + 1);
         } catch (err) {
             debugLog.warn("Studio", "addShot backend persist failed", err);
             toast.error(t("saveFailed"), {
                 body: err instanceof Error ? err.message : t("unknownError"),
             });
         }
-    }, [currentProject, t, updateProject]);
+        finally {
+            structurePendingRef.current = false;
+            endStructure(ownsStructure);
+        }
+    }, [currentProject, t, queueDraft, materializeShot, beginStructure, endStructure]);
 
-    // PR-3 followup · LLM storyboard generation. State + handler live at
-    // the StoryboardR2V level (not in a sub-component) because the toast
-    // lifecycle survives the dialog closing and we need the parent to
-    // setShots() when the new frames come back.
     const [genDialogOpen, setGenDialogOpen] = useState(false);
-    const [generating, setGenerating] = useState(false);
-    const [bannerState, setBannerState] = useState<BannerState>(
-        () => (currentProject?.frames?.length ?? 0) > 0 ? "summary" : "idle"
-    );
-    const [refineProgress, setRefineProgress] = useState<{ current: number; total: number } | null>(null);
-    const [dialogueProgress, setDialogueProgress] = useState<{ current: number; total: number } | null>(null);
+    const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
+    const storyboardRequest = storyboardRequests[batchScope];
+    const storyboardJob = currentProject?.storyboard_generation;
+    const storyboardRunning = storyboardJob?.status === "processing" || storyboardJob?.status === "pending";
+    const storyboardSubmitting = !!storyboardRequest?.pending || !!storyboardRequest?.recovering;
+    const generating = storyboardRunning || storyboardSubmitting;
+    const bannerState = storyboardSubmitting ? (storyboardRequest.phase === "analyze" ? "phase1" : "phase2")
+        : storyboardRunning ? (storyboardJob.phase === "analyze" ? "phase1" : "phase2") : (currentProject?.frames.length ? "summary" : "idle");
+    const refineProgress = storyboardRunning && storyboardJob.phase === "refine"
+        ? { current: Object.keys(storyboardJob.results).length, total: storyboardJob.frame_ids.length } : storyboardRequest?.progress ?? null;
+    const { acceptRefinement, holdRefinements, hasPendingDrafts } = draftSave;
+    const analysisBaseline = useRef<{ id: string; frames: any[] } | null>(null);
+    if (storyboardRunning && storyboardJob.phase === "analyze" && analysisBaseline.current?.id !== storyboardJob.id) {
+        analysisBaseline.current = { id: storyboardJob.id, frames: currentProject?.frames ?? [] };
+    }
+    useEffect(() => {
+        holdRefinements(storyboardSubmitting && storyboardRequest.submitted ? storyboardRequest.frameIds ?? [] : storyboardRunning
+            ? storyboardJob.frame_ids.filter(id => storyboardJob.phase === "analyze" || !storyboardJob.results[id]) : []);
+    }, [storyboardJob, storyboardRunning, storyboardRequest, storyboardSubmitting, holdRefinements]);
+    structurePendingRef.current = structurePending || draftSave.materializing || generating;
+    const refinementIds = storyboardJob && (storyboardJob.phase === "refine" || storyboardJob.status === "completed")
+        ? storyboardJob.frame_ids.filter(id => currentProject?.frames.some(frame => frame.id === id)
+            && (storyboardJob.phase === "analyze" || !["completed", "skipped"].includes(storyboardJob.results[id]))) : [];
+    const batchRequest = dialogueRequests[batchScope];
+    const dialogueBatch = currentProject?.dialogue_audio_batch;
+    const batchRunning = dialogueBatch?.status === "processing" || dialogueBatch?.status === "pending";
+    const batchPending = !!batchRequest?.operation || !!batchRequest?.recovering || batchRunning;
+    const dialogueProgress = batchRunning ? { current: Object.keys(dialogueBatch.results).length, total: dialogueBatch.frame_ids.length } : null;
+    const batchInstructions = useCallback((frame: any) => {
+        const draft = useDialogueAudioRequests.getState()[firstFrameKey(frame.id)]?.instructions;
+        const previous = currentProject?.dialogue_audio_batch;
+        const result = previous?.results[frame.id];
+        return draft ?? (result !== "generated" && result !== "skipped" ? previous?.instructions[frame.id] : undefined);
+    }, [firstFrameKey, currentProject?.dialogue_audio_batch]);
 
-    const PHASE1_CAPTIONS = useMemo(() => [
-        "正在分析剧本结构…",
-        "识别场景切换点…",
-        "拆分镜头与动作…",
-        "琢磨每帧的构图和节奏…",
-        "快了，安排景别和运镜…",
-        "最后润色一下…",
-    ], []);
+    const PHASE1_CAPTIONS = useMemo(() => [t("storyboardAnalyzing")], [t]);
+
+    const adoptAnalyzedFrames = useCallback((fresh: any, before: any[] | undefined) => {
+        const current = useProjectStore.getState().currentProject;
+        if (!current || !Array.isArray(fresh.frames) || !fresh.frames.length) return null;
+        // Repeated reads and the POST can observe the same completed analysis.
+        // Keep edits to shots already adopted from that job.
+        if (current.storyboard_generation?.id === fresh.storyboard_generation?.id
+            && current.frames.length === fresh.frames.length
+            && current.frames.every((frame, index) => frame.id === fresh.frames[index].id)) return current.frames;
+        if (current.frames !== before || hasPendingDrafts()) return null;
+        const defaultMode = current.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
+        shotsRef.current = fresh.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, fresh.video_tasks ?? [], defaultMode)));
+        setShots(shotsRef.current);
+        setSelectedFrameId(fresh.frames[0].id);
+        return fresh.frames as any[];
+    }, [hasPendingDrafts, restoreDraft, setSelectedFrameId]);
 
     const bannerSummary = useMemo(() => {
-        if (!currentProject?.frames?.length) return null;
-        const frames = currentProject.frames as any[];
-        const frameCount = frames.length;
-        const withDialogue = frames.filter((f: any) =>
-            f.dialogue_structured?.line || f.dialogue
-        );
-        const charsWithVoice = new Set(
-            (currentProject as any).characters?.filter((c: any) => c.voice_id).map((c: any) => c.id) ?? []
-        );
-        const charNameToVoice = new Map<string, boolean>(
-            (currentProject as any).characters?.filter((c: any) => c.voice_id).map((c: any) => [c.name?.toLowerCase(), true]) ?? []
-        );
-        const hasVoiceBinding = (f: any): boolean => {
-            if (f.character_ids?.[0] && charsWithVoice.has(f.character_ids[0])) return true;
-            const speaker = f.dialogue_structured?.speaker || f.speaker;
-            return !!(speaker && charNameToVoice.has(speaker.toLowerCase()));
-        };
-        const dialogueReady = withDialogue.filter((f: any) =>
-            hasVoiceBinding(f) && !f.audio_url
-        ).length;
-        const dialogueMissing = withDialogue.filter((f: any) => !hasVoiceBinding(f)).length;
-        return { frameCount, dialogueReady, dialogueMissing };
-    }, [currentProject?.frames, (currentProject as any)?.characters]);
+        const frames = currentProject?.frames ?? [];
+        let dialogueReady = 0, dialogueMissing = 0;
+        for (const frame of frames) {
+            const text = restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line ?? frame.dialogue_structured?.line ?? frame.dialogue ?? "";
+            if (!text.trim()) continue;
+            const speaker = resolveDialogueSpeaker(frame, characters);
+            if (!speaker?.voice_id) { dialogueMissing++; continue; }
+            const instructions = batchInstructions(frame) ?? frame.dialogue_instructions ?? "";
+            if (!frame.audio_url || frame.dialogue_snapshot_text !== text || frame.dialogue_voice_id !== speaker.voice_id || (frame.dialogue_instructions ?? "") !== instructions) dialogueReady++;
+        }
+        return { frameCount: frames.length, dialogueReady, dialogueMissing };
+    }, [currentProject?.frames, characters, batchInstructions, dialogueRequests, restoreDraft]);
 
     const handleBatchDialogue = useCallback(async () => {
-        if (!currentProject?.id) return;
-        setBannerState("dialogue");
-        setDialogueProgress(null);
+        const projectId = currentProject?.id;
+        const existing = useDialogueAudioRequests.getState()[batchScope];
+        if (!projectId || existing?.operation || existing?.recovering || batchRunning || generating) return;
+        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        let submitted = false;
+        const previousGenerationId = currentProject.dialogue_audio_batch?.id;
+        useDialogueAudioRequests.setState({ [batchScope]: { operation: "batch", previousGenerationId } });
         try {
-            const frames = currentProject.frames as any[] ?? [];
-            const totalWithDialogue = frames.filter((f: any) => f.dialogue_structured?.line || f.dialogue).length;
-            setDialogueProgress({ current: 0, total: totalWithDialogue });
-            const result = await api.generateDialogueAudioBatch(currentProject.id);
-            const stats = result._batch_stats;
-            if (stats.failed > 0) {
-                toast.warning(`对白生成完成：${stats.generated} 条成功，${stats.failed} 条失败`);
-            } else if (stats.generated > 0) {
-                toast.success(`已生成 ${stats.generated} 条对白音频`);
-            } else if (stats.no_voice > 0 && stats.skipped === 0) {
-                toast.warning(`${stats.no_voice} 条对白的角色尚未绑定语音`);
-            } else if (stats.skipped > 0) {
-                toast.success(t("dialogueAllUpToDate"));
-            } else {
-                toast.warning("未找到可生成的对白");
-            }
-            const updated = await api.getProject(currentProject.id);
-            if (updated?.frames) updateProject(currentProject.id, { frames: updated.frames });
-        } catch (e) {
-            debugLog.error("Studio", "batch dialogue audio failed", e);
-            toast.error(t("batchDialogueFailed"));
+            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrent()) return;
+            const current = useProjectStore.getState().currentProject!;
+            const instructions = Object.fromEntries(current.frames.flatMap(frame => {
+                const value = batchInstructions(frame);
+                return value === undefined ? [] : [[frame.id, value]];
+            }));
+            submitted = true;
+            const result = await api.generateDialogueAudioBatch(projectId, instructions);
+            if (!isCurrent()) return;
+            if (!result.dialogue_audio_batch?.id || !Array.isArray(result.frames)) throw new Error(t("batchDialogueFailed"));
+            const latest = useProjectStore.getState().currentProject!;
+            if (latest.dialogue_audio_batch?.id && latest.dialogue_audio_batch.id !== previousGenerationId && latest.dialogue_audio_batch.id !== result.dialogue_audio_batch.id) return;
+            // The batch response owns audio fields only; editing may continue while it runs.
+            updateProject(projectId, { dialogue_audio_batch: result.dialogue_audio_batch, frames: latest.frames.map(frame => {
+                const saved = result.frames.find(saved => saved.id === frame.id);
+                const before = current.frames.find(before => before.id === frame.id);
+                const newerAudio = frame.audio_generation_id && frame.audio_generation_id !== before?.audio_generation_id && frame.audio_generation_id !== saved?.audio_generation_id;
+                return saved && !newerAudio && result.dialogue_audio_batch.frame_ids.includes(frame.id)
+                    ? { ...frame, ...Object.fromEntries(audioFields.map(field => [field, saved[field]])) } : frame;
+            }) });
+            useDialogueAudioRequests.setState({ [batchScope]: undefined });
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const recovering = submitted && (!status || status === 409 || status >= 500);
+            useDialogueAudioRequests.setState({ [batchScope]: {
+                error: recovering ? t("batchDialogueUnknown") : error?.response?.data?.detail || error?.message || t("batchDialogueFailed"),
+                recovering, previousGenerationId,
+            } });
         } finally {
-            setBannerState("summary");
-            setDialogueProgress(null);
+            const request = useDialogueAudioRequests.getState()[batchScope];
+            if (request?.operation) useDialogueAudioRequests.setState({ [batchScope]: undefined });
         }
-    }, [currentProject, updateProject]);
+    }, [currentProject?.id, currentProject?.dialogue_audio_batch?.id, batchScope, batchRunning, firstFrameContext, saveAllDrafts, batchInstructions, updateProject, t, generating]);
+
+    const startRefinement = useCallback(async (frameIds: string[]) => {
+        const projectId = currentProject?.id;
+        const existing = useStoryboardRequests.getState()[batchScope];
+        if (!projectId || !frameIds.length || existing?.pending || existing?.recovering || batchPending || storyboardRunning) return;
+        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        const request = { id: crypto.randomUUID(), phase: "refine" as const, pending: true, frameIds,
+            previousGenerationId: useProjectStore.getState().currentProject?.storyboard_generation?.id };
+        useStoryboardRequests.setState({ [batchScope]: request });
+        let submitted = false;
+        try {
+            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrent()) { useStoryboardRequests.setState({ [batchScope]: undefined }); return; }
+            submitted = true;
+            holdRefinements(frameIds);
+            useStoryboardRequests.setState({ [batchScope]: { ...request, submitted, progress: { current: 0, total: frameIds.length } } });
+            await api.refineBatchFrames(projectId, (event: RefineSSEEvent) => {
+                const latest = useStoryboardRequests.getState()[batchScope];
+                if (latest?.id !== request.id || !["frame_refine_complete", "frame_refine_error"].includes(event.type)) return;
+                useStoryboardRequests.setState({ [batchScope]: { ...latest, progress: { current: (event.frame_index ?? 0) + 1, total: event.total ?? frameIds.length } } });
+            }, frameIds);
+            const latest = useStoryboardRequests.getState()[batchScope];
+            if (latest?.id === request.id) useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering: true } });
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const recovering = submitted && (!status || status === 409 || status >= 500);
+            if (useStoryboardRequests.getState()[batchScope]?.id === request.id) useStoryboardRequests.setState({ [batchScope]: {
+                ...request, pending: false, submitted, recovering,
+                error: typeof error?.response?.data?.detail === "string" ? error.response.data.detail : recovering ? t("storyboardUnknown") : error?.message || t("refineFailedToast"),
+            } });
+        }
+    }, [currentProject?.id, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, t]);
 
     const handleSmartGenerate = useCallback(async () => {
-        if (!currentProject?.id) return;
+        const existing = useStoryboardRequests.getState()[batchScope];
+        if (!currentProject?.id || batchPending || structurePending || storyboardRunning || existing?.pending || existing?.recovering) return;
         const projectId = currentProject.id;
-        const scriptText = (currentProject as any).originalText || (currentProject as any).original_text || "";
-        if (!scriptText.trim()) {
-            toast.warning(t("genToastNoScript"));
-            return;
-        }
-        setGenerating(true);
-        setBannerState("phase1");
-        setShots([]);
+        const scriptText = (currentProject as any).original_text ?? currentProject.originalText ?? "";
+        if (!scriptText.trim()) { toast.warning(t("genToastNoScript")); return; }
+        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        const request = { id: crypto.randomUUID(), phase: "analyze" as const, pending: true,
+            previousGenerationId: currentProject.storyboard_generation?.id };
+        useStoryboardRequests.setState({ [batchScope]: request });
+        let submitted = false;
         try {
-            // Phase 1: generate coarse frames
+            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrent()) { useStoryboardRequests.setState({ [batchScope]: undefined }); return; }
+            const baselineFrames = useProjectStore.getState().currentProject!.frames;
+            const frameIds = baselineFrames.map(frame => frame.id);
+            submitted = true;
+            holdRefinements(frameIds);
+            useStoryboardRequests.setState({ [batchScope]: { ...request, submitted, frameIds, baselineFrames } });
             const updated = await api.analyzeToStoryboard(projectId, scriptText);
-            const newFrameCount = Array.isArray(updated?.frames) ? updated.frames.length : 0;
-            updateProject(projectId, updated);
-            if (Array.isArray(updated?.frames)) {
-                const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-                const videoTasks: any[] = (updated as any).video_tasks ?? [];
-                setShots(updated.frames.map((frame: any) => frameToShotNode(frame, videoTasks, defaultMode)));
+            const latest = useStoryboardRequests.getState()[batchScope];
+            if (latest?.id !== request.id) return;
+            if (updated?.storyboard_generation?.status !== "completed" || !updated.frames?.length) throw new Error(t("storyboardUnknown"));
+            const observedProject = useProjectStore.getState().currentProject;
+            const observedId = observedProject?.storyboard_generation?.id;
+            if (!isCurrent() || !taskContext.current.active
+                || observedId && observedId !== request.previousGenerationId && observedId !== updated.storyboard_generation.id) {
+                useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering: true } });
+                return;
             }
-
-            // Phase 2: batch refine (SSE)
-            if (newFrameCount > 0) {
-                setBannerState("phase2");
-                setRefineProgress({ current: 0, total: newFrameCount });
-                await api.refineBatchFrames(projectId, (event: RefineSSEEvent) => {
-                    if (event.type === "frame_refine_start") {
-                        setRefineProgress({ current: (event.frame_index ?? 0) + 1, total: event.total ?? newFrameCount });
-                    }
-                });
-                const refreshed = await api.getProject(projectId);
-                if (refreshed?.frames) {
-                    updateProject(projectId, { frames: refreshed.frames });
-                    const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-                    const videoTasks: any[] = (refreshed as any).video_tasks ?? [];
-                    setShots(refreshed.frames.map((frame: any) => frameToShotNode(frame, videoTasks, defaultMode)));
-                }
+            const adopted = adoptAnalyzedFrames(updated, baselineFrames);
+            if (!adopted) {
+                updateProject(projectId, { storyboard_generation: updated.storyboard_generation });
+                useStoryboardRequests.setState({ [batchScope]: { ...request, pending: false, error: t("storyboardChangedDuringAnalysis") } });
+                return;
             }
-            setBannerState("summary");
-            toast.success(t("genToastDone", { count: newFrameCount }));
-        } catch (err: any) {
-            const detail = err?.response?.data?.detail || err?.message || t("genToastErrUnknown");
-            toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
-        } finally {
-            setGenerating(false);
-            setRefineProgress(null);
-            // Determine final banner state based on actual current shots
-            setShots(currentShots => {
-                setBannerState(currentShots.length > 0 ? "summary" : "idle");
-                return currentShots;
-            });
+            updateProject(projectId, { frames: adopted, storyboard_generation: updated.storyboard_generation });
+            useStoryboardRequests.setState({ [batchScope]: undefined });
+            holdRefinements([]);
+            // Continue the confirmed generation through the same path as a failed-item retry.
+            await startRefinement(updated.frames.map((frame: { id: string }) => frame.id));
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const recovering = submitted && (!status || status === 409 || status >= 500);
+            const latest = useStoryboardRequests.getState()[batchScope];
+            if (latest?.id !== request.id) return;
+            const detail = typeof error?.response?.data?.detail === "string" ? error.response.data.detail : recovering ? t("storyboardUnknown") : error?.message || t("genToastErrUnknown");
+            useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering, error: detail } });
+            if (isCurrent()) toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
         }
-    }, [currentProject, updateProject, t]);
+    }, [currentProject, batchScope, batchPending, structurePending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, adoptAnalyzedFrames, updateProject, startRefinement, t]);
+
+    const displayedRefinements = useRef<Record<string, number>>({});
+    useEffect(() => {
+        const project = useProjectStore.getState().currentProject;
+        if (!project) return;
+        const next = shotsRef.current.map(shot => {
+            const version = refinedVersion(shot.id);
+            if (!version || displayedRefinements.current[shot.id] === version) return shot;
+            const frame = project.frames.find(frame => frame.id === shot.id);
+            if (!frame) return shot;
+            displayedRefinements.current[shot.id] = version;
+            return restoreDraft({ ...shot, ...frameToShotNode(frame, project.video_tasks ?? [], shot.tabMode) });
+        });
+        setShots(next);
+    }, [refinedVersion, restoreDraft]);
 
     const handleRefineFrame = useCallback(async (frameId: string) => {
-        if (!currentProject?.id) return;
         try {
-            await api.refineSingleFrame(currentProject.id, frameId);
-            const updated = await api.getProject(currentProject.id);
-            if (updated?.frames) {
-                updateProject(currentProject.id, { frames: updated.frames });
-                const defaultMode = currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-                const videoTasks: any[] = (updated as any).video_tasks ?? [];
-                setShots(updated.frames.map((frame: any) => frameToShotNode(frame, videoTasks, defaultMode)));
-            }
-            toast.success(t("refineDoneToast"));
+            if (await refine(frameId)) toast.success(t("refineDoneToast"));
         } catch (err) {
             toast.error(t("refineFailedToast"));
             debugLog.warn("Studio", "single frame refine failed", err);
         }
-    }, [currentProject, updateProject]);
+    }, [refine, t]);
 
-    // Delete a shot
+    // Keep the current order visible until the backend confirms the mutation.
     const deleteShot = useCallback(async (index: number) => {
         const target = shots[index];
-        if (!target) return;
-        setShots(prev => prev.filter((_, i) => i !== index));
-        setExpandedShots(prev => {
-            if (!prev.has(target.id)) return prev;
-            const next = new Set(prev);
-            next.delete(target.id);
-            return next;
-        });
-        if (!currentProject?.id) return;
-        // Synthetic id never reached backend → nothing to delete remotely.
-        if (target.id.startsWith("shot_")) return;
+        if (!target || structurePendingRef.current) return;
+        const projectId = currentProject?.id;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
+        structurePendingRef.current = true;
         try {
-            const resp = await crudApi.deleteFrame(currentProject.id, target.id);
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            if (frames) updateProject(currentProject.id, { frames });
+            if (projectId && !target.id.startsWith("shot_")) {
+                const resp = await crudApi.deleteFrame(projectId, target.id);
+                if (!isCurrentProject()) return;
+                updateProject(projectId, { frames: mergeFrameStructure(useProjectStore.getState().currentProject!.frames, resp?.frames) });
+            }
+            if (!isCurrentProject()) return;
+            discardDraft(target.id);
+            setShots(prev => prev.filter(shot => shot.id !== target.id));
+            if (useProjectStore.getState().selectedFrameId === target.id) {
+                setSelectedFrameId(shots[index + 1]?.id ?? shots[index - 1]?.id ?? null);
+            }
         } catch (err) {
             debugLog.warn("Studio", "deleteShot backend persist failed", err);
+            toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
+        } finally {
+            structurePendingRef.current = false;
+            endStructure(ownsStructure);
         }
-    }, [shots, currentProject, updateProject]);
+    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId, discardDraft, isCurrentProject, beginStructure, endStructure]);
 
-    // Move shot up/down
     const moveShot = useCallback(async (index: number, direction: "up" | "down") => {
         const targetIndex = direction === "up" ? index - 1 : index + 1;
-        if (targetIndex < 0 || targetIndex >= shots.length) return;
-        const updated = [...shots];
-        [updated[index], updated[targetIndex]] = [updated[targetIndex], updated[index]];
-        setShots(updated);
-        if (!currentProject?.id) return;
-        const ids = updated.map(s => s.id);
-        // Reorder requires every id to be backed on backend — if any
-        // are still synthetic (createFrame in-flight), defer; the next
-        // move after createFrame settles will reconcile.
-        if (ids.some(id => id.startsWith("shot_"))) return;
+        if (targetIndex < 0 || targetIndex >= shots.length || structurePendingRef.current) return;
+        const ids = shots.map(shot => shot.id);
+        if (ids.some(id => id.startsWith("shot_"))) {
+            toast.error(t("saveFailed"));
+            return;
+        }
+        [ids[index], ids[targetIndex]] = [ids[targetIndex], ids[index]];
+        const projectId = currentProject?.id;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
+        structurePendingRef.current = true;
         try {
-            const resp = await crudApi.reorderFrames(currentProject.id, ids);
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            if (frames) updateProject(currentProject.id, { frames });
+            if (projectId) {
+                const resp = await crudApi.reorderFrames(projectId, ids);
+                if (!isCurrentProject()) return;
+                updateProject(projectId, { frames: mergeFrameStructure(useProjectStore.getState().currentProject!.frames, resp?.frames) });
+            }
+            if (!isCurrentProject()) return;
+            setShots(prev => {
+                const next = [...prev];
+                const from = next.findIndex(shot => shot.id === shots[index].id);
+                const to = next.findIndex(shot => shot.id === shots[targetIndex].id);
+                if (from >= 0 && to >= 0) [next[from], next[to]] = [next[to], next[from]];
+                return next;
+            });
         } catch (err) {
             debugLog.warn("Studio", "moveShot backend persist failed", err);
+            toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
+        } finally {
+            structurePendingRef.current = false;
+            endStructure(ownsStructure);
         }
-    }, [shots, currentProject, updateProject]);
+    }, [shots, currentProject?.id, t, updateProject, isCurrentProject, beginStructure, endStructure]);
 
-    // Duplicate a shot
+    // Copy only after the source edits are saved; a failed copy leaves the sequence intact.
     const duplicateShot = useCallback(async (index: number) => {
         const source = shots[index];
-        if (!source) return;
-        const synthId = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const newShot: ShotNode = {
-            ...source,
-            id: synthId,
-            // Generated artifacts don't carry over; user duplicates
-            // the *intent* of the shot, not the output.
-            videoUrl: undefined,
-            videoTaskId: undefined,
-            videoStatus: undefined,
-            t2iImageUrl: undefined,
-            t2iTaskId: undefined,
-            t2iStatus: undefined,
-        };
-        setShots(prev => {
-            const updated = [...prev];
-            updated.splice(index + 1, 0, newShot);
-            return updated;
-        });
-        setExpandedShots(prev => {
-            const next = new Set(prev);
-            next.add(synthId);
-            return next;
-        });
-        if (!currentProject?.id) return;
-        // Source itself isn't on backend yet — best-effort: skip remote
-        // copy, the next workbench/prompt write will materialize it.
-        if (source.id.startsWith("shot_")) return;
+        const projectId = currentProject?.id;
+        if (!source || !projectId || structurePendingRef.current) return;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
+        structurePendingRef.current = true;
+        const selectedAtStart = useProjectStore.getState().selectedFrameId;
         try {
-            const resp = await crudApi.copyFrame(currentProject.id, source.id, index + 1);
-            const frames = Array.isArray(resp?.frames) ? resp.frames : null;
-            const realFrame = frames?.[index + 1];
-            if (realFrame?.id) {
-                setShots(prev => prev.map(s => s.id === synthId ? { ...s, id: realFrame.id } : s));
-                setExpandedShots(prev => {
-                    if (!prev.has(synthId)) return prev;
-                    const next = new Set(prev);
-                    next.delete(synthId);
-                    next.add(realFrame.id);
-                    return next;
-                });
-            }
-            if (frames) updateProject(currentProject.id, { frames });
+            if (!await saveAllDrafts()) return;
+            if (!isCurrentProject()) return;
+            const sourceId = await materializeShot(source, index);
+            if (!isCurrentProject()) return;
+            const previousIds = new Set<string>(useProjectStore.getState().currentProject!.frames.map(frame => frame.id));
+            const resp = await crudApi.copyFrame(projectId, sourceId, index + 1);
+            if (!isCurrentProject()) return;
+            const frames = mergeFrameStructure(useProjectStore.getState().currentProject!.frames, resp?.frames);
+            const frame = addedFrame(previousIds, frames);
+            setShots(prev => {
+                const next = [...prev];
+                next.splice(index + 1, 0, frameToShotNode(frame, []));
+                return next;
+            });
+            if (useProjectStore.getState().selectedFrameId === selectedAtStart) setSelectedFrameId(frame.id);
+            updateProject(projectId, { frames });
         } catch (err) {
-            debugLog.warn("Studio", "duplicateShot backend persist failed", err);
+            toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
+        } finally {
+            structurePendingRef.current = false;
+            endStructure(ownsStructure);
         }
-    }, [shots, currentProject, updateProject]);
+    }, [shots, currentProject?.id, saveAllDrafts, materializeShot, updateProject, setSelectedFrameId, t, isCurrentProject, beginStructure, endStructure]);
 
-    // Update shot prompt — local immediate + debounced backend write
+    // Update local input immediately; the shared writer retains it until acknowledged.
     const updatePrompt = useCallback((index: number, prompt: string) => {
-        setShots(prev => prev.map((s, i) => {
-            if (i !== index) return s;
-            persistPrompt(s.id, prompt);
-            return { ...s, prompt };
-        }));
-    }, [persistPrompt]);
+        const shot = shots[index];
+        if (!shot) return;
+        persistPrompt(shot.id, prompt);
+        setShots(prev => prev.map(s => s.id === shot.id ? { ...s, prompt } : s));
+    }, [shots, persistPrompt]);
 
-    // Set shot tab mode + persist so the user's last-active tab
-    // survives refresh.
     const setTabMode = useCallback((index: number, mode: "t2i_i2v" | "direct_r2v") => {
-        setShots(prev => prev.map((s, i) => {
-            if (i !== index) return s;
-            persistWorkbench(s.id, { workbench_tab_mode: mode });
-            return { ...s, tabMode: mode };
-        }));
-    }, [persistWorkbench]);
+        const shot = shots[index];
+        if (!shot) return;
+        persistWorkbench(shot.id, { workbench_tab_mode: mode });
+        setShots(prev => prev.map(s => s.id === shot.id ? { ...s, tabMode: mode } : s));
+    }, [shots, persistWorkbench]);
 
     // Structured field updates — local immediate + debounce 3s auto-save
-    const fieldPendingRef = useRef<Map<string, { timer: number; fields: Record<string, any> }>>(new Map());
     const handleUpdateField = useCallback((index: number, field: string, value: string | number | null) => {
+        if (field === "duration" && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) return;
         setShots(prev => prev.map((s, i) => {
             if (i !== index) return s;
             if (field === "duration") return { ...s, duration: typeof value === "number" ? value : null };
@@ -697,40 +715,16 @@ export default function StoryboardR2V() {
             if (field === "transitionHint") return { ...s, transitionHint: typeof value === "string" ? value : null };
             return s;
         }));
-        // Debounce 3s persist to backend
         const shotId = shots[index]?.id;
-        if (!shotId || shotId.startsWith("shot_") || !currentProject?.id) return;
-        const projectId = currentProject.id;
-        const map = fieldPendingRef.current;
-        const existing = map.get(shotId);
-        if (existing) window.clearTimeout(existing.timer);
+        if (!shotId) return;
         const backendField: Record<string, any> = {};
         if (field === "duration") backendField.duration = typeof value === "number" ? value : undefined;
-        if (field === "shotSize") backendField.shot_size = typeof value === "string" ? value : undefined;
-        if (field === "cameraAngle") backendField.camera_angle = typeof value === "string" ? value : undefined;
-        if (field === "cameraMovement") backendField.camera_movement_description = typeof value === "string" ? value : undefined;
-        if (field === "transitionHint") backendField.transition_hint = typeof value === "string" ? value : undefined;
-        const merged = { ...(existing?.fields ?? {}), ...backendField };
-        const timer = window.setTimeout(() => {
-            map.delete(shotId);
-            api.updateFrame(projectId, shotId, merged)
-                .then(() => {
-                    const proj = useProjectStore.getState().currentProject;
-                    if (!proj || proj.id !== projectId) return;
-                    const nextFrames = (proj.frames ?? []).map((f: any) =>
-                        f.id === shotId ? { ...f, ...merged } : f,
-                    );
-                    updateProject(projectId, { frames: nextFrames });
-                })
-                .catch((err) => {
-                    debugLog.warn("Studio", "persistField failed", err);
-                    toast.error(t("saveFailed"), {
-                        body: err instanceof Error ? err.message : t("unknownError"),
-                    });
-                });
-        }, 3000);
-        map.set(shotId, { timer, fields: merged });
-    }, [shots, currentProject?.id, t, updateProject]);
+        if (field === "shotSize") backendField.shot_size = typeof value === "string" ? value : "";
+        if (field === "cameraAngle") backendField.camera_angle = typeof value === "string" ? value : "";
+        if (field === "cameraMovement") backendField.camera_movement_description = typeof value === "string" ? value : "固定镜头";
+        if (field === "transitionHint") backendField.transition_hint = typeof value === "string" ? value : "";
+        queueDraft(shotId, "fields", backendField, 3000);
+    }, [shots, queueDraft]);
 
     // Duration editor config — derived from active R2V model's catalog entry
     const durationEditorCfg = useMemo(() => {
@@ -837,80 +831,91 @@ export default function StoryboardR2V() {
         return prompt.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
     };
 
-    const materializeShot = useCallback(async (shot: ShotNode, index: number): Promise<string> => {
-        if (!shot.id.startsWith("shot_")) return shot.id;
-        if (!currentProject?.id) throw new Error("No current project");
+    const mergeAudioResult = (frameId: string, result: any, fields: readonly string[]) => {
+        const auth = useAuthStore.getState();
+        const current = useProjectStore.getState().currentProject;
+        if (!current || auth.user?.id !== firstFrameContext.userId || auth.activeWorkspace?.id !== firstFrameContext.workspaceId || current.id !== currentProject?.id) return;
+        const saved = result?.frames?.find((frame: { id: string }) => frame.id === frameId);
+        if (!saved) throw new Error(t("saveFailed"));
+        updateProject(current.id, { frames: current.frames.map(frame => frame.id === frameId
+            ? { ...frame, ...Object.fromEntries(fields.map(field => [field, saved[field]])) } : frame) });
+    };
 
-        const projectId = currentProject.id;
-        const created = await crudApi.createFrame(projectId, {
-            scene_id: "",
-            action_description: shot.prompt || "",
-            insert_at: index,
-        });
-        const frames = Array.isArray(created?.frames) ? created.frames : [];
-        const newFrame = frames[Math.min(index, frames.length - 1)];
-        if (!newFrame?.id) throw new Error("Frame creation returned no persisted frame");
+    // Reentry observes the same request. Image readback must not replace prompt drafts.
+    useEffect(() => {
+        setShots(previous => previous.map(shot => {
+            const request = firstFrameRequests[firstFrameKey(shot.id)];
+            const frame = currentProject?.frames.find(frame => frame.id === shot.id);
+            const saved = frame ? restoreDraft(frameToShotNode(frame, [])) : shot;
+            const next = {
+                ...shot, imageUrl: saved.imageUrl,
+                dialogueStructured: saved.dialogueStructured,
+                t2iImageUrls: saved.t2iImageUrls, t2iSelectedIndex: saved.t2iSelectedIndex,
+                t2iError: request?.error || frame?.image_error || undefined,
+                t2iOperation: request?.operation,
+                t2iRecovering: request?.recovering,
+            };
+            return { ...next, t2iImageUrl: getActiveT2IImageUrl(next),
+                t2iStatus: request?.pending || frame?.image_generation_status === "processing" ? "processing" : next.t2iError ? "failed"
+                    : getActiveT2IImageUrl(next) || next.imageUrl ? "completed" : undefined };
+        }));
+    }, [currentProject?.frames, firstFrameRequests, firstFrameKey, restoreDraft]);
 
-        setShots(prev => prev.map((candidate, candidateIndex) =>
-            candidateIndex === index ? { ...candidate, id: newFrame.id } : candidate,
-        ));
-        setExpandedShots(prev => {
-            if (!prev.has(shot.id)) return prev;
-            const next = new Set(prev);
-            next.delete(shot.id);
-            next.add(newFrame.id);
-            return next;
-        });
-        updateProject(projectId, { frames });
-        return newFrame.id;
-    }, [currentProject?.id, updateProject]);
-
-    // Generate T2I image for a shot (t2i_i2v mode stage 1)
-    const generateT2I = useCallback(async (index: number) => {
-        const shot = shots[index];
-        if (!currentProject || !shot.prompt.trim()) return;
-
-        setShots(prev => prev.map((s, i) =>
-            i === index ? { ...s, t2iStatus: "pending" } : s
-        ));
-
+    // storyboard/render is a long synchronous request; its Script id is never a task id.
+    const submitFirstFrame = useCallback(async (index: number, file?: File): Promise<T2IUploadError | void> => {
+        const shot = shotsRef.current[index];
+        if (!currentProject || !shot || (!file && !shot.prompt.trim())) return;
+        const operation = file ? "upload" : "generate";
+        let key = firstFrameKey(shot.id);
+        if (useFirstFrameRequests.getState()[key]?.pending || currentProject.frames.find(frame => frame.id === shot.id)?.image_generation_status === "processing") return;
+        const isCurrentScope = () => useAuthStore.getState().user?.id === firstFrameContext.userId
+            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId;
+        const clearRequest = (requestKey: string) => useFirstFrameRequests.setState(state => {
+            const next = { ...state }; delete next[requestKey]; return next;
+        }, true);
+        const requestState = { pending: true, operation, previousGenerationId: currentProject.frames.find(frame => frame.id === shot.id)?.image_generation_id } as const;
+        useFirstFrameRequests.setState({ [key]: requestState });
+        let dispatched = false;
+        let received = false;
         try {
             const frameId = await materializeShot(shot, index);
-            const result = await api.renderFrame(
-                currentProject.id,
-                frameId,
-                {},  // compositionData (empty for now)
-                cleanPrompt(shot.prompt),
-                1    // batchSize
-            );
-
-            if (result?.task_id || result?.id) {
-                const taskId = result.task_id || result.id;
-                setShots(prev => prev.map((s, i) =>
-                    i === index ? { ...s, t2iTaskId: taskId, t2iStatus: "processing" } : s
-                ));
-            } else if (result?.image_url || result?.rendered_image_url) {
-                // Immediate result (synchronous render). Append to T2I
-                // history + auto-select so the new image becomes the
-                // active首帧 used by downstream I2V generation.
-                const imageUrl = result.image_url || result.rendered_image_url;
-                setShots(prev => prev.map((s, i) => {
-                    if (i !== index) return s;
-                    const updated = appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl);
-                    persistWorkbench(s.id, {
-                        t2i_image_urls: updated.t2iImageUrls ?? [],
-                        t2i_selected_index: updated.t2iSelectedIndex ?? 0,
-                    });
-                    return updated;
-                }));
+            if (!isCurrentScope()) { clearRequest(key); return; }
+            const persistedKey = firstFrameKey(frameId);
+            if (persistedKey !== key) {
+                clearRequest(key);
+                if (useFirstFrameRequests.getState()[persistedKey]?.pending) return;
+                key = persistedKey;
+                useFirstFrameRequests.setState({ [key]: requestState });
             }
-        } catch (error) {
+            // A queued history edit must settle before the server appends a new candidate.
+            if (!await flushDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrentScope()) { clearRequest(key); return; }
+            dispatched = true;
+            const result = file ? await api.uploadT2IFrame(currentProject.id, frameId, file)
+                : await api.renderFrame(currentProject.id, frameId, {}, cleanPrompt(shot.prompt), 1);
+            received = true;
+            const rendered = file ? result : result?.frames?.find((frame: { id: string }) => frame.id === frameId);
+            const imageUrl = file ? rendered?.t2i_image_urls?.[rendered.t2i_selected_index ?? 0] : extractT2IImageUrl(result, frameId);
+            if ((!file && rendered?.status === "failed") || !imageUrl) throw new Error(rendered?.image_error || t("t2iFailed"));
+            const project = useProjectStore.getState().currentProject;
+            if (isCurrentScope() && project?.id === currentProject.id) {
+                updateProject(project.id, { frames: project.frames.map(frame => frame.id === frameId ? {
+                    ...frame, ...(!file ? { image_url: imageUrl, rendered_image_url: imageUrl } : {}), image_error: null,
+                    image_generation_status: rendered?.image_generation_status ?? null,
+                    image_generation_id: rendered?.image_generation_id ?? null,
+                    t2i_image_urls: rendered?.t2i_image_urls?.length ? rendered.t2i_image_urls : [imageUrl],
+                    t2i_selected_index: rendered?.t2i_selected_index ?? 0,
+                } : frame) });
+            }
+            clearRequest(key);
+        } catch (error: any) {
             debugLog.error("Studio", "Failed to generate T2I for shot:", error);
-            setShots(prev => prev.map((s, i) =>
-                i === index ? { ...s, t2iStatus: "failed" } : s
-            ));
+            const detail = error?.response?.data?.detail || error?.message || t("t2iFailed");
+            const recovering = !file && dispatched && !received && (!error?.response || error.response.status === 409 || error.response.status >= 500);
+            useFirstFrameRequests.setState({ [key]: { ...requestState, pending: recovering, recovering, error: String(detail) } });
+            if (file) return { code: "network", detail: String(detail) };
         }
-    }, [shots, currentProject, materializeShot, persistWorkbench]);
+    }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, t]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
@@ -1261,85 +1266,200 @@ export default function StoryboardR2V() {
         }
     }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot]);
 
-    // Project-level task refresh: when any task on any shot is in
-    // flight, refetch the whole project every 5s. The candidates
-    // panel + queue read from currentProject.video_tasks for canonical
-    // state. Cheap because it's just a GET; cancels when nothing is
-    // in flight. This is independent of the per-shot poll above (the
-    // per-shot poll updates shot.videoStatus / videoUrl which drives
-    // the ShotCard preview; the project refresh fills in candidate
-    // metadata like is_starred / label / error / final video_url).
+    const [refreshingTasks, setRefreshingTasks] = useState(false);
+    const [taskRefreshError, setTaskRefreshError] = useState(false);
+    const [taskRefreshNeeded, setTaskRefreshNeeded] = useState(false);
+    const taskRefreshRequest = useRef<Promise<void> | null>(null);
+    const missingFirstFrameMessage = t("t2iFrameMissing");
+    const storyboardUnknownMessage = t("storyboardUnknown");
+    const storyboardChangedMessage = t("storyboardChangedDuringAnalysis");
+    const refinementDoneMessage = t("refineDoneToast");
+    const taskContext = useRef({
+        active: false,
+        userId: useAuthStore.getState().user?.id,
+        workspaceId: useAuthStore.getState().activeWorkspace?.id,
+    });
     useEffect(() => {
-        if (!currentProject?.id) return;
-        const allTasks: any[] = (currentProject as any).video_tasks ?? [];
-        const anyInFlight = allTasks.some(
-            (t) => t.status === "pending" || t.status === "processing",
-        );
-        // Also poll if any shot's locally-tracked videoTaskId is not
-        // yet reflected in the project record (closes the just-created
-        // window). With the Phase-2 derive-from-tasks model, we only
-        // care about the legacy single-id mirror on the shot.
-        const localInFlight = shots.some((s) => {
-            const id = s.videoTaskId;
-            if (!id) return false;
-            const t = allTasks.find((tt) => tt.id === id);
-            return !t || t.status === "pending" || t.status === "processing";
-        });
-        if (!anyInFlight && !localInFlight) return;
-        const projectId = currentProject.id;
-        const id = window.setInterval(async () => {
+        const context = { ...taskContext.current, active: true };
+        taskContext.current = context;
+        return () => { context.active = false; };
+    }, []);
+
+    const refreshProject = useCallback((): Promise<void> => {
+        if (taskRefreshRequest.current) return taskRefreshRequest.current;
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.resolve();
+        const projectAtStart = useProjectStore.getState().currentProject;
+        const selectionsAtStart = useVideoSelectionRequests.getState();
+        const imagesAtStart = useFirstFrameRequests.getState();
+        const audioAtStart = useDialogueAudioRequests.getState();
+        const storyboardAtStart = projectAtStart?.storyboard_generation;
+        const storyboardRequestAtStart = useStoryboardRequests.getState()[batchScope];
+        setRefreshingTasks(true);
+        const request = (async () => {
             try {
                 const fresh = await api.getProject(projectId);
-                updateProject(projectId, fresh);
-            } catch {
-                /* swallow — network blips are fine, next tick retries */
-            }
-        }, 5000);
-        return () => window.clearInterval(id);
-    }, [currentProject?.id, (currentProject as any)?.video_tasks, shots, updateProject]);
-
-    // Poll only asset-generation tasks through the generic task endpoint.
-    // Video tasks are canonical on currentProject.video_tasks and are refreshed
-    // by the project-level poll above; /tasks/{id} does not expose video tasks.
-    useEffect(() => {
-        const processingShots = shots.filter(s =>
-            (s.t2iTaskId && (s.t2iStatus === "processing" || s.t2iStatus === "pending"))
-        );
-        if (processingShots.length === 0) return;
-
-        const interval = setInterval(async () => {
-            for (const shot of processingShots) {
-                // Poll T2I task
-                if (shot.t2iTaskId && (shot.t2iStatus === "processing" || shot.t2iStatus === "pending")) {
-                    try {
-                        const status = await api.getTaskStatus(shot.t2iTaskId);
-                        if (status.status === "completed") {
-                            const imageUrl = status.image_url || status.video_url || status.result_url;
-                            if (imageUrl) {
-                                setShots(prev => prev.map(s => {
-                                    if (s.id !== shot.id) return s;
-                                    const updated = appendT2IImage({ ...s, t2iStatus: "completed" }, imageUrl);
-                                    persistWorkbench(s.id, {
-                                        t2i_image_urls: updated.t2iImageUrls ?? [],
-                                        t2i_selected_index: updated.t2iSelectedIndex ?? 0,
-                                    });
-                                    return updated;
-                                }));
-                            }
-                        } else if (status.status === "failed") {
-                            setShots(prev => prev.map(s =>
-                                s.id === shot.id ? { ...s, t2iStatus: "failed" } : s
-                            ));
-                        }
-                    } catch (error) {
-                        debugLog.error("Studio", "T2I poll failed for shot:", shot.id, error);
-                    }
+                if (!isCurrent()) return;
+                // A task mutation won the race; the next read will reconcile it.
+                const current = useProjectStore.getState().currentProject!;
+                if (current.video_tasks !== projectAtStart?.video_tasks) {
+                    setTaskRefreshNeeded(true);
+                    return;
                 }
+                let selectionReadNeeded = false;
+                const selectionWriteOccurred = selectionsAtStart !== useVideoSelectionRequests.getState();
+                const batchAtStart = audioAtStart[batchScope];
+                const batchObserved = projectAtStart?.dialogue_audio_batch;
+                const watchBatch = batchObserved?.status === "processing" || batchObserved?.status === "pending" || !!batchAtStart?.operation || !!batchAtStart?.recovering;
+                const batchReadSafe = batchAtStart === useDialogueAudioRequests.getState()[batchScope] && batchObserved === current.dialogue_audio_batch;
+                if (watchBatch && !batchReadSafe) selectionReadNeeded = true;
+                const watchStoryboard = storyboardAtStart?.status === "processing" || storyboardAtStart?.status === "pending"
+                    || storyboardRequestAtStart?.submitted && (storyboardRequestAtStart.pending || storyboardRequestAtStart.recovering || !!storyboardRequestAtStart.error);
+                const storyboardReadSafe = current.storyboard_generation === storyboardAtStart
+                    && storyboardRequestAtStart?.id === useStoryboardRequests.getState()[batchScope]?.id;
+                const storyboardObserved = !storyboardRequestAtStart?.submitted
+                    || !!fresh.storyboard_generation?.id && fresh.storyboard_generation.id !== storyboardRequestAtStart.previousGenerationId;
+                const completedAnalysis = watchStoryboard && storyboardReadSafe && storyboardObserved
+                    && fresh.storyboard_generation?.phase === "analyze" && fresh.storyboard_generation.status === "completed";
+                const acceptedAnalysis = completedAnalysis && adoptAnalyzedFrames(fresh, storyboardRequestAtStart?.baselineFrames ?? analysisBaseline.current?.frames ?? projectAtStart?.frames);
+                if (watchStoryboard && !storyboardReadSafe) selectionReadNeeded = true;
+                const refinedFrames: any[] = [];
+                const frames = current.frames.map(frame => {
+                    const saved = fresh.frames?.find((saved: { id: string }) => saved.id === frame.id);
+                    const before = projectAtStart?.frames.find(before => before.id === frame.id);
+                    const key = JSON.stringify([context.userId, context.workspaceId, projectId, frame.id]);
+                    let next = frame;
+                    if (watchStoryboard && storyboardReadSafe && storyboardObserved && fresh.storyboard_generation?.phase === "refine"
+                        && fresh.storyboard_generation.results[frame.id] === "completed" && saved) {
+                        next = mergeRefinementFields(next, saved, before);
+                        refinedFrames.push(next);
+                    }
+                    for (const kind of ["audio", "dub"] as const) {
+                        const fields = kind === "audio" ? audioFields : dubFields;
+                        const statusField = `${kind}_generation_status` as const;
+                        const generationField = `${kind}_generation_id` as const;
+                        const errorField = kind === "audio" ? "audio_error" : "dub_error";
+                        const request = audioAtStart[key];
+                        const recovering = request?.recovering && (request.recoveryKind ?? "audio") === kind;
+                        const batchAudio = kind === "audio" && watchBatch && batchReadSafe
+                            && (fresh.dialogue_audio_batch?.frame_ids.includes(frame.id) || batchObserved?.frame_ids.includes(frame.id));
+                        if (before?.[statusField] !== "processing" && request?.operation !== (kind === "audio" ? "generate" : "preview") && !recovering && !batchAudio) continue;
+                        if (audioAtStart[key] !== useDialogueAudioRequests.getState()[key] || fields.some(field => before?.[field] !== frame[field])) {
+                            selectionReadNeeded = true;
+                        } else if (!saved) {
+                            useDialogueAudioRequests.setState({ [key]: { instructions: audioAtStart[key]?.instructions } });
+                            next = { ...next, [statusField]: "failed", [errorField]: missingFirstFrameMessage };
+                        } else {
+                            next = { ...next, ...Object.fromEntries(fields.map(field => [field, saved[field]])) };
+                            if (recovering) {
+                                useDialogueAudioRequests.setState(state => {
+                                    const requests = { ...state };
+                                    if (saved[generationField] && saved[generationField] !== audioAtStart[key]?.previousGenerationId) {
+                                        if (saved[statusField] === "failed") requests[key] = { instructions: audioAtStart[key]?.instructions };
+                                        else delete requests[key];
+                                    }
+                                    else requests[key] = { ...audioAtStart[key], recovering: false };
+                                    return requests;
+                                }, true);
+                            }
+                        }
+                    }
+                    const imageRequest = imagesAtStart[key];
+                    if (before?.image_generation_status === "processing" || (imageRequest?.operation === "generate" && imageRequest.pending)) {
+                        if (imageRequest !== useFirstFrameRequests.getState()[key] || firstFrameFields.some(field => before?.[field] !== frame[field])) {
+                            selectionReadNeeded = true;
+                        } else {
+                            if (!saved) {
+                                useFirstFrameRequests.setState(state => {
+                                    const requests = { ...state }; delete requests[key]; return requests;
+                                }, true);
+                                return { ...next, image_generation_status: "failed", image_error: missingFirstFrameMessage };
+                            }
+                            // Never replace prompt drafts or a history selection written during this read.
+                            next = { ...next, ...Object.fromEntries(firstFrameFields.map(field => [field, saved[field]])) };
+                            if (imageRequest?.recovering) {
+                                const observed = saved.image_generation_id && saved.image_generation_id !== imageRequest.previousGenerationId;
+                                useFirstFrameRequests.setState(state => {
+                                    const requests = { ...state };
+                                    if (observed) delete requests[key];
+                                    else requests[key] = { ...imageRequest, pending: false, recovering: false };
+                                    return requests;
+                                }, true);
+                            }
+                        }
+                    }
+                    if (!saved) return next;
+                    const fields = ["selected_video_id", "video_url", "is_video_pinned"] as const;
+                    if (fields.every(field => saved[field] === frame[field])) return next;
+                    if (selectionWriteOccurred || selectionsAtStart[key] || fields.some(field => before?.[field] !== frame[field])) {
+                        selectionReadNeeded = true;
+                        return next;
+                    }
+                    return { ...next, selected_video_id: saved.selected_video_id, video_url: saved.video_url, is_video_pinned: saved.is_video_pinned };
+                });
+                // Completion and adoption are saved together by the backend. Do not
+                // replace prompt edits or a selection written while this read ran.
+                if (watchBatch && batchReadSafe && batchAtStart?.recovering) {
+                    const observed = fresh.dialogue_audio_batch?.id && fresh.dialogue_audio_batch.id !== batchAtStart.previousGenerationId;
+                    useDialogueAudioRequests.setState({ [batchScope]: observed ? undefined : { ...batchAtStart, recovering: false } });
+                }
+                updateProject(projectId, {
+                    ...(watchStoryboard && storyboardReadSafe && storyboardObserved ? { storyboard_generation: fresh.storyboard_generation ?? null } : {}),
+                    ...(watchBatch && batchReadSafe ? { dialogue_audio_batch: fresh.dialogue_audio_batch ?? null } : {}),
+                    video_tasks: fresh.video_tasks ?? [], frames: acceptedAnalysis && acceptedAnalysis !== current.frames ? acceptedAnalysis : frames.some((frame, index) => frame !== current.frames[index]) ? frames : current.frames,
+                });
+                refinedFrames.forEach(acceptRefinement);
+                const refinedJob = fresh.storyboard_generation;
+                if (watchStoryboard && storyboardReadSafe && storyboardObserved && refinedJob?.phase === "refine" && refinedJob.status === "completed"
+                    && (storyboardAtStart?.id !== refinedJob.id || storyboardAtStart?.status !== "completed")
+                    && refinedJob.frame_ids.length > 0 && refinedJob.frame_ids.every((id: string) => ["completed", "skipped"].includes(refinedJob.results[id]))) {
+                    toast.success(refinementDoneMessage);
+                }
+                if (watchStoryboard && storyboardReadSafe && storyboardRequestAtStart && !storyboardRequestAtStart.pending) {
+                    useStoryboardRequests.setState({ [batchScope]: storyboardObserved ? undefined : { ...storyboardRequestAtStart, recovering: false, error: storyboardRequestAtStart.error || storyboardUnknownMessage } });
+                }
+                if (completedAnalysis && !acceptedAnalysis) useStoryboardRequests.setState({ [batchScope]: {
+                    id: storyboardRequestAtStart?.id ?? crypto.randomUUID(), phase: "analyze", error: storyboardChangedMessage,
+                } });
+                setTaskRefreshNeeded(selectionReadNeeded);
+                setTaskRefreshError(false);
+            } catch {
+                if (isCurrent()) setTaskRefreshError(true);
+            } finally {
+                if (isCurrent()) setRefreshingTasks(false);
+                taskRefreshRequest.current = null;
             }
-        }, 5000);
+        })();
+        taskRefreshRequest.current = request;
+        return request;
+    }, [currentProject?.id, updateProject, missingFirstFrameMessage, batchScope, acceptRefinement, storyboardUnknownMessage, storyboardChangedMessage, refinementDoneMessage, adoptAnalyzedFrames]);
 
-        return () => clearInterval(interval);
-    }, [shots, persistWorkbench]);
+    useEffect(() => {
+        if (storyboardRequest?.recovering) void refreshProject();
+    }, [storyboardRequest?.id, storyboardRequest?.recovering, refreshProject]);
+
+    const hasPendingVideoTasks = (currentProject?.video_tasks ?? []).some(task =>
+        task.status === "pending" || task.status === "processing",
+    ) || shots.some(shot => {
+        if (!shot.videoTaskId) return false;
+        const task = currentProject?.video_tasks?.find(task => task.id === shot.videoTaskId);
+        return !task || task.status === "pending" || task.status === "processing";
+    });
+    const hasPendingImages = currentProject?.frames.some(frame => frame.image_generation_status === "processing")
+        || shots.some(shot => firstFrameRequests[firstFrameKey(shot.id)]?.pending);
+    const hasPendingDialogueMedia = batchPending || currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing")
+        || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.operation === "preview" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
+    useEffect(() => {
+        if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingDialogueMedia && !generating && !taskRefreshNeeded) return;
+        // Editing a shot must not postpone task updates. Slow reads share one request.
+        const timer = window.setInterval(() => { void refreshProject(); }, 5000);
+        return () => window.clearInterval(timer);
+    }, [hasPendingVideoTasks, hasPendingImages, hasPendingDialogueMedia, generating, taskRefreshNeeded, refreshProject]);
 
     // Insert asset tag from drawer into target shot
     const insertAssetFromDrawer = useCallback((type: string, name: string) => {
@@ -1381,6 +1501,9 @@ export default function StoryboardR2V() {
         () => ((currentProject as any)?.video_tasks ?? []) as VideoTask[],
         [currentProject],
     );
+    const retryRequests = useVideoRetryRequests();
+    const retryScope = [taskContext.current.userId, taskContext.current.workspaceId, currentProject?.id];
+    const retryingTaskIds = new Set(allVideoTasks.filter(task => retryRequests[JSON.stringify([...retryScope, task.id])]).map(task => task.id));
 
     const tasksById = useMemo(() => {
         const map = new Map<string, VideoTask>();
@@ -1391,9 +1514,9 @@ export default function StoryboardR2V() {
     // Map shot.id → human label for the queue panel's frame column.
     const shotLabelByFrameId = useMemo(() => {
         const out: Record<string, string> = {};
-        shots.forEach((s, i) => { out[s.id] = `Shot ${i + 1}`; });
+        shots.forEach((s, i) => { out[s.id] = `${t("shot")} ${i + 1}`; });
         return out;
-    }, [shots]);
+    }, [shots, t]);
 
     // In-flight aggregate count drives the TaskQueueButton badge.
     const inFlightTaskCount = useMemo(
@@ -1401,62 +1524,84 @@ export default function StoryboardR2V() {
         [allVideoTasks],
     );
 
-    // Sync shot.videoStatus from project.video_tasks when the
-    // project-level poll refreshes. Video task status is only visible
-    // via project refresh (GET /tasks/ only covers asset tasks).
-    useEffect(() => {
-        if (!allVideoTasks.length) return;
-        const autoSelectFrameIds: string[] = [];
-        setShots(prev => {
-            let changed = false;
-            const next = prev.map(s => {
-                if (!s.videoTaskId) return s;
-                const task = allVideoTasks.find(t => t.id === s.videoTaskId);
-                if (!task) return s;
-                if (task.status === "completed" && s.videoStatus !== "completed") {
-                    changed = true;
-                    autoSelectFrameIds.push(s.id);
-                    return { ...s, videoStatus: "completed" as const, videoUrl: (task as any).video_url };
-                }
-                if (task.status === "failed" && s.videoStatus !== "failed") {
-                    changed = true;
-                    return { ...s, videoStatus: "failed" as const };
-                }
-                return s;
-            });
-            return changed ? next : prev;
-        });
-        // Persist newly-completed videos as the frame's active take so the
-        // hero survives reload / refine / cross-device opens. Backend skips
-        // pinned frames; failures here are non-fatal (UI already updated).
+    const videoSelectionRequests = useVideoSelectionRequests();
+    const selectingVideoFrames = Object.fromEntries(shots.map(shot => [shot.id, !!videoSelectionRequests[JSON.stringify([...retryScope, shot.id])]]));
+    const updateVideoSelection = useCallback((frameId: string, mode: "select" | "unpin", taskId?: string): Promise<void> => {
         const projectId = currentProject?.id;
-        if (projectId && autoSelectFrameIds.length > 0) {
-            Promise.all(
-                autoSelectFrameIds.map(frameId =>
-                    api.autoSelectLatestVideo(projectId, frameId).catch(err => {
-                        debugLog.warn("Studio", "autoSelectLatestVideo failed for frame:", frameId, err);
-                        return null;
-                    })
-                )
-            ).then(results => {
-                // Use the last successful response's frames (all calls
-                // converge on the same script state — last write wins).
-                const last = results.filter(Boolean).pop() as any;
-                if (last?.frames) {
-                    updateProject(projectId, { frames: last.frames });
-                    // Sync the hero on every auto-selected frame: backend may
-                    // have picked a sibling take in the same batch, so the
-                    // optimistic videoUrl set above could be stale by a hop.
-                    setShots(prev => prev.map(s => {
-                        if (!autoSelectFrameIds.includes(s.id)) return s;
-                        const refreshed = last.frames.find((f: any) => f.id === s.id);
-                        if (!refreshed?.video_url) return s;
-                        return { ...s, videoUrl: refreshed.video_url, isVideoPinned: Boolean(refreshed.is_video_pinned) };
-                    }));
-                }
-            });
+        const context = taskContext.current;
+        const isCurrent = () => useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.resolve();
+        const key = JSON.stringify([context.userId, context.workspaceId, projectId, frameId]);
+        const existing = useVideoSelectionRequests.getState()[key];
+        if (existing) {
+            if (existing.mode === mode && existing.taskId === taskId) return existing.promise;
+            return existing.promise.catch(() => {}).then(() => updateVideoSelection(frameId, mode, taskId));
         }
-    }, [allVideoTasks, currentProject?.id, updateProject]);
+        const promise = (async () => {
+            try {
+                const updated = mode === "unpin" ? await api.unpinVideo(projectId, frameId)
+                    : await api.selectVideo(projectId, frameId, taskId!);
+                if (!isCurrent()) return;
+                const frame = updated.frames?.find((frame: { id: string }) => frame.id === frameId);
+                if (!frame) throw new Error("Video selection response is missing its frame");
+                const selection = { selected_video_id: frame.selected_video_id, video_url: frame.video_url, is_video_pinned: frame.is_video_pinned };
+                const frames = useProjectStore.getState().currentProject?.frames ?? [];
+                const currentFrame = frames.find(current => current.id === frameId);
+                if (!currentFrame) return;
+                // The response is a project snapshot; only this frame's selection belongs to this operation.
+                updateProject(projectId, { frames: frames.map(current => current.id === frameId ? { ...current, ...selection } : current) });
+            } catch (error) {
+                if (!context.active && isCurrent()) toast.error(t("candidateSaveFailed"));
+                throw error;
+            } finally {
+                useVideoSelectionRequests.setState(state => {
+                    const remaining = { ...state };
+                    delete remaining[key];
+                    return remaining;
+                }, true);
+            }
+        })();
+        useVideoSelectionRequests.setState({ [key]: { mode, taskId, promise } });
+        return promise;
+    }, [currentProject?.id, updateProject, t]);
+
+    useEffect(() => {
+        setShots(previous => {
+            let changed = false;
+            const next = previous.map(shot => {
+                const frame = currentProject?.frames.find(frame => frame.id === shot.id);
+                if (!frame) return shot;
+                const videoUrl = frameToShotNode(frame, []).videoUrl ?? shot.videoUrl;
+                const isVideoPinned = Boolean(frame.is_video_pinned);
+                if (videoUrl === shot.videoUrl && isVideoPinned === !!shot.isVideoPinned) return shot;
+                changed = true;
+                return { ...shot, videoUrl, isVideoPinned, videoStatus: videoUrl ? "completed" as const : shot.videoStatus };
+            });
+            return changed ? next : previous;
+        });
+    }, [currentProject?.frames]);
+
+    useEffect(() => {
+        setShots(previous => {
+            let changed = false;
+            const next = previous.map(shot => {
+                const task = allVideoTasks.find(task => task.id === shot.videoTaskId);
+                const retry = allVideoTasks.filter(candidate => candidate.retry_of_task_id && candidate.frame_id === shot.id
+                    && (candidate.status === "pending" || candidate.status === "processing"))
+                    .sort((a, b) => b.created_at - a.created_at)[0];
+                if (retry && retry.id !== shot.videoTaskId && (!shot.videoTaskId || (task && retry.created_at >= task.created_at))) {
+                    changed = true;
+                    return { ...shot, videoTaskId: retry.id, videoStatus: retry.status };
+                }
+                if (!task || (task.status !== "completed" && task.status !== "failed") || task.status === shot.videoStatus) return shot;
+                changed = true;
+                return { ...shot, videoStatus: task.status };
+            });
+            return changed ? next : previous;
+        });
+    }, [allVideoTasks]);
 
     // Compare modal needs the actual VideoTask objects for the
     // currently-selected ids (in whatever order they were selected).
@@ -1464,7 +1609,7 @@ export default function StoryboardR2V() {
         const out: VideoTask[] = [];
         Array.from(compareSelectedIds).forEach((id) => {
             const t = tasksById.get(id);
-            if (t) out.push(t);
+            if (t?.status === "completed" && t.video_url) out.push(t);
         });
         return out;
     }, [compareSelectedIds, tasksById]);
@@ -1574,121 +1719,117 @@ export default function StoryboardR2V() {
             }
             return updated;
         });
-    }, [persistWorkbench, shotCounts]);
+    }, [persistWorkbench, shotCounts, shots, videoConfig.duration, handleUpdateField]);
 
-    // Annotate handlers wire CandidateThumb's star/label CTAs to the
-    // backend PATCH endpoint. We refresh the project after each call
-    // so the candidate cell re-renders with the new flag without
-    // waiting for the 5s polling tick.
-    const refreshProject = useCallback(async () => {
-        if (!currentProject?.id) return;
-        try {
-            const fresh = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, fresh);
-        } catch { /* swallow */ }
+    const annotationRequests = useRef(new Map<string, Promise<void>>());
+    const annotateCandidate = useCallback((task: VideoTask, payload: Parameters<typeof api.annotateVideoTask>[2]): Promise<void> => {
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        const previous = annotationRequests.current.get(task.id);
+        const request = (async () => {
+            if (previous) await previous.catch(() => {});
+            if (!projectId || !isCurrent()) return;
+            const updated: VideoTask = await api.annotateVideoTask(projectId, task.id, payload);
+            if (!isCurrent()) return;
+            if (updated.id !== task.id) throw new Error("Annotation response is missing its candidate");
+            const annotation = payload.is_starred !== undefined ? { is_starred: updated.is_starred } : { label: updated.label };
+            const tasks = useProjectStore.getState().currentProject?.video_tasks ?? [];
+            // Preserve status and other annotations confirmed while this write was pending.
+            updateProject(projectId, { video_tasks: tasks.map(current => current.id === task.id ? { ...current, ...annotation } : current) });
+        })().finally(() => {
+            if (annotationRequests.current.get(task.id) === request) annotationRequests.current.delete(task.id);
+        });
+        annotationRequests.current.set(task.id, request);
+        return request;
     }, [currentProject?.id, updateProject]);
+    const handleToggleStar = useCallback((task: VideoTask, next: boolean) => annotateCandidate(task, { is_starred: next }), [annotateCandidate]);
 
-    const handleToggleStar = useCallback(async (task: VideoTask, next: boolean) => {
-        if (!currentProject?.id) return;
-        try {
-            await api.annotateVideoTask(currentProject.id, task.id, { is_starred: next });
-            await refreshProject();
-        } catch (err) {
-            debugLog.error("Studio", "Failed to toggle star:", err);
-        }
-    }, [currentProject?.id, refreshProject]);
+    const handleSetActive = useCallback((frameId: string, task: VideoTask) => {
+        if (task.status !== "completed" || !task.video_url || task.frame_id !== frameId) return Promise.reject(new Error("Candidate is not available for this shot"));
+        return updateVideoSelection(frameId, "select", task.id);
+    }, [updateVideoSelection]);
 
-    // Manual pin: user explicitly chose this take as the frame's active
-    // video. Backend sets is_video_pinned=true so subsequent auto-selects
-    // (polling completion) skip this frame. Locally we update the shot's
-    // videoUrl + videoStatus immediately so the hero swaps without waiting
-    // for the project refresh round-trip.
-    const handleSetActive = useCallback(async (frameId: string, task: VideoTask) => {
-        if (!currentProject?.id) return;
-        const taskVideoUrl = (task as any).video_url as string | undefined;
-        setShots(prev => prev.map(s =>
-            s.id === frameId
-                ? { ...s, videoUrl: taskVideoUrl, videoStatus: "completed" as const, isVideoPinned: true }
-                : s
-        ));
-        try {
-            const updated = await api.selectVideo(currentProject.id, frameId, task.id);
-            updateProject(currentProject.id, { frames: updated.frames });
-        } catch (err) {
-            debugLog.error("Studio", "Failed to set active take:", err);
-        }
-    }, [currentProject?.id, updateProject]);
-
-    // Unpin: clear the manual pin so auto-select resumes on next
-    // completion. Selected_video_id / video_url stay put — user keeps
-    // seeing the current take until a newer one arrives.
     const handleUnpinVideo = useCallback(async (frameId: string) => {
-        if (!currentProject?.id) return;
-        setShots(prev => prev.map(s =>
-            s.id === frameId ? { ...s, isVideoPinned: false } : s
-        ));
-        try {
-            const updated = await api.unpinVideo(currentProject.id, frameId);
-            updateProject(currentProject.id, { frames: updated.frames });
-        } catch (err) {
-            debugLog.error("Studio", "Failed to unpin video:", err);
-        }
+        try { await updateVideoSelection(frameId, "unpin"); }
+        catch { if (taskContext.current.active) toast.error(t("candidateSaveFailed")); }
+    }, [updateVideoSelection, t]);
+
+    const handleSetLabel = useCallback((task: VideoTask, next: string | null) =>
+        annotateCandidate(task, next ? { label: next } : { clear_label: true }), [annotateCandidate]);
+
+    const cancelRequests = useRef(new Map<string, Promise<void>>());
+    const cancelTask = useCallback((taskId: string): Promise<void> => {
+        const existing = cancelRequests.current.get(taskId);
+        if (existing) return existing;
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => context.active
+            && useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.resolve();
+        const request = (async () => {
+            try {
+                const updated: VideoTask = await api.cancelVideoTask(projectId, taskId);
+                if (!isCurrent()) return;
+                const tasks = useProjectStore.getState().currentProject?.video_tasks ?? [];
+                updateProject(projectId, { video_tasks: tasks.some(task => task.id === taskId)
+                    ? tasks.map(task => task.id === taskId ? updated : task)
+                    : [...tasks, updated] });
+                setShots(previous => previous.map(shot => shot.videoTaskId === taskId ? { ...shot, videoStatus: updated.status } : shot));
+            } finally { cancelRequests.current.delete(taskId); }
+        })();
+        cancelRequests.current.set(taskId, request);
+        return request;
     }, [currentProject?.id, updateProject]);
+    const handleCancelTask = useCallback((task: VideoTask) => cancelTask(task.id), [cancelTask]);
 
-    const handleSetLabel = useCallback(async (task: VideoTask, next: string | null) => {
-        if (!currentProject?.id) return;
-        try {
-            if (next === null || next === "") {
-                await api.annotateVideoTask(currentProject.id, task.id, { clear_label: true });
-            } else {
-                await api.annotateVideoTask(currentProject.id, task.id, { label: next });
+    const handleRetryTask = useCallback((task: VideoTask): Promise<void> => {
+        const projectId = currentProject?.id;
+        const context = taskContext.current;
+        const isCurrent = () => useAuthStore.getState().user?.id === context.userId
+            && useAuthStore.getState().activeWorkspace?.id === context.workspaceId
+            && useProjectStore.getState().currentProject?.id === projectId;
+        if (!projectId || !isCurrent()) return Promise.reject(new Error("Task context changed"));
+        const key = JSON.stringify([context.userId, context.workspaceId, projectId, task.id]);
+        const existing = useVideoRetryRequests.getState()[key];
+        if (existing) return existing;
+        const request = (async () => {
+            try {
+                const created = await api.retryVideoTask(projectId, task.id);
+                if (!created.id || created.project_id !== projectId || created.retry_of_task_id !== task.id) throw new Error("Retry returned an unrelated task");
+                if (!isCurrent()) return;
+                const tasks = useProjectStore.getState().currentProject?.video_tasks ?? [];
+                // A poll may already have the new task's processing/completed state.
+                if (!tasks.some(existing => existing.id === created.id)) updateProject(projectId, { video_tasks: [...tasks, created] });
+            } catch (error) {
+                if (!context.active && isCurrent()) toast.error(t("queueActionFailed"));
+                throw error;
+            } finally {
+                useVideoRetryRequests.setState(state => {
+                    const remaining = { ...state };
+                    delete remaining[key];
+                    return remaining;
+                }, true);
             }
-            await refreshProject();
-        } catch (err) {
-            debugLog.error("Studio", "Failed to set label:", err);
-        }
-    }, [currentProject?.id, refreshProject]);
+        })();
+        useVideoRetryRequests.setState({ [key]: request });
+        return request;
+    }, [currentProject?.id, updateProject, t]);
 
-    const handleCancelTask = useCallback(async (task: VideoTask) => {
-        if (!currentProject?.id) return;
-        try {
-            await api.cancelVideoTask(currentProject.id, task.id);
-            await refreshProject();
-        } catch (err) {
-            debugLog.error("Studio", "Failed to cancel task:", err);
-        }
-    }, [currentProject?.id, refreshProject]);
-
-    // Retry = fire a fresh batch of 1 for the shot owning this task,
-    // reusing the task's params as best-effort. After Phase 2 the
-    // task→shot mapping is direct via task.frame_id; falls back to
-    // current ParamsSection state if we can't find the owner.
-    const handleRetryTask = useCallback(async (task: VideoTask) => {
-        const ownerIdx = task.frame_id
-            ? shots.findIndex((s) => s.id === task.frame_id)
-            : -1;
-        if (ownerIdx < 0) return;
-        await generateVideoBatch(ownerIdx, 1);
-    }, [shots, generateVideoBatch]);
-
-    // Click on a candidate thumb: plain click = preview (open new
-    // window for v1), shift-click = toggle compare-selection.
     const handleCandidateClick = useCallback((task: VideoTask, mods: { shift: boolean; meta: boolean }) => {
-        if (mods.shift) {
-            setCompareSelectedIds(prev => {
-                const next = new Set(prev);
-                if (next.has(task.id)) next.delete(task.id);
-                else next.add(task.id);
-                return next;
-            });
-            return;
-        }
-        const frame = currentProject?.frames?.find((f: any) => f.dubbed_video_task_id === task.id);
-        const url = frame?.dubbed_video_url || task.video_url;
-        if (url) {
-            window.open(getAssetUrl(url), "_blank", "noopener");
-        }
-    }, [currentProject]);
+        if (!mods.shift || task.status !== "completed" || !task.video_url || task.frame_id !== selectedShot?.id) return;
+        setCompareSelectedIds(previous => {
+            const next = new Set(previous);
+            if (next.has(task.id)) next.delete(task.id);
+            else if (next.size < 4) next.add(task.id);
+            return next;
+        });
+    }, [selectedShot?.id]);
 
     // 复用此批参数: copy a batch's model + neg_prompt into videoConfig,
     // so the next Generate uses the same recipe. We don't change count
@@ -1711,17 +1852,11 @@ export default function StoryboardR2V() {
         });
     }, []);
 
-    // Queue's jump-to-shot: scroll the shot's wrapper into view AND
-    // expand the shot panel + its sections (otherwise jumping to a
-    // collapsed shot lands the user on a 1-line strip and they have
-    // to expand manually).
+    // Select the queued shot and reveal its settings and candidates.
     const handleJumpToShot = useCallback((frameId: string) => {
-        setExpandedShots(prev => {
-            if (prev.has(frameId)) return prev;
-            const next = new Set(prev);
-            next.add(frameId);
-            return next;
-        });
+        setSelectedFrameId(frameId);
+        setQueueOpen(false);
+
         // Force inner sections open too — feels right when arriving from
         // a queue task: you want to see Params + Candidates for that shot.
         overridePanelSectionState([frameId], ["params", "candidates"], true);
@@ -1745,149 +1880,52 @@ export default function StoryboardR2V() {
     );
 
     return (
-        // Layout v4: outer horizontal split. Custom page header belongs
-        // to main column (not page-wide), so the right TaskQueuePanel can
-        // be a true floor-to-ceiling sidebar with its own SidePanelHeader.
-        <div className="h-full flex overflow-hidden relative">
-        {/* Main column — pushed (compressed) when the queue panel opens
-            so the queue doesn't overlay content. Bloom/grain now global in
-            ProjectClient so the whole pipeline shares one atmosphere. */}
-        <div className="relative z-10 flex-1 flex flex-col overflow-hidden min-w-0">
-            {/* Unified page header (shared StepPageHeader) */}
-            <StepPageHeader
-                stepNumber={4}
-                englishName="STORYBOARD R2V"
-                title={tStep("storyboardTitle")}
-                subtitle={tStep("storyboardSubtitle")}
-                pills={(
-                    <>
-                        {currentProject?.art_direction?.style_config?.name ? (
-                            <StepPill label={t("artStyleLabel")} value={currentProject.art_direction.style_config.name} />
-                        ) : null}
-                        <StepPill label={t("currentModel")} value={currentModelName} />
-                    </>
-                )}
-                trailing={(
-                    <>
-                        <TaskQueueButton
-                            inFlightCount={inFlightTaskCount}
-                            open={queueOpen}
-                            onToggle={() => setQueueOpen(v => !v)}
-                        />
-                        <button
-                            type="button"
-                            onClick={() => setGenDialogOpen(true)}
-                            disabled={generating}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 font-sans text-[0.8125rem] font-semibold text-on-accent shadow-[var(--btn-pri-glow),inset_0_1.5px_0_rgba(255,255,255,0.14)] transition-all duration-fast ease-out-quart hover:bg-primary-hover disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            {generating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                            <span>{generating ? t("genInFlight") : t("genShots")}</span>
-                        </button>
-                    </>
-                )}
-            />
-            {/* Top Toolbar — mock-aligned: count on the left, expand/collapse pills on the right */}
-            <div className="flex flex-wrap items-center gap-3 px-4 py-3 shrink-0 sm:px-6">
-                <div className="flex items-center gap-3">
-                    <span className="font-mono text-[11px] tracking-[0.04em] text-text-secondary">
-                        <span className="text-foreground font-medium">{shots.length}</span>
-                        <span className="ml-1.5 uppercase">{shots.length === 1 ? t("shot") : t("shots")}</span>
-                        {totalInFlight > 0 ? <span className="ml-2 text-status-processing-fg">· {totalInFlight} {t("inFlightShort")}</span> : null}
-                    </span>
-                    <motion.button
-                        whileHover={{ scale: 1.04 }}
-                        whileTap={{ scale: 0.96 }}
-                        onClick={() => addShot(shots.length - 1)}
-                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                    >
-                        <Plus size={13} strokeWidth={2} />
-                        {t("addShot")}
-                    </motion.button>
-                </div>
-                {shots.length > 1 ? (
-                    <div className="ml-auto flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={expandAllShots}
-                            title={t("expandAll")}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-glass-border bg-transparent px-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            <PanelBottomOpen size={12} strokeWidth={1.8} />
-                            {t("expandAll")}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={collapseAllShots}
-                            title={t("collapseAll")}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-glass-border bg-transparent px-3.5 font-mono text-[13px] uppercase tracking-[0.06em] text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                        >
-                            <PanelBottomClose size={12} strokeWidth={1.8} />
-                            {t("collapseAll")}
-                        </button>
+        <div className={styles.page}>
+        <div className={styles.main}>
+            <header className={styles.header}>
+                <div><p>{currentProject?.title} / {tStudio("storyboard")}</p><h2>{selectedShot ? tStudio("shotNumber", { number: shots.indexOf(selectedShot) + 1 }) : tStudio("storyboard")}</h2></div>
+                <div className={styles.saveState}>
+                        <span role="status" aria-label={t("saveStatus")} aria-live="polite" data-error={draftSave.hasError || undefined}>
+                            {structurePending || draftSave.saving ? t("saving") : draftSave.hasError ? t("saveFailedRetained") : draftSave.pending ? t("unsaved") : t("saved")}
+                        </span>
+                        {draftSave.pending && <Button variant="quiet" isDisabled={draftSave.saving || !!(selectedShot && draftSave.isRefining(selectedShot.id))} onPress={() => { void saveAllDrafts(); }}>{t(draftSave.hasError ? "retrySave" : "saveNow")}</Button>}
+                        {draftSave.pending && draftSave.storageUnavailable && <span role="alert">{t("draftStorageUnavailable")}</span>}
                     </div>
-                ) : null}
-            </div>
-
+                <div className={styles.headerActions}>
+                    <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
+                    <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
+                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating} isDisabled={batchPending || structurePending}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
+                </div>
+            </header>
             <GenerationBanner
-                state={bannerState}
+                state={batchPending ? "dialogue" : bannerState}
                 phase1Captions={PHASE1_CAPTIONS}
                 refineProgress={refineProgress}
                 dialogueProgress={dialogueProgress}
                 summary={bannerSummary}
                 onGenerateDialogue={handleBatchDialogue}
+                batch={dialogueBatch}
+                batchError={batchRequest?.error}
+                storyboard={storyboardJob}
+                storyboardError={storyboardRequest?.error}
+                storyboardRecovering={storyboardRequest?.recovering}
+                refinementCount={refinementIds.length}
+                onRefine={() => { void startRefinement(refinementIds); }}
+                refreshFailed={taskRefreshError && (generating || !!storyboardJob || batchPending || !!dialogueBatch)}
+                refreshing={refreshingTasks}
+                onRefresh={() => { void refreshProject(); }}
             />
 
-            <div className="flex-1 overflow-y-auto px-5 pt-1.5 pb-10 space-y-5 sm:px-7">
-                {shots.length === 0 && (
-                    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center px-6">
-                        <div className="rounded-2xl border border-glass-border bg-glass p-8 max-w-lg">
-                            <div className="mx-auto w-12 h-12 grid place-items-center rounded-full bg-primary/10 border border-primary/30 mb-4">
-                                <Wand2 size={20} className="text-primary" />
-                            </div>
-                            <h3 className="text-display font-medium text-foreground">{t("emptyTitle")}</h3>
-                            <p className="text-body-sm text-text-secondary mt-1.5 max-w-md mx-auto leading-relaxed">
-                                {t("emptyBody")}
-                            </p>
-                            <div className="mt-5 flex items-center justify-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setGenDialogOpen(true)}
-                                    disabled={generating}
-                                    className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md bg-primary text-white border border-primary/65 shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 transition-colors text-[0.8125rem] font-semibold"
-                                >
-                                    {generating ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
-                                    {generating ? t("genInFlight") : t("emptyCTA")}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => addShot(-1)}
-                                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
-                                >
-                                    <Plus size={12} />
-                                    {t("emptyManualAdd")}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+            <div className={styles.workbench}>
+                {!shots.length && <EmptyState title={t("emptyTitle")} description={t("emptyBody")} action={<><Button onPress={() => setGenDialogOpen(true)} isPending={generating}>{t("emptyCTA")}</Button><Button variant="quiet" onPress={() => addShot(-1)}>{t("emptyManualAdd")}</Button></>} />}
                 {shots.map((shot, index) => {
+                    if (shot.id !== selectedShot?.id) return null;
                     const shotTasks = tasksForShot(shot);
-                    const shotInFlight = shotTasks.filter(
-                        (t) => t.status === "pending" || t.status === "processing",
-                    ).length;
+                    const shotInFlight = shotTasks.filter(task => task.status === "pending" || task.status === "processing").length;
                     const paramsState = paramsStateForShot(shot);
                     const isI2vTab = shot.tabMode === "t2i_i2v";
-                    const modelList = shot.tabMode === "direct_r2v" ? VIDEO_R2V_MODELS : VIDEO_I2V_MODELS;
-                    return (
-                    /* Plain div (was motion.div) — staggered enter
-                       animation re-fired every time the user switched
-                       step tabs and came back, causing a noticeable
-                       全 list opacity flicker. ShotCard hover micro-
-                       motion is kept inside the card itself. */
-                    <div
-                        key={shot.id}
-                        ref={(el) => { shotWrapperRefs.current.set(shot.id, el); }}
-                    >
+                    const modelList = isI2vTab ? VIDEO_I2V_MODELS : VIDEO_R2V_MODELS;
+                    return <div key="selected-shot" className={styles.selectedShot} ref={el => { shotWrapperRefs.current.set(shot.id, el); }}>
                         <ShotCard
                             shot={shot}
                             index={index}
@@ -1898,8 +1936,9 @@ export default function StoryboardR2V() {
                             onUpdatePrompt={(prompt) => updatePrompt(index, prompt)}
                             onUpdateField={(field, value) => handleUpdateField(index, field, value)}
                             durationEditorConfig={durationEditorCfg}
-                            onGenerateT2I={() => generateT2I(index)}
+                            onGenerateT2I={() => submitFirstFrame(index)}
                             onGenerateVideo={() => generateVideo(index)}
+                            structurePending={structurePending || draftSave.materializing || generating}
                             onDelete={() => deleteShot(index)}
                             onMoveUp={() => moveShot(index, "up")}
                             onMoveDown={() => moveShot(index, "down")}
@@ -1911,27 +1950,7 @@ export default function StoryboardR2V() {
                                 const tag = `[${type}:${name}]`;
                                 updatePrompt(index, shots[index].prompt + " " + tag);
                             }}
-                            onCancelVideo={
-                                shot.videoTaskId && currentProject
-                                    ? async () => {
-                                        const projectId = currentProject.id;
-                                        const taskId = shot.videoTaskId!;
-                                        try {
-                                            await api.cancelVideoTask(projectId, taskId);
-                                        } finally {
-                                            // Optimistic local flip — backend has
-                                            // already marked failed, but the next
-                                            // refetch may take a beat. Failed state
-                                            // surfaces the existing Retry button.
-                                            setShots(prev => prev.map((s, i) =>
-                                                i === index ? { ...s, videoStatus: "failed" as const } : s,
-                                            ));
-                                        }
-                                    }
-                                    : undefined
-                            }
-                            expanded={expandedShots.has(shot.id)}
-                            onToggleExpanded={() => toggleShotExpanded(shot.id)}
+                            onCancelVideo={shot.videoTaskId ? () => cancelTask(shot.videoTaskId!) : undefined}
                             /* PR-3c · 闭环生成: ShotCard 内全宽生成行 + count selector.
                                canGenerate: direct_r2v 需 prompt; t2i_i2v 还需 first frame. */
                             generateCount={paramsState.count}
@@ -1952,7 +1971,9 @@ export default function StoryboardR2V() {
                             onGenerateBatch={(n) => generateVideoBatch(index, n, paramsState)}
                             inFlightCount={shotInFlight}
                             onRefineFrame={() => handleRefineFrame(shot.id)}
+                            isRefining={draftSave.isRefining(shot.id)}
                             onUnpinVideo={() => handleUnpinVideo(shot.id)}
+                            isSelectingVideo={!!selectingVideoFrames[shot.id]}
                             onUpdateDialogue={async (text: string) => {
                                 if (!currentProject) return;
                                 try {
@@ -1963,52 +1984,51 @@ export default function StoryboardR2V() {
                                     debugLog.error("Studio", "update dialogue failed", e);
                                 }
                             }}
-                        />
-                        {/* PR-3j · Frame-level dialogue audio row. Only renders
-                            when the frame has dialogue text; resolves the
-                            bound character's voice_id and tracks stale state. */}
-                        {(() => {
+                            referenceImages={parseAssetTags(shot.prompt)}
+                            sequence={<section className={styles.sequence} aria-label={tStudio("sequence")}>
+                                <header><span>{tStudio("sequence")}</span><span>{tStudio("shotCount", { count: shots.length })}</span></header>
+                                <div className={styles.strip}>
+                                    {shots.map((item, i) => <Button key={item.id} variant="quiet" className={styles.thumbnail} aria-pressed={item.id === shot.id} aria-label={tStudio("selectShot", { number: i + 1 })} onPress={() => setSelectedFrameId(item.id)}>
+                                        {item.imageUrl || item.t2iImageUrl ? <img src={getAssetUrl(item.imageUrl || item.t2iImageUrl!)} alt="" /> : <span className={styles.noImage}><Film size={22} /></span>}
+                                        <span>{tStudio("shotNumber", { number: i + 1 })}{item.duration ? ` · ${item.duration}s` : ""}</span>
+                                        <strong>{item.visualDescription || item.prompt || tStudio("untitledShot")}</strong>
+                                    </Button>)}
+                                </div>
+                                <footer><Button variant="quiet" isDisabled={structurePending || draftSave.materializing || generating} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
+                            </section>}
+                            audio={(() => {
                             const frame = currentProject?.frames?.find((f: any) => f.id === shot.id);
                             if (!frame) return null;
                             const dialogueText = frame?.dialogue_structured?.line || frame?.dialogue;
                             const hasVideoTask = !!(frame.selected_video_id || (currentProject as any)?.video_tasks?.find((t: any) => t.frame_id === frame.id && t.status === "completed"));
                             // Show row when dialogue exists, or when video exists (dub available)
                             if (!dialogueText?.trim() && !hasVideoTask) return null;
-                            const charId = Array.isArray(frame.character_ids) ? frame.character_ids[0] : null;
-                            const speaker = charId ? characters.find((c: any) => c.id === charId) : null;
+                            const speaker = resolveDialogueSpeaker(frame, characters);
                             return (
                                 <div className="mx-5 mb-4">
-                                    <DialogueAudioRow
+                                    <DialogueAudioRow key={frame.id}
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
                                         dialogue={dialogueText}
+                                        draftDialogue={restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line}
                                         voiceId={speaker?.voice_id}
                                         audioUrl={frame.audio_url}
                                         audioError={frame.audio_error}
-                                        snapshotDialogue={dialogueText}
+                                        generationStatus={frame.audio_generation_status}
+                                        batchPending={batchPending || generating}
+                                        generationId={frame.audio_generation_id}
+                                        refreshFailed={taskRefreshError}
+                                        refreshing={refreshingTasks}
+                                        onRefresh={() => { void refreshProject(); }}
+                                        snapshotDialogue={frame.dialogue_snapshot_text}
                                         snapshotVoiceId={frame.dialogue_voice_id}
                                         snapshotInstructions={frame.dialogue_instructions}
                                         onUpdateDialogue={async (text: string) => {
-                                            if (!currentProject) return;
-                                            try {
-                                                await api.updateFrame(currentProject.id, frame.id, { dialogue: text });
-                                                const updated = await api.getProject(currentProject.id);
-                                                if (updated?.frames) updateProject(currentProject.id, { frames: updated.frames });
-                                            } catch (e) {
-                                                debugLog.error("Studio", "update dialogue from audio row failed", e);
-                                            }
+                                            queueDraft(frame.id, "fields", { dialogue: text }, 1000);
+                                            if (!await flushDrafts()) throw new Error(t("saveFailed"));
                                         }}
-                                        onAudioUpdated={async () => {
-                                            if (!currentProject) return;
-                                            try {
-                                                const updated = await api.getProject(currentProject.id);
-                                                if (updated?.frames) {
-                                                    updateProject(currentProject.id, { frames: updated.frames });
-                                                }
-                                            } catch (e) {
-                                                debugLog.warn("Studio", "refresh after audio gen failed", e);
-                                            }
-                                        }}
+                                        onDraftChange={text => queueDraft(frame.id, "fields", { dialogue: text }, 1000)}
+                                        onAudioUpdated={result => mergeAudioResult(frame.id, result, audioFields)}
                                         videoUrl={(() => {
                                             const selectedId = frame.selected_video_id;
                                             const task = (currentProject as any)?.video_tasks?.find(
@@ -2021,157 +2041,51 @@ export default function StoryboardR2V() {
                                                 (t: any) => t.frame_id === frame.id && t.status === "completed"
                                             )?.id}
                                         previewVideoUrl={frame.preview_video_url}
+                                        previewAudioUrl={frame.preview_audio_url}
+                                        previewVideoTaskId={frame.preview_video_task_id}
+                                        previewSourceVideoUrl={frame.preview_source_video_url}
+                                        previewOffsetMs={frame.preview_offset_ms}
+                                        dubGenerationStatus={frame.dub_generation_status}
+                                        dubGenerationId={frame.dub_generation_id}
+                                        dubError={frame.dub_error}
+                                        dubbedVideoTaskId={frame.dubbed_video_task_id}
                                         dubbedVideoUrl={frame.dubbed_video_url}
                                         dubOffsetMs={frame.dub_offset_ms ?? 0}
                                         onPreviewDub={async (videoTaskId: string, offsetMs: number) => {
-                                            if (!currentProject) return;
-                                            await api.previewDub(currentProject.id, frame.id, videoTaskId, offsetMs);
-                                            const updated = await api.getProject(currentProject.id);
-                                            if (updated?.frames) {
-                                                updateProject(currentProject.id, { frames: updated.frames });
-                                            }
+                                            const result = await api.previewDub(currentProject!.id, frame.id, videoTaskId, offsetMs);
+                                            mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                         onApplyDub={async () => {
-                                            if (!currentProject) return;
-                                            await api.applyDub(currentProject.id, frame.id);
-                                            const updated = await api.getProject(currentProject.id);
-                                            if (updated?.frames) {
-                                                updateProject(currentProject.id, { frames: updated.frames });
-                                            }
+                                            const result = await api.applyDub(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                         onRevertDub={async () => {
-                                            if (!currentProject) return;
-                                            await api.revertDub(currentProject.id, frame.id);
-                                            const updated = await api.getProject(currentProject.id);
-                                            if (updated?.frames) {
-                                                updateProject(currentProject.id, { frames: updated.frames });
-                                            }
+                                            const result = await api.revertDub(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                     />
                                 </div>
                             );
                         })()}
-                        {/* Attached workbench: t2i_i2v 模式下渲染顺序为
-                            Step 1 (T2ISubsection) → Step 2 (ParamsSection)
-                            → CandidatesSection；direct_r2v 模式无 T2I 区，
-                            ParamsSection → CandidatesSection。
-                            Spec: docs/design/r2v-workflow-v3-unified.md §4.3.2
-                            (PR-3a · Option A 最小修复)
-                            v1 不加 explicit section header / first-frame
-                            thumbnail in Step 2 — 看用户反馈再升级 v2. */}
-                        {expandedShots.has(shot.id) ? (
-                        <div className="mx-5 mb-[18px] motion-safe:animate-[shotPanelIn_220ms_cubic-bezier(0.22,1,0.36,1)_both]">
-                            {isI2vTab ? (
+                            configuration={<>                            {isI2vTab ? (
                                 <div>
-                                    <T2ISubsection
+                                    <T2ISubsection key={shot.id}
                                         imageUrls={shot.t2iImageUrls ?? []}
                                         selectedIndex={shot.t2iSelectedIndex ?? 0}
                                         storyboardFrameUrl={shot.imageUrl || undefined}
                                         promptIsEmpty={!shot.prompt.trim()}
-                                        generating={shot.t2iStatus === "pending" || shot.t2iStatus === "processing"}
-                                        inFlightTaskId={shot.t2iTaskId}
-                                        inFlightStatus={shot.t2iStatus}
-                                        onSelect={(i) => setShots(prev => prev.map((s, j) => {
-                                            if (j !== index) return s;
-                                            const next = setActiveT2IIndex(s, i);
-                                            persistWorkbench(s.id, {
-                                                t2i_selected_index: next.t2iSelectedIndex ?? 0,
-                                            });
-                                            return next;
-                                        }))}
-                                        onRemove={(i) => setShots(prev => prev.map((s, j) => {
-                                            if (j !== index) return s;
-                                            const next = removeT2IImage(s, i);
-                                            persistWorkbench(s.id, {
-                                                t2i_image_urls: next.t2iImageUrls ?? [],
-                                                t2i_selected_index: next.t2iSelectedIndex ?? 0,
-                                            });
-                                            return next;
-                                        }))}
-                                        onGenerate={() => generateT2I(index)}
-                                        onUpload={async (file) => {
-                                            // Issue 10: upload an external image as a T2I首帧 candidate.
-                                            // Backend appends + auto-selects; we mirror state from the
-                                            // returned frame (single source of truth for the URL the
-                                            // server actually persisted).
-                                            //
-                                            // Frontend may hold a synthetic shot id (`shot_<ts>_<rand>`)
-                                            // for shots created via the + button that haven't been
-                                            // persisted yet. The backend has no such frame_id → 404.
-                                            // Lazy-create the frame on backend first, then upload.
-                                            if (!currentProject) return { code: "network", detail: "no current project" };
-                                            try {
-                                                let effectiveFrameId = shot.id;
-                                                const isSynthetic = effectiveFrameId.startsWith("shot_");
-                                                if (isSynthetic) {
-                                                    // Materialize the shot on backend before any
-                                                    // frame-scoped op. Send minimum viable payload —
-                                                    // the prompt + tab mode survives via separate
-                                                    // workbench PATCH calls already triggered elsewhere.
-                                                    try {
-                                                        const created = await crudApi.createFrame(currentProject.id, {
-                                                            scene_id: "",
-                                                            action_description: shot.prompt || "",
-                                                            insert_at: index,
-                                                        } as any);
-                                                        // Find the newly inserted frame by index in the response
-                                                        const newFrame = Array.isArray(created?.frames)
-                                                            ? created.frames[Math.min(index, created.frames.length - 1)]
-                                                            : null;
-                                                        if (newFrame?.id) {
-                                                            effectiveFrameId = newFrame.id;
-                                                            // Swap synthetic id → backend id locally so
-                                                            // subsequent ops (workbench persist, generate, etc.)
-                                                            // hit the real frame.
-                                                            setShots(prev => prev.map((s, j) =>
-                                                                j === index ? { ...s, id: newFrame.id } : s,
-                                                            ));
-                                                        }
-                                                    } catch (createErr: any) {
-                                                        debugLog.error("Studio", "Lazy createFrame failed", createErr);
-                                                        const cdetail = createErr?.response?.data?.detail || createErr?.message || "create frame failed";
-                                                        return { code: "server", detail: `先创建镜头失败：${cdetail}` };
-                                                    }
-                                                }
-
-                                                const updatedFrame = await api.uploadT2IFrame(
-                                                    currentProject.id,
-                                                    effectiveFrameId,
-                                                    file,
-                                                );
-                                                if (!updatedFrame) return { code: "network", detail: "empty response" };
-                                                const nextUrls: string[] = updatedFrame.t2i_image_urls ?? [];
-                                                const nextIdx: number = typeof updatedFrame.t2i_selected_index === "number"
-                                                    ? updatedFrame.t2i_selected_index
-                                                    : Math.max(0, nextUrls.length - 1);
-                                                setShots(prev => prev.map((s, j) => {
-                                                    if (j !== index) return s;
-                                                    return {
-                                                        ...s,
-                                                        t2iImageUrls: nextUrls,
-                                                        t2iSelectedIndex: nextIdx,
-                                                        t2iImageUrl: nextUrls[nextIdx],
-                                                        t2iStatus: "completed",
-                                                    };
-                                                }));
-                                                return undefined;
-                                            } catch (err: any) {
-                                                debugLog.error("Studio", "T2I upload failed", err);
-                                                const status = err?.response?.status;
-                                                // Always surface the backend detail string so the
-                                                // user can self-diagnose ("frame not found", "OSS
-                                                // write denied", etc.) instead of "请重试".
-                                                const detail = err?.response?.data?.detail
-                                                    || err?.message
-                                                    || `HTTP ${status ?? "?"}`;
-                                                if (status === 413) return { code: "size", detail: String(detail) };
-                                                if (status === 415) return { code: "type", detail: String(detail) };
-                                                if (status === 404) return { code: "not_found", detail: String(detail) };
-                                                if (status && status >= 500) return { code: "server", detail: String(detail) };
-                                                return { code: "network", detail: String(detail) };
-                                            }
-                                        }}
-                                        resolveUrl={resolveAssetUrl}
+                                        generating={shot.t2iOperation !== "upload" && (shot.t2iStatus === "pending" || shot.t2iStatus === "processing")}
+                                        uploading={shot.t2iOperation === "upload" && shot.t2iStatus === "processing"}
+                                        operation={shot.t2iOperation}
+                                        errorMessage={shot.t2iError}
+                                        checking={shot.t2iRecovering}
+                                        refreshFailed={taskRefreshError}
+                                        refreshing={refreshingTasks}
+                                        onRefresh={() => { void refreshProject(); }}
+                                        onSelect={(i) => updateT2IWorkbench(shot.id, s => setActiveT2IIndex(s, i))}
+                                        onRemove={(i) => updateT2IWorkbench(shot.id, s => removeT2IImage(s, i))}
+                                        onGenerate={() => submitFirstFrame(index)}
+                                        onUpload={file => submitFirstFrame(index, file)}
                                     />
                                 </div>
                             ) : null}
@@ -2180,18 +2094,18 @@ export default function StoryboardR2V() {
                                 t2i_i2v mode, and is the only section above
                                 candidates in direct_r2v mode. */}
                             <div className={isI2vTab ? "border-t border-glass-border" : ""}>
-                                <ParamsSection
+                                <ParamsSection key={shot.id}
                                     shotId={shot.id}
                                     modelList={modelList}
-                                    title={isI2vTab ? "I2V Params" : "R2V Params"}
+                                    title={t("generationSettings")}
                                     params={paramsState}
                                     onChange={(next) => handleShotParamsChange(shot, next)}
                                     inFlightCount={shotInFlight}
                                     errorMessage={shotErrors[shot.id] ?? null}
                                 />
                             </div>
-                            <div className="border-t border-glass-border">
-                                <CandidatesSection
+</>}
+                            candidates={                                <CandidatesSection key={shot.id}
                                     shotId={shot.id}
                                     tasks={shotTasks}
                                     activeModel={paramsState.model}
@@ -2203,32 +2117,19 @@ export default function StoryboardR2V() {
                                     onToggleStar={handleToggleStar}
                                     onSetLabel={handleSetLabel}
                                     onSetActive={(task) => handleSetActive(shot.id, task)}
+                                    isSelecting={!!selectingVideoFrames[shot.id]}
+                                    isPinned={!!currentProject?.frames?.find(frame => frame.id === shot.id)?.is_video_pinned}
+                                    onClearCompare={() => setCompareSelectedIds(new Set())}
                                     onCancel={handleCancelTask}
                                     onRetry={handleRetryTask}
+                                    retryingTaskIds={retryingTaskIds}
                                     onReuseBatchParams={handleReuseBatchParams}
                                     onOpenCompare={() => setCompareModalOpen(true)}
                                     resolveUrl={resolveAssetUrl}
-                                />
-                            </div>
-                        </div>
-                        ) : null}
-                    </div>
-                    );
+                                />}
+                        />
+                    </div>;
                 })}
-
-                {/* Add shot at end */}
-                <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(shots.length * 0.03, 0.3) }}
-                    whileHover={{ scale: 1.005 }}
-                    whileTap={{ scale: 0.995 }}
-                    onClick={() => addShot(shots.length - 1)}
-                    className="w-full py-3.5 border border-dashed border-glass-border hover:border-primary/40 rounded-xl text-text-secondary hover:text-primary text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 bg-glass hover:bg-hover-bg"
-                >
-                    <Plus size={16} strokeWidth={1.5} />
-                    {t("addShot")}
-                </motion.button>
             </div>
 
             {/* Asset Drawer (fixed overlay) */}
@@ -2248,21 +2149,22 @@ export default function StoryboardR2V() {
             open={queueOpen}
             onClose={() => setQueueOpen(false)}
             tasks={allVideoTasks}
+            refreshing={refreshingTasks}
+            refreshError={taskRefreshError}
+            onRefresh={refreshProject}
             shotLabelByFrameId={shotLabelByFrameId}
             onJumpToShot={handleJumpToShot}
             onCancel={handleCancelTask}
             onRetry={handleRetryTask}
+            retryingTaskIds={retryingTaskIds}
         />
-        {/* Compare modal — portaled to body to escape clipped/transformed
-            ancestors. Shows once user has shift-selected ≥2 and clicked
-            the floating Compare button in any CandidatesSection. */}
-        {compareModalOpen && compareTasks.length >= 2 ? (
-            <CompareModal
-                tasks={compareTasks}
-                onClose={() => setCompareModalOpen(false)}
-                resolveUrl={resolveAssetUrl}
-            />
-        ) : null}
+        {/* Keep the shared dialog mounted for its closing transition. */}
+        <CompareModal
+            isOpen={compareModalOpen && compareTasks.length >= 2}
+            tasks={compareTasks}
+            onClose={() => setCompareModalOpen(false)}
+            resolveUrl={resolveAssetUrl}
+        />
         {/* LLM-generate frames dialog */}
         <StoryboardGenerateDialog
             isOpen={genDialogOpen}
@@ -2272,7 +2174,7 @@ export default function StoryboardR2V() {
             onConfirm={handleSmartGenerate}
             onJumpToScript={() => {
                 setGenDialogOpen(false);
-                window.dispatchEvent(new CustomEvent("navigateStep", { detail: "script" }));
+                document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "script" }));
             }}
         />
         </div>

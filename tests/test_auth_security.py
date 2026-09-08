@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import time
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -18,6 +21,34 @@ from src.apps.comic_gen.auth.tokens import (
     issue_refresh_token,
 )
 from tests.auth_test_helpers import make_auth_app, make_client
+
+
+def test_independent_site_cookie_namespace_does_not_overwrite_existing_sessions(tmp_path):
+    code = '''
+import sys
+from pathlib import Path
+from tests.auth_test_helpers import make_auth_app, make_client
+app, engine, _ = make_auth_app(Path(sys.argv[1]))
+with make_client(app, local=True) as client:
+    client.cookies.set("omni_studio_access", "existing-site-session")
+    client.get("/auth/setup-status")
+    csrf = client.cookies.get("omni_studio_ui_csrf")
+    assert csrf, "The new site must issue its own CSRF cookie"
+    response = client.post("/auth/setup", headers={"X-CSRF-Token": csrf}, json={"username": "owner", "email": "owner@example.com", "password": "correct horse battery staple"})
+    assert response.status_code == 201, response.text
+    assert client.cookies.get("omni_studio_ui_access")
+    assert client.cookies.get("omni_studio_ui_refresh")
+    assert client.get("/auth/me").status_code == 200
+    response = client.post("/auth/logout", headers={"X-CSRF-Token": client.cookies.get("omni_studio_ui_csrf")})
+    assert response.status_code == 204, response.text
+    assert client.cookies.get("omni_studio_access") == "existing-site-session"
+    assert client.cookies.get("omni_studio_ui_access") is None
+    assert client.get("/auth/me").status_code == 401
+engine.dispose()
+'''
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path)],
+        env={**os.environ, "OMNI_STUDIO_AUTH_COOKIE_PREFIX": "omni_studio_ui"}, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("password", ["correct horse battery staple", "中文密码"])

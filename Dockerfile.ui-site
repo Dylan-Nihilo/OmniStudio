@@ -1,0 +1,12 @@
+# The release build reuses the deployed runtime's installed Python dependencies.
+# scripts/deploy_ui_site.sh pins that image before copying the UI branch's code.
+ARG BACKEND_BASE=app-backend:latest
+FROM ${BACKEND_BASE} AS backend
+WORKDIR /app
+RUN rm -rf /app/src /app/config
+COPY src/ src/
+COPY config/ config/
+
+FROM nginx:alpine AS frontend
+COPY frontend/out/ /usr/share/nginx/html/
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf

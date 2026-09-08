@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Annotated
+import os
+import re
 
 from fastapi import Depends, Request
 
@@ -11,8 +13,13 @@ from .service import AuthContext, AuthError, AuthService
 from .settings import AuthSettings
 from .tokens import decode_access_token
 
-ACCESS_COOKIE_NAME = "omni_studio_access"
-REFRESH_COOKIE_NAME = "omni_studio_refresh"
+# Cookies share a host across ports; independent deployments must use distinct names.
+COOKIE_PREFIX = os.environ.get("OMNI_STUDIO_AUTH_COOKIE_PREFIX", "omni_studio")
+if not re.fullmatch(r"[A-Za-z0-9_]{1,64}", COOKIE_PREFIX):
+    raise ValueError("OMNI_STUDIO_AUTH_COOKIE_PREFIX must contain 1-64 letters, digits or underscores")
+ACCESS_COOKIE_NAME = f"{COOKIE_PREFIX}_access"
+REFRESH_COOKIE_NAME = f"{COOKIE_PREFIX}_refresh"
+CSRF_COOKIE_NAME = f"{COOKIE_PREFIX}_csrf"
 
 
 def get_auth_service(request: Request) -> AuthService:

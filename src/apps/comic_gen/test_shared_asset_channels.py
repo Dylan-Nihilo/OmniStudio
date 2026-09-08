@@ -214,3 +214,53 @@ def test_create_project_bad_series_raises(tmp_path):
     p = _bare_pipeline(tmp_path, script_processor=_FakeProcessor(sid="ep_bad"))
     with pytest.raises(ValueError):
         p.create_project("X", "text", skip_analysis=True, series_id="missing")
+
+
+@pytest.mark.parametrize("scope", ["project", "series", "library"])
+@pytest.mark.parametrize("asset_type", ["character", "scene", "prop"])
+def test_replacing_master_image_selects_new_variant_and_keeps_history(tmp_path, scope, asset_type):
+    from src.apps.comic_gen.models import AssetUnit, ImageAsset, ImageVariant
+
+    plural = {"character": "characters", "scene": "scenes", "prop": "props"}[asset_type]
+    asset = {"character": _char, "scene": _scene, "prop": _prop}[asset_type]("asset")
+    old = ImageVariant(id="old", url="uploads/old.png")
+    if asset_type == "character":
+        asset.reference_sheet = AssetUnit(selected_image_id=old.id, image_variants=[old])
+    else:
+        asset.image_asset = ImageAsset(selected_id=old.id, variants=[old])
+    pipeline = _bare_pipeline(tmp_path,
+        scripts={"project": _script("project", **{plural: [asset]})},
+        series_store={"series": _series("series", **{plural: [asset]})},
+        library=GlobalAssetLibrary(**{plural: [asset]}))
+    if scope == "project":
+        replace = lambda: pipeline.update_asset_image("project", asset.id, asset_type, "uploads/new.png")
+        path = pipeline.data_file
+    elif scope == "series":
+        replace = lambda: pipeline.update_series_asset_image("series", asset.id, asset_type, "uploads/new.png")
+        path = pipeline.series_data_file
+    else:
+        replace = lambda: pipeline.update_library_asset(asset_type, asset.id, {"image_url": "uploads/new.png"})
+        path = pipeline.library_data_file
+    replace()
+    replace()  # A retry must not add a duplicate variant.
+    unit = asset.reference_sheet if asset_type == "character" else asset.image_asset
+    variants = unit.image_variants if asset_type == "character" else unit.variants
+    selected = unit.selected_image_id if asset_type == "character" else unit.selected_id
+    assert [variant.url for variant in variants] == ["uploads/old.png", "uploads/new.png"]
+    current = next(variant for variant in variants if variant.id == selected)
+    assert current.url == "uploads/new.png"
+    assert current.is_uploaded_source and current.source == "uploaded"
+    assert asset.image_url == "uploads/new.png"
+    assert current.id in open(path).read()
+
+
+def test_replacing_legacy_character_keeps_existing_body_variants(tmp_path):
+    from src.apps.comic_gen.models import ImageAsset, ImageVariant
+
+    asset = _char("legacy")
+    asset.reference_sheet = None
+    asset.full_body_asset = ImageAsset(selected_id="old", variants=[ImageVariant(id="old", url="old.png")])
+    pipeline = _bare_pipeline(tmp_path, library=GlobalAssetLibrary(characters=[asset]))
+    pipeline.update_library_asset("character", asset.id, {"image_url": "new.png"})
+    assert [variant.url for variant in asset.reference_sheet.image_variants] == ["old.png", "new.png"]
+    assert asset.full_body_asset.selected_id == "old"

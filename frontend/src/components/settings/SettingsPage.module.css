@@ -1,0 +1,9 @@
+.tabs { flex: 1; min-height: 0; }
+.tabs :global(.tabs__list-container) { flex-shrink: 0; padding-top: 12px; }
+.tabs :global(.tabs__list) { width: max-content; min-width: 0; }
+.tabs :global(.tabs__tab) { flex: none; width: auto; min-width: max-content; padding-inline: 20px; white-space: nowrap; }
+.tabs :global(.tabs__panel) { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 0 48px; }
+@media (max-width: 639px) {
+  .tabs :global(.tabs__list-container) { display: none; }
+  .tabs :global(.tabs__panel) { padding-top: 24px; }
+}

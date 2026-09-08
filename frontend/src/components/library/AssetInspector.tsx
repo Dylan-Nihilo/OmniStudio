@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment, type ChangeEvent } from "react";
 import { useTranslations } from "next-intl";
-import { X, Star, Download, Sparkles, Loader2, Globe } from "lucide-react";
+import { X, Star, Download, Sparkles, Globe, Upload } from "lucide-react";
 import type { Character, Scene, Prop, ImageAsset, ImageVariant } from "@/store/projectStore";
 import { characterImageAsset } from "@/lib/characterImage";
 import { api } from "@/lib/api";
 import { toast } from "@/store/toastStore";
-import { coverGradient, GRAIN_URL } from "@/lib/atelierCover";
+import { Button, IconButton } from "@omnistudio/ui";
+import styles from "./AssetLibraryPage.module.css";
 import { getAssetUrl } from "@/lib/utils";
 
 type AssetTab = "characters" | "scenes" | "props";
@@ -33,10 +34,12 @@ interface AssetInspectorProps {
   /** 资产归属：series/global 无生成端点 → 变体生成置灰。 */
   sourceKind: "series" | "project" | "global";
   starred: boolean;
+  starPending?: boolean;
   onClose: () => void;
   onToggleStar: () => void;
   /** 提升到全局成功后回调（父层刷新库以显示新入池资产）。可选。 */
   onPromoted?: () => void;
+  onAssetUpdated?: (asset: Character | Scene | Prop) => void;
 }
 
 /** Character 走 characterImageAsset（reference_sheet→full_body，归一化成 ImageAsset 形状）；scene/prop 用 image_asset。 */
@@ -90,9 +93,11 @@ export default function AssetInspector({
   sourceId,
   sourceKind,
   starred,
+  starPending = false,
   onClose,
   onToggleStar,
   onPromoted,
+  onAssetUpdated,
 }: AssetInspectorProps) {
   const t = useTranslations("library");
   const TYPE_LABEL: Record<AssetTab, string> = {
@@ -122,6 +127,10 @@ export default function AssetInspector({
   const [activeVariantId, setActiveVariantId] = useState<string | null>(defaultId);
   const [generating, setGenerating] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [replaceError, setReplaceError] = useState("");
+  const replaceInput = useRef<HTMLInputElement>(null);
 
   // 切换选中资产时重置本地高亮的变体 + 丢弃上一个资产本地追加的变体。
   useEffect(() => {
@@ -146,7 +155,7 @@ export default function AssetInspector({
   const asideRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
-    onCloseRef.current = onClose;
+    onCloseRef.current = () => { if (!replacing) onClose(); };
   });
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -180,7 +189,8 @@ export default function AssetInspector({
   if (assetMeta.size) metaRows.push({ label: "SIZE", value: assetMeta.size });
 
   const handleDownload = async () => {
-    if (!heroUrl) return;
+    if (!heroUrl || downloading) return;
+    setDownloading(true);
     const fileBase = asset.name || "asset";
     try {
       const res = await fetch(heroUrl);
@@ -196,8 +206,37 @@ export default function AssetInspector({
       a.remove();
       URL.revokeObjectURL(objectUrl);
     } catch {
-      // 跨域(CORS)/网络失败：download 属性对跨域 URL 无效，退回到新标签打开。
-      window.open(heroUrl, "_blank", "noopener,noreferrer");
+      toast.error(t("downloadFailed"));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleReplace = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || replacing) return;
+    setReplacing(true);
+    setReplaceError("");
+    try {
+      const { image_url } = await api.uploadLibraryImage(file);
+      const kind = SINGULAR_TYPE[type];
+      const rawId = sourceId.replace(/^(project|series)-/, "");
+      const result = sourceKind === "global"
+        ? await api.updateLibraryAsset(kind, asset.id, { image_url })
+        : sourceKind === "series"
+          ? await api.updateSeriesAssetImage(rawId, asset.id, kind, image_url)
+          : await api.updateAssetImage(rawId, asset.id, kind, image_url);
+      const updated = sourceKind === "global" ? result : result?.[type]?.find((item: Character | Scene | Prop) => item.id === asset.id);
+      if (!updated) throw new Error(t("replaceFailed"));
+      onAssetUpdated?.(updated);
+      toast.success(t("replaceSuccess"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("replaceFailed");
+      if (aliveRef.current) setReplaceError(message);
+      toast.error(t("replaceFailed"), { body: message });
+    } finally {
+      if (aliveRef.current) setReplacing(false);
     }
   };
 
@@ -290,194 +329,28 @@ export default function AssetInspector({
     }
   };
 
-  return (
-    <aside
-      ref={asideRef}
-      tabIndex={-1}
-      className="fixed inset-0 z-50 w-full md:static md:inset-auto md:z-auto md:w-[340px] flex-shrink-0 h-full flex flex-col overflow-y-auto bg-surface border-l border-glass-border shadow-2xl atelier-reveal focus:outline-none"
-      aria-label={t("inspectorAria")}
-    >
-      {/* Hero — 磨砂铺底 + object-contain：三视图/横竖混杂的资产完整展示不裁切（避免裁头）。 */}
-      <div className="relative aspect-[3/4] bg-surface-inset overflow-hidden flex-shrink-0">
-        {heroUrl ? (
-          <>
-            <img
-              src={heroUrl}
-              alt=""
-              aria-hidden="true"
-              className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-40"
-            />
-            <img src={heroUrl} alt={asset.name} className="relative w-full h-full object-contain" />
-          </>
-        ) : (
-          // 无图像：确定性渐变封面 + 颗粒，替代发灰占位图标。
-          <>
-            <div className="absolute inset-0" style={{ background: coverGradient(asset.id) }} aria-hidden="true" />
-            <div
-              className="absolute inset-0 mix-blend-overlay opacity-60"
-              style={{ backgroundImage: GRAIN_URL }}
-              aria-hidden="true"
-            />
-            <div className="relative w-full h-full grid place-items-center p-6 text-center">
-              <span className="font-display atelier-display text-2xl font-semibold text-foreground tracking-tight">
-                {asset.name}
-              </span>
-            </div>
-          </>
-        )}
-        {/* amber halation overlay — only on starred (atelier signature; amber = starred). */}
-        {starred && (
-          <div
-            className="pointer-events-none absolute inset-0 shadow-[inset_0_0_60px_-10px_var(--color-status-starred-bg)]"
-            aria-hidden="true"
-          />
-        )}
-        <button
-          type="button"
-          onClick={onToggleStar}
-          aria-pressed={starred}
-          aria-label={starred ? t("unstar") : t("star")}
-          className={`absolute top-3 left-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-[0.625rem] font-bold uppercase tracking-[0.1em] backdrop-blur-md border transition-colors ${
-            starred
-              ? "text-status-starred-fg bg-status-starred-bg border-status-starred-border"
-              : "text-text-secondary bg-black/40 border-transparent hover:text-foreground"
-          }`}
-        >
-          <Star size={12} className={starred ? "fill-current" : ""} />
-          {starred ? t("starred") : t("star")}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t("closeInspector")}
-          className="absolute top-3 right-3 w-8 h-8 rounded-full grid place-items-center bg-black/50 backdrop-blur-md text-foreground hover:bg-black/70 transition-colors"
-        >
-          <X size={15} />
-        </button>
+  return <aside ref={asideRef} tabIndex={-1} className={styles.inspector} aria-label={t("inspectorAria")}>
+    <header className={styles.inspectorHeader}><div><p>{t("inspectorAria")}</p><h2>{asset.name}</h2></div>
+      <IconButton aria-label={t("closeInspector")} isDisabled={replacing} onPress={onClose}><X size={18} /></IconButton>
+    </header>
+    {heroUrl && <img src={heroUrl} alt={asset.name} className={styles.hero} />}
+    <div className={styles.details}>
+      {variants.length > 1 && <section><h3>{t("variantsSection")}</h3><div className={styles.variants}>
+        {variants.map((variant, index) => <button key={variant.id} type="button" aria-label={`${t("variantAlt")} ${index + 1}`} aria-pressed={variant.id === activeVariant?.id} onClick={() => setActiveVariantId(variant.id)}><img src={getAssetUrl(variant.url)} alt="" /></button>)}
+      </div></section>}
+      <dl className={styles.metadata}>{metaRows.map(row => <Fragment key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></Fragment>)}</dl>
+      {asset.description && <section><h3>{t("descLabel")}</h3><p className={styles.prompt}>{asset.description}</p></section>}
+      {prompt && <section><h3>{t("promptSection")}</h3><p className={styles.prompt}>{prompt}</p></section>}
+      <div className={styles.actions}>
+        <input ref={replaceInput} type="file" accept="image/*" aria-label={t("replaceImage")} className="hidden" disabled={replacing} onChange={handleReplace} />
+        <Button variant="secondary" isPending={replacing} onPress={() => replaceInput.current?.click()}><Upload size={15} />{replacing ? t("replacing") : t("replaceImage")}</Button>
+        {replaceError && <p role="alert" className="text-sm text-status-failed-fg">{replaceError}</p>}
+        <Button variant="secondary" aria-pressed={starred} isDisabled={starPending} onPress={onToggleStar}><Star size={15} className={starred ? "fill-current" : ""} />{starred ? t("unstar") : t("star")}</Button>
+        {sourceKind === "project" ? <Button isPending={generating} onPress={() => void handleGenerateVariants()}><Sparkles size={15} />{generating ? t("generating") : t("generateMoreVariants")}</Button>
+          : <p className={styles.prompt}>{t("genInEpisodeTooltip")}</p>}
+        {sourceKind !== "global" && <Button variant="secondary" isPending={promoting} onPress={() => void handlePromote()}><Globe size={15} />{promoting ? t("promoting") : t("promoteToGlobal")}</Button>}
+        <Button variant="quiet" onPress={() => void handleDownload()} isDisabled={!heroUrl} isPending={downloading}><Download size={15} />{t("download")}</Button>
       </div>
-
-      <div className="p-5 flex flex-col gap-5">
-        <div>
-          <div className="font-display atelier-display text-xl font-semibold text-foreground tracking-tight">
-            {asset.name}
-          </div>
-          <div className="font-mono text-[0.59375rem] text-text-muted tracking-[0.06em] uppercase mt-1.5">
-            {TYPE_LABEL[type]} · {sourceName} · {t("variantCount", { count: variants.length })}
-          </div>
-        </div>
-
-        {/* Variant strip */}
-        {variants.length > 1 && (
-          <div>
-            <div className="font-mono text-[0.5625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary mb-2.5">
-              {t("variantsSection")}
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {variants.map((v) => {
-                const on = v.id === activeVariant?.id;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setActiveVariantId(v.id)}
-                    aria-current={on ? "true" : undefined}
-                    className={`relative aspect-square rounded-md overflow-hidden transition-transform hover:-translate-y-0.5 ${
-                      on ? "ring-2 ring-primary" : "ring-1 ring-glass-border"
-                    }`}
-                  >
-                    <img src={getAssetUrl(v.url)} alt={t("variantAlt")} className="w-full h-full object-cover" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Metadata */}
-        <div>
-          <div className="font-mono text-[0.5625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary mb-2.5">
-            {t("metadataSection")}
-          </div>
-          <div className="flex flex-col">
-            {metaRows.map((row) => (
-              <div
-                key={row.label}
-                className="flex justify-between items-center py-2 border-b border-glass-border last:border-b-0 text-[0.8125rem]"
-              >
-                <span className="font-mono text-[0.625rem] text-text-muted tracking-[0.04em]">{row.label}</span>
-                <span className="text-foreground font-medium">{row.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Prompt */}
-        {prompt && (
-          <div>
-            <div className="font-mono text-[0.5625rem] font-semibold uppercase tracking-[0.16em] text-text-secondary mb-2.5">
-              {t("promptSection")}
-            </div>
-            <div className="bg-surface-inset rounded-lg p-3.5 text-[0.8125rem] leading-relaxed text-text-secondary border-l-2 border-status-starred-border">
-              {prompt}
-            </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        {/*
-          生成更多变体：project 资产复用「按项目 batch 生成」管线，对当前 asset append 新变体
-          （不替换），完成后并入本地展示并高亮最新一张；series 资产无生成端点（生成需在具体
-          项目内进行），故置灰并提示在剧集内生成。「用于分镜」按钮已移除（占位、无落地路径）。
-        */}
-        <div className="flex flex-col gap-2">
-          {sourceKind === "project" ? (
-            <button
-              type="button"
-              onClick={handleGenerateVariants}
-              disabled={generating}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-on-accent text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {generating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-              {generating ? t("generating") : t("generateMoreVariants")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled
-              title={t("genInEpisodeTooltip")}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-surface-inset border border-glass-border text-text-muted text-sm font-medium cursor-not-allowed disabled:opacity-60"
-            >
-              <Sparkles size={15} />
-              {t("generateMoreVariants")}
-              <span className="inline-flex items-center rounded-full px-1.5 py-0.5 font-mono text-[0.53125rem] font-semibold tracking-[0.06em] text-status-pending-fg bg-status-pending-bg border border-status-pending-border">
-                {t("genInEpisodeBadge")}
-              </span>
-            </button>
-          )}
-          {/* 提升到全局：project/series 来源可用；global 来源隐藏（无需自我提升）。 */}
-          {sourceKind !== "global" && (
-            <button
-              type="button"
-              onClick={handlePromote}
-              disabled={promoting}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-surface-inset border border-glass-border text-foreground text-sm font-medium hover:bg-hover-bg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {promoting ? <Loader2 size={15} className="animate-spin" /> : <Globe size={15} />}
-              {promoting ? t("promoting") : t("promoteToGlobal")}
-            </button>
-          )}
-          {/* 下载：v1 实做 */}
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={!heroUrl}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-surface-inset border border-glass-border text-foreground text-sm font-medium hover:bg-hover-bg transition-colors disabled:opacity-40"
-          >
-            <Download size={15} />
-            {t("download")}
-          </button>
-        </div>
-      </div>
-    </aside>
-  );
+    </div>
+  </aside>;
 }

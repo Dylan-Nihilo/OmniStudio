@@ -1,0 +1,54 @@
+.page { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--color-text-primary); background: var(--color-bg-base); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 32px; min-height: 80px; flex-shrink: 0; }
+.header p { color: var(--color-text-muted); font-size: 11px; }
+.header h1 { font-size: 22px; line-height: 1.3; margin-top: 8px; font-weight: 600; }
+.headerActions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.body { display: flex; flex: 1; min-height: 0; }
+.gallery { flex: 1; min-width: 0; overflow-y: auto; padding: 0 32px 32px; }
+.toolbar { display: flex; align-items: end; gap: 8px; padding-bottom: 20px; }
+.search { min-width: 0; flex: 1; }
+.search > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.source { min-width: 0; flex: 0 1 180px; }
+.source > label { font-size: 10px; }
+.view { flex: 0 0 112px; }
+.view > label { font-size: 10px; }
+.group { margin-bottom: 28px; }
+.group > header { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--color-border-default); }
+.group h2 { font-size: 12px; font-weight: 500; }
+.group > header > span { font-size: 10px; color: var(--color-text-muted); }
+.grid { columns: 3; column-gap: 24px; }
+.card { position: relative; break-inside: avoid; margin-bottom: 24px; border-radius: 12px; }
+.openCard { width: 100%; text-align: left; border-radius: 12px; display: block; }
+.openCard img { display: block; width: 100%; min-height: 120px; max-height: 280px; object-fit: contain; background: var(--color-bg-inset); border-radius: 12px; }
+.openCard strong { display: block; margin: 14px 32px 6px 0; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.openCard > span { display: block; font-size: 10px; line-height: 1.6; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.openCard:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; }
+.card[data-selected="true"] img, .card[data-selected="true"] .noImage { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.star { position: absolute; right: 4px; top: 4px; background: var(--color-bg-surface); border-radius: 8px; }
+.noImage { display: grid; place-items: center; height: 160px; background: var(--color-bg-inset); color: var(--color-text-muted); border-radius: 12px; }
+.error { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--color-status-failed-fg); margin-bottom: 16px; }
+.navigation { min-width: 0; }
+.inspector { flex: 0 0 360px; width: 360px; min-width: 0; height: 100%; padding: 24px; overflow-y: auto; border: 1px solid var(--color-border-default); border-radius: 16px 0 0 16px; background: var(--color-bg-surface); }
+.inspector:focus { outline: none; }
+.inspectorHeader { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 20px; }
+.inspectorHeader > div { flex: 1; min-width: 0; }
+.inspectorHeader p { font-size: 10px; color: var(--color-text-muted); margin-bottom: 12px; }
+.inspectorHeader h2 { font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
+.hero { display: block; width: 100%; max-height: 340px; object-fit: contain; background: var(--color-bg-inset); border-radius: 14px; }
+.details { display: flex; flex-direction: column; gap: 24px; padding-top: 24px; }
+.details h3 { font-size: 11px; color: var(--color-text-muted); font-weight: 500; margin-bottom: 12px; }
+.variants { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+.variants button { border: 2px solid transparent; border-radius: 8px; padding: 2px; }
+.variants button[aria-pressed="true"] { border-color: var(--color-primary); }
+.variants img { width: 100%; aspect-ratio: 1; object-fit: contain; }
+.metadata { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 16px; font-size: 12px; border-top: 1px solid var(--color-border-default); padding-top: 24px; }
+.metadata dt { color: var(--color-text-muted); }
+.metadata dd { text-align: right; overflow-wrap: anywhere; }
+.prompt { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.actions { display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 1279px) { .grid { columns: 2; } .inspector { flex-basis: 320px; width: 320px; padding: 20px; } .header, .gallery { padding-left: 24px; padding-right: 24px; } }
+@media (max-width: 1023px) { .body[data-inspecting="true"] .gallery { display: none; } .inspector { flex: 1; width: 100%; border-radius: 12px; margin: 0 16px; } .hero { max-height: 320px; } }
+@media (max-width: 767px) { .navigation button svg { display: none; } .header { padding: 16px; gap: 12px; flex-wrap: wrap; } .header h1 { font-size: 20px; } .gallery { padding: 0 16px 24px; } .toolbar { flex-wrap: wrap; } .search { flex-basis: calc(100% - 104px); } .grid { column-gap: 16px; } .openCard img { min-height: 80px; } .openCard strong { margin-right: 0; } .inspector { padding: 16px; } }
+@media (prefers-reduced-motion: no-preference) { .card { animation: library-enter .18s ease-out both; } @keyframes library-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } } }
+
+@media (max-width: 767px) { .source, .view { order: 1; flex: 1 1 0; min-width: 0; } }

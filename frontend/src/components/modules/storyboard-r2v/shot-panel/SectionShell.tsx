@@ -8,6 +8,7 @@
  * a pile of bespoke headers.
  */
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { Button } from "@omnistudio/ui";
 import type { ReactNode } from "react";
 
 interface SectionShellProps {
@@ -40,43 +41,14 @@ export default function SectionShell({
     return (
         <div className="border-b border-glass-border last:border-b-0 py-4">
             {headerOverride ?? (
-                <div className="flex items-center gap-2 px-3 mb-3">
-                    {/* 28x28 visual chevron + 40x40 hit area via -m-1
-                        p-2 expansion (WCAG 2.5.5 AA). Visual outline
-                        unchanged. */}
-                    <button
-                        type="button"
-                        onClick={onToggle}
-                        aria-expanded={open}
-                        aria-label={open ? "Collapse section" : "Expand section"}
-                        className="-m-1 grid h-7 w-7 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                    >
-                        {open ? (
-                            <ChevronDown size={13} aria-hidden="true" />
-                        ) : (
-                            <ChevronRight size={13} aria-hidden="true" />
-                        )}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onToggle}
-                        className="flex min-w-0 flex-1 items-baseline gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                    >
-                        {/* Section title — chrome tier (per type scale),
-                            uppercase tracking is RESERVED for section
-                            titles (not metadata) per Sweep E (P2-1). */}
-                        <span className="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-text-secondary">
-                            {title}
-                        </span>
-                        {subtitle ? (
-                            <span className="truncate font-mono text-[0.625rem] tracking-tight text-text-muted">
-                                {subtitle}
-                            </span>
-                        ) : null}
-                    </button>
-                    {trailing ? (
-                        <div className="flex shrink-0 items-center gap-1">{trailing}</div>
-                    ) : null}
+                <div className="mb-3 flex flex-wrap items-center gap-2 px-3">
+                    <Button variant="quiet" onPress={onToggle} aria-expanded={open}
+                        className="min-w-0 flex-1 basis-40 justify-start gap-2 px-0 text-left">
+                        {open ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+                        <span className="shrink-0 whitespace-nowrap text-xs font-medium text-text-secondary">{title}</span>
+                        {subtitle && <span className="min-w-0 truncate font-mono text-[0.625rem] text-text-muted">{subtitle}</span>}
+                    </Button>
+                    {trailing && <div className="flex max-w-full flex-wrap items-center gap-1">{trailing}</div>}
                 </div>
             )}
             {open ? <div className="px-3">{children}</div> : null}
