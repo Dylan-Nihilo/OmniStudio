@@ -1,6 +1,6 @@
 "use client";
 
-import { SelectField } from "@omnistudio/ui";
+import { SelectField, LoadingState } from "@omnistudio/ui";
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,7 +9,9 @@ import {
     Trash2, Copy, Wand2, FileText, RefreshCw, Loader2, X, Lock, Unlock,
     Plus, ArrowUp, ArrowDown, Zap, Upload, Film
 } from "lucide-react";
-import { useProjectStore } from "@/store/projectStore";
+import { useProjectStore, mergeFrameStructure } from "@/store/projectStore";
+import { useAuthStore } from "@/store/authStore";
+import { useFrameStructure } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi } from "@/lib/api";
 import { getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
@@ -21,10 +23,22 @@ import StoryboardFrameEditor from "./StoryboardFrameEditor";
 export default function StoryboardComposer() {
     const t = useTranslations("storyboard");
     const tStep = useTranslations("stepHeader");
+    const tSave = useTranslations("storyboardR2V");
+    const tCommon = useTranslations("common");
     const currentProject = useProjectStore((state) => state.currentProject);
+    const structure = useFrameStructure(currentProject?.id);
     const selectedFrameId = useProjectStore((state) => state.selectedFrameId);
     const setSelectedFrameId = useProjectStore((state) => state.setSelectedFrameId);
     const updateProject = useProjectStore((state) => state.updateProject);
+    const userId = useAuthStore(state => state.user?.id);
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id);
+    const applyStructure = (frames: any[]) => {
+        const current = useProjectStore.getState().currentProject;
+        if (!current || current.id !== currentProject?.id || userId !== useAuthStore.getState().user?.id
+            || workspaceId !== useAuthStore.getState().activeWorkspace?.id) return false;
+        updateProject(current.id, { frames: mergeFrameStructure(current.frames, frames) });
+        return true;
+    };
 
     // Use global rendering state (persists across module switches)
     const renderingFrames = useProjectStore((state) => state.renderingFrames);
@@ -93,13 +107,16 @@ export default function StoryboardComposer() {
         if (!currentProject) return;
         if (!confirm(t("confirmDeleteFrame"))) return;
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            await crudApi.deleteFrame(currentProject.id, frameId);
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            const updatedProject = await crudApi.deleteFrame(currentProject.id, frameId);
+            applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to delete frame:", error);
             alert(t("deleteFrameFailed"));
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
@@ -107,31 +124,37 @@ export default function StoryboardComposer() {
         e.stopPropagation();
         if (!currentProject) return;
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            await crudApi.copyFrame(currentProject.id, frameId);
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            const updatedProject = await crudApi.copyFrame(currentProject.id, frameId);
+            applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to copy frame:", error);
             alert(t("copyFrameFailed"));
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
     const handleCreateFrame = async (data: any) => {
         if (!currentProject) return;
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            await crudApi.createFrame(currentProject.id, {
+            const updatedProject = await crudApi.createFrame(currentProject.id, {
                 ...data,
                 insert_at: insertIndex !== null ? insertIndex : undefined
             });
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            if (!applyStructure(updatedProject.frames)) return;
             setIsCreateDialogOpen(false);
             setInsertIndex(null);
         } catch (error) {
             console.error("Failed to create frame:", error);
             alert(t("createFrameFailed"));
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
@@ -149,18 +172,16 @@ export default function StoryboardComposer() {
 
         const newOrderIds = newFrames.map((f: any) => f.id);
 
+        const ownsStructure = structure.begin();
+        if (!ownsStructure) return;
         try {
-            // Optimistic update
-            updateProject(currentProject.id, { ...currentProject, frames: newFrames });
-
-            await crudApi.reorderFrames(currentProject.id, newOrderIds);
-            // No need to fetch again if optimistic update was correct, but good for safety
+            const updatedProject = await crudApi.reorderFrames(currentProject.id, newOrderIds);
+            applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to reorder frames:", error);
             alert(t("reorderFailed"));
-            // Revert on error would be ideal here by fetching project again
-            const project = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, project);
+        } finally {
+            structure.end(ownsStructure);
         }
     };
 
@@ -328,7 +349,7 @@ export default function StoryboardComposer() {
     };
 
     return (
-        <div className="flex flex-col h-full text-foreground overflow-hidden">
+        <div className="flex flex-col h-full text-foreground overflow-hidden" aria-busy={structure.pending}>
             <StepHeader
                 stepNumber={4}
                 totalSteps={6}
@@ -338,6 +359,7 @@ export default function StoryboardComposer() {
                 subtitle={tStep("storyboardComposerSubtitle")}
                 trailing={(
                     <div className="flex items-center gap-2">
+                        {structure.pending && <LoadingState inline label={tSave("saving")} />}
                         <span className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted">
                             <span className="text-foreground font-medium">{currentProject?.frames?.length || 0}</span>
                             <span className="ml-1.5">frames</span>
@@ -357,7 +379,7 @@ export default function StoryboardComposer() {
                             leftIcon={isAnalyzing ? undefined : <Zap />}
                             loading={isAnalyzing}
                             onClick={handleAnalyzeToStoryboard}
-                            disabled={isAnalyzing}
+                            disabled={isAnalyzing || structure.pending}
                             title={t("generateFromScript")}
                         >
                             {isAnalyzing ? t("generatingFrames") : t("generateStoryboard")}
@@ -496,7 +518,8 @@ export default function StoryboardComposer() {
                                             <div className="flex items-center gap-1 mr-auto">
                                                 <button
                                                     onClick={(e) => handleMoveFrame(index, 'up', e)}
-                                                    disabled={index === 0}
+                                                    disabled={structure.pending || index === 0}
+                                                    aria-label={t("moveUp")}
                                                     className="btn-tip p-2 hover:bg-hover-bg text-text-secondary hover:text-foreground rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                                                     data-tip={t("moveUp")}
                                                 >
@@ -504,7 +527,8 @@ export default function StoryboardComposer() {
                                                 </button>
                                                 <button
                                                     onClick={(e) => handleMoveFrame(index, 'down', e)}
-                                                    disabled={index === (currentProject.frames?.length || 0) - 1}
+                                                    disabled={structure.pending || index === (currentProject.frames?.length || 0) - 1}
+                                                    aria-label={t("moveDown")}
                                                     className="btn-tip p-2 hover:bg-hover-bg text-text-secondary hover:text-foreground rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                                                     data-tip={t("moveDown")}
                                                 >
@@ -514,6 +538,8 @@ export default function StoryboardComposer() {
 
                                             <button
                                                 onClick={(e) => handleCopyFrame(frame.id, e)}
+                                                disabled={structure.pending}
+                                                aria-label={t("duplicateFrame")}
                                                 className="btn-tip p-2 hover:bg-hover-bg text-text-secondary hover:text-foreground rounded-lg transition-colors"
                                                 data-tip={t("duplicateFrame")}
                                             >
@@ -544,6 +570,8 @@ export default function StoryboardComposer() {
                                             })()}
                                             <button
                                                 onClick={(e) => handleDeleteFrame(frame.id, e)}
+                                                disabled={structure.pending}
+                                                aria-label={tCommon("delete")}
                                                 className="btn-tip p-2 hover:bg-red-500/20 text-text-secondary hover:text-red-400 rounded-lg transition-colors"
                                                 data-tip="Delete"
                                             >

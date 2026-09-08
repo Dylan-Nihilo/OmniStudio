@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
 import { api, crudApi } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
-import { useProjectStore } from '@/store/projectStore';
+import { useProjectStore, mergeFrameStructure, addedFrame } from '@/store/projectStore';
 import type { ShotNode } from './ShotCard';
 
 type Fields = Parameters<typeof api.updateFrame>[2];
@@ -141,7 +141,26 @@ async function saveShot(key: string): Promise<void> {
     requests.delete(key);
 }
 
+export function useFrameStructure(projectId: string | undefined) {
+    const userId = useAuthStore(state => state.user?.id);
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id);
+    const scope = JSON.stringify([userId ?? null, workspaceId ?? null]);
+    // An empty shot ID reserves the project-wide structural operation in the existing writer state.
+    const key = draftKey(scope, projectId ?? '', '');
+    const pending = useShotDraftStore(state => !!state.saving[key]);
+    const begin = useCallback(() => {
+        if (!projectId || scope !== authScope() || useShotDraftStore.getState().saving[key]) return false;
+        useShotDraftStore.setState(state => ({ saving: { ...state.saving, [key]: true } }));
+        return true;
+    }, [projectId, scope, key]);
+    const end = useCallback((owned: boolean) => {
+        if (owned) useShotDraftStore.setState(state => ({ saving: { ...state.saving, [key]: false } }));
+    }, [key]);
+    return { pending, begin, end };
+}
+
 export function useShotDrafts(projectId: string | undefined) {
+    const structure = useFrameStructure(projectId);
     const userId = useAuthStore(state => state.user?.id);
     const workspaceId = useAuthStore(state => state.activeWorkspace?.id);
     const scope = JSON.stringify([userId ?? null, workspaceId ?? null]);
@@ -211,17 +230,19 @@ export function useShotDrafts(projectId: string | undefined) {
         if (running) return running;
         const request = (async () => {
             useShotDraftStore.setState(state => ({ saving: { ...state.saving, [key]: true } }));
+            // Materialization may be nested inside a copy or manual add operation.
+            const ownsStructure = structure.begin();
             try {
+                const previousIds = new Set<string>(useProjectStore.getState().currentProject?.frames.map(frame => frame.id));
                 const created = await crudApi.createFrame(projectId, {
                     scene_id: '', action_description: shot.prompt || '', insert_at: index,
                 });
-                const frames = Array.isArray(created?.frames) ? created.frames : [];
-                const frame = frames[Math.min(index, frames.length - 1)];
-                if (!frame?.id) throw new Error('Frame creation returned no persisted frame');
+                const frames = mergeFrameStructure([], created?.frames);
+                const frame = addedFrame(previousIds, frames);
                 adopt(shot.id, frame.id);
                 const projectState = useProjectStore.getState();
                 if (scope === authScope() && projectState.currentProject?.id === projectId) {
-                    projectState.updateProject(projectId, { frames });
+                    projectState.updateProject(projectId, { frames: mergeFrameStructure(projectState.currentProject.frames, frames) });
                     if (projectState.selectedFrameId === shot.id) projectState.setSelectedFrameId(frame.id);
                 }
                 await flush();
@@ -231,12 +252,13 @@ export function useShotDrafts(projectId: string | undefined) {
                 throw error;
             } finally {
                 useShotDraftStore.setState(state => ({ saving: { ...state.saving, [key]: false } }));
+                structure.end(ownsStructure);
             }
         })();
         creations.set(key, request);
         try { return await request; }
         finally { creations.delete(key); }
-    }, [scope, projectId, adopt, flush, markFailed]);
+    }, [scope, projectId, adopt, flush, markFailed, structure.begin, structure.end]);
     const resolveId = useCallback((shotId: string) => projectId
         ? state.materializedIds[draftKey(scope, projectId, shotId)] ?? shotId : shotId,
     [scope, projectId, state.materializedIds]);
@@ -344,8 +366,9 @@ export function useShotDrafts(projectId: string | undefined) {
             }
         };
     }, [scope, projectId]);
-    const localShots = () => keys.map(key => state.drafts[key]).filter(draft => draft.shotId.startsWith('shot_'))
-        .map(draft => restore({ id: draft.shotId, prompt: '', tabMode: 'direct_r2v' }));
+    const localShots = useCallback(() => Object.values(useShotDraftStore.getState().drafts)
+        .filter(draft => draft.scope === scope && draft.projectId === projectId && draft.shotId.startsWith('shot_'))
+        .map(draft => restore({ id: draft.shotId, prompt: '', tabMode: 'direct_r2v' })), [scope, projectId, restore]);
     const materializing = keys.some(key => state.drafts[key].shotId.startsWith('shot_') && state.saving[key]);
-    return { queue, flush, discard, materialize, resolveId, materializing, refine, acceptRefinement, holdRefinements, hasPendingDrafts, isRefining, refinedVersion, countFor, restore, localShots, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
+    return { queue, flush, discard, materialize, resolveId, materializing, refine, acceptRefinement, holdRefinements, hasPendingDrafts, isRefining, refinedVersion, countFor, restore, localShots, structurePending: structure.pending, beginStructure: structure.begin, endStructure: structure.end, pending: keys.length > 0, hasError, saving, storageUnavailable: state.storageUnavailable };
 }

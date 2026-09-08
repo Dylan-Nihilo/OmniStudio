@@ -3,6 +3,22 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { api, type DialogueAudioBatch, type StoryboardGeneration } from '@/lib/api';
 import type { FrontendModelSettings } from '@/lib/modelCatalog';
 
+// Structure responses own membership and order, not later edits to retained shots.
+export function mergeFrameStructure(current: any[], received: any[]): any[] {
+    if (!Array.isArray(received) || received.some(frame => typeof frame?.id !== 'string' || !frame.id)
+        || new Set(received.map(frame => frame.id)).size !== received.length) {
+        throw new Error('Frame operation returned an invalid sequence');
+    }
+    const existing = new Map(current.map(frame => [frame.id, frame]));
+    return received.map(frame => existing.get(frame.id) ?? frame);
+}
+
+export function addedFrame(previousIds: Set<string>, received: any[]) {
+    const added = received.filter(frame => !previousIds.has(frame.id));
+    if (added.length !== 1) throw new Error('Frame operation returned no unique new shot');
+    return added[0];
+}
+
 const projectStorageScope = (): string => {
     if (typeof window === 'undefined') return 'server:default';
     const workspaceId = window.localStorage.getItem('omni_studio.activeWorkspaceId') || 'default';

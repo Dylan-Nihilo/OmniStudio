@@ -6,7 +6,7 @@ import { Button, EmptyState } from "@omnistudio/ui";
 import styles from "./StoryboardR2V.module.css";
 import { Plus, Film, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useProjectStore } from "@/store/projectStore";
+import { useProjectStore, mergeFrameStructure, addedFrame } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import { useShotDrafts, mergeRefinementFields } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi, type VideoTask, type RefineSSEEvent } from "@/lib/api";
@@ -80,6 +80,9 @@ function StoryboardWorkbench() {
     const firstFrameKey = useCallback((frameId: string) => JSON.stringify([
         firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id, frameId,
     ]), [firstFrameContext, currentProject?.id]);
+    const isCurrentProject = useCallback(() => useAuthStore.getState().user?.id === firstFrameContext.userId
+        && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
+        && useProjectStore.getState().currentProject?.id === currentProject?.id, [firstFrameContext, currentProject?.id]);
 
 
     const draftSave = useShotDrafts(currentProject?.id);
@@ -103,7 +106,7 @@ function StoryboardWorkbench() {
     const shotsRef = useRef(shots);
     shotsRef.current = shots;
     const structurePendingRef = useRef(false);
-    const [structurePending, setStructurePending] = useState(false);
+    const { structurePending, beginStructure, endStructure, localShots } = draftSave;
     structurePendingRef.current = structurePending || draftSave.materializing;
     const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
 
@@ -248,6 +251,28 @@ function StoryboardWorkbench() {
         setShotSeeds(previous => Object.fromEntries(Object.entries(previous).map(([id, seed]) => [resolveId(id), seed])));
     }, [resolveId]);
 
+    // Another mount can complete a structure request. Reconcile order and IDs while
+    // retaining local shot edits and any creation draft that has not received its ID.
+    useEffect(() => {
+        if (!currentProject) return;
+        setShots(previous => {
+            const existing = new Map(previous.map(shot => {
+                const id = resolveId(shot.id);
+                return [id, id === shot.id ? shot : { ...shot, id }];
+            }));
+            const next = currentProject.frames.map(frame => existing.get(frame.id)
+                ?? restoreDraft(frameToShotNode(frame, currentProject.video_tasks ?? [], currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v")));
+            const localIds = new Set(localShots().map(shot => shot.id));
+            previous.forEach((shot, index) => {
+                if (resolveId(shot.id) === shot.id && (localIds.has(shot.id)
+                    || !currentProject.frames.length && previous.length === 1 && shot.id.startsWith("shot_") && !shot.prompt)) {
+                    next.splice(Math.min(index, next.length), 0, shot);
+                }
+            });
+            return next.length === previous.length && next.every((shot, index) => shot === previous[index]) ? previous : next;
+        });
+    }, [currentProject?.frames, resolveId, restoreDraft, localShots]);
+
     const materializeShot = materialize;
 
     const saveAllDrafts = useCallback(async () => {
@@ -293,8 +318,9 @@ function StoryboardWorkbench() {
     // Add a new shot after the given index
     const addShot = useCallback(async (afterIndex: number) => {
         if (!currentProject?.id || structurePendingRef.current) return;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
         structurePendingRef.current = true;
-        setStructurePending(true);
         const synthId = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         // PR-3e · pick default tabMode from project preference (inherited from
         // series). "i2v" (画面优先) → t2i_i2v; "r2v" (节奏优先, default) → direct_r2v.
@@ -322,9 +348,9 @@ function StoryboardWorkbench() {
         }
         finally {
             structurePendingRef.current = false;
-            setStructurePending(false);
+            endStructure(ownsStructure);
         }
-    }, [currentProject, t, queueDraft, materializeShot]);
+    }, [currentProject, t, queueDraft, materializeShot, beginStructure, endStructure]);
 
     const [genDialogOpen, setGenDialogOpen] = useState(false);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
@@ -476,7 +502,7 @@ function StoryboardWorkbench() {
 
     const handleSmartGenerate = useCallback(async () => {
         const existing = useStoryboardRequests.getState()[batchScope];
-        if (!currentProject?.id || batchPending || storyboardRunning || existing?.pending || existing?.recovering) return;
+        if (!currentProject?.id || batchPending || structurePending || storyboardRunning || existing?.pending || existing?.recovering) return;
         const projectId = currentProject.id;
         const scriptText = (currentProject as any).original_text ?? currentProject.originalText ?? "";
         if (!scriptText.trim()) { toast.warning(t("genToastNoScript")); return; }
@@ -526,7 +552,7 @@ function StoryboardWorkbench() {
             useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering, error: detail } });
             if (isCurrent()) toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
         }
-    }, [currentProject, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, adoptAnalyzedFrames, updateProject, startRefinement, t]);
+    }, [currentProject, batchScope, batchPending, structurePending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, adoptAnalyzedFrames, updateProject, startRefinement, t]);
 
     const displayedRefinements = useRef<Record<string, number>>({});
     useEffect(() => {
@@ -557,14 +583,16 @@ function StoryboardWorkbench() {
         const target = shots[index];
         if (!target || structurePendingRef.current) return;
         const projectId = currentProject?.id;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
         structurePendingRef.current = true;
-        setStructurePending(true);
         try {
             if (projectId && !target.id.startsWith("shot_")) {
                 const resp = await crudApi.deleteFrame(projectId, target.id);
-                if (Array.isArray(resp?.frames)) updateProject(projectId, { frames: resp.frames });
+                if (!isCurrentProject()) return;
+                updateProject(projectId, { frames: mergeFrameStructure(useProjectStore.getState().currentProject!.frames, resp?.frames) });
             }
-            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            if (!isCurrentProject()) return;
             discardDraft(target.id);
             setShots(prev => prev.filter(shot => shot.id !== target.id));
             if (useProjectStore.getState().selectedFrameId === target.id) {
@@ -575,9 +603,9 @@ function StoryboardWorkbench() {
             toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
         } finally {
             structurePendingRef.current = false;
-            setStructurePending(false);
+            endStructure(ownsStructure);
         }
-    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId, discardDraft]);
+    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId, discardDraft, isCurrentProject, beginStructure, endStructure]);
 
     const moveShot = useCallback(async (index: number, direction: "up" | "down") => {
         const targetIndex = direction === "up" ? index - 1 : index + 1;
@@ -589,14 +617,16 @@ function StoryboardWorkbench() {
         }
         [ids[index], ids[targetIndex]] = [ids[targetIndex], ids[index]];
         const projectId = currentProject?.id;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
         structurePendingRef.current = true;
-        setStructurePending(true);
         try {
             if (projectId) {
                 const resp = await crudApi.reorderFrames(projectId, ids);
-                if (Array.isArray(resp?.frames)) updateProject(projectId, { frames: resp.frames });
+                if (!isCurrentProject()) return;
+                updateProject(projectId, { frames: mergeFrameStructure(useProjectStore.getState().currentProject!.frames, resp?.frames) });
             }
-            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            if (!isCurrentProject()) return;
             setShots(prev => {
                 const next = [...prev];
                 const from = next.findIndex(shot => shot.id === shots[index].id);
@@ -609,38 +639,43 @@ function StoryboardWorkbench() {
             toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
         } finally {
             structurePendingRef.current = false;
-            setStructurePending(false);
+            endStructure(ownsStructure);
         }
-    }, [shots, currentProject?.id, t, updateProject]);
+    }, [shots, currentProject?.id, t, updateProject, isCurrentProject, beginStructure, endStructure]);
 
     // Copy only after the source edits are saved; a failed copy leaves the sequence intact.
     const duplicateShot = useCallback(async (index: number) => {
         const source = shots[index];
         const projectId = currentProject?.id;
         if (!source || !projectId || structurePendingRef.current) return;
+        const ownsStructure = beginStructure();
+        if (!ownsStructure) return;
         structurePendingRef.current = true;
-        setStructurePending(true);
+        const selectedAtStart = useProjectStore.getState().selectedFrameId;
         try {
             if (!await saveAllDrafts()) return;
+            if (!isCurrentProject()) return;
             const sourceId = await materializeShot(source, index);
+            if (!isCurrentProject()) return;
+            const previousIds = new Set<string>(useProjectStore.getState().currentProject!.frames.map(frame => frame.id));
             const resp = await crudApi.copyFrame(projectId, sourceId, index + 1);
-            const frame = resp?.frames?.[index + 1];
-            if (!frame?.id) throw new Error("Frame copy returned no persisted frame");
-            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            if (!isCurrentProject()) return;
+            const frames = mergeFrameStructure(useProjectStore.getState().currentProject!.frames, resp?.frames);
+            const frame = addedFrame(previousIds, frames);
             setShots(prev => {
                 const next = [...prev];
                 next.splice(index + 1, 0, frameToShotNode(frame, []));
                 return next;
             });
-            setSelectedFrameId(frame.id);
-            updateProject(projectId, { frames: resp.frames });
+            if (useProjectStore.getState().selectedFrameId === selectedAtStart) setSelectedFrameId(frame.id);
+            updateProject(projectId, { frames });
         } catch (err) {
             toast.error(t("saveFailed"), { body: err instanceof Error ? err.message : t("unknownError") });
         } finally {
             structurePendingRef.current = false;
-            setStructurePending(false);
+            endStructure(ownsStructure);
         }
-    }, [shots, currentProject?.id, saveAllDrafts, materializeShot, updateProject, setSelectedFrameId, t]);
+    }, [shots, currentProject?.id, saveAllDrafts, materializeShot, updateProject, setSelectedFrameId, t, isCurrentProject, beginStructure, endStructure]);
 
     // Update local input immediately; the shared writer retains it until acknowledged.
     const updatePrompt = useCallback((index: number, prompt: string) => {
@@ -1859,7 +1894,7 @@ function StoryboardWorkbench() {
                 <div className={styles.headerActions}>
                     <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
                     <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
-                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating} isDisabled={batchPending}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
+                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating} isDisabled={batchPending || structurePending}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
                 </div>
             </header>
             <GenerationBanner

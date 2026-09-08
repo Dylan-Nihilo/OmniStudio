@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import StoryboardR2V, { useStoryboardRequests } from "@/components/modules/StoryboardR2V";
+import StoryboardComposer from "@/components/modules/StoryboardComposer";
 import { useShotDraftStore } from "@/components/modules/storyboard-r2v/useShotDrafts";
 import { useDialogueAudioRequests } from "@/components/modules/storyboard-r2v/DialogueAudioRow";
 import { useProjectStore } from "@/store/projectStore";
@@ -161,6 +162,82 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/usePanelSectionState", (
 }));
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it("does not repeat a pending copy when switching to the legacy storyboard", async () => {
+        const frames = [{ id: "first", action_description: "First shot" }, { id: "second", action_description: "Second shot" }];
+        const project = { ...useProjectStore.getState().currentProject!, frames };
+        useProjectStore.setState({ currentProject: project, selectedFrameId: "first" });
+        let finish!: () => void;
+        copyFrame.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ ...project, frames: [frames[0], { id: "copy", action_description: "Copied shot" }, frames[1]] }); }));
+        const first = render(<StoryboardR2V />);
+        let legacy: ReturnType<typeof render> | undefined;
+        const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+        try {
+            fireEvent.click(screen.getByRole("button", { name: "copy shot" }));
+            await waitFor(() => expect(copyFrame).toHaveBeenCalledOnce());
+            first.unmount();
+            legacy = render(<StoryboardComposer />);
+            fireEvent.click(legacy.container.querySelector('[data-tip="duplicateFrame"]')!);
+            expect(copyFrame).toHaveBeenCalledOnce();
+            await act(async () => { finish(); });
+            expect(screen.getByText("Copied shot")).toBeVisible();
+        } finally { first.unmount(); legacy?.unmount(); alert.mockRestore(); }
+    });
+
+    it.each(["copy", "delete", "reorder"] as const)("keeps a pending %s across reentry and shows the confirmed sequence", async operation => {
+        const frames = [{ id: "first", action_description: "First shot" }, { id: "second", action_description: "Second shot" }];
+        const ordered = operation === "delete" ? [frames[1]] : operation === "reorder" ? [frames[1], frames[0]] : [frames[0], { id: "copy", action_description: "Copied shot" }, frames[1]];
+        const project = { ...useProjectStore.getState().currentProject!, frames };
+        useProjectStore.setState({ currentProject: project, selectedFrameId: "first" });
+        const mutation = { copy: copyFrame, delete: deleteFrame, reorder: reorderFrames }[operation];
+        let finish!: () => void;
+        mutation.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ ...project, frames: ordered }); }));
+        const name = { copy: "copy shot", delete: "delete shot", reorder: "move down" }[operation];
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            fireEvent.click(screen.getByRole("button", { name }));
+            await waitFor(() => expect(mutation).toHaveBeenCalledOnce());
+            first.unmount();
+            reopened = render(<StoryboardR2V />);
+            expect(screen.getByRole("status", { name: "saveStatus" })).toHaveTextContent("saving");
+            fireEvent.click(screen.getByRole("button", { name }));
+            expect(mutation).toHaveBeenCalledOnce();
+            await act(async () => { finish(); });
+            expect(screen.getAllByRole("button", { name: "selectShot" }).map(node => node.textContent)).toEqual(ordered.map(frame => expect.stringContaining(frame.action_description)));
+            expect(screen.getByRole("status", { name: "saveStatus" })).toHaveTextContent("saved");
+        } finally { first.unmount(); reopened?.unmount(); }
+    });
+
+    it.each(["add", "copy", "delete", "reorder"] as const)("keeps edits to retained shots when a delayed %s response updates the sequence", async operation => {
+        const frames = [{ id: "first", action_description: "First shot" }, { id: "second", action_description: "Second shot" }];
+        const inserted = { id: "inserted", action_description: operation === "copy" ? "First shot" : "" };
+        const ordered = operation === "delete" ? [frames[1]] : operation === "reorder" ? [frames[1], frames[0]] : [frames[0], inserted, frames[1]];
+        const project = { ...useProjectStore.getState().currentProject!, frames };
+        useProjectStore.setState({ currentProject: project, selectedFrameId: "first" });
+        let finish!: () => void;
+        const mutation = { add: createFrame, copy: copyFrame, delete: deleteFrame, reorder: reorderFrames }[operation];
+        mutation.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ ...project, frames: ordered }); }));
+        const view = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            fireEvent.click(screen.getByRole("button", { name: { add: "addShot", copy: "copy shot", delete: "delete shot", reorder: "move down" }[operation] }));
+            await waitFor(() => expect(mutation).toHaveBeenCalledOnce());
+            fireEvent.click(screen.getAllByRole("button", { name: "selectShot" }).find(node => node.textContent?.includes("Second shot"))!);
+            fireEvent.change(screen.getByRole("textbox", { name: "shot prompt" }), { target: { value: "New retained writing" } });
+            fireEvent.click(screen.getByRole("button", { name: "saveNow" }));
+            await waitFor(() => expect(screen.getByRole("status", { name: "saveStatus" })).not.toHaveTextContent("unsaved"));
+            await waitFor(() => expect(useProjectStore.getState().currentProject!.frames.find(frame => frame.id === "second").action_description).toBe("New retained writing"));
+            await act(async () => { finish(); });
+            expect(useProjectStore.getState().currentProject!.frames.map(frame => frame.id)).toEqual(ordered.map(frame => frame.id));
+            expect(useProjectStore.getState().currentProject!.frames.find(frame => frame.id === "second").action_description).toBe("New retained writing");
+            expect(useProjectStore.getState().selectedFrameId).toBe("second");
+            view.unmount();
+            reopened = render(<StoryboardR2V />);
+            fireEvent.click(screen.getAllByRole("button", { name: "selectShot" }).find(node => node.textContent?.includes("New retained writing"))!);
+            expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New retained writing");
+        } finally { view.unmount(); reopened?.unmount(); }
+    });
+
     it("continues once when status polling observes analysis before its POST response", async () => {
         vi.useFakeTimers();
         const project = { ...useProjectStore.getState().currentProject!, originalText: "A radio operator listens for a signal in the dark.".repeat(2), frames: [{ id: "old", action_description: "Original" }] };
@@ -674,6 +751,10 @@ describe("StoryboardR2V synthetic frame generation", () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        copyFrame.mockReset();
+        deleteFrame.mockReset();
+        reorderFrames.mockReset();
+        createFrame.mockReset();
         getProject.mockReset();
         generateDialogueAudioBatch.mockReset();
         analyzeToStoryboard.mockReset();
