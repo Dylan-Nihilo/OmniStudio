@@ -25,6 +25,7 @@ import { toast } from "@/store/toastStore";
 import ChangePasswordDialog from "@/components/auth/ChangePasswordDialog";
 import WorkspaceControls from "@/components/collaboration/WorkspaceControls";
 import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
+import SidebarSection from "./SidebarSection";
 
 export type GlobalTab = "workspace" | "library" | "editor" | "playground" | "settings";
 
@@ -141,10 +142,11 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, workspa
         <div className={styles.navigationBody}><nav className={styles.railNav} aria-label={t("mainNavAria")}>
           <WorkspaceNavigation active={activeTab === "workspace"} section={workspaceSection} />
           {GLOBAL_NAV_ITEMS.slice(1, 4).map((item) => (
-            <NavButton key={item.id} active={activeTab === item.id} label={t(item.id)} icon={item.icon} onClick={() => handleNav(item.id, item.hash)} />
+            activeTab === item.id && context
+              ? <SidebarSection key={item.id} active label={t(item.id)} icon={<item.icon size={18} strokeWidth={1.8} aria-hidden="true" />}>{context}</SidebarSection>
+              : <NavButton key={item.id} active={activeTab === item.id} label={t(item.id)} icon={item.icon} onClick={() => handleNav(item.id, item.hash)} />
           ))}
         </nav>
-        {context && <div className={styles.context}>{context}</div>}
         </div>
         <div className={styles.railBottom}>
           <NavButton active={activeTab === "settings"} label={t("settings")} icon={Settings} onClick={() => handleNav("settings", "#/settings")} />

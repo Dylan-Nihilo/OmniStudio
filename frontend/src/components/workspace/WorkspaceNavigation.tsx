@@ -1,28 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { ChevronDown, Home } from "lucide-react";
+import { Home } from "lucide-react";
 import { useTranslations } from "next-intl";
-import styles from "./WorkspaceNavigation.module.css";
+import SidebarSection from "@/components/layout/SidebarSection";
+import styles from "@/components/layout/GlobalSidebar.module.css";
 
 export type WorkspaceSection = "overview" | "projects" | "series" | "drafts";
 
 export default function WorkspaceNavigation({ active, section }: { active: boolean; section: WorkspaceSection }) {
   const t = useTranslations("workspaceOverview");
-  const menuRef = useRef<HTMLDetailsElement>(null);
-
-  useEffect(() => {
-    if (menuRef.current) menuRef.current.open = active;
-  }, [active, section]);
 
   return (
-    <details ref={menuRef} className={styles.navigation} data-active={active}>
-      <summary className={styles.summary}>
-        <Home size={18} strokeWidth={1.8} aria-hidden="true" />
-        <span>{t("title")}</span>
-        <ChevronDown size={14} className={styles.chevron} aria-hidden="true" />
-      </summary>
-      <div className={styles.links}>
+    <SidebarSection active={active} navigationKey={section} label={t("title")} icon={<Home size={18} strokeWidth={1.8} aria-hidden="true" />}>
+      <div className={styles.subnavItems}>
         {([
           ["overview", "#/workspace"],
           ["projects", "#/workspace/projects"],
@@ -31,6 +21,6 @@ export default function WorkspaceNavigation({ active, section }: { active: boole
           <a key={id} href={href} aria-current={active && (section === id || section === "drafts" && id === "projects") ? "page" : undefined}>{t(id)}</a>
         ))}
       </div>
-    </details>
+    </SidebarSection>
   );
 }

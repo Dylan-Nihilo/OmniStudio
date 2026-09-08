@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { Search, Star, ArrowDownUp, Plus, LayoutGrid, Users, Mountain, Box, RefreshCw, Folder } from "lucide-react";
+import { Search, Star, ArrowDownUp, Plus, LayoutGrid, Users, Mountain, Box, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Character, Scene, Prop, ImageAsset } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
@@ -10,6 +10,7 @@ import { characterImageUrl, characterVariants } from "@/lib/characterImage";
 import { Button, IconButton, ActionMenu, SelectField, TextField, LoadingState, EmptyState } from "@omnistudio/ui";
 import AppShell from "@/components/layout/AppShell";
 import styles from "./AssetLibraryPage.module.css";
+import navigationStyles from "@/components/layout/GlobalSidebar.module.css";
 import { getAssetUrl } from "@/lib/utils";
 import AssetInspector from "./AssetInspector";
 import NewLibraryAssetDialog from "./NewLibraryAssetDialog";
@@ -381,15 +382,10 @@ export default function AssetLibraryPage() {
       : undefined;
 
   const navigation = <nav className={styles.navigation} aria-label={t("title")}>
-    <h2>{t("title")}</h2>
-    <div className={styles.typeLinks}>{typePills.map((pill, index) => {
+    <div className={navigationStyles.subnavItems}>{typePills.map((pill, index) => {
       const Icon = [LayoutGrid, Users, Mountain, Box][index];
-      return <Button key={pill.id} variant="quiet" aria-pressed={activeType === pill.id} onPress={() => setActiveType(pill.id)}><Icon size={16} />{pill.label}<span>{pill.count}</span></Button>;
+      return <Button key={pill.id} variant="quiet" aria-pressed={activeType === pill.id} onPress={() => setActiveType(pill.id)}><Icon size={16} />{pill.label}<span className={navigationStyles.subnavCount}>{pill.count}</span></Button>;
     })}</div>
-    <div className={styles.sources}><h3>{t("metaSource")}</h3>
-      <Button variant="quiet" aria-pressed={sourceFilter === "all"} onPress={() => setSourceFilter("all")}><Folder size={15} />{t("allSources")}</Button>
-      {sources.map(source => <Button key={source.id} variant="quiet" aria-pressed={sourceFilter === source.id} onPress={() => setSourceFilter(source.id)}><Folder size={15} /><span>{source.name}</span></Button>)}
-    </div>
   </nav>;
   const clearFilters = () => { setActiveType("all"); setSearchQuery(""); setStarredOnly(false); setSourceFilter("all"); };
   return <AppShell activeTab="library" onTabChange={() => {}} context={navigation}>
@@ -406,7 +402,7 @@ export default function AssetLibraryPage() {
           <div className={styles.toolbar}>
             <TextField type="search" aria-label={t("searchPlaceholder")} label={t("searchPlaceholder")} value={searchQuery} onChange={setSearchQuery} placeholder={t("searchPlaceholder")} className={styles.search} />
             <Button variant="quiet" aria-pressed={starredOnly} aria-label={t("starredOnlyAria")} onPress={() => setStarredOnly(value => !value)}><Star size={16} className={starredOnly ? "fill-current" : ""} />{counts.starred}</Button>
-            <SelectField label={t("metaSource")} value={sourceFilter} onChange={key => setSourceFilter(String(key))} options={[{ id: "all", label: t("allSources") }, ...sources.map(source => ({ id: source.id, label: source.name }))]} className={styles.mobileSource} />
+            <SelectField label={t("metaSource")} value={sourceFilter} onChange={key => setSourceFilter(String(key))} options={[{ id: "all", label: t("allSources") }, ...sources.map(source => ({ id: source.id, label: source.name }))]} className={styles.source} />
             <ActionMenu label={t("sortLabel")} icon={<ArrowDownUp size={16} />} items={sortOptions.map(option => ({ id: option.id, label: option.label, onAction: () => setSortMode(option.id) }))} />
             <SelectField label={t("viewLabel")} value={viewAxis} onChange={key => setViewAxis(String(key) as ViewAxis)} options={[{ id: "gallery", label: t("gallery") }, { id: "type", label: t("viewByType") }, { id: "source", label: t("viewByProject") }]} className={styles.view} />
           </div>

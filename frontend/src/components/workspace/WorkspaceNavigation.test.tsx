@@ -10,6 +10,21 @@ vi.mock("@/components/auth/ChangePasswordDialog", () => ({ default: () => null }
 vi.mock("@/store/authStore", () => ({ useAuthStore: (select: (s: unknown) => unknown) => select({ user: { username: "artist" }, logout: vi.fn() }) }));
 
 describe("workspace navigation", () => {
+  it.each(["library", "playground", "editor"] as const)("keeps %s controls under their own expandable menu", tab => {
+    const { rerender } = render(<GlobalSidebar activeTab="workspace" onTabChange={vi.fn()} workspaceSection="projects" />);
+    rerender(<GlobalSidebar activeTab={tab} onTabChange={vi.fn()} context={<button>contextAction</button>} />);
+    const action = screen.getByRole("button", { name: "contextAction" });
+    const group = action.closest("details");
+    expect(group).not.toBeNull();
+    expect(group).toHaveAttribute("open");
+    expect(group?.querySelector("summary")).toHaveTextContent(tab);
+    expect(screen.queryByRole("link", { current: "page" })).not.toBeInTheDocument();
+    fireEvent.click(group!.querySelector("summary")!);
+    expect(group).not.toHaveAttribute("open");
+    fireEvent.click(group!.querySelector("summary")!);
+    expect(action).toBeVisible();
+  });
+
   it("groups only workspace pages under a disclosure and reopens it on entry", () => {
     const { rerender } = render(<WorkspaceNavigation active section="series" />);
     const summary = screen.getByText("title");

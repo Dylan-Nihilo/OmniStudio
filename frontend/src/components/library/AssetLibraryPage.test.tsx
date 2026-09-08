@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const updateLibraryAsset = vi.fn();
@@ -33,6 +33,15 @@ import AssetLibraryPage from "./AssetLibraryPage";
 import AssetInspector from "./AssetInspector";
 
 describe("AssetLibraryPage", () => {
+  it("keeps asset types in navigation and source filtering in the gallery toolbar", async () => {
+    render(<AssetLibraryPage />);
+    await screen.findByRole("img", { name: "Stage 2 protected image" });
+    const navigation = screen.getByRole("navigation", { name: "title" });
+    expect(within(navigation).queryByRole("heading")).not.toBeInTheDocument();
+    expect(within(navigation).getAllByRole("button")).toHaveLength(4);
+    expect(screen.getByRole("button", { name: /metaSource/ }).closest("nav")).toBeNull();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     listSeries.mockResolvedValue([]);

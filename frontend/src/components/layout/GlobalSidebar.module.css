@@ -1,7 +1,7 @@
 .rail { position: relative; z-index: 40; display: flex; flex: 0 0 224px; width: 224px; min-height: 0; flex-direction: column; height: 100%; border-right: 1px solid var(--color-border-default); background: var(--color-bg-inset); padding: 16px 12px 12px; }
 .brand { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 8px; margin-bottom: 12px; text-align: left; flex-shrink: 0; }
 .brand span { font-size: 13px; font-weight: 600; letter-spacing: .02em; }
-.navigationBody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.navigationBody { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-bottom: 8px; }
 .railNav { display: flex; flex-direction: column; gap: 2px; }
 .navButton { display: flex; width: 100%; min-height: 40px; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; color: var(--color-text-secondary); font-size: 13px; text-align: left; }
 .navButton svg { width: 20px; height: 20px; }
@@ -9,7 +9,21 @@
 .navButton[aria-current] { background: var(--color-bg-surface); border-color: var(--color-border-default); color: var(--color-primary); }
 .rail button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 .railBottom { flex-shrink: 0; display: grid; gap: 8px; padding-top: 8px; }
-.context { min-height: 0; margin-top: 16px; border-top: 1px solid var(--color-border-default); }
+.section { min-width: 0; }
+.sectionToggle { cursor: pointer; list-style: none; }
+.sectionToggle::-webkit-details-marker { display: none; }
+.sectionToggle > svg { flex-shrink: 0; color: var(--color-text-muted); }
+.section[data-active="true"] > .sectionToggle { color: var(--color-text-primary); font-weight: 600; }
+.sectionToggle > .chevron { margin-left: auto; width: 14px; height: 14px; transform: rotate(-90deg); transition: transform 150ms ease; }
+.section[open] > .sectionToggle > .chevron { transform: rotate(0deg); }
+.sectionContent { margin: 2px 0 8px 20px; padding-left: 11px; border-left: 1px solid var(--color-border-default); min-width: 0; }
+.subnavItems { display: grid; gap: 2px; min-width: 0; }
+.subnavItems > :is(a, button) { display: flex; width: 100%; justify-content: flex-start; align-items: center; gap: 8px; min-height: 36px; height: auto; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 400; line-height: 1.4; white-space: nowrap; text-align: left; }
+.subnavItems > :is(a, button):hover { background: var(--color-bg-hover); }
+.subnavItems > :is([aria-current], [aria-pressed="true"]) { background: var(--color-bg-surface); border-color: var(--color-border-default); color: var(--color-primary); font-weight: 500; }
+.subnavItems > :is(a, button):focus-visible, .sectionToggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.subnavItems svg { flex-shrink: 0; width: 16px; height: 16px; }
+.subnavCount { margin-left: auto; color: var(--color-text-muted); font-size: 10px; }
 .account { flex-shrink: 0; margin: 0 4px; border-top: 1px solid var(--color-border-default); padding-top: 12px; }
 .accountButton { padding: 0; justify-content: flex-start; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; text-align: left; }
 .avatar { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 4px; background: var(--color-text-primary); color: var(--color-bg-base); font-size: 13px; font-weight: 600; }
@@ -25,9 +39,14 @@
   .rail { flex: 0 0 auto; width: 100%; height: auto; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--color-border-default); }
   .brand, .railNav > .navButton, .railBottom > .navButton { display: none; }
   .navigationBody { overflow: visible; min-width: 0; }
-  .context { margin: 0; border: 0; }
+  .section[data-active="false"] { display: none; }
+  .sectionToggle { min-height: 44px; }
+  .sectionContent { margin: 0; padding: 0; border: 0; }
+  .subnavItems { display: flex; overflow-x: auto; }
+  .subnavItems > :is(a, button) { flex-shrink: 0; width: auto; min-height: 44px; padding: 8px; font-size: 12px; }
   .railBottom { padding: 0; }
   .account { margin: 0; padding: 0; border: 0; }
   .accountButton { width: 44px; justify-content: center; }
   .identity, .accountChevron { display: none; }
 }
+@media (prefers-reduced-motion: reduce) { .sectionToggle > .chevron { transition: none; } }
