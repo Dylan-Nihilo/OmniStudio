@@ -20,3 +20,13 @@ it('saves numeric export values and clears optional resolution and fps through t
   fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ fps: null })));
 });
+
+it('offers an explicit retry action after a merge failure', () => {
+  const onMerge = vi.fn();
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError="ffmpeg failed" framesReady={1} framesTotal={1}
+    exportSettings={{}} precheckReport={null} mergeProgress={null} mergeVerification={null}
+    onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={onMerge} onDownload={vi.fn()} onDismissError={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'retryMerge' }));
+  expect(onMerge).toHaveBeenCalledTimes(1);
+});

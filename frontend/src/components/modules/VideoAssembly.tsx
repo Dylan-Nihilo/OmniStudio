@@ -4,7 +4,7 @@ import { SelectField } from "@omnistudio/ui";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X } from "lucide-react";
+import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
@@ -988,6 +988,10 @@ export function ExportPhase({
                             )}
                             <button onClick={onDismissError} className="mt-3 text-xs text-text-secondary hover:text-foreground underline">
                                 {ta("dismiss")}
+                            </button>
+                            <button onClick={onMerge} disabled={isMerging} className="mt-3 ml-4 inline-flex items-center gap-1.5 rounded-md border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-500/10 disabled:opacity-50">
+                                <RotateCcw size={12} />
+                                {ta("retryMerge")}
                             </button>
                         </div>
                     </div>

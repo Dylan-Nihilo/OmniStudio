@@ -443,6 +443,7 @@
     "noMatchHint": "试试调整筛选条件或搜索关键词",
     "clearFilters": "清除筛选",
     "dismiss": "关闭",
+    "retryMerge": "重试合片",
     "copied": "已复制",
     "copyFailed": "复制失败，请选择详情手动复制。",
     "copyErrorDetails": "复制错误详情",

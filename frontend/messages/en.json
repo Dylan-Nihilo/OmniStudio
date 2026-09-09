@@ -443,6 +443,7 @@
     "noMatchHint": "Try adjusting filters or search keywords",
     "clearFilters": "Clear filters",
     "dismiss": "Dismiss",
+    "retryMerge": "Retry merge",
     "copied": "Copied",
     "copyFailed": "Copy failed. Select the details to copy them.",
     "copyErrorDetails": "Copy error details",
