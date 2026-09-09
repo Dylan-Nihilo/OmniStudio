@@ -231,6 +231,27 @@ def test_playground_processing_generation_recovers_after_restart(api_client, mon
     assert calls == [generation.id]
 
 
+def test_task_center_cancel_marks_playground_generation_canceled(api_client):
+    workspace_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    generation = playground_api._service.create_generation(
+        GenerateRequest(mode=PlaygroundMode.T2I, model_id="wan2.7-image-pro", prompt="cancel me"),
+        workspace_id,
+    )
+    repository = JobRepository(api_client.app.state.storage_engine)
+    job = repository.create_job(workspace_id, "playground.t2i")
+    item = repository.create_item(
+        job.id,
+        "t2i",
+        "playground-cancel",
+        payload={"generation_id": generation.id, "model_id": generation.model_id},
+    )
+
+    canceled = api_client.post(f"/tasks/{job.id}/cancel")
+    assert canceled.status_code == 200, canceled.text
+    assert repository.get_item(item.id).status == "canceled"
+    assert playground_api._storage.get_generation(generation.id, workspace_id).status == "canceled"
+
+
 @pytest.mark.parametrize("format", ["pdf", "docx"])
 def test_document_export_returns_real_formats_and_preserves_chinese_literal_text(api_client, format):
     project = _create_project(api_client, "Export Chinese")

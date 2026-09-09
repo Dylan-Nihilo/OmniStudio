@@ -4677,6 +4677,25 @@ def cancel_task(job_id: str, request: Request):
     """Cancel only pending/processing items in a unified job."""
     context = _task_context(request)
     repository = _task_repository(request)
+    existing = repository.get_job(context.workspace.id, job_id)
+    if existing is not None:
+        # Keep the Playground history state aligned with the durable task
+        # ledger.  Mark it first so a pending worker observes cancellation
+        # before the JobItem becomes terminal.
+        playground_kinds = {"t2i", "i2i", "t2v", "i2v", "r2v", "v2v"}
+        if any(item.kind in playground_kinds and item.status in {"pending", "processing"} for item in existing.items):
+            from ..playground.api import _storage as playground_storage
+
+            for item in existing.items:
+                if item.kind not in playground_kinds or item.status not in {"pending", "processing"}:
+                    continue
+                generation_id = item.payload.get("generation_id")
+                if generation_id:
+                    playground_storage.cancel_generation(
+                        generation_id,
+                        context.workspace.id,
+                        error="Canceled by user",
+                    )
     job = repository.cancel_job(context.workspace.id, job_id)
     if job is None:
         code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
