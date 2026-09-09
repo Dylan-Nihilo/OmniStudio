@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" role="img" aria-label="Acceptance fixture">
+  <rect width="320" height="180" fill="#101522"/>
+  <rect x="18" y="18" width="284" height="144" rx="8" fill="#17384a" stroke="#61dafb" stroke-width="2"/>
+  <circle cx="104" cy="90" r="34" fill="#ff9f43"/>
+  <path d="M156 118c18-44 36-44 54 0 18-44 36-44 54 0" fill="none" stroke="#61dafb" stroke-width="8" stroke-linecap="round"/>
+  <text x="160" y="48" text-anchor="middle" fill="#f5f7fb" font-family="sans-serif" font-size="16">ACCEPTANCE</text>
+</svg>

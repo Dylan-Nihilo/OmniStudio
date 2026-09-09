@@ -834,3 +834,62 @@ def test_source_revision_emits_queryable_downstream_impact_markers(source_client
     assert restored_impacts["total"] == 2
     assert restored_impacts["items"][0]["change_type"] == "revision_restore"
     assert restored_impacts["items"][0]["previous_revision_number"] == 2
+
+
+def test_source_document_update_delete_is_workspace_scoped(source_client):
+    client, _ = source_client
+    created = client.post("/sources", json={"title": "待整理来源", "summary": "旧摘要"})
+    assert created.status_code == 201, created.text
+    source_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/sources/{source_id}",
+        json={"title": "已整理来源", "summary": "新摘要", "metadata": {"owner": "editor"}},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "已整理来源"
+    assert updated.json()["summary"] == "新摘要"
+    assert updated.json()["metadata"] == {"owner": "editor"}
+
+    deleted = client.delete(f"/sources/{source_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"id": source_id, "deleted": True}
+    missing = client.get(f"/sources/{source_id}")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "AUTH_RESOURCE_NOT_FOUND"
+
+
+def test_source_impact_ack_resolves_targets_and_event(source_client):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "影响确认来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "初始正文"},
+    ).json()
+    project = pipeline.create_project("影响确认剧集", "正文", skip_analysis=True)
+    user = client.app.state.auth_service.repository.find_user_by_username("owner")
+    workspace_id = client.app.state.auth_service.repository.get_default_workspace(user.id).id
+    pipeline.repository.assign_workspace_for_script(project.id, workspace_id)
+    pipeline.add_frame(project.id, action_description="一个镜头")
+    assert client.post(f"/sources/{source['id']}/episodes/{project.id}").status_code == 201
+    assert client.put(
+        f"/sources/{source['id']}/chapters/{chapter['id']}",
+        json={"content": "更新正文"},
+    ).status_code == 200
+
+    impact = client.get(f"/sources/{source['id']}/impact-events").json()["items"][0]
+    target_id = impact["targets"][0]["id"]
+    ack_one = client.post(
+        f"/sources/{source['id']}/impact-events/{impact['id']}/ack",
+        json={"target_ids": [target_id]},
+    )
+    assert ack_one.status_code == 200, ack_one.text
+    assert ack_one.json()["resolved_target_count"] == 1
+    assert ack_one.json()["status"] == "open"
+
+    ack_all = client.post(f"/sources/{source['id']}/impact-events/{impact['id']}/ack", json={})
+    assert ack_all.status_code == 200, ack_all.text
+    assert ack_all.json()["status"] == "resolved"
+    refreshed = client.get(f"/sources/{source['id']}/impact-events").json()["items"][0]
+    assert refreshed["status"] == "resolved"
+    assert all(target["status"] == "resolved" for target in refreshed["targets"])

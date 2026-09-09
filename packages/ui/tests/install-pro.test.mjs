@@ -4,6 +4,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const installerPath = fileURLToPath(new URL('../scripts/install-pro.mjs', import.meta.url));
 
 test('a clean install fails clearly when the custom distribution key is missing', (t) => {
   const cwd = mkdtempSync(join(tmpdir(), 'omni-pro-no-key-'));
@@ -11,7 +14,7 @@ test('a clean install fails clearly when the custom distribution key is missing'
   writeFileSync(join(cwd, 'package.json'), JSON.stringify({ dependencies: { '@heroui-pro/react': '1.0.0-beta.6' } }));
   const env = { ...process.env };
   delete env.HEROUI_KEY;
-  const result = spawnSync(process.execPath, [new URL('../scripts/install-pro.mjs', import.meta.url).pathname], { cwd, env, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [installerPath], { cwd, env, encoding: 'utf8' });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /HEROUI_KEY is required/);
 });
@@ -35,7 +38,7 @@ test('frontend and component installs read env files, preserve environment prece
         if (new URL(url).searchParams.get('key') !== ${JSON.stringify(expectedKey)}) throw new Error('Unexpected key source');
         return new Response(JSON.stringify({ error: 'fixture download: ' + ${JSON.stringify(expectedKey)} }), { status: 403 });
       };`;
-      const result = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(mock)}`, new URL('../scripts/install-pro.mjs', import.meta.url).pathname], { cwd, env, encoding: 'utf8' });
+      const result = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(mock)}`, installerPath], { cwd, env, encoding: 'utf8' });
       assert.equal(result.status, 1);
       assert.match(result.stderr, /fixture download: \[redacted\]/);
       assert(!result.stdout.includes(expectedKey) && !result.stderr.includes(expectedKey));
@@ -52,7 +55,7 @@ test('frontend and component installs read env files, preserve environment prece
   const env = { ...process.env };
   delete env.HEROUI_KEY;
   const mock = `globalThis.fetch = async (url) => { throw new Error(new URL(url).searchParams.get('key') === 'fixture-dotenv-key' ? 'dotenv loaded' : 'wrong key'); };`;
-  const result = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(mock)}`, new URL('../scripts/install-pro.mjs', import.meta.url).pathname], { cwd, env, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(mock)}`, installerPath], { cwd, env, encoding: 'utf8' });
   assert.match(result.stderr, /dotenv loaded/);
 });
 
@@ -71,7 +74,7 @@ test('dev/build reuse complete artifacts and require setup for an incomplete ins
     }
     const env = { ...process.env };
     delete env.HEROUI_KEY;
-    const run = () => spawnSync(process.execPath, [new URL('../scripts/install-pro.mjs', import.meta.url).pathname, '--if-missing'], { cwd, env, encoding: 'utf8' });
+    const run = () => spawnSync(process.execPath, [installerPath, '--if-missing'], { cwd, env, encoding: 'utf8' });
     assert.equal(run().status, 0);
     rmSync(join(target, 'dist/components/sidebar/index.js'));
     const missing = run();

@@ -962,6 +962,36 @@ class ScriptEditLease(Base):
     )
 
 
+class DirectorPlan(Base):
+    """Workspace-scoped layered director-plan overrides."""
+
+    __tablename__ = "director_plans"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_id: Mapped[str] = mapped_column(Text, nullable=False)
+    project_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    shot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("scope IN ('project', 'episode', 'shot')", name="ck_director_plans_scope"),
+        CheckConstraint("length(trim(scope_id)) > 0", name="ck_director_plans_scope_id"),
+        CheckConstraint("json_valid(payload_json)", name="ck_director_plans_payload_json"),
+        UniqueConstraint("workspace_id", "scope", "scope_id", name="uq_director_plans_workspace_scope"),
+        Index("ix_director_plans_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_director_plans_episode", "workspace_id", "episode_id", "updated_at"),
+    )
+
+
 class Job(Base):
     __tablename__ = "jobs"
 

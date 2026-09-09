@@ -23,6 +23,7 @@ from .source_models import (
     SourceAnalysisBatchRetryRequest,
     SourceChapterUpdate,
     SourceDocumentCreate,
+    SourceDocumentUpdate,
     SourceDocumentList,
     SourceDocumentRead,
     SourceEpisodeSplitConfirmRequest,
@@ -38,6 +39,7 @@ from .source_models import (
     SourceImportPreviewRead,
     SourceImportRequest,
     SourceRevisionImpactList,
+    SourceImpactAckRequest,
     SourceRevisionCreate,
     SourceRevisionList,
     SourceRevisionRead,
@@ -483,6 +485,28 @@ def get_source(source_id: str, request: Request):
     return _repository(request).get_document(_workspace_id(request), source_id)
 
 
+@router.patch("/sources/{source_id}", response_model=SourceDocumentRead)
+@router.put("/sources/{source_id}", response_model=SourceDocumentRead)
+def update_source(source_id: str, request: Request, payload: SourceDocumentUpdate):
+    result = _repository(request).update_document(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        title=payload.title,
+        summary=payload.summary,
+        original_filename=payload.original_filename,
+        metadata=payload.metadata,
+    )
+    record_request_event(request, action="source.update", object_type="source_document", object_id=source_id)
+    return result
+
+
+@router.delete("/sources/{source_id}")
+def delete_source(source_id: str, request: Request):
+    _repository(request).delete_document(workspace_id=_workspace_id(request), source_id=source_id)
+    record_request_event(request, action="source.delete", object_type="source_document", object_id=source_id)
+    return {"id": source_id, "deleted": True}
+
+
 @router.post(
     "/sources/{source_id}/episode-splits/preview",
     response_model=SourceEpisodeSplitPreviewRead,
@@ -911,6 +935,29 @@ def list_chapter_revision_impacts(source_id: str, chapter_id: str, request: Requ
         _workspace_id(request), source_id, chapter_id=chapter_id
     )
     return {"items": items, "total": len(items)}
+
+
+@router.post("/sources/{source_id}/impact-events/{impact_id}/ack")
+def acknowledge_source_revision_impact(
+    source_id: str,
+    impact_id: str,
+    request: Request,
+    payload: SourceImpactAckRequest,
+):
+    result = _repository(request).acknowledge_revision_impact(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        impact_id=impact_id,
+        target_ids=payload.target_ids,
+    )
+    record_request_event(
+        request,
+        action="source.impact.ack",
+        object_type="source_revision_impact",
+        object_id=impact_id,
+        metadata={"resolved_target_count": result["resolved_target_count"]},
+    )
+    return result
 
 
 @router.get("/sources/{source_id}/chapters", response_model=SourceChapterList)

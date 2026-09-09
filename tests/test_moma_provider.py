@@ -183,7 +183,7 @@ def test_pipeline_routes_minimax_to_moma_adapter(monkeypatch):
         "script-1": SimpleNamespace(
             id="script-1",
             video_tasks=[task],
-        frames=[],
+            frames=[],
             characters=[],
             scenes=[],
             props=[],
@@ -229,7 +229,7 @@ def test_pipeline_keeps_minimax_for_direct_r2v_and_forwards_reference_images(mon
         "script-1": SimpleNamespace(
             id="script-1",
             video_tasks=[task],
-        frames=[],
+            frames=[],
             characters=[],
             scenes=[],
             props=[],

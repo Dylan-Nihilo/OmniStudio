@@ -19,6 +19,12 @@ const getProject = vi.hoisted(() => vi.fn());
 const runDerivation = vi.hoisted(() => vi.fn());
 const translate = vi.hoisted(() => (key: string) => key);
 const rightPanelProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+const offlineCacheState = vi.hoisted(() => ({
+  hasNewerLocal: false,
+  restoreFromLocal: vi.fn(),
+  dismissLocalRestore: vi.fn(),
+  isOffline: false,
+}));
 const viewModeState = vi.hoisted(() => ({ mode: "edit" as "edit" | "storyboard" | "read" | "focus", setMode: vi.fn() }));
 const editorStoreMock = vi.hoisted(() => {
   const state = {
@@ -77,7 +83,7 @@ vi.mock("./hooks/useViewMode", () => ({
   useViewMode: () => ({ mode: viewModeState.mode, setMode: viewModeState.setMode, isReadOnly: viewModeState.mode === 'read', showToolbar: viewModeState.mode !== 'read', showSidebars: viewModeState.mode === 'edit' }),
 }));
 vi.mock("./hooks/useOfflineCache", () => ({
-  useOfflineCache: () => ({ hasNewerLocal: false, restoreFromLocal: vi.fn(), dismissLocalRestore: vi.fn(), isOffline: false }),
+  useOfflineCache: () => offlineCacheState,
 }));
 vi.mock("./hooks/useL3Completion", () => ({ useL3Completion: vi.fn() }));
 vi.mock("./hooks/useAutoSave", () => ({
@@ -114,6 +120,10 @@ describe("ScriptEditorShell layout", () => {
       status: "ready",
     });
     rightPanelProps.current = null;
+    offlineCacheState.hasNewerLocal = false;
+    offlineCacheState.restoreFromLocal.mockClear();
+    offlineCacheState.dismissLocalRestore.mockClear();
+    offlineCacheState.isOffline = false;
     viewModeState.mode = "edit";
     viewModeState.setMode.mockClear();
   });
@@ -152,6 +162,58 @@ describe("ScriptEditorShell layout", () => {
       { emitUpdate: false },
     );
     expect(editor.setEditable).toHaveBeenCalledWith(true, false);
+  });
+
+  it("shows the upstream Source stale state when a loaded document is out of date", async () => {
+    loadDocument.mockResolvedValue({
+      content: { type: "doc", content: [] },
+      revision: "script-revision-1",
+      dependency_fingerprint: "current-fingerprint",
+      source_dependencies: [{
+        source_id: "source-1",
+        source_title: "原始资料",
+        chapter_id: "chapter-1",
+        chapter_title: "第一章",
+        revision_id: "source-revision-2",
+        revision_number: 2,
+      }],
+      stale: true,
+      stale_targets: [{ target_type: "script", target_stage: "script", target_id: "project-1" }],
+      updated_at: "2026-09-09T00:00:00Z",
+    });
+
+    render(<ScriptEditorShell mode="full" projectId="project-1" />);
+
+    expect(await screen.findByTestId("script-source-stale")).toHaveTextContent("source.staleBanner");
+    expect(screen.getByTestId("script-source-stale")).toHaveTextContent("原始资料");
+    expect(screen.getByTestId("script-source-stale")).toHaveTextContent("第一章");
+  });
+
+  it("coordinates a newer local cache with an upstream Source change", async () => {
+    offlineCacheState.hasNewerLocal = true;
+    loadDocument.mockResolvedValue({
+      content: { type: "doc", content: [] },
+      source_dependencies: [{
+        source_id: "source-1",
+        source_title: "原始资料",
+        chapter_id: "chapter-1",
+        chapter_title: "第一章",
+        revision_id: "source-revision-2",
+        revision_number: 2,
+      }],
+      stale: true,
+      stale_targets: [],
+      updated_at: "2026-09-09T00:00:00Z",
+    });
+
+    render(<ScriptEditorShell mode="full" projectId="project-1" />);
+
+    const conflict = await screen.findByTestId("script-source-cache-conflict");
+    expect(conflict).toHaveTextContent("source.localCacheConflict");
+    expect(screen.queryByText("status.localCacheFound")).not.toBeInTheDocument();
+    expect(screen.getByTestId("script-source-stale")).toHaveTextContent("原始资料");
+    fireEvent.click(screen.getByRole("button", { name: "status.restore" }));
+    expect(offlineCacheState.restoreFromLocal).toHaveBeenCalledOnce();
   });
 
   it("loads the complete project so panels can show existing assets", async () => {

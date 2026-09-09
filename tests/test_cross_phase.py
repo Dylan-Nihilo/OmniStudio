@@ -18,6 +18,7 @@ from src.apps.comic_gen.models import (
     GlobalAssetLibrary,
 )
 from src.apps.comic_gen.pipeline import ComicGenPipeline
+import src.apps.comic_gen.api as api_module
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +275,29 @@ class TestAssetResolutionIntegration:
         # Props: 0 ep + 1 series = 1
         assert len(result["props"]) == 1
         assert result["props"][0].name == "S-Prop"
+
+
+class TestReconcileSuggestions:
+    def test_suggestions_include_description_differences_for_matched_entities(self, pipeline):
+        series = _make_series(characters=[_make_character(name="Hero", description="Blue coat")])
+        episode = _make_script(
+            series_id=series.id,
+            characters=[_make_character(name="Hero", description="Red coat")],
+        )
+        pipeline.series_store[series.id] = series
+        pipeline.scripts[episode.id] = episode
+
+        previous_pipeline = api_module.pipeline
+        api_module.pipeline = pipeline
+        try:
+            payload = api_module.reconcile_suggestions(episode.id)
+        finally:
+            api_module.pipeline = previous_pipeline
+
+        assert payload["characters"][0]["confidence"] == 100
+        assert payload["characters"][0]["differences"] == [
+            {"field": "description", "local_value": "Red coat", "series_value": "Blue coat"}
+        ]
 
 
 # ===================================================================

@@ -4,6 +4,33 @@ export interface DocumentResponse {
   project_id: string;
   content: object;
   updated_at: string;
+  revision?: string;
+  source_revision?: string;
+  dependency_fingerprint?: string;
+  source_dependencies?: SourceDependency[];
+  stale?: boolean;
+  stale_targets?: StaleTarget[];
+  dependency_graph?: {
+    sources: Array<{ source_id: string; chapter_id: string; revision_id: string }>;
+    targets: StaleTarget[];
+  };
+}
+
+export interface SourceDependency {
+  source_id: string;
+  source_title: string;
+  chapter_id: string;
+  chapter_title: string;
+  revision_id: string;
+  revision_number: number;
+}
+
+export interface StaleTarget {
+  id?: string;
+  target_type: string;
+  target_stage: string;
+  target_id: string;
+  status?: string;
 }
 
 export interface SnapshotResponse {

@@ -1,12 +1,13 @@
 "use client";
-import { Button, Dialog } from "@omnistudio/ui";
+import { Button, Checkbox, Dialog } from "@omnistudio/ui";
 import { Users, MapPin, Box, Check, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useEffect, useState } from "react";
 
 export interface ExtractionPreview {
-    characters: { name: string; description?: string }[];
-    scenes: { name: string; description?: string }[];
-    props: { name: string; description?: string }[];
+    characters: { id?: string; name: string; description?: string }[];
+    scenes: { id?: string; name: string; description?: string }[];
+    props: { id?: string; name: string; description?: string }[];
 }
 
 interface EntityConfirmModalProps {
@@ -14,7 +15,7 @@ interface EntityConfirmModalProps {
     preview: ExtractionPreview | null;
     currentCounts: { characters: number; scenes: number; props: number };
     isPending?: boolean;
-    onConfirm: () => void;
+    onConfirm: (selection: ExtractionPreview) => void;
     onDiscard: () => void;
 }
 
@@ -28,6 +29,20 @@ export default function EntityConfirmModal({
 }: EntityConfirmModalProps) {
     const t = useTranslations("script");
     const tc = useTranslations("common");
+    const [selected, setSelected] = useState<Record<keyof ExtractionPreview, Set<string>>>({
+        characters: new Set(),
+        scenes: new Set(),
+        props: new Set(),
+    });
+
+    useEffect(() => {
+        if (!preview) return;
+        setSelected({
+            characters: new Set(preview.characters.map((item, index) => item.id ?? String(index))),
+            scenes: new Set(preview.scenes.map((item, index) => item.id ?? String(index))),
+            props: new Set(preview.props.map((item, index) => item.id ?? String(index))),
+        });
+    }, [preview]);
 
     if (!preview) return null;
 
@@ -37,9 +52,24 @@ export default function EntityConfirmModal({
         { key: "props" as const, icon: Box, items: preview.props, prev: currentCounts.props },
     ];
 
+    const toggle = (key: keyof ExtractionPreview, itemKey: string) => {
+        setSelected(current => {
+            const next = new Set(current[key]);
+            if (next.has(itemKey)) next.delete(itemKey);
+            else next.add(itemKey);
+            return { ...current, [key]: next };
+        });
+    };
+
+    const confirmSelection = () => onConfirm({
+        characters: preview.characters.filter((item, index) => selected.characters.has(item.id ?? String(index))),
+        scenes: preview.scenes.filter((item, index) => selected.scenes.has(item.id ?? String(index))),
+        props: preview.props.filter((item, index) => selected.props.has(item.id ?? String(index))),
+    });
+
     return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open && !isPending) onDiscard(); }}
         isDismissable={!isPending} title={t("extractConfirmTitle")} closeLabel={tc("close")}
-        footer={<><Button variant="quiet" onPress={onDiscard} isDisabled={isPending}><X size={14} />{t("extractDiscard")}</Button><Button onPress={onConfirm} isPending={isPending}><Check size={14} />{t("extractApply")}</Button></>}>
+        footer={<><Button variant="quiet" onPress={onDiscard} isDisabled={isPending}><X size={14} />{t("extractDiscard")}</Button><Button onPress={confirmSelection} isPending={isPending}><Check size={14} />{t("extractApply")}</Button></>}>
         <p className="mb-5 text-sm text-text-secondary">{t("extractConfirmSubtitle")}</p>
         <div className="space-y-4">
         {sections.map(({ key, icon: Icon, items, prev }) => (
@@ -56,13 +86,15 @@ export default function EntityConfirmModal({
                 {items.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                         {items.map((item, i) => (
-                            <span
+                            <Checkbox
                                 key={i}
+                                isSelected={selected[key].has(item.id ?? String(i))}
+                                onChange={() => toggle(key, item.id ?? String(i))}
+                                isDisabled={isPending}
+                                aria-label={item.name}
                                 className="inline-flex items-center px-2 py-0.5 rounded-md bg-elevated border border-glass-border text-xs text-foreground"
-                                title={item.description}
-                            >
-                                {item.name}
-                            </span>
+                                description={item.description}
+                            >{item.name}</Checkbox>
                         ))}
                     </div>
                 ) : (

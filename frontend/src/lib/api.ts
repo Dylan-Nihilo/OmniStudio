@@ -144,6 +144,13 @@ export interface SourceDocumentCreate {
     metadata?: Record<string, unknown>;
 }
 
+export interface SourceDocumentUpdate {
+    title?: string;
+    summary?: string;
+    original_filename?: string | null;
+    metadata?: Record<string, unknown>;
+}
+
 export interface SourceRevisionCreate {
     content: string;
     metadata?: Record<string, unknown>;
@@ -233,6 +240,11 @@ export interface SourceEpisode {
     episode_number: number | null;
     status: string;
     linked_at: number;
+}
+
+export interface SourceEpisodeCandidateList {
+    linked: SourceEpisode[];
+    available: SourceEpisode[];
 }
 
 export interface SourceEpisodeSplitProposal {
@@ -447,6 +459,8 @@ export const sourceApi = {
     list: () => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/sources`).then((response) => response.data),
     get: (sourceId: string) => apiClient.get<SourceDocument>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
     create: (payload: SourceDocumentCreate) => apiClient.post<SourceDocument>(`${API_URL}/sources`, payload).then((response) => response.data),
+    update: (sourceId: string, payload: SourceDocumentUpdate) => apiClient.patch<SourceDocument>(`${API_URL}/sources/${sourceId}`, payload).then((response) => response.data),
+    remove: (sourceId: string) => apiClient.delete<{ id: string; deleted: boolean }>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
     listChapters: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
     createChapter: (sourceId: string, payload: SourceChapterCreate) => apiClient.post<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters`, payload).then((response) => response.data),
     listChaptersPage: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
@@ -468,7 +482,35 @@ export const sourceApi = {
     retrySourceAnalysisBatch: (sourceId: string, batchId: string, payload?: SourceAnalysisBatchRetryRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}/retry`, payload ?? {}).then((response) => response.data),
     listRevisionImpacts: (sourceId: string, params?: { chapter_id?: string; revision_id?: string }) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/impact-events`, { params }).then((response) => response.data),
     listChapterRevisionImpacts: (sourceId: string, chapterId: string) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/impact-events`).then((response) => response.data),
+    acknowledgeRevisionImpact: (sourceId: string, impactId: string, targetIds?: string[]) => apiClient.post<{ impact_event_id: string; status: "open" | "resolved"; resolved_target_count: number }>(`${API_URL}/sources/${sourceId}/impact-events/${impactId}/ack`, { target_ids: targetIds }).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
+    listEpisodeCandidates: async (sourceId: string): Promise<SourceEpisodeCandidateList> => {
+        const [linkedResponse, projectsResponse] = await Promise.all([
+            apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`),
+            apiClient.get<unknown>(`${API_URL}/projects`),
+        ]);
+        const linked = linkedResponse.data.items;
+        const linkedIds = new Set(linked.map((episode) => episode.id));
+        const available = asList<Record<string, unknown>>(projectsResponse.data)
+            .map((project) => {
+                const id = typeof project.id === "string" ? project.id : null;
+                if (!id) return null;
+                const rawEpisodeNumber = project.episode_number;
+                const episodeNumber = typeof rawEpisodeNumber === "number" && Number.isFinite(rawEpisodeNumber)
+                    ? rawEpisodeNumber
+                    : null;
+                return {
+                    id,
+                    project_id: id,
+                    title: typeof project.title === "string" && project.title.trim() ? project.title : id,
+                    episode_number: episodeNumber,
+                    status: typeof project.status === "string" ? project.status : "draft",
+                    linked_at: 0,
+                } satisfies SourceEpisode;
+            })
+            .filter((episode): episode is SourceEpisode => episode !== null && !linkedIds.has(episode.id));
+        return { linked, available };
+    },
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     listForEpisode: (episodeId: string) => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/episodes/${episodeId}/sources`).then((response) => response.data),
@@ -479,6 +521,37 @@ export const sourceApi = {
     cancelImport: (previewId: string) => apiClient.post<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/cancel`).then((response) => response.data),
 };
 
+export interface DirectorPlan {
+    tempo: string;
+    composition: string;
+    lens: string;
+    blocking: string;
+    lighting: string;
+    transition: string;
+    sound: string;
+    continuity_rules: string[];
+}
+
+export type DirectorPlanScope = "project" | "episode" | "shot";
+
+export interface DirectorPlanResolved {
+    episode_id: string;
+    shot_id?: string | null;
+    plan: DirectorPlan;
+    source_chain: Record<keyof DirectorPlan, string>;
+    prompt?: string;
+    prompt_provenance?: Record<keyof DirectorPlan, string>;
+}
+
+export const directorPlanApi = {
+    get: (scope: DirectorPlanScope, scopeId: string, episodeId?: string) => apiClient.get<{ scope: DirectorPlanScope; scope_id: string; payload: Partial<DirectorPlan> }>(`${API_URL}/director-plans/${scope}/${scopeId}`, { params: episodeId ? { episode_id: episodeId } : undefined }).then((response) => response.data),
+    update: (scope: DirectorPlanScope, scopeId: string, payload: Partial<DirectorPlan> & { episode_id?: string }) => apiClient.put(`${API_URL}/director-plans/${scope}/${scopeId}`, payload).then((response) => response.data),
+    remove: (scope: DirectorPlanScope, scopeId: string, episodeId?: string) => apiClient.delete(`${API_URL}/director-plans/${scope}/${scopeId}`, { params: episodeId ? { episode_id: episodeId } : undefined }).then((response) => response.data),
+    resolve: (episodeId: string, shotId?: string) => apiClient.get<DirectorPlanResolved>(`${API_URL}/director-plans/resolve/${episodeId}`, { params: shotId ? { shot_id: shotId } : undefined }).then((response) => response.data),
+    preview: (scope: DirectorPlanScope, scopeId: string, instruction: string) => apiClient.post(`${API_URL}/director-plans/${scope}/${scopeId}/preview`, { instruction }).then((response) => response.data as { preview_id: string; status: "preview"; payload: DirectorPlan }),
+    confirm: (scope: DirectorPlanScope, scopeId: string, previewId: string) => apiClient.post(`${API_URL}/director-plans/${scope}/${scopeId}/confirm`, { preview_id: previewId }).then((response) => response.data),
+};
+
 // R2V v2 Phase 4 — Cross-episode reconcile types
 export interface ReconcileSuggestion {
     local_id: string;
@@ -486,6 +559,13 @@ export interface ReconcileSuggestion {
     suggested_series_id: string | null;
     suggested_series_name: string | null;
     confidence: number;
+    differences?: ReconcileDifference[];
+}
+
+export interface ReconcileDifference {
+    field: "name" | "description";
+    local_value: string;
+    series_value: string;
 }
 
 export interface BgmPreset {
@@ -871,8 +951,15 @@ export const api = {
         return res.data;
     },
 
-    reparseProject: async (scriptId: string, text: string) => {
-        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, { text });
+    reparseProject: async (
+        scriptId: string,
+        text: string,
+        selectedEntityIds?: { characters: string[]; scenes: string[]; props: string[] },
+    ) => {
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, {
+            text,
+            ...(selectedEntityIds ? { selected_entity_ids: selectedEntityIds } : {}),
+        });
         return { ...res.data, originalText: res.data.original_text };
     },
 

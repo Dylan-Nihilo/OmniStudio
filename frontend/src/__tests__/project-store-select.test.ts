@@ -78,4 +78,27 @@ describe("projectStore.selectProject", () => {
         expect(useProjectStore.getState().currentProject?.id).toBe("new");
     });
 
+    it("forwards the selected extraction entity IDs when applying the preview", async () => {
+        reparseProject.mockResolvedValueOnce({ id: "old", title: "Old", characters: [], scenes: [], props: [] });
+        const { useProjectStore } = await import("@/store/projectStore");
+        useProjectStore.setState({
+            projects: [],
+            currentProject: { id: "old" } as never,
+            pendingExtractionScript: "Old script",
+            pendingExtraction: { characters: [], scenes: [], props: [] },
+        });
+
+        await useProjectStore.getState().confirmExtraction({
+            characters: [{ id: "char-keep" }],
+            scenes: [],
+            props: [{ id: "prop-keep" }],
+        });
+
+        expect(reparseProject).toHaveBeenCalledWith("old", "Old script", {
+            characters: ["char-keep"],
+            scenes: [],
+            props: ["prop-keep"],
+        });
+    });
+
 });

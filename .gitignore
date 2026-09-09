@@ -142,6 +142,7 @@ src-tauri/gen/
 
 # Local caches & scratch (regenerated constantly, keep on disk but untracked)
 .cache/
+.artifacts/
 .pnpm-store/
 frontend/.cache/
 .tmp_*

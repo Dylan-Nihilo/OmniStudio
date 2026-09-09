@@ -248,7 +248,7 @@ function ReconcileRow({ row, onActionChange }: { row: Row; onActionChange: (a: R
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                     <span className="font-sans text-[0.8125rem] font-medium text-foreground truncate">{row.suggestion.local_name}</span>
-                    {row.suggestion.suggested_series_id && (
+                {row.suggestion.suggested_series_id && (
                         <>
                             <span className="font-mono text-[0.625rem] text-text-muted">→</span>
                             <span className={`font-sans text-[0.8125rem] truncate ${isHighConf ? 'text-foreground' : 'text-text-secondary'}`}>
@@ -271,6 +271,15 @@ function ReconcileRow({ row, onActionChange }: { row: Row; onActionChange: (a: R
                         </span>
                     )}
                 </div>
+                {row.suggestion.differences?.length ? (
+                    <div className="mt-1 space-y-0.5 text-[0.6875rem] text-amber-200/80" aria-label={t("differences")}>
+                        {row.suggestion.differences.map(difference => (
+                            <p key={difference.field}>
+                                {t(`difference_${difference.field}`)}: {difference.local_value || t("emptyValue")} → {difference.series_value || t("emptyValue")}
+                            </p>
+                        ))}
+                    </div>
+                ) : null}
             </div>
             {/* Action selector */}
             <div className="shrink-0">

@@ -217,9 +217,9 @@ function EntityExtractionConfirm() {
     const confirmExtraction = useProjectStore((s) => s.confirmExtraction);
     const discardExtraction = useProjectStore((s) => s.discardExtraction);
 
-    const handleConfirm = async () => {
+    const handleConfirm = async (selection: Parameters<React.ComponentProps<typeof EntityConfirmModal>["onConfirm"]>[0]) => {
         try {
-            await confirmExtraction();
+            await confirmExtraction(selection);
             const refreshed = useProjectStore.getState().currentProject;
             if (refreshed?.series_id) {
                 document.dispatchEvent(new CustomEvent("omni_studio:openReconcile"));

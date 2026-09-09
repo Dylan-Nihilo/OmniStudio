@@ -334,7 +334,7 @@ interface ProjectStore {
     // Entity extraction confirmation (persists across step switches)
     pendingExtraction: { characters: any[]; scenes: any[]; props: any[] } | null;
     pendingExtractionScript: string | null;
-    confirmExtraction: () => Promise<void>;
+    confirmExtraction: (selection?: { characters: any[]; scenes: any[]; props: any[] }) => Promise<void>;
     discardExtraction: () => void;
 
     // Global Selection State
@@ -459,12 +459,17 @@ export const useProjectStore = create<ProjectStore>()(
             // Entity extraction confirmation
             pendingExtraction: null,
             pendingExtractionScript: null,
-            confirmExtraction: async () => {
+            confirmExtraction: async (selection) => {
                 const { currentProject, pendingExtractionScript } = get();
                 if (!currentProject?.id || !pendingExtractionScript) return;
                 set({ isAnalyzing: true });
                 try {
-                    const project = await api.reparseProject(currentProject.id, pendingExtractionScript);
+                    const selectedEntityIds = selection ? {
+                        characters: selection.characters.map(item => item.id).filter((id): id is string => typeof id === 'string'),
+                        scenes: selection.scenes.map(item => item.id).filter((id): id is string => typeof id === 'string'),
+                        props: selection.props.map(item => item.id).filter((id): id is string => typeof id === 'string'),
+                    } : undefined;
+                    const project = await api.reparseProject(currentProject.id, pendingExtractionScript, selectedEntityIds);
                     set((state) => ({
                         projects: state.projects.map((p) =>
                             p.id === project.id ? { ...project, updatedAt: new Date().toISOString() } : p

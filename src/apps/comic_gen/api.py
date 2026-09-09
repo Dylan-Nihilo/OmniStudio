@@ -89,6 +89,8 @@ from ...storage.db import DEFAULT_DB_PATH
 from ...storage.job_repository import JobRepository
 from ...storage.legacy_claim import LegacyClaimService
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
+from .revision import compute_dependency_fingerprint, compute_revision, evaluate_stale
+from .director_plan import DirectorPlanPatch, DirectorPlanStore, DirectorPlanValue, preview_from_instruction
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
@@ -296,6 +298,8 @@ app.state.legacy_claim_service = LegacyClaimService(
     series_path=pipeline.series_data_file,
 )
 app.state.source_repository = SourceRepository(pipeline.storage_engine)
+app.state.director_plan_store = DirectorPlanStore(pipeline.storage_engine)
+app.state.director_plan_previews = {}
 app.include_router(auth_router)
 app.include_router(source_router)
 
@@ -1019,6 +1023,7 @@ async def create_project(request: CreateProjectRequest, http_request: Request, s
 
 class ReparseProjectRequest(BaseModel):
     text: str
+    selected_entity_ids: Optional[Dict[str, List[str]]] = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -1460,7 +1465,12 @@ async def reparse_project(script_id: str, request: ReparseProjectRequest):
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,  # Use default executor
-            _context_call(pipeline.reparse_project, script_id, request.text)
+            _context_call(
+                pipeline.reparse_project,
+                script_id,
+                request.text,
+                request.selected_entity_ids,
+            )
         )
         return signed_response(result)
     except ValueError as e:
@@ -2802,6 +2812,113 @@ def update_project(script_id: str, payload: UpdateProjectRequest, request: Reque
         raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)) from exc
 
 
+class DirectorPlanPreviewRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=2000)
+
+
+class DirectorPlanConfirmRequest(BaseModel):
+    preview_id: str = Field(min_length=1, max_length=200)
+
+
+def _director_plan_store(request: Request) -> DirectorPlanStore:
+    store = getattr(request.app.state, "director_plan_store", None)
+    if store is None or store.engine is not getattr(request.app.state, "storage_engine", None):
+        store = DirectorPlanStore(getattr(request.app.state, "storage_engine", pipeline.storage_engine))
+        request.app.state.director_plan_store = store
+    return store
+
+
+def _director_plan_workspace(request: Request, scope: str, scope_id: str, episode_id: str | None = None) -> str:
+    if scope not in {"project", "episode", "shot"}:
+        raise HTTPException(status_code=422, detail="Invalid director plan scope")
+    context = request.state.auth_context
+    if scope == "project":
+        owner = pipeline.repository.workspace_for_project(scope_id) or pipeline.repository.workspace_for_script(scope_id)
+    elif scope == "episode":
+        owner = pipeline.repository.workspace_for_script(scope_id)
+    else:
+        owner = pipeline.repository.workspace_for_script(episode_id or "")
+    if owner != context.workspace.id:
+        raise HTTPException(status_code=404, detail="Director plan not found")
+    return context.workspace.id
+
+
+@app.get("/director-plans/resolve/{episode_id}")
+def resolve_director_plan(episode_id: str, request: Request, shot_id: str | None = Query(default=None, max_length=200)):
+    workspace_id = _director_plan_workspace(request, "episode", episode_id)
+    return _director_plan_store(request).resolve(workspace_id, episode_id, shot_id)
+
+
+@app.get("/director-plans/{scope}/{scope_id}")
+def get_director_plan(scope: str, scope_id: str, request: Request, episode_id: str | None = Query(default=None, max_length=200)):
+    workspace_id = _director_plan_workspace(request, scope, scope_id, episode_id)
+    record = _director_plan_store(request).get(workspace_id, scope, scope_id)  # type: ignore[arg-type]
+    return {"scope": scope, "scope_id": scope_id, "payload": record.payload if record else {}}
+
+
+@app.put("/director-plans/{scope}/{scope_id}")
+def update_director_plan(scope: str, scope_id: str, payload: DirectorPlanPatch, request: Request):
+    episode_id = payload.episode_id if scope == "shot" else (scope_id if scope == "episode" else None)
+    workspace_id = _director_plan_workspace(request, scope, scope_id, episode_id)
+    values = payload.model_dump(exclude_none=True)
+    if not values or (set(values) == {"episode_id"}):
+        raise HTTPException(status_code=422, detail="Director plan override cannot be empty")
+    store = _director_plan_store(request)
+    record = store.upsert(
+        workspace_id,
+        scope,  # type: ignore[arg-type]
+        scope_id,
+        values,
+        project_id=scope_id if scope == "project" else None,
+        episode_id=episode_id,
+        shot_id=scope_id if scope == "shot" else None,
+    )
+    record_request_event(request, action="director_plan.update", object_type="director_plan", object_id=record.id, metadata={"scope": scope, "scope_id": scope_id})
+    return {"scope": scope, "scope_id": scope_id, "payload": record.payload, "updated_at": record.updated_at}
+
+
+@app.delete("/director-plans/{scope}/{scope_id}")
+def delete_director_plan(scope: str, scope_id: str, request: Request, episode_id: str | None = Query(default=None, max_length=200)):
+    workspace_id = _director_plan_workspace(request, scope, scope_id, episode_id)
+    deleted = _director_plan_store(request).delete(workspace_id, scope, scope_id)  # type: ignore[arg-type]
+    record_request_event(request, action="director_plan.delete", object_type="director_plan", object_id=scope_id, metadata={"scope": scope, "deleted": deleted})
+    return {"scope": scope, "scope_id": scope_id, "deleted": deleted}
+
+
+@app.post("/director-plans/{scope}/{scope_id}/preview")
+def preview_director_plan(scope: str, scope_id: str, payload: DirectorPlanPreviewRequest, request: Request):
+    episode_id = scope_id if scope == "episode" else None
+    _director_plan_workspace(request, scope, scope_id, episode_id)
+    preview_id = str(uuid.uuid4())
+    preview = preview_from_instruction(payload.instruction).model_dump()
+    previews = getattr(request.app.state, "director_plan_previews", {})
+    previews[preview_id] = {"scope": scope, "scope_id": scope_id, "payload": preview, "episode_id": episode_id}
+    request.app.state.director_plan_previews = previews
+    return {"preview_id": preview_id, "status": "preview", "scope": scope, "scope_id": scope_id, "payload": preview}
+
+
+@app.post("/director-plans/{scope}/{scope_id}/confirm")
+def confirm_director_plan(scope: str, scope_id: str, payload: DirectorPlanConfirmRequest, request: Request):
+    _director_plan_workspace(request, scope, scope_id, scope_id if scope == "episode" else None)
+    previews = getattr(request.app.state, "director_plan_previews", {})
+    preview = previews.get(payload.preview_id)
+    if not preview or preview["scope"] != scope or preview["scope_id"] != scope_id:
+        raise HTTPException(status_code=404, detail="Director plan preview not found")
+    values = dict(preview["payload"])
+    record = _director_plan_store(request).upsert(
+        request.state.auth_context.workspace.id,
+        scope,  # type: ignore[arg-type]
+        scope_id,
+        values,
+        project_id=scope_id if scope == "project" else None,
+        episode_id=preview.get("episode_id"),
+        shot_id=scope_id if scope == "shot" else None,
+    )
+    previews.pop(payload.preview_id, None)
+    record_request_event(request, action="director_plan.confirm", object_type="director_plan", object_id=record.id, metadata={"scope": scope, "scope_id": scope_id})
+    return {"status": "confirmed", "scope": scope, "scope_id": scope_id, "payload": record.payload}
+
+
 @app.post("/projects/{script_id}/archive", response_model=ProjectArchiveResponse)
 def archive_project(script_id: str, request: Request):
     try:
@@ -2854,7 +2971,7 @@ def reconcile_suggestions(script_id: str):
     Returned shape:
     {
       "characters": [
-        { local_id, local_name, suggested_series_id|null, suggested_series_name|null, confidence }
+      { local_id, local_name, suggested_series_id|null, suggested_series_name|null, confidence, differences }
       ],
       "scenes": [...],
       "props": [...],
@@ -2884,12 +3001,25 @@ def reconcile_suggestions(script_id: str):
         result = []
         for local in local_pool:
             sid, sname, conf = best_match(local.name, series_pool)
+            matched = next((item for item in series_pool if getattr(item, "id", None) == sid), None)
+            differences = []
+            if matched is not None:
+                for field in ("name", "description"):
+                    local_value = str(getattr(local, field, "") or "")
+                    series_value = str(getattr(matched, field, "") or "")
+                    if local_value != series_value:
+                        differences.append({
+                            "field": field,
+                            "local_value": local_value,
+                            "series_value": series_value,
+                        })
             result.append({
                 "local_id": local.id,
                 "local_name": local.name,
                 "suggested_series_id": sid if conf > 0 else None,
                 "suggested_series_name": sname if conf > 0 else None,
                 "confidence": conf,
+                "differences": differences,
             })
         return result
 
@@ -5932,6 +6062,67 @@ def _write_json_atomically(path: Path, content: dict) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+def _script_source_context(project_id: str) -> tuple[list[dict[str, object]], str]:
+    """Resolve current Source revisions for a Script and fingerprint them."""
+    repository = getattr(pipeline, "repository", None)
+    workspace_id = repository.workspace_for_script(project_id) if repository is not None else None
+    if not workspace_id:
+        return [], compute_dependency_fingerprint("script", refs={"source_revisions": []})
+    source_repository = SourceRepository(pipeline.storage_engine)
+    dependencies = source_repository.list_script_source_dependencies(str(workspace_id), project_id)
+    refs = [
+        {
+            "source_id": item["source_id"],
+            "chapter_id": item["chapter_id"],
+            "revision_id": item["revision_id"],
+        }
+        for item in dependencies
+    ]
+    return dependencies, compute_dependency_fingerprint("script", refs={"source_revisions": refs})
+
+
+def _document_response(project_id: str, stored: dict, *, persisted: bool = True) -> dict:
+    """Return a stable document envelope while accepting legacy bare documents."""
+    raw_content = stored.get("content") if isinstance(stored, dict) and isinstance(stored.get("content"), dict) else stored
+    content = raw_content if isinstance(raw_content, dict) else {"type": "doc", "content": []}
+    dependencies, current_fingerprint = _script_source_context(project_id)
+    source_revision = compute_revision(
+        [
+            {"source_id": item["source_id"], "chapter_id": item["chapter_id"], "revision_id": item["revision_id"]}
+            for item in dependencies
+        ]
+    )
+    stored_fingerprint = stored.get("dependency_fingerprint") if persisted and isinstance(stored, dict) else None
+    stored_source_revision = stored.get("source_revision") if persisted and isinstance(stored, dict) else None
+    stale = bool(dependencies) and (
+        not stored_fingerprint
+        or evaluate_stale(source_revision, stored_source_revision, current_fingerprint, stored_fingerprint)
+    )
+    updated_at = stored.get("updated_at") if isinstance(stored, dict) else None
+    stale_targets = SourceRepository(pipeline.storage_engine).list_open_impact_targets_for_episode(
+        str(pipeline.repository.workspace_for_script(project_id)), project_id
+    ) if stale and pipeline.repository.workspace_for_script(project_id) else []
+    dependency_graph = {
+        "sources": [
+            {"source_id": item["source_id"], "chapter_id": item["chapter_id"], "revision_id": item["revision_id"]}
+            for item in dependencies
+        ],
+        "targets": stale_targets,
+    }
+    return {
+        "project_id": project_id,
+        "content": content,
+        "revision": stored.get("revision") if isinstance(stored, dict) and stored.get("revision") else compute_revision(content),
+        "source_revision": source_revision,
+        "dependency_fingerprint": current_fingerprint,
+        "source_dependencies": dependencies,
+        "stale": stale,
+        "stale_targets": stale_targets,
+        "dependency_graph": dependency_graph,
+        "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.post("/projects/{project_id}/document")
 def save_document(project_id: str, request: SaveDocumentRequest):
     """Save the Tiptap JSON document for a project."""
@@ -5943,12 +6134,44 @@ def save_document(project_id: str, request: SaveDocumentRequest):
     if request.create_snapshot and doc_path.exists():
         _create_snapshot(project_dir)
 
+    dependencies, dependency_fingerprint = _script_source_context(project_id)
+    if not dependencies:
+        try:
+            _write_json_atomically(doc_path, request.content)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
+        return {"status": "ok", "size_bytes": doc_path.stat().st_size}
+
+    now = datetime.now(timezone.utc).isoformat()
+    envelope = {
+        "content": request.content,
+        "revision": compute_revision(request.content),
+        "source_revision": compute_revision(
+            [
+                {"source_id": item["source_id"], "chapter_id": item["chapter_id"], "revision_id": item["revision_id"]}
+                for item in dependencies
+            ]
+        ),
+        "dependency_fingerprint": dependency_fingerprint,
+        "source_dependencies": dependencies,
+        "dependency_graph": {
+            "sources": [
+                {"source_id": item["source_id"], "chapter_id": item["chapter_id"], "revision_id": item["revision_id"]}
+                for item in dependencies
+            ],
+            "targets": [],
+        },
+        "updated_at": now,
+    }
     try:
-        _write_json_atomically(doc_path, request.content)
+        _write_json_atomically(doc_path, envelope)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
 
-    return {"status": "ok", "size_bytes": doc_path.stat().st_size}
+    return _document_response(project_id, envelope, persisted=True) | {
+        "status": "ok",
+        "size_bytes": doc_path.stat().st_size,
+    }
 
 
 @app.get("/projects/{project_id}/document")
@@ -5962,7 +6185,9 @@ def load_document(project_id: str):
     if not doc_path.exists():
         script = pipeline.scripts.get(project_id) or pipeline.repository.load_scripts().get(project_id)
         original_text = getattr(script, "original_text", "") if script else ""
-        return _parse_txt(original_text)
+        content = _parse_txt(original_text)
+        dependencies, _ = _script_source_context(project_id)
+        return _document_response(project_id, content, persisted=False) if dependencies else content
 
     try:
         with open(doc_path, "r", encoding="utf-8") as f:
@@ -5970,7 +6195,10 @@ def load_document(project_id: str):
     except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
 
-    return content
+    if not isinstance(content, dict) or not isinstance(content.get("content"), dict):
+        dependencies, _ = _script_source_context(project_id)
+        return _document_response(project_id, content, persisted=True) if dependencies else content
+    return _document_response(project_id, content, persisted=True)
 
 
 @app.get("/projects/{project_id}/document/snapshots")
@@ -6029,7 +6257,7 @@ def restore_document_snapshot(project_id: str, timestamp: str):
     except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to restore snapshot: {e}")
 
-    return content
+    return _document_response(project_id, content, persisted=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -6047,6 +6275,61 @@ class ExportDocRequest(BaseModel):
     content: dict  # Tiptap JSON document
     format: str  # "pdf" | "docx"
     options: dict = {}
+
+
+_SERVER_DOCUMENT_EXPORT_FORMATS = {"pdf", "docx"}
+_DOCUMENT_EXPORT_NODE_TYPES = {
+    "sceneHeading",
+    "action",
+    "characterCue",
+    "dialogue",
+    "parenthetical",
+    "transition",
+    "paragraph",
+}
+
+
+def validate_script_document_export(content: dict, fmt: str) -> None:
+    """Reject document structures the server cannot map deterministically."""
+    normalized_format = str(fmt or "").strip().lower()
+    if normalized_format not in _SERVER_DOCUMENT_EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_format",
+                "format": normalized_format,
+                "supported_formats": sorted(_SERVER_DOCUMENT_EXPORT_FORMATS),
+            },
+        )
+    if not isinstance(content, dict) or content.get("type") != "doc" or not isinstance(content.get("content"), list) or not content["content"]:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "empty_document", "format": normalized_format},
+        )
+    def node_text(node: object) -> str:
+        if not isinstance(node, dict):
+            return ""
+        children = node.get("content")
+        if not isinstance(children, list):
+            return str(node.get("text") or "")
+        return str(node.get("text") or "") + "".join(node_text(child) for child in children)
+
+    if all(not node_text(node).strip() for node in content["content"]):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "empty_document", "format": normalized_format},
+        )
+    for node in content["content"]:
+        node_type = str(node.get("type") or "unknown") if isinstance(node, dict) else "unknown"
+        if node_type not in _DOCUMENT_EXPORT_NODE_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "unsupported_node",
+                    "format": normalized_format,
+                    "node_type": node_type,
+                },
+            )
 
 
 def _parse_fdx(xml_text: str) -> dict:
@@ -6281,7 +6564,8 @@ def export_document(project_id: str, req: ExportDocRequest):
     from fastapi.responses import Response
 
     doc = req.content
-    fmt = req.format.lower()
+    fmt = req.format.strip().lower()
+    validate_script_document_export(doc, fmt)
 
     # Helper to extract plain text from Tiptap doc
     def extract_text(node: dict) -> str:
@@ -6458,7 +6742,8 @@ def export_document(project_id: str, req: ExportDocRequest):
             )
 
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported export format: {fmt}")
+        # Guarded by validate_script_document_export; keep this branch defensive.
+        raise HTTPException(status_code=400, detail={"code": "unsupported_format", "format": fmt})
 
 
 # ═══════════════════════════════════════════════════════════════
