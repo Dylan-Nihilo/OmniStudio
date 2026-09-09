@@ -32,6 +32,10 @@ import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
+import {
+  loadWorkspaceNavigationContext,
+  saveWorkspaceNavigationContext,
+} from "@/lib/workspaceNavigationContext";
 import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
 import TaskCenter from "@/components/tasks/TaskCenter";
 import { taskObjectHash, type TaskObjectRef } from "@/components/tasks/taskCenterModel";
@@ -195,6 +199,7 @@ function AuthenticatedHome() {
   const [syncError, setSyncError] = useState(false);
   const syncRequest = useRef(0);
   const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
+  const authUserId = useAuthStore((state) => state.user?.id);
   const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'sources' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
@@ -215,6 +220,25 @@ function AuthenticatedHome() {
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
+
+  // Restore the last project/episode/pipeline step for this user and
+  // Workspace when landing on the workspace root after login or a switch.
+  useEffect(() => {
+    if (!activeWorkspaceId || !authUserId) return;
+    const currentHash = window.location.hash || "#/";
+    if (currentHash !== "#/" && currentHash !== "") return;
+    const savedHash = loadWorkspaceNavigationContext(authUserId, activeWorkspaceId);
+    if (savedHash && savedHash !== currentHash) window.location.hash = savedHash;
+  }, [activeWorkspaceId, authUserId]);
+
+  // Keep navigation context scoped to the current identity and Workspace.
+  useEffect(() => {
+    if (!activeWorkspaceId || !authUserId) return;
+    const persist = () => saveWorkspaceNavigationContext(authUserId, activeWorkspaceId, window.location.hash || "#/");
+    persist();
+    window.addEventListener("hashchange", persist);
+    return () => window.removeEventListener("hashchange", persist);
+  }, [activeWorkspaceId, authUserId]);
 
   const tp = useTranslations("project");
   const [projectAction, setProjectAction] = useState<ActionDialogProps | null>(null);

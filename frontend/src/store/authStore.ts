@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { apiClient, AUTH_API_URL, clearReturnHash, refreshCsrfToken } from "@/lib/apiClient";
+import {
+  clearWorkspaceNavigationContexts,
+  loadWorkspaceNavigationContext,
+  saveWorkspaceNavigationContext,
+} from "@/lib/workspaceNavigationContext";
 
 export interface AuthUser {
   id: string;
@@ -138,6 +143,7 @@ const clearPrivateClientStorage = (): void => {
     // Storage may be unavailable in hardened webviews; the server session is
     // still revoked and in-memory state is cleared below.
   }
+  clearWorkspaceNavigationContexts();
   try {
     for (const key of PRIVATE_SESSION_STORAGE_KEYS) window.sessionStorage.removeItem(key);
   } catch {
@@ -353,11 +359,17 @@ export const useAuthStore = create<AuthStore>()(
       setActiveWorkspace: async (workspaceId) => {
         const workspace = get().workspaces.find((item) => item.id === workspaceId);
         if (!workspace || workspace.id === get().activeWorkspace?.id) return;
+        const currentWorkspace = get().activeWorkspace;
+        const userId = get().user?.id;
+        if (typeof window !== "undefined" && userId && currentWorkspace) {
+          saveWorkspaceNavigationContext(userId, currentWorkspace.id, window.location.hash || "#/");
+        }
         rememberActiveWorkspace(workspace);
         set({ activeWorkspace: workspace });
         await rehydrateProjectWorkspace();
-        window.location.hash = "#/";
-        window.dispatchEvent(new Event("hashchange"));
+        const targetHash = loadWorkspaceNavigationContext(userId, workspace.id) || "#/";
+        if (window.location.hash === targetHash) window.dispatchEvent(new Event("hashchange"));
+        else window.location.hash = targetHash;
       },
 
       createWorkspace: async (name) => {
