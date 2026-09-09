@@ -66,7 +66,9 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
     const tCommon = useTranslations("common");
     const locale = useSettingsStore((s) => s.locale);
 
-    const owner = useAuthStore(state => state.activeWorkspace?.role === "owner");
+    const role = useAuthStore(state => state.activeWorkspace?.role);
+    const owner = role === "owner";
+    const canEdit = role !== "viewer";
     const cover = deriveCover(project);
     const status = deriveStatus(project);
     const frameCount = project.frames?.length || 0;
@@ -119,10 +121,10 @@ export default function ProjectCard({ project, onDelete, onArchive, onRestore, o
 
     const actions = <div onClick={event => event.stopPropagation()}><ActionMenu label={t("moreActions")} icon={<Ellipsis size={18} />} items={[
         { id: "open", label: tCommon("open"), onAction: handleOpen },
-        { id: "star", label: t(starred ? "unstar" : "star"), onAction: () => { void handleToggleStar(); } },
-        { id: "rename", label: t("rename"), onAction: () => onRename(project) },
-        ...(!project.series_id && onConvert ? [{ id: "convert", label: t("convertToSeries"), onAction: () => onConvert(project) }] : []),
-        { id: "archive", label: t(project.archived ? "restore" : "archive"), onAction: () => project.archived ? onRestore(project) : onArchive(project) },
+        ...(canEdit ? [{ id: "star", label: t(starred ? "unstar" : "star"), onAction: () => { void handleToggleStar(); } }] : []),
+        ...(canEdit ? [{ id: "rename", label: t("rename"), onAction: () => onRename(project) }] : []),
+        ...(!project.series_id && onConvert && canEdit ? [{ id: "convert", label: t("convertToSeries"), onAction: () => onConvert(project) }] : []),
+        ...(canEdit ? [{ id: "archive", label: t(project.archived ? "restore" : "archive"), onAction: () => project.archived ? onRestore(project) : onArchive(project) }] : []),
         ...(project.archived && owner ? [{ id: "purge", label: t("purge"), onAction: () => { void onDelete(project); } }] : []),
     ]} /></div>;
 

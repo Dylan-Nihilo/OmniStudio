@@ -10,11 +10,13 @@ export interface AuthUser {
   created_at: string;
 }
 
+export type WorkspaceRole = "owner" | "member" | "editor" | "viewer";
+
 export interface WorkspaceSummary {
   id: string;
   name: string;
   slug: string | null;
-  role: "owner" | "member";
+  role: WorkspaceRole;
 }
 
 export interface SetupStatus {
@@ -264,7 +266,7 @@ export const useAuthStore = create<AuthStore>()(
           input,
         );
         const { data: me } = await apiClient.get<MeResponse>(`${AUTH_API_URL}/auth/me`);
-        const invitedWorkspace = me.workspaces.find((workspace) => workspace.role === "member") ?? me.workspace;
+        const invitedWorkspace = me.workspaces.find((workspace) => workspace.role !== "owner") ?? me.workspace;
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),

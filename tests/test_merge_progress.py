@@ -118,7 +118,7 @@ def test_merge_videos_sets_done_progress(monkeypatch, tmp_path, pipeline):
     monkeypatch.setattr(
         pipeline,
         "_verify_merged_video",
-        lambda output_path: {
+        lambda output_path, **kwargs: {
             "ok": True,
             "duration": 1.0,
             "video": {"codec": "h264"},

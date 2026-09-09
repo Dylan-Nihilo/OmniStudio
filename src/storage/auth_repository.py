@@ -130,7 +130,7 @@ class AuthRepository:
 
     def list_user_workspaces(self, user_id: str) -> list[WorkspaceAccess]:
         statement = (
-            select(Workspace.__table__, WorkspaceMembership.role.label("membership_role"))
+            select(Workspace.__table__, WorkspaceMembership.access_role.label("membership_role"))
             .join(
                 WorkspaceMembership.__table__,
                 WorkspaceMembership.workspace_id == Workspace.id,
@@ -206,6 +206,7 @@ class AuthRepository:
                         workspace_id=workspace_id,
                         user_id=user_id,
                         role="owner",
+                        access_role="owner",
                         invited_by_user_id=None,
                         joined_at=now,
                     )
@@ -224,6 +225,7 @@ class AuthRepository:
         invited_by_user_id: str,
         now: float,
         expires_at: float,
+        access_role: str = "member",
     ) -> WorkspaceInvitation:
         invitation_id = str(uuid.uuid4())
         with self.engine.connect() as connection:
@@ -237,6 +239,7 @@ class AuthRepository:
                         invited_by_user_id=invited_by_user_id,
                         created_at=now,
                         expires_at=expires_at,
+                        access_role=access_role,
                     )
                 )
                 row = connection.execute(
@@ -254,6 +257,7 @@ class AuthRepository:
                 User.email,
                 User.display_name,
                 WorkspaceMembership.role,
+                WorkspaceMembership.access_role,
                 WorkspaceMembership.joined_at,
             )
             .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
@@ -281,6 +285,45 @@ class AuthRepository:
                     )
                 )
         return result.rowcount == 1
+
+    def update_member_access_role(self, workspace_id: str, user_id: str, access_role: str) -> dict[str, Any] | None:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                membership = connection.execute(
+                    select(WorkspaceMembership.role).where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                ).scalar_one_or_none()
+                if membership is None:
+                    return None
+                if membership == "owner":
+                    raise ValueError("WORKSPACE_OWNER_CANNOT_BE_UPDATED")
+                connection.execute(
+                    update(WorkspaceMembership)
+                    .where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                    .values(access_role=access_role)
+                )
+                row = connection.execute(
+                    select(
+                        User.id,
+                        User.username,
+                        User.email,
+                        User.display_name,
+                        WorkspaceMembership.role,
+                        WorkspaceMembership.access_role,
+                        WorkspaceMembership.joined_at,
+                    )
+                    .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+                    .where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.user_id == user_id,
+                    )
+                ).mappings().one()
+        return dict(row)
 
     def get_workspace_provider_config(self, workspace_id: str) -> dict[str, Any]:
         with self.engine.connect() as connection:
@@ -367,6 +410,7 @@ class AuthRepository:
                         workspace_id=workspace_data["id"],
                         user_id=user_data["id"],
                         role="owner",
+                        access_role="owner",
                         invited_by_user_id=None,
                         joined_at=now,
                     )
@@ -376,6 +420,7 @@ class AuthRepository:
                         workspace_id=invitation["workspace_id"],
                         user_id=user_data["id"],
                         role="member",
+                        access_role=invitation["access_role"],
                         invited_by_user_id=invitation["invited_by_user_id"],
                         joined_at=now,
                     )
@@ -433,6 +478,7 @@ class AuthRepository:
                         workspace_id=invitation["workspace_id"],
                         user_id=user_id,
                         role="member",
+                        access_role=invitation["access_role"],
                         invited_by_user_id=invitation["invited_by_user_id"],
                         joined_at=now,
                     )
@@ -452,7 +498,7 @@ class AuthRepository:
                         Workspace.id == invitation["workspace_id"]
                     )
                 ).mappings().one()
-        return WorkspaceAccess(_model_from_mapping(Workspace, workspace_row), "member")
+        return WorkspaceAccess(_model_from_mapping(Workspace, workspace_row), str(invitation["access_role"]))
 
     def create_session(self, values: Mapping[str, Any] | Any) -> Session:
         data = _values(values)

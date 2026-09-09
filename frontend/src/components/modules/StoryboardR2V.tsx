@@ -45,7 +45,7 @@ import DirectorPlanEditor from "@/components/modules/DirectorPlan/DirectorPlanEd
 // Reload recovery uses the frame's persisted image state; live requests stay in this tab.
 const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string; recovering?: boolean; previousGenerationId?: string }>>>(() => ({}));
 const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
-const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash"] as const;
+const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "sfx_url", "preview_sfx_url", "sfx_fingerprint", "preview_sfx_fingerprint"] as const;
 const dubFields = ["preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
@@ -354,6 +354,28 @@ function StoryboardWorkbench() {
     }, [currentProject, t, queueDraft, materializeShot, beginStructure, endStructure]);
 
     const [genDialogOpen, setGenDialogOpen] = useState(false);
+    const [storyboardReadiness, setStoryboardReadiness] = useState<Awaited<ReturnType<typeof api.getStoryboardReadiness>> | null>(null);
+    const [storyboardReadinessLoading, setStoryboardReadinessLoading] = useState(false);
+    useEffect(() => {
+        if (!genDialogOpen || !currentProject?.id) return;
+        let active = true;
+        // Older test clients and embedded shells may not expose the optional
+        // readiness endpoint yet; preserve the pre-readiness flow there.
+        if (typeof api.getStoryboardReadiness !== "function") {
+            setStoryboardReadiness(null);
+            setStoryboardReadinessLoading(false);
+            return () => { active = false; };
+        }
+        setStoryboardReadinessLoading(true);
+        void api.getStoryboardReadiness(currentProject.id).then(report => {
+            if (active) setStoryboardReadiness(report);
+        }).catch(() => {
+            if (active) setStoryboardReadiness(null);
+        }).finally(() => {
+            if (active) setStoryboardReadinessLoading(false);
+        });
+        return () => { active = false; };
+    }, [genDialogOpen, currentProject?.id]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
@@ -1762,6 +1784,19 @@ function StoryboardWorkbench() {
     const handleSetLabel = useCallback((task: VideoTask, next: string | null) =>
         annotateCandidate(task, next ? { label: next } : { clear_label: true }), [annotateCandidate]);
 
+    const handleDownloadBatch = useCallback(async (tasks: VideoTask[]) => {
+        const projectId = currentProject?.id;
+        const ids = tasks.filter(task => task.status === "completed" && task.video_url).map(task => task.id);
+        if (!projectId || ids.length === 0) return;
+        const blob = await api.downloadVideoCandidates(projectId, ids);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${projectId}_video_candidates.zip`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }, [currentProject?.id]);
+
     const cancelRequests = useRef(new Map<string, Promise<void>>());
     const cancelTask = useCallback((taskId: string): Promise<void> => {
         const existing = cancelRequests.current.get(taskId);
@@ -2012,9 +2047,17 @@ function StoryboardWorkbench() {
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
                                         dialogue={dialogueText}
+                                        actionDescription={frame.action_description}
                                         draftDialogue={restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line}
                                         voiceId={speaker?.voice_id}
+                                        voiceSpeed={speaker?.voice_speed}
+                                        voicePitch={speaker?.voice_pitch}
+                                        voiceVolume={speaker?.voice_volume}
                                         audioUrl={frame.audio_url}
+                                        sfxUrl={frame.sfx_url}
+                                        previewSfxUrl={frame.preview_sfx_url}
+                                        sfxFingerprint={frame.sfx_fingerprint}
+                                        previewSfxFingerprint={frame.preview_sfx_fingerprint}
                                         audioError={frame.audio_error}
                                         generationStatus={frame.audio_generation_status}
                                         batchPending={batchPending || generating}
@@ -2025,6 +2068,9 @@ function StoryboardWorkbench() {
                                         snapshotDialogue={frame.dialogue_snapshot_text}
                                         snapshotVoiceId={frame.dialogue_voice_id}
                                         snapshotInstructions={frame.dialogue_instructions}
+                                        snapshotSpeed={frame.dialogue_snapshot_speed}
+                                        snapshotPitch={frame.dialogue_snapshot_pitch}
+                                        snapshotVolume={frame.dialogue_snapshot_volume}
                                         onUpdateDialogue={async (text: string) => {
                                             queueDraft(frame.id, "fields", { dialogue: text }, 1000);
                                             if (!await flushDrafts()) throw new Error(t("saveFailed"));
@@ -2064,6 +2110,18 @@ function StoryboardWorkbench() {
                                         onRevertDub={async () => {
                                             const result = await api.revertDub(currentProject!.id, frame.id);
                                             mergeAudioResult(frame.id, result, dubFields);
+                                        }}
+                                        onPreviewSfx={async () => {
+                                            const result = await api.previewSfx(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, audioFields);
+                                        }}
+                                        onApplySfx={async () => {
+                                            const result = await api.applySfx(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, audioFields);
+                                        }}
+                                        onRevertSfx={async () => {
+                                            const result = await api.revertSfx(currentProject!.id, frame.id);
+                                            mergeAudioResult(frame.id, result, audioFields);
                                         }}
                                     />
                                 </div>
@@ -2126,6 +2184,7 @@ function StoryboardWorkbench() {
                                     onRetry={handleRetryTask}
                                     retryingTaskIds={retryingTaskIds}
                                     onReuseBatchParams={handleReuseBatchParams}
+                                    onDownloadBatch={handleDownloadBatch}
                                     onOpenCompare={() => setCompareModalOpen(true)}
                                     resolveUrl={resolveAssetUrl}
                                 />}
@@ -2174,6 +2233,8 @@ function StoryboardWorkbench() {
             project={currentProject as any}
             existingShotCount={shots.length}
             onConfirm={handleSmartGenerate}
+            readiness={storyboardReadinessLoading ? null : storyboardReadiness}
+            readinessLoading={storyboardReadinessLoading}
             onJumpToScript={() => {
                 setGenDialogOpen(false);
                 document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "script" }));

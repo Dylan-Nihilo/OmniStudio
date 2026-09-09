@@ -152,10 +152,31 @@ def _backfill_owner_memberships(engine: Engine) -> None:
                     "workspace_id": workspace_id,
                     "user_id": user_id,
                     "role": "owner",
+                    "access_role": "owner",
                     "invited_by_user_id": None,
                     "joined_at": joined_at,
                 },
             )
+
+
+def _ensure_access_role_columns(engine: Engine) -> None:
+    """Add role-label columns without rebuilding legacy SQLite tables."""
+    from sqlalchemy import inspect
+
+    inspector = inspect(engine)
+    additions = {
+        "workspace_memberships": "access_role TEXT NOT NULL DEFAULT 'member'",
+        "workspace_invitations": "access_role TEXT NOT NULL DEFAULT 'member'",
+    }
+    with engine.begin() as connection:
+        for table, definition in additions.items():
+            columns = {column["name"] for column in inspector.get_columns(table)}
+            if "access_role" not in columns:
+                connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {definition}")
+            if table == "workspace_memberships":
+                connection.exec_driver_sql(
+                    "UPDATE workspace_memberships SET access_role = 'owner' WHERE role = 'owner'"
+                )
 
 
 def init_schema(engine: Engine) -> None:
@@ -165,6 +186,7 @@ def init_schema(engine: Engine) -> None:
     tables = set(inspect(engine).get_table_names())
     if not tables:
         Base.metadata.create_all(engine)
+        _ensure_access_role_columns(engine)
         _record_schema_version(engine)
         _backfill_owner_memberships(engine)
         return
@@ -175,6 +197,7 @@ def init_schema(engine: Engine) -> None:
         # W3 database. Column/constraint changes still require a versioned
         # migration and are validated below.
         Base.metadata.create_all(engine)
+        _ensure_access_role_columns(engine)
         _backfill_owner_memberships(engine)
         from .migrations.w3_auth import validate_w3_schema
 
@@ -187,6 +210,7 @@ def init_schema(engine: Engine) -> None:
         raise RuntimeError(f"No migration registered for schema version {SCHEMA_VERSION!r}")
     migration(engine)
     Base.metadata.create_all(engine)
+    _ensure_access_role_columns(engine)
     _backfill_owner_memberships(engine)
 
 

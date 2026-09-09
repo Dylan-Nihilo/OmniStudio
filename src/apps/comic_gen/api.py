@@ -40,9 +40,17 @@ import uuid
 import logging
 import traceback
 import mimetypes
+from io import BytesIO
+from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlparse
-from .pipeline import ComicGenPipeline, GenerationInProgressError, LibraryAssetInUseError, _resolve_export_settings
+from .pipeline import (
+    ComicGenPipeline,
+    GenerationInProgressError,
+    LibraryAssetInUseError,
+    _resolve_export_settings,
+    build_video_download_archive,
+)
 from .models import (
     ArtDirection,
     PromptConfig,
@@ -684,6 +692,10 @@ def _is_workspace_owner(context) -> bool:
     return getattr(getattr(context, "membership", None), "role", "owner") == "owner"
 
 
+def _is_workspace_viewer(context) -> bool:
+    return getattr(getattr(context, "membership", None), "access_role", "member") == "viewer"
+
+
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
@@ -792,6 +804,12 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 raise AuthError(
                     "AUTH_OWNER_REQUIRED",
                     "只有 Workspace Owner 可以执行此操作",
+                    status_code=403,
+                )
+            if request.method.upper() in _MUTATING_METHODS and _is_workspace_viewer(context):
+                raise AuthError(
+                    "AUTH_VIEWER_READ_ONLY",
+                    "Viewer 只能查看 Workspace 内容",
                     status_code=403,
                 )
             repository = getattr(pipeline, "repository", None)
@@ -998,6 +1016,29 @@ class GenerateAssetRequest(BaseModel):
     model_name: Optional[str] = None
     aspect_ratio: Optional[str] = None
 
+
+class CastGenerationPreviewRequest(BaseModel):
+    asset_type: Literal["character", "scene", "prop"]
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    persona: str = Field(default="", max_length=200)
+    voice_id: Optional[str] = None
+    prompt: str = Field(default="", max_length=12000)
+    batch_size: int = Field(default=1, ge=1, le=4)
+    model_name: Optional[str] = None
+    apply_style: bool = True
+    negative_prompt: str = Field(default="", max_length=4000)
+
+
+class CastGenerationConfirmRequest(BaseModel):
+    preview_id: str = Field(min_length=1, max_length=200)
+
+
+class BatchToggleLockRequest(BaseModel):
+    asset_type: Literal["character", "scene", "prop"]
+    asset_ids: List[str] = Field(min_length=1, max_length=100)
+    locked: bool
+
 class ToggleLockRequest(BaseModel):
     asset_id: str
     asset_type: str
@@ -1162,6 +1203,8 @@ def upload_asset(
         
         return signed_response(updated_script)
         
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -2239,6 +2282,128 @@ def update_series_model_settings(series_id: str, settings: UpdateModelSettingsRe
 # Series Asset Operations
 # ============================================================
 
+def _cast_preview_store() -> dict[str, dict[str, Any]]:
+    store = getattr(app.state, "cast_generation_previews", None)
+    if store is None:
+        store = {}
+        app.state.cast_generation_previews = store
+    return store
+
+
+def _cast_preview_cost(model_name: str | None, batch_size: int) -> float:
+    # A deterministic estimate is intentionally shown before provider calls.
+    unit_cost = 2.0 if model_name == "gpt-image-2" else 1.0
+    return round(unit_cost * batch_size, 2)
+
+
+@app.post("/series/{series_id}/assets/generate/preview")
+def preview_cast_generation(series_id: str, request: CastGenerationPreviewRequest, http_request: Request):
+    """Build a reviewable cast generation plan without mutating Series data."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    workspace_id = pipeline.repository.workspace_for_series(series_id)
+    if workspace_id != http_request.state.auth_context.workspace.id:
+        raise HTTPException(status_code=404, detail="Series not found")
+    preview_id = str(uuid.uuid4())
+    payload = request.model_dump()
+    preview = {
+        "preview_id": preview_id,
+        "status": "preview",
+        "series_id": series_id,
+        "workspace_id": workspace_id,
+        "created_at": time.time(),
+        "expires_at": time.time() + 15 * 60,
+        **payload,
+        "estimated_calls": payload["batch_size"],
+        "estimated_cost": _cast_preview_cost(payload.get("model_name"), payload["batch_size"]),
+    }
+    _cast_preview_store()[preview_id] = preview
+    return signed_response(preview)
+
+
+@app.post("/series/{series_id}/assets/generate/previews/{preview_id}/cancel")
+def cancel_cast_generation_preview(series_id: str, preview_id: str, http_request: Request):
+    preview = _cast_preview_store().get(preview_id)
+    if not preview or preview.get("series_id") != series_id or preview.get("workspace_id") != http_request.state.auth_context.workspace.id:
+        raise HTTPException(status_code=404, detail="Cast generation preview not found")
+    if preview["status"] == "preview":
+        preview["status"] = "canceled"
+    return signed_response(preview)
+
+
+@app.post("/series/{series_id}/assets/generate/confirm")
+def confirm_cast_generation(
+    series_id: str,
+    request: CastGenerationConfirmRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
+    preview = _cast_preview_store().get(request.preview_id)
+    workspace_id = http_request.state.auth_context.workspace.id
+    if not preview or preview.get("series_id") != series_id or preview.get("workspace_id") != workspace_id:
+        raise HTTPException(status_code=404, detail="Cast generation preview not found")
+    if preview.get("status") != "preview" or preview.get("expires_at", 0) < time.time():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CAST_PREVIEW_NOT_CONFIRMABLE", "message": "预览已取消或过期，请重新生成预览"},
+        )
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    from .models import Character, Scene, Prop, AssetUnit, ImageAsset
+
+    asset_id = _new_id(preview["asset_type"][:4])
+    common = {
+        "workspace_id": workspace_id,
+        "id": asset_id,
+        "name": preview["name"],
+        "description": preview.get("description", ""),
+    }
+    if preview["asset_type"] == "character":
+        asset = Character(
+            **common,
+            persona=preview.get("persona", ""),
+            voice_id=preview.get("voice_id"),
+            reference_sheet=AssetUnit(),
+        )
+        series.characters.append(asset)
+    elif preview["asset_type"] == "scene":
+        asset = Scene(**common, image_asset=ImageAsset())
+        series.scenes.append(asset)
+    else:
+        asset = Prop(**common, image_asset=ImageAsset())
+        series.props.append(asset)
+    series.updated_at = time.time()
+    pipeline.series_store[series_id] = series
+    pipeline._save_series_data()
+    _, legacy_task_id = pipeline.generate_series_asset(
+        series_id,
+        asset_id,
+        preview["asset_type"],
+        style_preset="Cinematic",
+        style_prompt=None,
+        generation_type="reference_sheet" if preview["asset_type"] == "character" else "all",
+        prompt=preview.get("prompt") or preview["description"],
+        apply_style=preview.get("apply_style", True),
+        negative_prompt=preview.get("negative_prompt") or None,
+        batch_size=preview["batch_size"],
+        model_name=preview.get("model_name"),
+    )
+    item = _create_production_item(
+        "asset",
+        series_id,
+        None,
+        {"legacy_task_id": legacy_task_id, "asset_id": asset_id, "asset_type": preview["asset_type"], "series_id": series_id},
+        f"cast:{series_id}:{request.preview_id}",
+    )
+    preview["status"] = "confirmed"
+    _cast_preview_store().pop(request.preview_id, None)
+    if item is None:
+        raise HTTPException(status_code=503, detail="Production job storage unavailable")
+    background_tasks.add_task(_context_call(_start_production_item, item.id))
+    return signed_response({"status": "confirmed", "preview_id": request.preview_id, "asset": asset.model_dump(), "job_item": asdict(item)})
+
 @app.get("/series/{series_id}/assets")
 def get_series_assets(series_id: str):
     """Get all shared assets from a Series."""
@@ -2298,6 +2463,29 @@ def toggle_series_asset_lock(series_id: str, request: ToggleLockRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/series/{series_id}/assets/toggle_lock_batch")
+def toggle_series_asset_lock_batch(series_id: str, request: BatchToggleLockRequest):
+    """Set lock state for a reviewed batch without toggling unrelated assets."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    collection = getattr(series, {"character": "characters", "scene": "scenes", "prop": "props"}[request.asset_type])
+    by_id = {asset.id: asset for asset in collection}
+    missing = [asset_id for asset_id in request.asset_ids if asset_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Assets not found: {', '.join(missing)}")
+    for asset_id in request.asset_ids:
+        by_id[asset_id].locked = request.locked
+    series.updated_at = time.time()
+    pipeline.series_store[series_id] = series
+    pipeline._save_series_data()
+    return signed_response({
+        "characters": [asset.model_dump() for asset in series.characters],
+        "scenes": [asset.model_dump() for asset in series.scenes],
+        "props": [asset.model_dump() for asset in series.props],
+    })
 
 
 @app.post("/series/{series_id}/assets/toggle_starred")
@@ -3892,6 +4080,11 @@ class CreateVideoTaskRequest(BaseModel):
     workbench_tab: Optional[str] = None  # 't2i_i2v' | 'direct_r2v'
 
 
+class VideoDownloadRequest(BaseModel):
+    """Optional explicit take ids for a candidate download."""
+    task_ids: List[str] = Field(default_factory=list, max_length=200)
+
+
 def process_video_task(script_id: str, task_id: str):
     """Background task to generate video.
 
@@ -4079,6 +4272,27 @@ def create_video_task(script_id: str, request: CreateVideoTaskRequest, backgroun
     except Exception as e:
         logger.exception("An error occurred")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/projects/{script_id}/video_tasks/download")
+def download_video_tasks(script_id: str, request: VideoDownloadRequest):
+    """Download completed candidate takes with a Shot/Take manifest."""
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+    try:
+        archive, manifest = build_video_download_archive(script, request.task_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    filename = f"{script_id}_video_candidates.zip"
+    return StreamingResponse(
+        BytesIO(archive),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Omni-Manifest-Count": str(len(manifest["files"])),
+        },
+    )
 
 
 @app.post("/projects/{script_id}/assets/generate")
@@ -5084,6 +5298,43 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/projects/{script_id}/frames/{frame_id}/sfx/preview", response_model=Script)
+def preview_frame_sfx(script_id: str, frame_id: str):
+    """Generate a temporary SFX preview without replacing the applied track."""
+    try:
+        return signed_response(pipeline.preview_sfx(script_id, frame_id))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post("/projects/{script_id}/frames/{frame_id}/sfx/apply", response_model=Script)
+def apply_frame_sfx(script_id: str, frame_id: str):
+    """Apply the previously generated SFX preview."""
+    try:
+        return signed_response(pipeline.apply_sfx(script_id, frame_id))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/projects/{script_id}/frames/{frame_id}/sfx/preview", response_model=Script)
+def revert_frame_sfx(script_id: str, frame_id: str):
+    """Discard a pending SFX preview and keep the applied track."""
+    try:
+        return signed_response(pipeline.revert_sfx(script_id, frame_id))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/projects/{script_id}/mix/generate_sfx", response_model=Script)
 def generate_mix_sfx(script_id: str):
     """Triggers Video-to-Audio SFX generation for all frames."""
@@ -5241,6 +5492,22 @@ class RenderFrameRequest(BaseModel):
     batch_size: int = 1
 
 
+@app.get("/projects/{script_id}/storyboard/readiness")
+def storyboard_readiness(script_id: str):
+    """Run and persist deterministic storyboard readiness checks."""
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+    from .storyboard_readiness import evaluate_storyboard_readiness
+
+    report = evaluate_storyboard_readiness(script)
+    script.storyboard_ready = bool(report["ready"])
+    script.storyboard_readiness = report
+    pipeline.scripts[script_id] = script
+    pipeline._save_data()
+    return signed_response(report | {"storyboard_ready": script.storyboard_ready})
+
+
 @app.post("/projects/{script_id}/storyboard/render", response_model=Script)
 def render_frame(script_id: str, request: RenderFrameRequest):
     """Renders a specific frame using composition data (I2I)."""
@@ -5310,6 +5577,17 @@ def unpin_video(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.unpin_video(script_id, frame_id)
         return signed_response(updated_script)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/projects/{script_id}/frames/{frame_id}/clear_video_selection", response_model=Script)
+def clear_video_selection(script_id: str, frame_id: str):
+    """Clear a frame's explicit take selection before a new Assembly review."""
+    try:
+        return signed_response(pipeline.clear_video_selection(script_id, frame_id))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -5470,6 +5748,18 @@ def merge_videos(script_id: str):
     """Merge all selected frame videos into final output"""
     import traceback
     try:
+        precheck = pipeline.precheck_merge(script_id)
+        if not precheck.get("ok"):
+            reasons = list(precheck.get("errors") or [])
+            for key in ("missing", "unreadable", "no_video_available"):
+                reasons.extend(
+                    str(item.get("reason") or item.get("expected") or item.get("path") or key)
+                    for item in (precheck.get(key) or [])
+                )
+            if precheck.get("disk", {}).get("sufficient") is False:
+                reasons.append("insufficient disk space")
+            detail = "; ".join(dict.fromkeys(reasons)) or "export precheck failed"
+            raise HTTPException(status_code=400, detail=f"Export precheck failed: {detail}")
         job_item = _create_production_item(
             "export", script_id, None,
             {"project_id": script_id, "export": True},
@@ -5479,6 +5769,8 @@ def merge_videos(script_id: str):
             _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)
         )
         return signed_response(merged_script)
+    except HTTPException:
+        raise
     except ValueError as e:
         # Known validation errors (no videos, etc.)
         logger.error(f"[MERGE ERROR] Validation failed: {e}")
@@ -5647,22 +5939,47 @@ class ExportRequest(BaseModel):
     format: str = "mp4"
     subtitles: str = "none"
 
+
+_VIDEO_EXPORT_RESOLUTIONS = {
+    "1080p": "1920x1080",
+    "720p": "1280x720",
+    "360p": "640x360",
+    "1920x1080": "1920x1080",
+    "1280x720": "1280x720",
+    "640x360": "640x360",
+}
+
 @app.post("/projects/{script_id}/export")
 def export_project(script_id: str, request: ExportRequest):
     """Export project video by merging all selected frame videos.
 
-    Currently delegates to the existing merge_videos pipeline.
-    resolution/format/subtitles parameters are accepted but not yet applied
-    (requires FFmpeg pipeline iteration).
+    Delegates to the merge pipeline after persisting the requested resolution.
+    Unsupported container and subtitle modes are rejected instead of being
+    silently ignored by the legacy endpoint.
     """
     try:
         script = pipeline.get_script(script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Project not found")
 
+        resolution = _VIDEO_EXPORT_RESOLUTIONS.get(request.resolution.lower())
+        if not resolution:
+            raise HTTPException(status_code=400, detail="Unsupported export resolution")
+        if request.format.lower() != "mp4":
+            raise HTTPException(status_code=400, detail="Unsupported export format; only mp4 is available")
+        if request.subtitles.lower() not in {"none", "soft"}:
+            raise HTTPException(status_code=400, detail="Unsupported subtitle mode; use none or soft")
+
         # If already merged, return existing URL directly
         if script.merged_video_url:
             return signed_response({"url": script.merged_video_url})
+
+        settings = dict(getattr(script, "export_settings", None) or {})
+        settings["resolution"] = resolution
+        settings["subtitles"] = request.subtitles.lower()
+        _resolve_export_settings(settings)
+        script.export_settings = settings
+        pipeline._save_data()
 
         # Otherwise, run merge pipeline through the durable production ledger.
         job_item = _create_production_item(

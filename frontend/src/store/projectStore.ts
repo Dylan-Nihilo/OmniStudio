@@ -118,6 +118,9 @@ export interface Character {
 
     voice_id?: string;
     voice_name?: string;
+    voice_speed?: number;
+    voice_pitch?: number;
+    voice_volume?: number;
     locked?: boolean;
     starred?: boolean;
     status?: string;

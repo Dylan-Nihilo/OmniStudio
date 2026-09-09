@@ -2,15 +2,30 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import DialogueAudioRow from './DialogueAudioRow';
 
-const { generate } = vi.hoisted(() => ({ generate: vi.fn() }));
+const { generate, previewSfx, applySfx, revertSfx } = vi.hoisted(() => ({ generate: vi.fn(), previewSfx: vi.fn(), applySfx: vi.fn(), revertSfx: vi.fn() }));
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
-vi.mock('@/lib/api', () => ({ API_URL: 'http://localhost:17177', api: { generateLineAudio: generate } }));
+vi.mock('@/lib/api', () => ({ API_URL: 'http://localhost:17177', api: { generateLineAudio: generate, previewSfx, applySfx, revertSfx } }));
 
 const props = { scriptId: 'dialogue-project', frameId: 'dialogue-frame', dialogue: 'Original dialogue', voiceId: 'voice', audioUrl: 'old.mp3', audioError: null,
     snapshotDialogue: 'Original dialogue', snapshotVoiceId: 'voice', snapshotInstructions: 'happy; whisper', onAudioUpdated: vi.fn() };
 
 describe('Dialogue audio workbench', () => {
-    beforeEach(() => { generate.mockReset(); });
+    beforeEach(() => { generate.mockReset(); previewSfx.mockReset(); applySfx.mockReset(); revertSfx.mockReset(); });
+
+    it('previews SFX before applying it and can discard the preview', async () => {
+        previewSfx.mockResolvedValueOnce({ frames: [{ id: 'sfx-frame', sfx_url: 'old.wav', preview_sfx_url: 'preview.wav' }] });
+        applySfx.mockResolvedValueOnce({ frames: [{ id: 'sfx-frame', sfx_url: 'preview.wav', preview_sfx_url: null }] });
+        revertSfx.mockResolvedValueOnce({ frames: [{ id: 'sfx-frame', sfx_url: 'old.wav', preview_sfx_url: null }] });
+        const view = render(<DialogueAudioRow {...props} frameId="sfx-frame" actionDescription="Door slam" videoUrl="take.mp4" onPreviewSfx={async () => { await previewSfx(); }} onApplySfx={async () => { await applySfx(); }} onRevertSfx={async () => { await revertSfx(); }} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'previewSfx' }));
+        await waitFor(() => expect(previewSfx).toHaveBeenCalledOnce());
+        view.rerender(<DialogueAudioRow {...props} frameId="sfx-frame" actionDescription="Door slam" videoUrl="take.mp4" previewSfxUrl="preview.wav" sfxUrl="old.wav" onPreviewSfx={async () => { await previewSfx(); }} onApplySfx={async () => { await applySfx(); }} onRevertSfx={async () => { await revertSfx(); }} />);
+        fireEvent.click(screen.getByRole('button', { name: 'applySfx' }));
+        await waitFor(() => expect(applySfx).toHaveBeenCalledOnce());
+        fireEvent.click(screen.getByRole('button', { name: 'discardSfx' }));
+        await waitFor(() => expect(revertSfx).toHaveBeenCalledOnce());
+    });
 
     it('recognizes renewed OSS signatures while retaining media version checks', () => {
         const current = 'https://media.example.test/voice.mp3?OSSAccessKeyId=test&Expires=20&Signature=new&version=1';
@@ -20,6 +35,16 @@ describe('Dialogue audio workbench', () => {
         expect(screen.getByRole('button', { name: 'applyOverride' })).toBeEnabled();
         view.rerender(<DialogueAudioRow {...dub} audioUrl={current.replace('version=1', 'version=2')} />);
         expect(screen.getByRole('button', { name: 'applyOverride' })).toBeDisabled();
+    });
+
+    it('marks audio stale and regenerates with changed voice controls', async () => {
+        generate.mockResolvedValueOnce({ frames: [{ id: 'voice-controls', audio_url: 'new.mp3' }] });
+        const view = render(<DialogueAudioRow {...props} frameId="voice-controls" voiceSpeed={1.2} voicePitch={0.9} voiceVolume={70} snapshotSpeed={1} snapshotPitch={1} snapshotVolume={50} onUpdateDialogue={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen/ }));
+        expect(screen.getByText('staleHint')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'regenerate' }));
+        await waitFor(() => expect(generate).toHaveBeenCalledWith('dialogue-project', 'voice-controls', 1.2, 0.9, 70, 'happy; whisper'));
+        view.unmount();
     });
 
     it('invalidates a preview after audio replacement and supports earlier audio offsets', async () => {

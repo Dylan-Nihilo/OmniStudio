@@ -34,3 +34,37 @@ it.each([
     expect(await screen.findByText('夜班素材')).toBeInTheDocument();
   } finally { view.unmount(); }
 });
+
+
+it('keeps series generation behind preview and explicit confirmation', async () => {
+  const project: any = { id: 'series-project', series_id: 'series-1', title: '系列项目', characters: [], scenes: [], props: [], frames: [] };
+  useProjectStore.setState({ ...useProjectStore.getInitialState(), currentProject: project, projects: [project] }, true);
+  const writes: string[] = [];
+  apiClient.defaults.adapter = async config => {
+    let data: any = structuredClone(project);
+    if (config.method === 'post') {
+      writes.push(config.url!);
+      if (config.url!.endsWith('/preview')) {
+        data = { preview_id: 'preview-1', estimated_calls: 1, estimated_cost: 1 };
+      } else {
+        expect(config.url).toMatch(/\/series\/series-1\/assets\/generate\/confirm$/);
+        expect(JSON.parse(config.data)).toEqual({ preview_id: 'preview-1' });
+        project.characters = [{ id: 'new-character', name: '夜班员' }];
+      }
+    }
+    return { config, status: 200, statusText: 'OK', headers: {}, data };
+  };
+  const view = renderWithIntl(<LightboxProvider><Cast /></LightboxProvider>);
+  try {
+    fireEvent.click(screen.getByRole('button', { name: '新角色' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：张三'), { target: { value: '夜班员' } });
+    fireEvent.click(screen.getByRole('button', { name: '预览生成计划' }));
+    const confirm = await screen.findByRole('button', { name: '确认并开始' });
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatch(/\/series\/series-1\/assets\/generate\/preview$/);
+    expect(project.characters).toEqual([]);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(await screen.findByText('夜班员')).toBeInTheDocument();
+  } finally { view.unmount(); }
+});
