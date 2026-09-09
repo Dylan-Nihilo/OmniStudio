@@ -1,36 +1,15 @@
 """Short API chains covering the desktop Web acceptance findings."""
-
-
 import pytest
-
-
 import io
-
-
 import zipfile
-
-
 import xml.etree.ElementTree as ET
 
-
 from tests.test_w2_project_api import api_client, _create_project
-
-
 from tests.test_w2_project_api import _create_series, _add_episode
-
-
 import src.apps.comic_gen.api as api_module
-
-
 from src.apps.comic_gen.models import VideoTask
-
-
 from src.apps.comic_gen.models import AssetUnit, ImageVariant
-
-
 from src.storage.job_repository import JobRepository
-
-
 from pathlib import Path
 
 
@@ -172,3 +151,21 @@ def test_task_center_video_retry_creates_a_new_take_from_saved_inputs_and_adopts
     assert calls[0]["prompt"] == "Saved original prompt"
     assert calls[0]["resolution"] == "720p"
     assert adapter.repository.get_item(item.id).status == "failed"
+
+
+@pytest.mark.parametrize("format", ["pdf", "docx"])
+def test_document_export_returns_real_formats_and_preserves_chinese_literal_text(api_client, format):
+    project = _create_project(api_client, "Export Chinese")
+    text = "末班信号 <明天> & 阿岚"
+    response = api_client.post(f"/projects/{project['id']}/document/export", json={"format": format, "content": {"type": "doc", "content": [{"type": "action", "content": [{"type": "text", "text": text}]}]}})
+    assert response.status_code == 200, response.text[:100] if not response.content.startswith(b"%PDF") else ""
+    assert response.headers.get("x-export-fallback") is None
+    if format == "pdf":
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.content.startswith(b"%PDF-")
+        assert b"STSong-Light" in response.content
+    else:
+        assert "wordprocessingml.document" in response.headers["content-type"]
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            root = ET.fromstring(archive.read("word/document.xml"))
+        assert text in "".join(root.itertext())

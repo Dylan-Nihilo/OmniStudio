@@ -6773,6 +6773,9 @@ def export_document(project_id: str, req: ExportDocRequest):
     if fmt == "pdf":
         # Try reportlab first, fallback to HTML
         try:
+            from html import escape
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
             from reportlab.lib.pagesizes import letter
             from reportlab.lib.units import inch
             from reportlab.platypus import SimpleDocTemplate, Paragraph as RLParagraph, Spacer
@@ -6785,18 +6788,22 @@ def export_document(project_id: str, req: ExportDocRequest):
                                         leftMargin=1.5 * inch, rightMargin=1 * inch,
                                         topMargin=1 * inch, bottomMargin=1 * inch)
 
+            pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
             styles = getSampleStyleSheet()
+            for style in styles.byName.values():
+                style.fontName = "STSong-Light"
+                style.wordWrap = "CJK"
             styles.add(ParagraphStyle("SceneHeading", parent=styles["Heading3"],
-                                      fontName="Helvetica-Bold", fontSize=12,
+                                      fontName="STSong-Light", fontSize=12,
                                       spaceAfter=6, spaceBefore=18))
             styles.add(ParagraphStyle("CharacterCue", parent=styles["Normal"],
-                                      fontName="Helvetica-Bold", fontSize=10,
+                                      fontName="STSong-Light", fontSize=10,
                                       alignment=TA_CENTER, spaceBefore=12))
             styles.add(ParagraphStyle("DialogueStyle", parent=styles["Normal"],
-                                      fontName="Helvetica", fontSize=10,
+                                      fontName="STSong-Light", fontSize=10,
                                       leftIndent=1.5 * inch, rightIndent=1.5 * inch))
             styles.add(ParagraphStyle("TransitionStyle", parent=styles["Normal"],
-                                      fontName="Helvetica-Bold", fontSize=10,
+                                      fontName="STSong-Light", fontSize=10,
                                       alignment=TA_RIGHT, spaceBefore=12))
 
             story = []
@@ -6810,7 +6817,7 @@ def export_document(project_id: str, req: ExportDocRequest):
 
             for node_type, text in lines:
                 style_name = style_map.get(node_type, "Normal")
-                story.append(RLParagraph(text or " ", styles[style_name]))
+                story.append(RLParagraph(escape(text).replace("\n", "<br/>") or " ", styles[style_name]))
 
             doc_pdf.build(story)
             pdf_bytes = buffer.getvalue()
