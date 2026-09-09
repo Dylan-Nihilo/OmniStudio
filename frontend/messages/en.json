@@ -2647,6 +2647,7 @@
     "confirmCancel": "Cancel this task?",
     "close": "Close",
     "noEvents": "No status events",
+    "retryOf": "Retry of {id}",
     "page": "Page {page} / {total}",
     "previousPage": "Previous page",
     "nextPage": "Next page",

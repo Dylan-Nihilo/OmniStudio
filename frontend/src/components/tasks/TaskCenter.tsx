@@ -106,7 +106,16 @@ export default function TaskCenter({ workspaceId, projectId, episodeId, onOpenOb
     <div className={styles.rows}>{rows.map(task => <TaskCenterRow key={task.id} task={task} isPending={busyId === task.id} isDisabled={busyId !== null}
       onCancel={() => setCancelId(task.id)} onRetry={() => void runAction(task.id,"retry")} onDetails={() => void runAction(task.id,"details")} onOpenObject={() => onOpenObject(task.objectRef)} />)}</div>
     <footer className={styles.pagination}><span>{t("page", {page,total:pageCount})}</span><div><IconButton aria-label={t("previousPage")} isDisabled={page <= 1 || loading} onPress={() => setPage(value => value - 1)}><ChevronLeft size={16} /></IconButton><IconButton aria-label={t("nextPage")} isDisabled={page >= pageCount || loading} onPress={() => setPage(value => value + 1)}><ChevronRight size={16} /></IconButton></div></footer>
-    {selectedJob && <Dialog isOpen title={t("details")} closeLabel={t("close")} onOpenChange={open => {if (!open) setSelectedJob(null);}}><div className={styles.events}>{selectedJob.events.length ? selectedJob.events.map(event => <div key={event.id}><span>{event.from_status ? t(event.from_status) : "—"} → {t(event.to_status)}</span>{event.error_code && <code>{event.error_code}</code>}</div>) : <p>{t("noEvents")}</p>}</div></Dialog>}
+    {selectedJob && <Dialog isOpen title={t("details")} closeLabel={t("close")} onOpenChange={open => {if (!open) setSelectedJob(null);}}>
+      <div className={styles.events}>
+        {selectedJob.job.items.map(item => <div key={item.id} className="border-b border-border-subtle pb-2 mb-2">
+          <div className="flex flex-wrap gap-2"><strong>{item.kind}</strong><span>{t(item.status)}</span><code>{item.id.slice(0, 8)}</code></div>
+          {item.retry_of && <small>{t("retryOf", { id: item.retry_of.slice(0, 8) })}</small>}
+          {item.error_message && <p className="text-status-failed-fg">{item.error_code ? `${item.error_code} · ` : ""}{item.error_message}</p>}
+        </div>)}
+        {selectedJob.events.length ? selectedJob.events.map(event => <div key={event.id}><span>{event.from_status ? t(event.from_status) : "—"} → {t(event.to_status)}</span>{event.error_code && <code>{event.error_code}</code>}</div>) : <p>{t("noEvents")}</p>}
+      </div>
+    </Dialog>}
     {cancelId && <ActionDialog title={t("cancel")} description={t("confirmCancel")} confirmLabel={t("confirmCancelAction")} onClose={() => setCancelId(null)} onConfirm={async () => { await api.cancelTask(cancelId); await load(); }} />}
   </section>;
 }

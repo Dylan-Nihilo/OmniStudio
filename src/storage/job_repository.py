@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.engine import Engine
 
 from src.apps.comic_gen.contracts import JobStatus, MediaRef, summarize_job_items
@@ -231,6 +231,17 @@ class JobRepository:
                 select(Job.__table__.c.id).where(Job.__table__.c.id == job_id)
             ).first() is not None
 
+    def delete_job_if_empty(self, job_id: str) -> bool:
+        """Remove a job created by a failed idempotent insert race."""
+        with self.engine.begin() as connection:
+            has_items = connection.execute(
+                select(JobItem.__table__.c.id).where(JobItem.__table__.c.job_id == job_id).limit(1)
+            ).first()
+            if has_items is not None:
+                return False
+            result = connection.execute(delete(Job.__table__).where(Job.__table__.c.id == job_id))
+            return bool(result.rowcount)
+
     def find_item_by_idempotency(
         self,
         workspace_id: str,
@@ -256,6 +267,45 @@ class JobRepository:
                 )
             ).mappings().first()
             return self._job_record(connection, row) if row is not None else None
+
+    def get_item(self, item_id: str) -> JobItemRecord | None:
+        """Read one item by id for an adapter after its caller checks scope."""
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(JobItem.__table__).where(JobItem.__table__.c.id == item_id)
+            ).mappings().first()
+        return self._item_record(row) if row is not None else None
+
+    def list_inflight(self, workspace_id: str | None = None) -> list[JobItemRecord]:
+        """Return processing items that need adapter recovery after restart."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(JobItem.__table__).where(
+                    JobItem.__table__.c.status == JobStatus.PROCESSING.value,
+                    *([JobItem.__table__.c.workspace_id == workspace_id] if workspace_id else []),
+                ).order_by(JobItem.__table__.c.created_at)
+            ).mappings().all()
+        return [self._item_record(row) for row in rows]
+
+    def record_item_event(self, item_id: str, to_status: str, *, error_code: str | None = None) -> None:
+        """Append an adapter lifecycle event without changing item status."""
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(JobItem.__table__.c.status).where(JobItem.__table__.c.id == item_id)
+            ).first()
+            if row is None:
+                raise StorageError(f"JobItem {item_id} not found")
+            connection.execute(
+                JobItemEvent.__table__.insert().values(
+                    id=str(uuid.uuid4()),
+                    item_id=item_id,
+                    from_status=row[0],
+                    to_status=to_status,
+                    progress=None,
+                    error_code=error_code,
+                    created_at=time.time(),
+                )
+            )
 
     def list_item_events(self, workspace_id: str, job_id: str) -> list[dict[str, Any]] | None:
         """Return status history for a Workspace-owned job, or ``None`` if hidden."""
