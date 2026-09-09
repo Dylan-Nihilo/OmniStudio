@@ -9,6 +9,7 @@ import ModelSelector from './ModelSelector';
 import MediaInput from './MediaInput';
 import PromptInput from './PromptInput';
 import ParameterBar from './ParameterBar';
+import { getModelsForMode } from './playgroundModels';
 import ResultGallery from './ResultGallery';
 import { usePlaygroundStore, type PlaygroundMode, type QueuedRequest } from './usePlaygroundStore';
 import { playgroundApi } from '@/lib/api';
@@ -53,6 +54,8 @@ export default function PlaygroundPage() {
   const negativePrompt = usePlaygroundStore((s) => s.negativePrompt);
   const inputMedia = usePlaygroundStore((s) => s.inputMedia);
   const parameters = usePlaygroundStore((s) => s.parameters);
+  const referenceLimit = getModelsForMode(mode).find(model => model.id === modelId)?.maxReferenceImages;
+  const tooManyReferences = !!referenceLimit && inputMedia.length > referenceLimit;
   const batchSize = usePlaygroundStore((s) => s.batchSize);
   const history = usePlaygroundStore((s) => s.history);
   const setHistory = usePlaygroundStore((s) => s.setHistory);
@@ -133,7 +136,7 @@ export default function PlaygroundPage() {
   // ─── Generate handler — enqueue a request; the dispatcher runs it ──────────
 
   const handleGenerate = useCallback(() => {
-    if (!prompt.trim() || (MODES_WITH_MEDIA.includes(mode) && inputMedia.length === 0)) return;
+    if (tooManyReferences || !prompt.trim() || (MODES_WITH_MEDIA.includes(mode) && inputMedia.length === 0)) return;
     // Auto-detect i2i: t2i + reference images -> i2i
     const effectiveMode = (mode === 't2i' && inputMedia.length > 0) ? 'i2i' : mode;
     enqueueRequest({
@@ -145,7 +148,7 @@ export default function PlaygroundPage() {
       parameters,
       batchSize,
     });
-  }, [mode, modelId, prompt, negativePrompt, inputMedia, parameters, batchSize, enqueueRequest]);
+  }, [mode, modelId, prompt, negativePrompt, inputMedia, parameters, batchSize, enqueueRequest, tooManyReferences]);
 
   // ─── Queue dispatcher — POST a queued request, then poll for status ────────
 
@@ -196,7 +199,7 @@ export default function PlaygroundPage() {
 
   const resultCount = history.reduce((n, g) => n + (Array.isArray(g.outputs) ? g.outputs.length : 0), 0);
   const showMediaInput = MODES_WITH_MEDIA.includes(mode) || MODES_WITH_OPTIONAL_MEDIA.includes(mode);
-  const canGenerate = !historyLoading && prompt.trim().length > 0
+  const canGenerate = !tooManyReferences && !historyLoading && prompt.trim().length > 0
     && (!MODES_WITH_MEDIA.includes(mode) || inputMedia.length > 0);
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -214,6 +217,7 @@ export default function PlaygroundPage() {
             {showMediaInput && <section>
               <h2>{t(mode === 'v2v' ? 'compose.mediaSourceVideo' : mode === 'r2v' ? 'compose.mediaRefMaterial' : mode === 'i2v' ? 'compose.mediaFirstFrame' : 'compose.mediaReference')}</h2>
               <MediaInput />
+              {tooManyReferences && <p role="alert" className={styles.error}>{t("media.tooManyReferences", { max: referenceLimit! })}</p>}
             </section>}
             <section>
               <ModelSelector />

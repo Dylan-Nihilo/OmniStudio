@@ -2080,12 +2080,13 @@
       "localUpload": "本地上传",
       "pickFromLibrary": "从资产库选取",
       "replaceFile": "替换文件",
+      "tooManyReferences": "当前模型最多支持 {max} 份参考素材，请移除多余素材后生成。",
       "fileCount": "{current} / {max} 张",
       "hints": {
         "t2i": "上传参考图自动切换为图像编辑模式",
         "i2i": "支持 JPG / PNG / WebP，建议尺寸不小于 512px",
         "i2v": "支持 JPG / PNG / WebP，建议尺寸不小于 720px",
-        "r2v": "支持 JPG / PNG / WebP，最多 9 张参考图",
+        "r2v": "支持 JPG / PNG / WebP，最多 {max} 张参考图",
         "v2v": "支持 MP4 / MOV / WebM",
         "r2vSeedance": "Seedance 支持图片、视频、音频作为参考素材"
       },

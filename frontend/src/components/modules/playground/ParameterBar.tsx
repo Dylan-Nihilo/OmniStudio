@@ -220,37 +220,37 @@ export default function ParameterBar() {
 
     if (hasSize) {
       const cur = parameters.size as string | undefined;
-      if (cur && !sizeOptions.includes(cur)) patches.size = sizeDefault;
+      if (!cur || !sizeOptions.includes(cur)) patches.size = sizeDefault;
     }
     if (hasRatio) {
       const cur = parameters.aspect_ratio as string | undefined;
-      if (cur && !ratioOptions.includes(cur)) patches.aspect_ratio = ratioDefault;
+      if (!cur || !ratioOptions.includes(cur)) patches.aspect_ratio = ratioDefault;
     }
     if (hasResolution) {
       const cur = parameters.resolution as string | undefined;
-      if (cur && !resolutionOptions.includes(cur)) patches.resolution = resolutionDefault;
+      if (!cur || !resolutionOptions.includes(cur)) patches.resolution = resolutionDefault;
     }
     if (hasQuality) {
       const cur = parameters.quality as string | undefined;
-      if (cur && !qualityOptions.includes(cur)) patches.quality = qualityDefault;
+      if (!cur || !qualityOptions.includes(cur)) patches.quality = qualityDefault;
     }
 
     if (isVideoMode && modelDuration) {
       const currentDur = parameters.duration as number | undefined;
       if (modelDuration.type === 'slider') {
-        if (currentDur != null && (currentDur < modelDuration.min || currentDur > modelDuration.max))
+        if (currentDur == null || currentDur < modelDuration.min || currentDur > modelDuration.max)
           patches.duration = modelDuration.default;
       } else if (modelDuration.type === 'buttons') {
-        if (currentDur != null && !modelDuration.options.includes(currentDur))
+        if (currentDur == null || !modelDuration.options.includes(currentDur))
           patches.duration = modelDuration.default;
-      } else if (modelDuration.type === 'fixed') {
+      } else if (modelDuration.type === 'fixed' && currentDur !== modelDuration.value) {
         patches.duration = modelDuration.value;
       }
     }
 
     if (Object.keys(patches).length > 0) setParameters({ ...parameters, ...patches });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelId]);
+  }, [modelId, mode, parameters]);
 
   const updateParam = (key: string, value: any) => {
     setParameters({ ...parameters, [key]: value });

@@ -2080,12 +2080,13 @@
       "localUpload": "Local upload",
       "pickFromLibrary": "Pick from library",
       "replaceFile": "Replace file",
+      "tooManyReferences": "This model accepts up to {max} references. Remove the extras to generate.",
       "fileCount": "{current} / {max}",
       "hints": {
         "t2i": "Upload a reference image to auto-switch to image-edit mode",
         "i2i": "JPG / PNG / WebP supported; recommended at least 512px",
         "i2v": "JPG / PNG / WebP supported; recommended at least 720px",
-        "r2v": "JPG / PNG / WebP supported; up to 9 reference images",
+        "r2v": "JPG / PNG / WebP supported; up to {max} reference images",
         "v2v": "MP4 / MOV / WebM supported",
         "r2vSeedance": "Seedance accepts image, video, and audio as reference material"
       },
