@@ -415,7 +415,8 @@ class JobRepository:
             if target_status not in self._ALLOWED_TRANSITIONS[current]:
                 raise StorageError(f"invalid transition: {current} -> {target_status}")
             refs = [item.model_dump() if isinstance(item, MediaRef) else dict(item) for item in (media_refs or [])]
-            if target_status == JobStatus.SUCCEEDED.value and not refs:
+            payload = json.loads(row["payload_json"] or "{}")
+            if target_status == JobStatus.SUCCEEDED.value and not refs and not payload.get("allow_empty_result"):
                 raise StorageError("succeeded job item requires a media reference")
             now = time.time()
             next_progress = 1.0 if target_status == JobStatus.SUCCEEDED.value else (progress if progress is not None else row["progress"])

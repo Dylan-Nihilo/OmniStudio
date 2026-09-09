@@ -391,6 +391,22 @@ def _dispatch_production_item(item):
             raise RuntimeError("asset generation did not produce media")
         return refs
     if kind == "video":
+        if payload.get("operation") == "project_video":
+            script = pipeline.generate_video(item.project_id)
+            urls = [
+                task.video_url
+                for task in (getattr(script, "video_tasks", None) or [])
+                if getattr(task, "status", None) == "completed" and getattr(task, "video_url", None)
+            ]
+            urls.extend(
+                frame.video_url
+                for frame in (getattr(script, "frames", None) or [])
+                if getattr(frame, "video_url", None)
+            )
+            urls = list(dict.fromkeys(urls))
+            if not urls:
+                raise RuntimeError("video generation did not produce media")
+            return [_production_media_ref(url, kind="video", item_id=item.id) for url in urls]
         if payload.get("operation") == "motion_ref":
             pipeline.process_motion_ref_task(item.project_id, payload["legacy_task_id"])
             task = pipeline.video_generation_tasks.get(payload["legacy_task_id"])
@@ -426,6 +442,16 @@ def _dispatch_production_item(item):
             raise RuntimeError((task.error if task else None) or "video generation did not complete")
         return [_production_media_ref(task.video_url, kind="video", item_id=item.id)]
     if kind == "storyboard":
+        if payload.get("operation") == "project_storyboard":
+            script = pipeline.generate_storyboard(item.project_id)
+            urls = []
+            for frame in (getattr(script, "frames", None) or []):
+                url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None)
+                if url and url not in urls:
+                    urls.append(url)
+            if not urls:
+                raise RuntimeError("storyboard generation did not produce media")
+            return [_production_media_ref(url, kind="storyboard", item_id=item.id) for url in urls]
         pipeline.generate_storyboard_render(
             item.project_id,
             payload["frame_id"],
@@ -438,6 +464,43 @@ def _dispatch_production_item(item):
         url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None) if frame else None
         return [_production_media_ref(url, kind="storyboard", item_id=item.id)]
     if kind == "audio":
+        if payload.get("operation") == "dialogue_line":
+            script = pipeline.generate_dialogue_line(
+                item.project_id,
+                payload["frame_id"],
+                payload.get("speed", 1.0),
+                payload.get("pitch", 1.0),
+                payload.get("volume", 50),
+                instructions=payload.get("instructions"),
+            )
+            frame = next((candidate for candidate in (getattr(script, "frames", None) or []) if candidate.id == payload["frame_id"]), None)
+            url = getattr(frame, "audio_url", None) if frame else None
+            if not url:
+                raise RuntimeError("dialogue audio generation did not produce media")
+            return [_production_media_ref(url, kind="dialogue", item_id=item.id)]
+        if payload.get("operation") == "mix_sfx":
+            script = pipeline.generate_audio(item.project_id)
+            urls = [
+                frame.sfx_url
+                for frame in (getattr(script, "frames", None) or [])
+                if getattr(frame, "sfx_url", None)
+            ]
+            if not urls:
+                raise RuntimeError("SFX generation did not produce media")
+            return [_production_media_ref(url, kind="sfx", item_id=item.id) for url in dict.fromkeys(urls)]
+        if payload.get("operation") == "dialogue_batch":
+            script = pipeline.generate_dialogue_audio_batch(item.project_id, payload.get("instructions") or {})
+            urls = [
+                frame.audio_url
+                for frame in (getattr(script, "frames", None) or [])
+                if getattr(frame, "audio_url", None)
+            ]
+            batch = getattr(script, "dialogue_audio_batch", None)
+            if not urls and batch and all(result in {"skipped", "failed", "no_voice", "busy"} for result in batch.results.values()):
+                return []
+            if not urls:
+                raise RuntimeError("dialogue audio generation did not produce media")
+            return [_production_media_ref(url, kind="dialogue", item_id=item.id) for url in dict.fromkeys(urls)]
         pipeline.generate_audio(item.project_id)
         script = pipeline.get_script(item.project_id)
         urls = [frame.audio_url for frame in (script.frames if script else []) if getattr(frame, "audio_url", None)]
@@ -483,6 +546,11 @@ def _start_production_or_raise(item_id: str):
     """Run a synchronous adapter item without turning provider failure into 200."""
     result = _production_adapter().start(item_id)
     if result.status == "failed":
+        message = result.error_message or "production task failed"
+        if "Frame not found" in message or "Script not found" in message:
+            raise HTTPException(status_code=404, detail=message)
+        if "TTS" in message or "audio generation" in message:
+            raise HTTPException(status_code=502, detail=message)
         raise RuntimeError(result.error_message or "production task failed")
     return result
 
@@ -4076,9 +4144,25 @@ def refine_storyboard_batch(script_id: str, request: Optional[RefineBatchRequest
 def generate_storyboard(script_id: str):
     """Triggers storyboard generation."""
     try:
-        updated_script = pipeline.generate_storyboard(script_id)
-        return signed_response(updated_script)
+        job_item = _create_production_item(
+            "storyboard", script_id, None,
+            {"operation": "project_storyboard"},
+            f"storyboard:{script_id}:current",
+        )
+        updated_script = (
+            pipeline.generate_storyboard(script_id)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        if updated_script is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4087,9 +4171,25 @@ def generate_storyboard(script_id: str):
 def generate_video(script_id: str):
     """Triggers video generation."""
     try:
-        updated_script = pipeline.generate_video(script_id)
-        return signed_response(updated_script)
+        job_item = _create_production_item(
+            "video", script_id, None,
+            {"operation": "project_video"},
+            f"video:{script_id}:project",
+        )
+        updated_script = (
+            pipeline.generate_video(script_id)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        if updated_script is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -5216,12 +5316,23 @@ class GenerateLineAudioRequest(BaseModel):
 def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudioRequest):
     """Generates audio for a specific frame with parameters."""
     try:
-        updated_script = pipeline.generate_dialogue_line(
-            script_id, frame_id,
-            request.speed, request.pitch, request.volume,
-            instructions=request.instructions,
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"operation": "dialogue_line", "frame_id": frame_id, "speed": request.speed, "pitch": request.pitch,
+             "volume": request.volume, "instructions": request.instructions},
+            f"dialogue_line:{script_id}:{frame_id}:{request.speed}:{request.pitch}:{request.volume}:{request.instructions or ''}",
         )
-        return signed_response(updated_script)
+        if job_item is not None and job_item.idempotent and job_item.status in {"pending", "processing"}:
+            raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
+        updated_script = (
+            pipeline.generate_dialogue_line(script_id, frame_id, request.speed, request.pitch, request.volume, instructions=request.instructions)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except GenerationInProgressError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except LookupError as e:
@@ -5230,6 +5341,8 @@ def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudi
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -5384,10 +5497,36 @@ class DialogueAudioBatchRequest(BaseModel):
 def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudioBatchRequest] = None):
     """Generate current dialogue and persist progress so retries can reuse completed audio."""
     try:
-        script = pipeline.generate_dialogue_audio_batch(script_id, request.instructions if request else None)
+        from .models import GenerationStatus
+        instructions = request.instructions if request else {}
+        existing_script = pipeline.get_script(script_id)
+        if existing_script is None:
+            raise HTTPException(status_code=404, detail="Script not found")
+        frame_ids = {frame.id for frame in existing_script.frames}
+        if any(frame_id not in frame_ids or not isinstance(value, str) or len(value) > 256 for frame_id, value in instructions.items()):
+            raise ValueError("Dialogue instructions must belong to this project and contain at most 256 characters")
+        if existing_script.dialogue_audio_batch and existing_script.dialogue_audio_batch.status in {GenerationStatus.PENDING, GenerationStatus.PROCESSING}:
+            raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
+        previous_batch_id = existing_script.dialogue_audio_batch.id if existing_script.dialogue_audio_batch else "none"
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"operation": "dialogue_batch", "instructions": instructions, "allow_empty_result": True},
+            f"dialogue_batch:{script_id}:{previous_batch_id}:{json.dumps(instructions, sort_keys=True, ensure_ascii=False)}",
+        )
+        if job_item is not None and job_item.idempotent and job_item.status in {"pending", "processing"}:
+            raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
+        script = (
+            pipeline.generate_dialogue_audio_batch(script_id, instructions)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        if script is None:
+            raise HTTPException(status_code=404, detail="Script not found")
         payload = _project_payload(script)
-        results = script.dialogue_audio_batch.results.values()
+        results = (script.dialogue_audio_batch.results.values() if script.dialogue_audio_batch else ())
         payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
+        if job_item is not None:
+            payload["_job_item_id"] = job_item.id
         return signed_response(payload)
     except GenerationInProgressError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -5396,6 +5535,8 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -5443,8 +5584,19 @@ def generate_mix_sfx(script_id: str):
     # but ideally we'd have granular methods in pipeline.
     # Let's just call generate_audio again, it's idempotent-ish.
     try:
-        updated_script = pipeline.generate_audio(script_id)
-        return signed_response(updated_script)
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"operation": "mix_sfx"}, f"mix_sfx:{script_id}:current",
+        )
+        updated_script = (
+            pipeline.generate_audio(script_id)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

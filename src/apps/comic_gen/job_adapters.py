@@ -123,7 +123,7 @@ class ProductionJobAdapter:
             return self._fail_if_active(item, workspace_id, "JOB_DISPATCH_UNAVAILABLE", "没有注册生产任务调度器")
         try:
             media_refs = list(dispatcher(item))
-            if not media_refs:
+            if not media_refs and not item.payload.get("allow_empty_result"):
                 return self._fail_if_active(item, workspace_id, "PROVIDER_EMPTY_RESULT", "provider 未返回媒体结果")
             current = self._owned_item(item.id, workspace_id)
             if current.status == "canceled":
