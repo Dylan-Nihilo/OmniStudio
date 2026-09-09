@@ -39,6 +39,7 @@ import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
 import TaskQueuePanel from "./storyboard-r2v/shot-panel/TaskQueuePanel";
 import { GenerationBanner } from "./storyboard-r2v/GenerationBanner";
+import DirectorPlanEditor from "@/components/modules/DirectorPlan/DirectorPlanEditor";
 
 // Pending retries outlive the panel so navigation cannot dispatch the same request twice.
 // Reload recovery uses the frame's persisted image state; live requests stay in this tab.
@@ -1926,6 +1927,7 @@ function StoryboardWorkbench() {
                     const isI2vTab = shot.tabMode === "t2i_i2v";
                     const modelList = isI2vTab ? VIDEO_I2V_MODELS : VIDEO_R2V_MODELS;
                     return <div key="selected-shot" className={styles.selectedShot} ref={el => { shotWrapperRefs.current.set(shot.id, el); }}>
+                        <DirectorPlanEditor projectId={currentProject!.id} episodeId={currentProject!.id} shotId={shot.id} />
                         <ShotCard
                             shot={shot}
                             index={index}

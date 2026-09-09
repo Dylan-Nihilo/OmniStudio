@@ -21,7 +21,8 @@ from src.storage.schema import (
         SourceImpactTarget,
         SourceImportPreview,
         SourceRevision,
-        SourceRevisionImpact,
+    SourceRevisionImpact,
+    DirectorPlan,
     User,
     Workspace,
 )
@@ -74,6 +75,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_analysis_batch_items",
         "source_revision_impacts",
         "source_impact_targets",
+        "director_plans",
     }
 
     expected_indexes = {
@@ -162,6 +164,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_source_impact_targets_workspace_created",
             "ix_source_impact_targets_target",
         },
+        "director_plans": {"ix_director_plans_workspace_updated", "ix_director_plans_episode"},
     }
     for table_name, expected in expected_indexes.items():
         actual = {index["name"] for index in inspector.get_indexes(table_name)}
@@ -197,6 +200,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_analysis_batch_items",
         "source_revision_impacts",
         "source_impact_targets",
+        "director_plans",
     }
 
 

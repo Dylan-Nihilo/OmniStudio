@@ -10,6 +10,10 @@ export interface DocumentResponse {
   source_dependencies?: SourceDependency[];
   stale?: boolean;
   stale_targets?: StaleTarget[];
+  dependency_graph?: {
+    sources: Array<{ source_id: string; chapter_id: string; revision_id: string }>;
+    targets: StaleTarget[];
+  };
 }
 
 export interface SourceDependency {
