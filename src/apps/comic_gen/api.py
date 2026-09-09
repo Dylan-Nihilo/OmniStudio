@@ -39,6 +39,7 @@ import uuid
 import logging
 import traceback
 import mimetypes
+from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlparse
 from .pipeline import ComicGenPipeline, GenerationInProgressError, LibraryAssetInUseError, _resolve_export_settings
@@ -950,6 +951,29 @@ class GenerateAssetRequest(BaseModel):
     batch_size: int = 1
     model_name: Optional[str] = None
     aspect_ratio: Optional[str] = None
+
+
+class CastGenerationPreviewRequest(BaseModel):
+    asset_type: Literal["character", "scene", "prop"]
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    persona: str = Field(default="", max_length=200)
+    voice_id: Optional[str] = None
+    prompt: str = Field(default="", max_length=12000)
+    batch_size: int = Field(default=1, ge=1, le=4)
+    model_name: Optional[str] = None
+    apply_style: bool = True
+    negative_prompt: str = Field(default="", max_length=4000)
+
+
+class CastGenerationConfirmRequest(BaseModel):
+    preview_id: str = Field(min_length=1, max_length=200)
+
+
+class BatchToggleLockRequest(BaseModel):
+    asset_type: Literal["character", "scene", "prop"]
+    asset_ids: List[str] = Field(min_length=1, max_length=100)
+    locked: bool
 
 class ToggleLockRequest(BaseModel):
     asset_id: str
@@ -2188,6 +2212,128 @@ def update_series_model_settings(series_id: str, settings: UpdateModelSettingsRe
 # Series Asset Operations
 # ============================================================
 
+def _cast_preview_store() -> dict[str, dict[str, Any]]:
+    store = getattr(app.state, "cast_generation_previews", None)
+    if store is None:
+        store = {}
+        app.state.cast_generation_previews = store
+    return store
+
+
+def _cast_preview_cost(model_name: str | None, batch_size: int) -> float:
+    # A deterministic estimate is intentionally shown before provider calls.
+    unit_cost = 2.0 if model_name == "gpt-image-2" else 1.0
+    return round(unit_cost * batch_size, 2)
+
+
+@app.post("/series/{series_id}/assets/generate/preview")
+def preview_cast_generation(series_id: str, request: CastGenerationPreviewRequest, http_request: Request):
+    """Build a reviewable cast generation plan without mutating Series data."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    workspace_id = pipeline.repository.workspace_for_series(series_id)
+    if workspace_id != http_request.state.auth_context.workspace.id:
+        raise HTTPException(status_code=404, detail="Series not found")
+    preview_id = str(uuid.uuid4())
+    payload = request.model_dump()
+    preview = {
+        "preview_id": preview_id,
+        "status": "preview",
+        "series_id": series_id,
+        "workspace_id": workspace_id,
+        "created_at": time.time(),
+        "expires_at": time.time() + 15 * 60,
+        **payload,
+        "estimated_calls": payload["batch_size"],
+        "estimated_cost": _cast_preview_cost(payload.get("model_name"), payload["batch_size"]),
+    }
+    _cast_preview_store()[preview_id] = preview
+    return signed_response(preview)
+
+
+@app.post("/series/{series_id}/assets/generate/previews/{preview_id}/cancel")
+def cancel_cast_generation_preview(series_id: str, preview_id: str, http_request: Request):
+    preview = _cast_preview_store().get(preview_id)
+    if not preview or preview.get("series_id") != series_id or preview.get("workspace_id") != http_request.state.auth_context.workspace.id:
+        raise HTTPException(status_code=404, detail="Cast generation preview not found")
+    if preview["status"] == "preview":
+        preview["status"] = "canceled"
+    return signed_response(preview)
+
+
+@app.post("/series/{series_id}/assets/generate/confirm")
+def confirm_cast_generation(
+    series_id: str,
+    request: CastGenerationConfirmRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
+    preview = _cast_preview_store().get(request.preview_id)
+    workspace_id = http_request.state.auth_context.workspace.id
+    if not preview or preview.get("series_id") != series_id or preview.get("workspace_id") != workspace_id:
+        raise HTTPException(status_code=404, detail="Cast generation preview not found")
+    if preview.get("status") != "preview" or preview.get("expires_at", 0) < time.time():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CAST_PREVIEW_NOT_CONFIRMABLE", "message": "预览已取消或过期，请重新生成预览"},
+        )
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    from .models import Character, Scene, Prop, AssetUnit, ImageAsset
+
+    asset_id = _new_id(preview["asset_type"][:4])
+    common = {
+        "workspace_id": workspace_id,
+        "id": asset_id,
+        "name": preview["name"],
+        "description": preview.get("description", ""),
+    }
+    if preview["asset_type"] == "character":
+        asset = Character(
+            **common,
+            persona=preview.get("persona", ""),
+            voice_id=preview.get("voice_id"),
+            reference_sheet=AssetUnit(),
+        )
+        series.characters.append(asset)
+    elif preview["asset_type"] == "scene":
+        asset = Scene(**common, image_asset=ImageAsset())
+        series.scenes.append(asset)
+    else:
+        asset = Prop(**common, image_asset=ImageAsset())
+        series.props.append(asset)
+    series.updated_at = time.time()
+    pipeline.series_store[series_id] = series
+    pipeline._save_series_data()
+    _, legacy_task_id = pipeline.generate_series_asset(
+        series_id,
+        asset_id,
+        preview["asset_type"],
+        style_preset="Cinematic",
+        style_prompt=None,
+        generation_type="reference_sheet" if preview["asset_type"] == "character" else "all",
+        prompt=preview.get("prompt") or preview["description"],
+        apply_style=preview.get("apply_style", True),
+        negative_prompt=preview.get("negative_prompt") or None,
+        batch_size=preview["batch_size"],
+        model_name=preview.get("model_name"),
+    )
+    item = _create_production_item(
+        "asset",
+        series_id,
+        None,
+        {"legacy_task_id": legacy_task_id, "asset_id": asset_id, "asset_type": preview["asset_type"], "series_id": series_id},
+        f"cast:{series_id}:{request.preview_id}",
+    )
+    preview["status"] = "confirmed"
+    _cast_preview_store().pop(request.preview_id, None)
+    if item is None:
+        raise HTTPException(status_code=503, detail="Production job storage unavailable")
+    background_tasks.add_task(_context_call(_start_production_item, item.id))
+    return signed_response({"status": "confirmed", "preview_id": request.preview_id, "asset": asset.model_dump(), "job_item": asdict(item)})
+
 @app.get("/series/{series_id}/assets")
 def get_series_assets(series_id: str):
     """Get all shared assets from a Series."""
@@ -2247,6 +2393,29 @@ def toggle_series_asset_lock(series_id: str, request: ToggleLockRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/series/{series_id}/assets/toggle_lock_batch")
+def toggle_series_asset_lock_batch(series_id: str, request: BatchToggleLockRequest):
+    """Set lock state for a reviewed batch without toggling unrelated assets."""
+    series = pipeline.get_series(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    collection = getattr(series, {"character": "characters", "scene": "scenes", "prop": "props"}[request.asset_type])
+    by_id = {asset.id: asset for asset in collection}
+    missing = [asset_id for asset_id in request.asset_ids if asset_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Assets not found: {', '.join(missing)}")
+    for asset_id in request.asset_ids:
+        by_id[asset_id].locked = request.locked
+    series.updated_at = time.time()
+    pipeline.series_store[series_id] = series
+    pipeline._save_series_data()
+    return signed_response({
+        "characters": [asset.model_dump() for asset in series.characters],
+        "scenes": [asset.model_dump() for asset in series.scenes],
+        "props": [asset.model_dump() for asset in series.props],
+    })
 
 
 @app.post("/series/{series_id}/assets/toggle_starred")

@@ -2059,6 +2059,41 @@ export const api = {
         return res.data;
     },
 
+    previewCastGeneration: async (seriesId: string, data: {
+        asset_type: "character" | "scene" | "prop";
+        name: string;
+        description?: string;
+        persona?: string;
+        voice_id?: string;
+        prompt?: string;
+        batch_size?: number;
+        model_name?: string;
+        apply_style?: boolean;
+        negative_prompt?: string;
+    }) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/generate/preview`, data);
+        return res.data;
+    },
+
+    cancelCastGenerationPreview: async (seriesId: string, previewId: string) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/generate/previews/${previewId}/cancel`);
+        return res.data;
+    },
+
+    confirmCastGeneration: async (seriesId: string, previewId: string) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/generate/confirm`, { preview_id: previewId });
+        return res.data;
+    },
+
+    toggleSeriesAssetLockBatch: async (seriesId: string, assetType: "character" | "scene" | "prop", assetIds: string[], locked: boolean) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/toggle_lock_batch`, {
+            asset_type: assetType,
+            asset_ids: assetIds,
+            locked,
+        });
+        return res.data;
+    },
+
     /** R2V v2 Phase 2 — clear project-level art_direction (return to series inherit). */
     clearProjectArtDirection: async (scriptId: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/clear`);
