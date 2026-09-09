@@ -328,6 +328,115 @@ def _write_soft_subtitles(script: Script, path: str) -> bool:
     return True
 
 
+_CUT_TRANSITION_HINTS = {"", "cut", "straight_cut", "straight-cut", "none"}
+_TRANSITION_FILTERS = {
+    "fade": "fade",
+    "dissolve": "fade",
+    "crossfade": "fade",
+    "match_cut": "fade",
+    "match-cut": "fade",
+    "fadeblack": "fadeblack",
+    "fade_black": "fadeblack",
+    "fadewhite": "fadewhite",
+    "fade_white": "fadewhite",
+    "wipeleft": "wipeleft",
+    "wiperight": "wiperight",
+    "wipeup": "wipeup",
+    "wipedown": "wipedown",
+}
+
+
+def _transition_filter_name(value: Any) -> Optional[str]:
+    normalized = str(value or "").strip().lower().replace(" ", "_")
+    if normalized in _CUT_TRANSITION_HINTS:
+        return None
+    return _TRANSITION_FILTERS.get(normalized, "fade")
+
+
+def _frame_duration_seconds(frame: Any) -> float:
+    try:
+        duration = float(getattr(frame, "duration", None) or 5.0)
+    except (TypeError, ValueError):
+        duration = 5.0
+    return max(0.5, duration)
+
+
+def _build_transition_merge_command(
+    ffmpeg_path: str,
+    video_paths: List[str],
+    frames: List[Any],
+    output_path: str,
+    export_settings: Dict[str, Any],
+) -> List[str]:
+    """Build an FFmpeg filter graph for cut and cross-faded shot transitions."""
+    if len(video_paths) < 2 or len(video_paths) != len(frames):
+        raise ValueError("Transition merge requires one frame for each input video")
+
+    resolution = export_settings["resolution"]
+    fps = export_settings["fps"] or 30
+    common_video = [f"fps={fps}"]
+    if resolution:
+        width, height = resolution.split("x")
+        common_video.append(f"scale={width}:{height}:force_original_aspect_ratio=decrease")
+        common_video.append(f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
+    common_video.extend(["format=yuv420p"])
+
+    filters: List[str] = []
+    for index in range(len(video_paths)):
+        filters.append(
+            f"[{index}:v]settb=AVTB,{','.join(common_video)}[v{index}]"
+        )
+        filters.append(f"[{index}:a]aresample=async=1:first_pts=0[a{index}]")
+
+    current_video = "v0"
+    current_audio = "a0"
+    current_duration = _frame_duration_seconds(frames[0])
+    for index in range(1, len(video_paths)):
+        transition = _transition_filter_name(getattr(frames[index - 1], "transition_hint", None))
+        next_duration = _frame_duration_seconds(frames[index])
+        if transition is None:
+            next_video = f"vc{index}"
+            next_audio = f"ac{index}"
+            filters.append(
+                f"[{current_video}][v{index}]concat=n=2:v=1:a=0[{next_video}]"
+            )
+            filters.append(
+                f"[{current_audio}][a{index}]concat=n=2:v=0:a=1[{next_audio}]"
+            )
+            current_duration += next_duration
+        else:
+            overlap = min(0.35, current_duration * 0.25, next_duration * 0.25)
+            overlap = max(0.05, overlap)
+            next_video = f"vx{index}"
+            next_audio = f"ax{index}"
+            offset = max(0.0, current_duration - overlap)
+            filters.append(
+                f"[{current_video}][v{index}]xfade=transition={transition}:duration={overlap:.3f}:offset={offset:.3f}[{next_video}]"
+            )
+            filters.append(
+                f"[{current_audio}][a{index}]acrossfade=d={overlap:.3f}:c1=tri:c2=tri[{next_audio}]"
+            )
+            current_duration += next_duration - overlap
+        current_video, current_audio = next_video, next_audio
+
+    command: List[str] = [ffmpeg_path, "-y"]
+    for path in video_paths:
+        command.extend(["-i", path])
+    command.extend([
+        "-filter_complex", ";".join(filters),
+        "-map", f"[{current_video}]",
+        "-map", f"[{current_audio}]",
+        "-c:v", "libx264",
+        "-crf", str(export_settings["crf"]),
+        "-preset", export_settings["preset"],
+        "-c:a", "aac",
+        "-b:a", export_settings["audio_bitrate"],
+        "-movflags", "+faststart",
+        output_path,
+    ])
+    return command
+
+
 class LibraryAssetInUseError(Exception):
     """Raised when a global library asset cannot be hard-deleted because it is
     still referenced by one or more storyboard frames (design Q2 reference
@@ -357,7 +466,10 @@ class ComicGenPipeline:
         self.storyboard_generator = StoryboardGenerator(self.config.get('storyboard'))
         self.video_generator = VideoGenerator(self.config.get('video'))
         self.audio_generator = AudioGenerator(self.config.get('audio'))
-        self.export_manager = ExportManager(self.config.get('export'))
+        self.export_manager = ExportManager(
+            self.config.get('export'),
+            render_callback=self._render_legacy_export,
+        )
         
         storage_config = self.config.get("storage") or {}
         self.data_file = storage_config.get("legacy_projects_path") or "output/projects.json"
@@ -745,6 +857,26 @@ class ComicGenPipeline:
             
         export_url = self.export_manager.render_project(script, options)
         return export_url
+
+    def _render_legacy_export(self, script: Script, options: Dict[str, Any]) -> str:
+        """Adapt legacy resolution aliases to the durable FFmpeg merge path."""
+        resolution_aliases = {
+            "1080p": "1920x1080",
+            "720p": "1280x720",
+            "360p": "640x360",
+        }
+        settings = dict(getattr(script, "export_settings", None) or {})
+        requested_resolution = options.get("resolution")
+        if requested_resolution:
+            settings["resolution"] = resolution_aliases.get(
+                str(requested_resolution).lower(), requested_resolution
+            )
+        if "subtitles" in options:
+            settings["subtitles"] = options["subtitles"]
+        script.export_settings = settings
+        self._save_data()
+        merged = self.merge_videos(script.id)
+        return merged.merged_video_url
 
     def get_script(self, script_id: str) -> Optional[Script]:
         return self.scripts.get(script_id)
@@ -3653,14 +3785,24 @@ class ComicGenPipeline:
             
         # Collect video paths
         video_paths = []
+        selected_frames = []
+        selection_errors = []
         for i, frame in enumerate(script.frames):
             logger.info(f"[MERGE] Processing frame {i+1}/{len(script.frames)}: {frame.id}")
             _, selected_url, selection_error = _resolve_explicit_video_take(script, frame)
             if selected_url:
                 logger.debug(f"[MERGE]   -> Explicit take: {selected_url}")
                 video_paths.append(selected_url)
+                selected_frames.append(frame)
             else:
                 logger.warning(f"[MERGE]   -> {selection_error}")
+                selection_errors.append(f"Frame {frame.id}: {selection_error}")
+
+        if selection_errors:
+            raise ValueError(
+                "Cannot merge until every frame has an explicit completed video take: "
+                + "; ".join(selection_errors)
+            )
                 
         if not video_paths:
             logger.error("[MERGE] No videos found to merge!")
@@ -3674,17 +3816,22 @@ class ComicGenPipeline:
         list_path = _safe_resolve_path("output", f"merge_list_{script.id}.txt")
         abs_video_paths = []
 
-        with open(list_path, "w") as f:
-            for path in video_paths:
-                # Resolve to absolute path
-                if not path.startswith("http"):
-                    abs_path = _safe_resolve_path("output", path)
-                    if os.path.exists(abs_path):
-                        f.write(f"file '{abs_path}'\n")
-                        abs_video_paths.append(abs_path)
-                        logger.debug(f"[MERGE] Added to list: {abs_path}")
-                    else:
-                        logger.warning(f"[MERGE] Video file not found: {abs_path}")
+        for index, path in enumerate(video_paths):
+            if path.startswith("http"):
+                raise ValueError(
+                    f"Frame {selected_frames[index].id}: remote video URLs are not available for merge"
+                )
+            abs_path = _safe_resolve_path("output", path)
+            if not os.path.exists(abs_path):
+                raise ValueError(
+                    f"Frame {selected_frames[index].id}: video file not found: {path}"
+                )
+            abs_video_paths.append(abs_path)
+            logger.debug(f"[MERGE] Added to list: {abs_path}")
+
+        with open(list_path, "w", encoding="utf-8") as f:
+            for abs_path in abs_video_paths:
+                f.write(f"file '{abs_path}'\n")
                         
         if not abs_video_paths:
             logger.error("[MERGE] No valid video files found on disk!")
@@ -3767,26 +3914,39 @@ class ComicGenPipeline:
         # Run ffmpeg
         # Use re-encoding for better compatibility (slower but more reliable)
         # -c:v libx264 -c:a aac ensures consistent output format
-        cmd = [
-            ffmpeg_path, "-y",  # Use the detected ffmpeg path
-            "-f", "concat",
-            "-safe", "0",
-            "-i", list_path,
-        ]
-        if export_settings["resolution"]:
-            width, height = export_settings["resolution"].split("x")
-            cmd.extend(["-vf", f"scale={width}:{height}"])
-        if export_settings["fps"] is not None:
-            cmd.extend(["-r", str(export_settings["fps"])])
-        cmd.extend([
-            "-c:v", "libx264",  # Re-encode video with H.264
-            "-crf", str(export_settings["crf"]),  # Quality (lower = better)
-            "-preset", export_settings["preset"],  # Encoding speed
-            "-c:a", "aac",      # Re-encode audio with AAC
-            "-b:a", export_settings["audio_bitrate"],
-            "-movflags", "+faststart",  # Web optimization
-            output_path
-        ])
+        transition_requested = any(
+            _transition_filter_name(getattr(frame, "transition_hint", None))
+            for frame in selected_frames[:-1]
+        )
+        if transition_requested:
+            cmd = _build_transition_merge_command(
+                ffmpeg_path,
+                abs_video_paths,
+                selected_frames,
+                output_path,
+                export_settings,
+            )
+        else:
+            cmd = [
+                ffmpeg_path, "-y",  # Use the detected ffmpeg path
+                "-f", "concat",
+                "-safe", "0",
+                "-i", list_path,
+            ]
+            if export_settings["resolution"]:
+                width, height = export_settings["resolution"].split("x")
+                cmd.extend(["-vf", f"scale={width}:{height}"])
+            if export_settings["fps"] is not None:
+                cmd.extend(["-r", str(export_settings["fps"])])
+            cmd.extend([
+                "-c:v", "libx264",  # Re-encode video with H.264
+                "-crf", str(export_settings["crf"]),  # Quality (lower = better)
+                "-preset", export_settings["preset"],  # Encoding speed
+                "-c:a", "aac",      # Re-encode audio with AAC
+                "-b:a", export_settings["audio_bitrate"],
+                "-movflags", "+faststart",  # Web optimization
+                output_path
+            ])
         
         logger.debug(f"[MERGE] Running FFmpeg command: {' '.join(cmd)}")
         logger.debug(f"[MERGE] Platform: {platform.system()} {platform.release()}")

@@ -156,3 +156,50 @@ def test_merge_soft_subtitles_muxes_a_real_mov_text_stream(merge_harness):
     assert any(str(value).endswith(".srt") for value in subtitle_command)
 
 
+def test_merge_applies_frame_transition_to_video_and_audio(merge_harness):
+    pipeline, install_script, commands = merge_harness
+    script = install_script()
+    script.frames[0].duration = 2
+    script.frames[0].transition_hint = "fade"
+    script.frames.append(
+        SimpleNamespace(
+            id="frame-2",
+            dubbed_video_url=None,
+            selected_video_id="video-2",
+            duration=3,
+            transition_hint=None,
+        )
+    )
+    script.video_tasks.append(
+        SimpleNamespace(
+            id="video-2",
+            video_url="video/source.mp4",
+            status="completed",
+            frame_id="frame-2",
+        )
+    )
+
+    pipeline.merge_videos("script-1")
+
+    transition_command = next(command for command in commands if "-filter_complex" in command)
+    filter_graph = transition_command[transition_command.index("-filter_complex") + 1]
+    assert "xfade=transition=fade:duration=0.350:offset=1.650" in filter_graph
+    assert "acrossfade=d=0.350" in filter_graph
+    assert transition_command.count("-i") == 2
+
+
+def test_merge_blocks_when_any_frame_lacks_an_explicit_take(merge_harness):
+    pipeline, install_script, _ = merge_harness
+    script = install_script()
+    script.frames.append(
+        SimpleNamespace(
+            id="frame-2",
+            dubbed_video_url=None,
+            selected_video_id=None,
+            duration=3,
+            transition_hint=None,
+        )
+    )
+
+    with pytest.raises(ValueError, match="frame-2"):
+        pipeline.merge_videos("script-1")
