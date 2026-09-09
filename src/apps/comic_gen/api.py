@@ -906,6 +906,24 @@ def debug_config():
         }
     }
 
+def _project_payload(script: Script) -> dict:
+    """Present shared assets consistently without persisting inherited copies."""
+    payload = script.model_dump()
+    series = pipeline.get_series(script.series_id) if script.series_id else None
+    workspace_id = pipeline.repository.workspace_for_script(script.id)
+    library = pipeline.list_library_assets(workspace_id) if workspace_id else None
+    for kind in ("characters", "scenes", "props"):
+        for asset in payload[kind]:
+            asset["source"] = "episode"
+        seen = {asset["id"] for asset in payload[kind]}
+        for source, container in (("series", series), ("global", library)):
+            for asset in getattr(container, kind, []):
+                if asset.id not in seen:
+                    payload[kind].append({**asset.model_dump(), "source": source})
+                    seen.add(asset.id)
+    return payload
+
+
 def signed_response(data):
     """Helper to sign OSS URLs in data before returning to frontend.
     
@@ -916,7 +934,9 @@ def signed_response(data):
         return JSONResponse(content=None)
     
     # Convert Pydantic models to dict
-    if hasattr(data, "model_dump"):
+    if isinstance(data, Script):
+        processed_data = _project_payload(data)
+    elif hasattr(data, "model_dump"):
         processed_data = data.model_dump()
     elif isinstance(data, list):
         processed_data = [item.model_dump() if hasattr(item, "model_dump") else item for item in data]
@@ -1600,7 +1620,7 @@ def update_script_text(script_id: str, request: UpdateScriptTextRequest, http_re
         )
     script = result.script
     pipeline.scripts[script_id] = script
-    response = script.model_dump()
+    response = _project_payload(script)
     response["_revision"] = result.revision
     return signed_response(response)
 
@@ -2873,85 +2893,14 @@ def purge_project(script_id: str, request: PermanentPurgeRequest, background_tas
 
 @app.get("/projects/{script_id}")
 def get_project(script_id: str, request: Request):
-    """Retrieves a project by ID. When the project belongs to a
-    Series, the response merges series-shared characters / scenes /
-    props on top of the episode-local lists. Each item carries a
-    `source` field ("episode" | "series" | "global") so the frontend can
-    visually distinguish where the asset lives and route writes
-    appropriately (per A2 design decision — shared writes default to
-    the series side; local writes stay episode-side; the helper
-    `_find_asset_with_source` in pipeline routes mutations correctly).
-
-    Response model dropped from `Script` because the `source` field
-    is a presentation-layer concern (never persisted, derived from
-    container membership at read time)."""
+    """Read the current project, including series and Workspace shared assets."""
     with pipeline._save_lock:
         script = pipeline.repository.load_scripts().get(script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Project not found")
         pipeline.scripts[script_id] = script
-        payload = script.model_dump()
+        payload = _project_payload(script)
         payload["_revision"] = pipeline.repository.script_revision(script_id)
-
-    # Episode-local entries always carry source="episode".
-    for asset_list in (payload.get("characters", []),
-                      payload.get("scenes", []),
-                      payload.get("props", [])):
-        for item in asset_list:
-            item["source"] = "episode"
-
-    # Merge series-shared assets on top (any id not already present
-    # locally — episode-local overrides series). Without this step
-    # the user "loses" characters when switching between episodes of
-    # the same series, because the series shared pool isn't
-    # reflected on each episode's response.
-    if script.series_id:
-        series = pipeline.get_series(script.series_id)
-        if series:
-            ep_char_ids = {c.id for c in script.characters}
-            ep_scene_ids = {s.id for s in script.scenes}
-            ep_prop_ids = {p.id for p in script.props}
-            for ch in series.characters:
-                if ch.id not in ep_char_ids:
-                    d = ch.model_dump()
-                    d["source"] = "series"
-                    payload["characters"].append(d)
-            for sc in series.scenes:
-                if sc.id not in ep_scene_ids:
-                    d = sc.model_dump()
-                    d["source"] = "series"
-                    payload["scenes"].append(d)
-            for pr in series.props:
-                if pr.id not in ep_prop_ids:
-                    d = pr.model_dump()
-                    d["source"] = "series"
-                    payload["props"].append(d)
-
-    # Merge the project-independent global asset library underneath as
-    # the lowest layer. Any id not already present from the episode or
-    # series layers is appended with source="global" (read-time only —
-    # never written back to projects.json). When the library is empty
-    # this is a no-op and the response is byte-identical to before.
-    lib = pipeline.list_library_assets(request.state.auth_context.workspace.id)
-    if lib.characters or lib.scenes or lib.props:
-        seen_char_ids = {c["id"] for c in payload["characters"]}
-        seen_scene_ids = {s["id"] for s in payload["scenes"]}
-        seen_prop_ids = {p["id"] for p in payload["props"]}
-        for ch in lib.characters:
-            if ch.id not in seen_char_ids:
-                d = ch.model_dump()
-                d["source"] = "global"
-                payload["characters"].append(d)
-        for sc in lib.scenes:
-            if sc.id not in seen_scene_ids:
-                d = sc.model_dump()
-                d["source"] = "global"
-                payload["scenes"].append(d)
-        for pr in lib.props:
-            if pr.id not in seen_prop_ids:
-                d = pr.model_dump()
-                d["source"] = "global"
-                payload["props"].append(d)
     return signed_response(payload)
 
 
@@ -3715,7 +3664,7 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
         background_tasks.add_task(_context_call(pipeline.process_motion_ref_task, script_id, task_id))
         
         # Return script with task_id for frontend polling
-        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
+        response_data = _project_payload(script)
         response_data["_task_id"] = task_id
         return signed_response(response_data)
 
@@ -4133,7 +4082,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             background_tasks.add_task(_context_call(_start_production_item, job_item.id))
         
         # Return script with task_id for frontend polling
-        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
+        response_data = _project_payload(script)
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
@@ -5083,7 +5032,7 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
     """Generate current dialogue and persist progress so retries can reuse completed audio."""
     try:
         script = pipeline.generate_dialogue_audio_batch(script_id, request.instructions if request else None)
-        payload = script.model_dump()
+        payload = _project_payload(script)
         results = script.dialogue_audio_batch.results.values()
         payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
         return signed_response(payload)
