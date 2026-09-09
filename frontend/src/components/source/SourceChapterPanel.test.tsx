@@ -83,12 +83,13 @@ describe("SourceChapterPanel", () => {
         onSave={vi.fn()}
         onRestore={vi.fn()}
         onClose={vi.fn()}
-        onLinkEpisode={onLinkEpisode}
+        onLinkChapterEpisode={onLinkEpisode}
         onUnlinkChapterEpisode={onUnlinkEpisode}
       />,
     );
 
-    fireEvent.change(screen.getByRole("combobox", { name: "chapterEpisodeToLink" }), { target: { value: "episode-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /chapterEpisodeToLink/ }));
+    fireEvent.click(screen.getByRole("option", { name: /第二集/ }));
     fireEvent.click(screen.getByRole("button", { name: "linkChapterEpisode" }));
     fireEvent.click(screen.getByRole("button", { name: "unlinkChapterEpisode 第一集" }));
 
