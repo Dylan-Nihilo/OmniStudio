@@ -87,6 +87,7 @@ from ...utils.workspace_env import current_workspace_config, workspace_getenv
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
 from ...storage.job_repository import JobRepository
+from .job_adapters import ProductionJobAdapter
 from ...storage.legacy_claim import LegacyClaimService
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
 from .revision import compute_dependency_fingerprint, compute_revision, evaluate_stale
@@ -300,6 +301,153 @@ app.state.legacy_claim_service = LegacyClaimService(
 app.state.source_repository = SourceRepository(pipeline.storage_engine)
 app.state.director_plan_store = DirectorPlanStore(pipeline.storage_engine)
 app.state.director_plan_previews = {}
+
+
+def _production_media_ref(value: Any, *, kind: str, item_id: str) -> dict[str, Any]:
+    """Build the small protected-media contract consumed by JobItem."""
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError("provider returned no media reference")
+    return {"id": item_id, "kind": kind, "uri": value}
+
+
+def _asset_output_refs(item):
+    legacy_id = item.payload.get("legacy_task_id")
+    task = getattr(pipeline, "asset_generation_tasks", {}).get(legacy_id)
+    if not task or task.get("status") != "completed":
+        raise RuntimeError((task or {}).get("error") or "asset generation did not complete")
+    container = pipeline.get_series(task["script_id"]) if task.get("is_series") else pipeline.get_script(task["script_id"])
+    if not container:
+        raise RuntimeError("asset generation project disappeared")
+    asset = next((candidate for values in (container.characters, container.scenes, container.props)
+                  for candidate in values if candidate.id == task["asset_id"]), None)
+    if asset is None:
+        raise RuntimeError("generated asset disappeared")
+    urls: list[str] = []
+    for field in ("image_url", "full_body_image_url", "three_view_image_url", "headshot_image_url"):
+        value = getattr(asset, field, None)
+        if value and value not in urls:
+            urls.append(value)
+    for field in ("image_asset", "full_body_asset", "three_view_asset", "headshot_asset"):
+        value = getattr(asset, field, None)
+        for variant in getattr(value, "variants", []) if value else []:
+            url = getattr(variant, "url", None)
+            if url and url not in urls:
+                urls.append(url)
+    if not urls:
+        raise RuntimeError("provider returned no asset media")
+    return [_production_media_ref(url, kind="asset", item_id=item.id) for url in urls]
+
+
+def _dispatch_production_item(item):
+    """Dispatch legacy production work while keeping JobItem authoritative."""
+    payload = item.payload
+    kind = item.kind
+    if kind == "asset":
+        pipeline.process_asset_generation_task(payload["legacy_task_id"])
+        return _asset_output_refs(item)
+    if kind == "video":
+        pipeline.process_video_task(item.project_id, payload["legacy_task_id"])
+        script = pipeline.get_script(item.project_id)
+        task = next((candidate for candidate in (script.video_tasks if script else [])
+                     if candidate.id == payload["legacy_task_id"]), None)
+        if not task or task.status != "completed":
+            raise RuntimeError((task.error if task else None) or "video generation did not complete")
+        return [_production_media_ref(task.video_url, kind="video", item_id=item.id)]
+    if kind == "storyboard":
+        pipeline.generate_storyboard_render(
+            item.project_id,
+            payload["frame_id"],
+            payload.get("composition_data"),
+            payload.get("prompt", ""),
+            payload.get("batch_size", 1),
+        )
+        script = pipeline.get_script(item.project_id)
+        frame = next((candidate for candidate in (script.frames if script else []) if candidate.id == payload["frame_id"]), None)
+        url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None) if frame else None
+        return [_production_media_ref(url, kind="storyboard", item_id=item.id)]
+    if kind == "audio":
+        pipeline.generate_audio(item.project_id)
+        script = pipeline.get_script(item.project_id)
+        urls = [frame.audio_url for frame in (script.frames if script else []) if getattr(frame, "audio_url", None)]
+        if not urls:
+            raise RuntimeError("audio generation did not produce media")
+        return [_production_media_ref(url, kind="audio", item_id=item.id) for url in urls]
+    if kind == "tts":
+        tts = getattr(getattr(pipeline, "audio_generator", None), "tts", None)
+        if tts is None:
+            raise RuntimeError("TTS service unavailable")
+        output_path = payload["output_path"]
+        tts.synthesize(text=payload["text"], output_path=output_path, voice=payload["voice"],
+                       speech_rate=payload.get("speed", 1.0), pitch_rate=payload.get("pitch", 1.0),
+                       volume=payload.get("volume", 50), instructions=payload.get("instructions"))
+        return [_production_media_ref(payload.get("media_uri") or output_path, kind="tts", item_id=item.id)]
+    if kind == "export":
+        merged = pipeline.merge_videos(item.project_id)
+        return [_production_media_ref(merged.merged_video_url, kind="export", item_id=item.id)]
+    raise RuntimeError(f"unsupported production job kind: {kind}")
+
+
+def _production_adapter(request: Request | None = None) -> ProductionJobAdapter:
+    app_state = getattr(request, "app", app).state if request is not None else app.state
+    engine = getattr(app_state, "storage_engine", None) or pipeline.storage_engine
+    adapter = getattr(app_state, "production_job_adapter", None)
+    if adapter is None or adapter.repository.engine is not engine:
+        adapter = ProductionJobAdapter(
+            JobRepository(engine),
+            dispatchers={kind: _dispatch_production_item for kind in ProductionJobAdapter.SUPPORTED_KINDS},
+        )
+        app_state.production_job_adapter = adapter
+    return adapter
+
+
+def _start_production_item(item_id: str) -> None:
+    try:
+        _production_adapter().start(item_id)
+    except Exception:
+        logger.exception("production JobItem %s failed in background", item_id)
+
+
+def _start_production_or_raise(item_id: str):
+    """Run a synchronous adapter item without turning provider failure into 200."""
+    result = _production_adapter().start(item_id)
+    if result.status == "failed":
+        raise RuntimeError(result.error_message or "production task failed")
+    return result
+
+
+def _create_production_item(kind: str, project_id: str | None, episode_id: str | None,
+                            payload: dict[str, Any], idempotency_key: str) -> Any | None:
+    repository = getattr(pipeline, "repository", None)
+    if repository is None:
+        return None
+    workspace_id = None
+    if project_id:
+        for resolver in ("workspace_for_script", "workspace_for_series"):
+            try:
+                workspace_id = getattr(repository, resolver)(project_id)
+            except (KeyError, ValueError):
+                workspace_id = None
+            if workspace_id:
+                break
+    if not workspace_id:
+        return None
+    return _production_adapter().create(kind, workspace_id, project_id, episode_id, payload, idempotency_key)
+
+
+@app.on_event("startup")
+def recover_production_jobs() -> None:
+    """Resume processing JobItems after a worker restart."""
+    # Test fixtures and lightweight embedding apps replace ``pipeline`` with a
+    # stub.  They do not own the legacy provider workers, so recovery must not
+    # mutate their seeded JobItems during TestClient startup.
+    if not hasattr(pipeline, "process_video_task"):
+        return
+    try:
+        report = _production_adapter().recover_inflight()
+        if report["recovered"] or report["failed"]:
+            logger.info("production JobItem recovery: %s", report)
+    except Exception:
+        logger.exception("production JobItem recovery failed")
 app.include_router(auth_router)
 app.include_router(source_router)
 
@@ -2071,9 +2219,17 @@ def generate_series_asset(series_id: str, request: GenerateAssetRequest, backgro
             request.batch_size,
             request.model_name
         )
-        background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
+        job_item = _create_production_item(
+            "asset", series_id, None,
+            {"legacy_task_id": task_id, "asset_id": request.asset_id, "asset_type": request.asset_type, "series_id": series_id},
+            f"asset:series:{series_id}:{request.asset_id}:{hashlib.sha256(json.dumps(request.model_dump(), sort_keys=True, default=str).encode()).hexdigest()}",
+        )
+        if job_item is not None:
+            background_tasks.add_task(_context_call(_start_production_item, job_item.id))
         response_data = series.dict()
         response_data["_task_id"] = task_id
+        if job_item is not None:
+            response_data["_job_item_id"] = job_item.id
         return signed_response(response_data)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -3701,7 +3857,16 @@ def generate_video(script_id: str):
 def generate_audio(script_id: str):
     """Triggers audio generation."""
     try:
-        updated_script = pipeline.generate_audio(script_id)
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"project_id": script_id},
+            f"audio:{script_id}:current",
+        )
+        if job_item is not None:
+            _start_production_or_raise(job_item.id)
+            updated_script = pipeline.get_script(script_id)
+        else:
+            updated_script = pipeline.generate_audio(script_id)
         return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -3908,8 +4073,15 @@ def create_video_task(script_id: str, request: CreateVideoTaskRequest, backgroun
             if created_task:
                 tasks.append(created_task)
 
-            # Add background processing
-            background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task_id))
+            job_item = _create_production_item(
+                "video", script_id, None,
+                {"legacy_task_id": task_id, "frame_id": request.frame_id, "video_task_id": task_id},
+                f"video:{script_id}:{request.frame_id or 'project'}:{request.model}:{request.prompt}:{request.image_url}:{task_id}",
+            )
+            if job_item is None:
+                background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task_id))
+            else:
+                background_tasks.add_task(_context_call(_start_production_item, job_item.id))
 
         return signed_response(tasks)
 
@@ -3946,12 +4118,21 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             request.aspect_ratio,
         )
         
-        # Add background processing
-        background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
+        job_item = _create_production_item(
+            "asset", script_id, None,
+            {"legacy_task_id": task_id, "asset_id": request.asset_id, "asset_type": request.asset_type},
+            f"asset:{script_id}:{request.asset_id}:{request.asset_type}:{request.model_name or ''}:{request.prompt or ''}",
+        )
+        if job_item is None:
+            background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
+        else:
+            background_tasks.add_task(_context_call(_start_production_item, job_item.id))
         
         # Return script with task_id for frontend polling
         response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
         response_data["_task_id"] = task_id
+        if job_item is not None:
+            response_data["_job_item_id"] = job_item.id
         return signed_response(response_data)
 
     except ValueError as e:
@@ -5298,7 +5479,14 @@ def merge_videos(script_id: str):
     """Merge all selected frame videos into final output"""
     import traceback
     try:
-        merged_script = pipeline.merge_videos(script_id)
+        job_item = _create_production_item(
+            "export", script_id, None,
+            {"project_id": script_id, "export": True},
+            f"export:{script_id}:current",
+        )
+        merged_script = pipeline.merge_videos(script_id) if job_item is None else (
+            _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)
+        )
         return signed_response(merged_script)
     except ValueError as e:
         # Known validation errors (no videos, etc.)
@@ -5485,8 +5673,15 @@ def export_project(script_id: str, request: ExportRequest):
         if script.merged_video_url:
             return signed_response({"url": script.merged_video_url})
 
-        # Otherwise, run merge pipeline
-        merged_script = pipeline.merge_videos(script_id)
+        # Otherwise, run merge pipeline through the durable production ledger.
+        job_item = _create_production_item(
+            "export", script_id, None,
+            {"project_id": script_id, "resolution": request.resolution, "format": request.format, "subtitles": request.subtitles},
+            f"export:{script_id}:{request.resolution}:{request.format}:{request.subtitles}",
+        )
+        merged_script = pipeline.merge_videos(script_id) if job_item is None else (
+            _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)
+        )
         return signed_response({"url": merged_script.merged_video_url})
     except HTTPException:
         raise

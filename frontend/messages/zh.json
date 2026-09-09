@@ -2647,6 +2647,7 @@
     "confirmCancel": "确定取消这个任务吗？",
     "close": "关闭",
     "noEvents": "暂无状态事件",
+    "retryOf": "重试自 {id}",
     "page": "第 {page} / {total} 页",
     "previousPage": "上一页",
     "nextPage": "下一页",
