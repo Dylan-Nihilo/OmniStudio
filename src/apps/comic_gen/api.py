@@ -5353,12 +5353,11 @@ def generate_mix_sfx(script_id: str):
 
 @app.post("/projects/{script_id}/mix/generate_bgm", response_model=Script)
 def generate_mix_bgm(script_id: str):
-    """Triggers BGM generation."""
-    try:
-        updated_script = pipeline.generate_audio(script_id)
-        return signed_response(updated_script)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """BGM generation is unavailable until a real music provider is configured."""
+    raise HTTPException(
+        status_code=501,
+        detail="BGM generation is not configured. Select an available preset or upload a real audio file.",
+    )
 
 
 class ToggleFrameLockRequest(BaseModel):

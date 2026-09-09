@@ -1471,6 +1471,7 @@
     "phaseExport": "导出",
     "mixBgmTitle": "背景音乐",
     "mixBgmNone": "不使用 BGM",
+    "mixBgmUnavailable": "资源未安装",
     "mixBgmPreviewNotice": "功能预览中 — BGM 后端混音逻辑已就位，但预设音频文件尚未配套，目前导出的合成视频不会有 BGM。选择会被保存，等音频文件到位后会自动生效。",
     "mixLevelsTitle": "音轨电平",
     "mixHint": "电平在最终合成时按比例混合到各声道。对白默认 100，BGM 35，避免压住人声。",

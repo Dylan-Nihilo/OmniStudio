@@ -3997,6 +3997,7 @@ class ComicGenPipeline:
                 mixed_path = self._maybe_apply_bgm_mux(
                     script, output_path, ffmpeg_path,
                     audio_bitrate=export_settings["audio_bitrate"],
+                    frames=selected_frames,
                 )
                 if mixed_path:
                     # Replace the concat output with the mixed one (same filename)
@@ -4235,39 +4236,78 @@ class ComicGenPipeline:
         video_path: str,
         ffmpeg_path: str,
         audio_bitrate: str = "192k",
+        frames: Optional[List[StoryboardFrame]] = None,
     ) -> Optional[str]:
-        """PR-3l · Overlay BGM at the configured mix level on top of the
-        already-merged video. Returns the path of the new file, or None
-        when no BGM is configured / the file is missing.
+        """Overlay optional BGM and per-frame SFX on the merged video.
 
-        Strategy: 2-input filter — amix the existing video audio (volume =
-        dialogue_level/100) with the looped BGM (volume = bgm_level/100).
-        SFX track will be added in a later pass when SFX files exist.
+        SFX inputs are delayed to the cumulative start time of their frame so
+        the same effect remains aligned after the selected takes are merged.
+        Missing optional files are skipped; a configured track must never make
+        an otherwise valid export fail.
         """
         bgm_rel = (script.bgm_url or "").strip()
-        if not bgm_rel:
-            return None
-        bgm_abs = _safe_resolve_path("output", bgm_rel)
-        if not os.path.exists(bgm_abs):
-            logger.info(f"[MERGE/BGM] preset file missing — {bgm_abs}; skipping mux")
-            return None
+        bgm_abs = None
+        if bgm_rel:
+            candidate = _safe_resolve_path("output", bgm_rel)
+            if os.path.exists(candidate):
+                bgm_abs = candidate
+            else:
+                logger.info(f"[MERGE/BGM] preset file missing — {candidate}; skipping BGM")
 
         mix = script.mix_settings or {"dialogue": 100, "bgm": 35, "sfx": 60}
         dial = max(0, min(100, int(mix.get("dialogue", 100)))) / 100.0
         bgm_lvl = max(0, min(100, int(mix.get("bgm", 35)))) / 100.0
+        sfx_lvl = max(0, min(100, int(mix.get("sfx", 60)))) / 100.0
+
+        sfx_inputs: List[tuple[str, float, str]] = []
+        elapsed = 0.0
+        for frame in frames or []:
+            sfx_rel = (getattr(frame, "sfx_url", None) or "").strip()
+            if sfx_rel:
+                sfx_abs = _safe_resolve_path("output", sfx_rel)
+                if os.path.exists(sfx_abs):
+                    sfx_inputs.append((sfx_abs, elapsed, getattr(frame, "id", "unknown")))
+                else:
+                    logger.info(f"[MERGE/SFX] file missing — {sfx_abs}; skipping frame {frame.id}")
+            elapsed += _frame_duration_seconds(frame)
+
+        if bgm_abs is None and not sfx_inputs:
+            return None
 
         mixed_path = video_path.replace(".mp4", "_mixed.mp4")
-        # -stream_loop -1 loops BGM until shortest (the video) ends.
-        # apad on the dialogue side avoids amix cutting early on silence.
-        filter_complex = (
-            f"[0:a]volume={dial:.3f},apad[a0];"
-            f"[1:a]volume={bgm_lvl:.3f},aloop=loop=-1:size=2e9[a1];"
-            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+        # Input 0 is the merged video. Optional BGM is input 1; SFX inputs
+        # follow it. All tracks are padded and mixed for the video's duration.
+        filter_parts = [f"[0:a]volume={dial:.3f},apad[a0]"]
+        mix_labels = ["[a0]"]
+        input_count = 1
+        input_args: List[str] = []
+        if bgm_abs is not None:
+            input_args.extend(["-stream_loop", "-1", "-i", bgm_abs])
+            filter_parts.append(
+                f"[1:a]volume={bgm_lvl:.3f},aloop=loop=-1:size=2e9[abgm]"
+            )
+            mix_labels.append("[abgm]")
+            input_count += 1
+
+        for sfx_index, (sfx_abs, offset, frame_id) in enumerate(sfx_inputs):
+            input_index = input_count
+            input_args.extend(["-i", sfx_abs])
+            label = f"[asfx{sfx_index}]"
+            delay = max(0, int(round(offset * 1000)))
+            filter_parts.append(
+                f"[{input_index}:a]volume={sfx_lvl:.3f},adelay={delay}|{delay},apad{label}"
+            )
+            mix_labels.append(label)
+            input_count += 1
+
+        filter_parts.append(
+            f"{''.join(mix_labels)}amix=inputs={input_count}:duration=first:dropout_transition=0[aout]"
         )
+        filter_complex = ";".join(filter_parts)
         cmd = [
             ffmpeg_path, "-y",
             "-i", video_path,
-            "-stream_loop", "-1", "-i", bgm_abs,
+            *input_args,
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy",
@@ -4276,7 +4316,10 @@ class ComicGenPipeline:
             "-movflags", "+faststart",
             mixed_path,
         ]
-        logger.info(f"[MERGE/BGM] muxing BGM dial={dial:.2f} bgm={bgm_lvl:.2f} — {os.path.basename(bgm_abs)}")
+        logger.info(
+            f"[MERGE/AUDIO] muxing tracks={input_count} dial={dial:.2f} "
+            f"bgm={bgm_lvl:.2f} sfx={sfx_lvl:.2f}"
+        )
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=300)
         except subprocess.CalledProcessError as e:
@@ -4811,10 +4854,14 @@ class ComicGenPipeline:
             # Generate SFX (Video-to-Audio) - if video exists
             if frame.video_url:
                 self.audio_generator.generate_sfx_from_video(frame)
-                
-            # Generate BGM
-            # Simple logic: generate BGM for every frame (or scene start)
-            self.audio_generator.generate_bgm(frame)
+
+            # BGM generation is optional and currently requires an external
+            # music provider. Keep the legacy hook callable, but do not let
+            # its unavailable-provider error block dialogue/SFX generation.
+            try:
+                self.audio_generator.generate_bgm(frame)
+            except RuntimeError as exc:
+                logger.info(f"Skipping BGM generation for frame {frame.id}: {exc}")
                 
         self._save_data()
         return script

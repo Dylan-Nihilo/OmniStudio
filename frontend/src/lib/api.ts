@@ -573,6 +573,7 @@ export interface BgmPreset {
     label: string;
     mood: string;
     url: string;
+    available?: boolean;
 }
 
 export interface ReconcileAction {

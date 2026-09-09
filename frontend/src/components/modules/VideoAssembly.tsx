@@ -621,6 +621,7 @@ function MixPhase({
 
     const handlePick = async (preset: BgmPreset | null) => {
         if (!scriptId) return;
+        if (preset && preset.available === false) return;
         setSaving(true);
         try {
             const updated = await api.updateAudioMix(scriptId, { bgm_url: preset ? preset.url : null });
@@ -652,11 +653,8 @@ function MixPhase({
                     {ta("mixBgmTitle")}
                     {saving && <Loader2 size={12} className="animate-spin text-primary" />}
                 </h3>
-                {/* Preview banner — backend amix is wired (pipeline.merge_videos),
-                    but the preset audio files aren't shipped yet, so the merged
-                    output today is silent regardless of selection. We surface
-                    this honestly so users don't keep selecting BGM and wondering
-                    why the export has no music. */}
+                {/* The API reports whether an operator-installed preset file is
+                    actually present; unavailable entries stay visible but inert. */}
                 <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2">
                     <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-400/85" aria-hidden="true" />
                     <p className="text-[0.71875rem] leading-relaxed text-amber-100/85">
@@ -686,14 +684,19 @@ function MixPhase({
                                 <button
                                     key={p.id}
                                     onClick={() => handlePick(p)}
+                                    disabled={p.available === false}
+                                    title={p.available === false ? ta("mixBgmUnavailable") : undefined}
                                     className={`rounded-lg border p-3 text-left transition-colors ${
                                         selected
                                             ? "border-primary bg-[rgba(100,108,255,0.10)]"
-                                            : "border-glass-border bg-glass hover:border-foreground/30"
+                                            : p.available === false
+                                                ? "border-glass-border bg-glass opacity-45 cursor-not-allowed"
+                                                : "border-glass-border bg-glass hover:border-foreground/30"
                                     }`}
                                 >
                                     <p className="text-[0.8125rem] font-medium text-foreground truncate">{p.label}</p>
                                     <p className="mt-0.5 font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-text-muted">{p.mood}</p>
+                                    {p.available === false ? <p className="mt-1 text-[0.59375rem] text-amber-300/80">{ta("mixBgmUnavailable")}</p> : null}
                                 </button>
                             );
                         })

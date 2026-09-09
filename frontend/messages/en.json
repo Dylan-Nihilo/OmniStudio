@@ -1471,6 +1471,7 @@
     "phaseExport": "Export",
     "mixBgmTitle": "Background Music",
     "mixBgmNone": "No BGM",
+    "mixBgmUnavailable": "Asset not installed",
     "mixBgmPreviewNotice": "Preview only — preset audio files aren't bundled yet, so the merged export is currently silent regardless of selection. Your choice is saved and will take effect once the audio files are in place.",
     "mixLevelsTitle": "Track Levels",
     "mixHint": "Levels are mixed proportionally during the final merge. Dialogue defaults to 100 and BGM to 35 to avoid masking the voice.",
