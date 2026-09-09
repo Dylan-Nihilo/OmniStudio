@@ -285,8 +285,18 @@ const redirectToSetup = async (): Promise<void> => {
 
 const refreshSession = (): Promise<void> => {
   if (!refreshPromise) {
-    refreshPromise = bareClient
-      .post("/auth/refresh")
+    const refresh = async () => {
+      // Another tab may have renewed the shared cookies while this tab waited.
+      try {
+        await bareClient.get("/auth/me");
+        return;
+      } catch (error) {
+        if (!axios.isAxiosError(error) || error.response?.status !== 401) throw error;
+      }
+      await bareClient.post("/auth/refresh");
+    };
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    refreshPromise = Promise.resolve(locks ? locks.request(`${CSRF_COOKIE_NAME}:refresh`, refresh) : refresh())
       .then(() => undefined)
       .catch(async (error) => {
         await redirectToLogin(true);

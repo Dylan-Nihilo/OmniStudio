@@ -95,7 +95,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (user && authExpired) setAuthExpired(false);
+    // Once the stale identity is cleared, normal public routing can resume.
+    if (!user && authExpired) setAuthExpired(false);
   }, [authExpired, user]);
 
   useEffect(() => {
