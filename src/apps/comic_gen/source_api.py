@@ -186,13 +186,15 @@ def _user_id(request: Request) -> str | None:
 
 
 def _run_chapter_analysis(
-    request: Request,
+    request: Request | None,
     repository: SourceRepository,
     *,
     workspace_id: str,
     source_id: str,
     chapter_id: str,
     force: bool = False,
+    pipeline_obj=None,
+    user_id: str | None = None,
 ) -> tuple[dict[str, object], str]:
     context, content = repository.get_chapter_analysis_input(
         workspace_id, source_id, chapter_id
@@ -209,7 +211,8 @@ def _run_chapter_analysis(
     attempt = int(latest["attempt"]) + 1 if latest else 1
     retry_of = str(latest["id"]) if latest and latest["status"] == "failed" else None
     try:
-        raw_events = _pipeline(request).analyze_source_chapter_events(
+        analyzer = pipeline_obj or _pipeline(request)
+        raw_events = analyzer.analyze_source_chapter_events(
             str(context["chapter_title"]), content
         )
         events = _normalize_chapter_events(raw_events)
@@ -238,7 +241,7 @@ def _run_chapter_analysis(
             error_message=None,
             attempt=attempt,
             retry_of=retry_of,
-            user_id=_user_id(request),
+            user_id=user_id if user_id is not None else (_user_id(request) if request is not None else None),
         )
         return result, "succeeded"
 
@@ -254,13 +257,13 @@ def _run_chapter_analysis(
         error_message=failure_message,
         attempt=attempt,
         retry_of=retry_of,
-        user_id=_user_id(request),
+        user_id=user_id if user_id is not None else (_user_id(request) if request is not None else None),
     )
     return result, "failed"
 
 
 def _process_analysis_batch(
-    request: Request,
+    request: Request | None,
     repository: SourceRepository,
     *,
     workspace_id: str,
@@ -268,6 +271,8 @@ def _process_analysis_batch(
     batch_id: str,
     chapter_ids: list[str] | None = None,
     force: bool = False,
+    pipeline_obj=None,
+    user_id: str | None = None,
 ) -> dict[str, object]:
     batch = repository.get_analysis_batch(workspace_id, batch_id)
     selected = set(chapter_ids or [str(item["chapter_id"]) for item in batch["items"]])
@@ -290,6 +295,8 @@ def _process_analysis_batch(
                 source_id=source_id,
                 chapter_id=chapter_id,
                 force=force,
+                pipeline_obj=pipeline_obj,
+                user_id=user_id,
             )
         except SourceRepositoryError as exc:
             repository.update_analysis_batch_item(
@@ -333,6 +340,35 @@ def _process_analysis_batch(
                 error_message=analysis["error_message"],
             )
     return repository.get_analysis_batch(workspace_id, batch_id)
+
+
+def process_analysis_batch_job(
+    repository: SourceRepository,
+    pipeline_obj,
+    *,
+    workspace_id: str,
+    source_id: str,
+    batch_id: str,
+    retry: bool = False,
+    force: bool = False,
+) -> dict[str, object]:
+    """Run a persisted analysis batch from the unified JobItem dispatcher."""
+    chapter_ids = None
+    if retry:
+        chapter_ids = repository.reset_failed_analysis_batch_items(
+            workspace_id=workspace_id,
+            batch_id=batch_id,
+        )
+    return _process_analysis_batch(
+        None,
+        repository,
+        workspace_id=workspace_id,
+        source_id=source_id,
+        batch_id=batch_id,
+        chapter_ids=chapter_ids,
+        force=force or retry,
+        pipeline_obj=pipeline_obj,
+    )
 
 
 def source_error_payload(request: Request, error: SourceRepositoryError) -> dict[str, object]:
@@ -823,14 +859,29 @@ def analyze_source_batch(
         chapter_ids=options.chapter_ids,
         user_id=_user_id(request),
     )
-    result = _process_analysis_batch(
-        request,
-        repository,
-        workspace_id=workspace_id,
-        source_id=source_id,
-        batch_id=str(batch["id"]),
-        force=options.force,
+    from ...storage.job_repository import JobRepository
+    from .api import _production_adapter
+
+    job_repository = JobRepository(request.app.state.storage_engine)
+    job = job_repository.create_job(
+        workspace_id,
+        "production.source_analysis",
+        metadata={"source_document_id": source_id, "batch_id": batch["id"]},
     )
+    item = job_repository.create_item(
+        job.id,
+        "source_analysis",
+        f"source-analysis:{batch['id']}",
+        {
+            "source_document_id": source_id,
+            "batch_id": batch["id"],
+            "force": options.force,
+            "allow_empty_result": True,
+        },
+    )
+    _production_adapter(request).start(item.id, workspace_id=workspace_id)
+    result = repository.get_analysis_batch(workspace_id, str(batch["id"]))
+    result = {**result, "job_id": job.id, "job_item_id": item.id}
     record_request_event(
         request,
         action="source.analysis.batch",
@@ -875,26 +926,67 @@ def retry_source_analysis_batch(
     batch = repository.get_analysis_batch(workspace_id, batch_id)
     if batch["source_document_id"] != source_id:
         raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_FOUND", "分析批次不存在", status_code=404)
-    chapter_ids = repository.reset_failed_analysis_batch_items(
-        workspace_id=workspace_id,
-        batch_id=batch_id,
-        chapter_ids=payload.chapter_ids if payload else None,
-    )
-    result = _process_analysis_batch(
-        request,
-        repository,
-        workspace_id=workspace_id,
-        source_id=source_id,
-        batch_id=batch_id,
-        chapter_ids=chapter_ids,
-        force=True,
-    )
+    from ...storage.job_repository import JobRepository
+    from .api import _production_adapter
+
+    job_repository = JobRepository(request.app.state.storage_engine)
+    existing_item = None
+    for page in range(1, 11):
+        jobs = job_repository.list_jobs(workspace_id, page=page, page_size=100)
+        for job in jobs.items:
+            candidate = next(
+                (
+                    item
+                    for item in job.items
+                    if item.kind == "source_analysis" and item.payload.get("batch_id") == batch_id
+                ),
+                None,
+            )
+            if candidate is not None:
+                existing_item = candidate
+                break
+        if existing_item is not None or page * 100 >= jobs.total:
+            break
+
+    if existing_item is None:
+        chapter_ids = repository.reset_failed_analysis_batch_items(
+            workspace_id=workspace_id,
+            batch_id=batch_id,
+            chapter_ids=payload.chapter_ids if payload else None,
+        )
+        result = _process_analysis_batch(
+            request,
+            repository,
+            workspace_id=workspace_id,
+            source_id=source_id,
+            batch_id=batch_id,
+            chapter_ids=chapter_ids,
+            force=True,
+        )
+        record_request_event(
+            request,
+            action="source.analysis.batch.retry",
+            object_type="source_analysis_batch",
+            object_id=batch_id,
+            metadata={"source_document_id": source_id, "chapter_count": len(chapter_ids)},
+        )
+        return result
+
+    if existing_item.status != "failed":
+        raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_RETRYABLE", "当前批量分析没有可重试的失败任务", status_code=409)
+    retry_item = job_repository.create_retry(existing_item.id, f"source-analysis:{batch_id}:retry")
+    _production_adapter(request).start(retry_item.id, workspace_id=workspace_id)
+    result = repository.get_analysis_batch(workspace_id, batch_id)
+    result = {**result, "job_id": retry_item.job_id, "job_item_id": retry_item.id}
     record_request_event(
         request,
         action="source.analysis.batch.retry",
         object_type="source_analysis_batch",
         object_id=batch_id,
-        metadata={"source_document_id": source_id, "chapter_count": len(chapter_ids)},
+        metadata={
+            "source_document_id": source_id,
+            "chapter_count": len(payload.chapter_ids) if payload and payload.chapter_ids else batch["failed"],
+        },
     )
     return result
 

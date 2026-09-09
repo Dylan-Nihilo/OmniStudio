@@ -765,6 +765,69 @@ def test_source_analysis_batch_is_workspace_scoped(source_client, monkeypatch):
     assert isolated.json()["error"]["code"] == "AUTH_RESOURCE_NOT_FOUND"
 
 
+def test_source_analysis_batch_is_tracked_and_retryable_from_task_center(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "任务中心分析来源"}).json()
+    chapters = [
+        client.post(
+            f"/sources/{source['id']}/chapters",
+            json={"chapter_number": number, "title": title, "content": f"正文-{number}"},
+        ).json()
+        for number, title in ((1, "成功章"), (2, "失败章"))
+    ]
+
+    def analyze(title, content):
+        if title == "失败章":
+            raise RuntimeError("temporary provider failure")
+        return [{"event_type": "action", "description": f"处理 {title}"}]
+
+    monkeypatch.setattr(pipeline, "analyze_source_chapter_events", analyze)
+    batch_response = client.post(f"/sources/{source['id']}/analysis/batch")
+    assert batch_response.status_code == 201, batch_response.text
+    batch = batch_response.json()
+    assert batch["job_id"]
+    assert batch["job_item_id"]
+    task = client.get(f"/tasks/{batch['job_id']}")
+    assert task.status_code == 200, task.text
+    assert task.json()["job"]["items"][0]["kind"] == "source_analysis"
+    assert task.json()["job"]["status"] == "failed"
+
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: [{"event_type": "action", "description": "重试成功"}],
+    )
+    retry = client.post(f"/tasks/{batch['job_id']}/retry")
+    assert retry.status_code == 200, retry.text
+    refreshed = client.get(f"/tasks/{batch['job_id']}")
+    assert refreshed.status_code == 200, refreshed.text
+    items = refreshed.json()["job"]["items"]
+    assert any(item["retry_of"] == batch["job_item_id"] and item["status"] == "succeeded" for item in items)
+    assert client.get(f"/sources/{source['id']}/analysis/batches/{batch['id']}").json()["status"] == "succeeded"
+
+
+def test_source_analysis_batch_force_reanalyzes_current_revision(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "强制分析来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "正文"},
+    ).json()
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: [{"event_type": "action", "description": "首次分析"}],
+    )
+    first = client.post(f"/sources/{source['id']}/chapters/{chapter['id']}/analysis").json()
+
+    forced = client.post(f"/sources/{source['id']}/analysis/batch", json={"force": True})
+    assert forced.status_code == 201, forced.text
+    item = forced.json()["items"][0]
+    assert item["status"] == "succeeded"
+    assert item["analysis_id"] != first["id"]
+    assert item["attempt"] == 2
+
+
 def test_source_revision_emits_queryable_downstream_impact_markers(source_client):
     client, pipeline = source_client
     source = client.post("/sources", json={"title": "影响追踪来源"}).json()

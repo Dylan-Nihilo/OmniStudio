@@ -411,6 +411,8 @@ class SourceAnalysisBatchRead(BaseModel):
     success_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
     failed_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
     skipped_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
+    job_id: str | None = None
+    job_item_id: str | None = None
     created_at: float
     updated_at: float
 

@@ -3,13 +3,15 @@ import type { UnifiedJob, UnifiedJobItem, UnifiedJobStatus } from "@/lib/api";
 export type TaskAction = "cancel" | "retry" | "none";
 
 export interface TaskObjectRef {
-  view?: "project" | "playground";
+  view?: "project" | "playground" | "sources";
   projectId?: string | null;
   episodeId?: string | null;
   frameId?: string | null;
   assetId?: string | null;
   videoTaskId?: string | null;
   generationId?: string | null;
+  sourceId?: string | null;
+  batchId?: string | null;
 }
 
 export interface TaskViewModel {
@@ -51,6 +53,13 @@ function getRef(job: UnifiedJob): TaskObjectRef {
     };
   }
   const value = (key: string) => typeof payload[key] === "string" ? payload[key] as string : null;
+  if (item?.kind === "source_analysis" || job.kind === "production.source_analysis") {
+    return {
+      view: "sources",
+      sourceId: value("source_document_id"),
+      batchId: value("batch_id"),
+    };
+  }
   return {
     view: "project",
     projectId: job.project_id ?? firstItem(job)?.project_id ?? null,
@@ -94,6 +103,7 @@ export function toTaskViewModel(job: UnifiedJob): TaskViewModel {
 
 export function taskObjectHash(ref: TaskObjectRef): string | null {
   if (ref.view === "playground") return "#/playground";
+  if (ref.view === "sources") return "#/sources";
   const target = ref.episodeId || ref.projectId;
   return target ? `#/project/${target}` : null;
 }

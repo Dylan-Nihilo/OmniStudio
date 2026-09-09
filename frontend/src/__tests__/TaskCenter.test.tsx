@@ -82,6 +82,19 @@ describe("taskCenterModel", () => {
     });
     expect(taskObjectHash({ view: "playground", generationId: "generation-1" })).toBe("#/playground");
   });
+
+  it("maps source analysis jobs back to the Source workspace", () => {
+    const sourceJob = {
+      ...failedJob,
+      id: "job-source-analysis",
+      project_id: null,
+      episode_id: null,
+      kind: "production.source_analysis",
+      items: [{ ...failedJob.items[0], kind: "source_analysis", payload: { source_document_id: "source-1", batch_id: "batch-1" } }],
+    };
+    expect(toTaskViewModel(sourceJob as never).objectRef).toEqual({ view: "sources", sourceId: "source-1", batchId: "batch-1" });
+    expect(taskObjectHash({ view: "sources", sourceId: "source-1", batchId: "batch-1" })).toBe("#/sources");
+  });
 });
 
 describe("TaskCenter", () => {

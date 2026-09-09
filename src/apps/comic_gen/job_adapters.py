@@ -37,6 +37,7 @@ class ProductionJobAdapter:
         "i2v",
         "r2v",
         "v2v",
+        "source_analysis",
     })
 
     def __init__(self, repository: JobRepository, *, dispatchers: Mapping[str, Dispatcher] | None = None):

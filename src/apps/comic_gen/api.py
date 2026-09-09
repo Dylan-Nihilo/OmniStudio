@@ -370,6 +370,24 @@ def _dispatch_production_item(item):
     """Dispatch legacy production work while keeping JobItem authoritative."""
     payload = item.payload
     kind = item.kind
+    if kind == "source_analysis":
+        from .source_api import process_analysis_batch_job
+
+        source_repository = SourceRepository(_production_adapter().repository.engine)
+        batch = process_analysis_batch_job(
+            source_repository,
+            pipeline,
+            workspace_id=item.workspace_id,
+            source_id=str(payload["source_document_id"]),
+            batch_id=str(payload["batch_id"]),
+            retry=bool(item.retry_of),
+            force=bool(payload.get("force")),
+        )
+        if batch["status"] in {"failed", "partially_succeeded"}:
+            raise RuntimeError(
+                f"source analysis batch {batch['id']} finished with {batch['failed']} failed chapter(s)"
+            )
+        return []
     if kind in {"t2i", "i2i", "t2v", "i2v", "r2v", "v2v"}:
         # Playground stores its provider result in a JSON history record, but
         # retries must still run through the same durable JobItem.  A failed

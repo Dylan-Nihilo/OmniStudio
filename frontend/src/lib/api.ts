@@ -380,6 +380,8 @@ export interface SourceAnalysisBatch {
     success_items: SourceAnalysisBatchItem[];
     failed_items: SourceAnalysisBatchItem[];
     skipped_items: SourceAnalysisBatchItem[];
+    job_id?: string | null;
+    job_item_id?: string | null;
     created_at: number;
     updated_at: number;
 }
