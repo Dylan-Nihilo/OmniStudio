@@ -23,7 +23,7 @@ interface Props {
   onSave: (payload: { title: string; content: string }) => void;
   onRestore: (revision: SourceRevision) => void;
   onClose: () => void;
-  onAcknowledgeImpact?: (impactId: string) => void;
+  onAcknowledgeImpact?: (impactId: string, targetIds?: string[]) => void;
   onOpenScript?: (episodeId: string) => void;
   onLinkEpisode?: (chapterId: string) => void;
   episodes?: readonly SourceEpisode[];
@@ -86,13 +86,22 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
               {impacts.length === 0 ? <p className={styles.muted}>{t("noImpactEvents")}</p> : impacts.map(impact => (
                 <article key={impact.id} className={styles.impactEvent}>
                   <p>{t("impactSummary", { revision: impact.revision_number, count: impact.target_count })}</p>
-                  {onAcknowledgeImpact && impact.status === "open" && <Button variant="quiet" onPress={() => onAcknowledgeImpact(impact.id)} isDisabled={saving}><Check size={14} />确认已处理</Button>}
+                  {onAcknowledgeImpact && impact.status === "open" && <Button variant="quiet" onPress={() => onAcknowledgeImpact(impact.id)} isDisabled={saving}><Check size={14} />{t("ackImpact")}</Button>}
                   {impact.targets.length > 0 && (
                     <ul className={styles.impactTargets} aria-label={t("impactTargets")}>
                       {impact.targets.map(target => (
                         <li key={target.id}>
                           <strong>{target.target_type}</strong>
                           <span>{t("impactTarget", { stage: target.target_stage, status: target.status, id: target.target_id })}</span>
+                          {onAcknowledgeImpact && target.status === "needs_review" && <Button
+                            variant="quiet"
+                            aria-label={t("ackImpactTarget", { id: target.target_id })}
+                            isDisabled={saving}
+                            onPress={() => onAcknowledgeImpact(impact.id, [target.id])}
+                          >
+                            <Check size={14} aria-hidden="true" />
+                            {t("ackTarget")}
+                          </Button>}
                           {onOpenScript && target.episode_id && <Button
                             variant="quiet"
                             aria-label={`${tc("open")} ${ts("scriptEditor")}`}

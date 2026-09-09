@@ -377,11 +377,11 @@ export default function SourceWorkspace() {
     }
   };
 
-  const acknowledgeImpact = async (impactId: string) => {
+  const acknowledgeImpact = async (impactId: string, targetIds?: string[]) => {
     if (!selectedSourceId || !selectedChapter || saving) return;
     setSaving(true);
     try {
-      await sourceApi.acknowledgeRevisionImpact(selectedSourceId, impactId);
+      await sourceApi.acknowledgeRevisionImpact(selectedSourceId, impactId, targetIds);
       const updated = await sourceApi.listChapterRevisionImpacts(selectedSourceId, selectedChapter.id);
       setImpacts(updated.items);
       setNotice("影响项已确认");

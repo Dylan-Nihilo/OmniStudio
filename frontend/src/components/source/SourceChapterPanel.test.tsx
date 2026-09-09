@@ -123,4 +123,31 @@ describe("SourceChapterPanel", () => {
 
     expect(onOpenScript).toHaveBeenCalledWith("episode-1");
   });
+
+  it("can acknowledge one downstream target without resolving the whole event", () => {
+    const onAcknowledgeImpact = vi.fn();
+    render(
+      <SourceChapterPanel
+        chapters={[chapter]}
+        total={1}
+        page={1}
+        pageSize={20}
+        query=""
+        selectedChapter={chapter}
+        revisions={[chapter.current_revision!]}
+        impacts={[impact]}
+        onQueryChange={vi.fn()}
+        onPageChange={vi.fn()}
+        onSelect={vi.fn()}
+        onSave={vi.fn()}
+        onRestore={vi.fn()}
+        onClose={vi.fn()}
+        onAcknowledgeImpact={onAcknowledgeImpact}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /ackImpactTarget/ }));
+
+    expect(onAcknowledgeImpact).toHaveBeenCalledWith("impact-1", ["target-1"]);
+  });
 });
