@@ -3589,13 +3589,16 @@ def sync_descriptions(script_id: str):
 
 class AddCharacterRequest(BaseModel):
     name: str
-    description: str
+    description: str = ""
+    persona: str = ""
+    voice_id: Optional[str] = None
+    image_url: Optional[str] = None
 
 @app.post("/projects/{script_id}/characters", response_model=Script)
 def add_character(script_id: str, request: AddCharacterRequest):
     """Adds a new character."""
     try:
-        updated_script = pipeline.add_character(script_id, request.name, request.description)
+        updated_script = pipeline.add_character(script_id, **request.model_dump())
         return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -3615,13 +3618,14 @@ def delete_character(script_id: str, char_id: str):
 
 class AddSceneRequest(BaseModel):
     name: str
-    description: str
+    description: str = ""
+    image_url: Optional[str] = None
 
 @app.post("/projects/{script_id}/scenes", response_model=Script)
 def add_scene(script_id: str, request: AddSceneRequest):
     """Adds a new scene."""
     try:
-        updated_script = pipeline.add_scene(script_id, request.name, request.description)
+        updated_script = pipeline.add_scene(script_id, **request.model_dump())
         return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -6125,6 +6129,7 @@ def get_env_config():
 class CreatePropRequest(BaseModel):
     name: str
     description: str = ""
+    image_url: Optional[str] = None
 
 @app.post("/projects/{script_id}/props")
 def create_prop(script_id: str, request: CreatePropRequest):
@@ -6140,6 +6145,7 @@ def create_prop(script_id: str, request: CreatePropRequest):
         id=f"prop_{uuid.uuid4().hex[:8]}",
         name=request.name,
         description=request.description,
+        image_url=request.image_url,
         status=GenerationStatus.PENDING
     )
 

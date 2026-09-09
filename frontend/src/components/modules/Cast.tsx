@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, MapPin, Box, AlertTriangle, Sparkles, Plus, Upload, X, Loader2, Play, Pause, Volume2, Wand2, Layers, Maximize2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
-import { api } from "@/lib/api";
+import { api, crudApi } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 import { useLightbox } from "@/components/shared/preview/LightboxProvider";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
@@ -211,6 +211,14 @@ export default function Cast() {
                         <p className="mt-2 text-sm text-text-secondary leading-relaxed">
                             {t("emptyBody")}
                         </p>
+                        <div className="mt-5 flex justify-center gap-2">
+                            {(["character", "scene", "prop"] as const).map((kind) => (
+                                <WorkflowActionButton key={kind} size="sm" onClick={() => setAddModalOpen(kind)}>
+                                    <Plus size={14} />
+                                    {t(kind === "character" ? "addCharacter" : kind === "scene" ? "addScene" : "addProp")}
+                                </WorkflowActionButton>
+                            ))}
+                        </div>
                     </div>
                 </div>
             ) : (
@@ -303,6 +311,7 @@ export default function Cast() {
             <AddCastPlaceholderModal
                 kind={addModalOpen}
                 seriesId={currentProject?.series_id ?? null}
+                projectId={currentProject?.id ?? null}
                 onClose={() => setAddModalOpen(null)}
                 onCreated={() => {
                     // Trigger a project refresh by re-selecting; simplest
@@ -326,11 +335,13 @@ export default function Cast() {
 function AddCastPlaceholderModal({
     kind,
     seriesId,
+    projectId,
     onClose,
     onCreated,
 }: {
     kind: null | "character" | "scene" | "prop";
     seriesId: string | null;
+    projectId: string | null;
     onClose: () => void;
     onCreated: () => void;
 }) {
@@ -371,7 +382,7 @@ function AddCastPlaceholderModal({
     };
 
     const handleSubmit = async () => {
-        if (!seriesId) {
+        if (!projectId) {
             setError(t("seriesRequired"));
             return;
         }
@@ -383,13 +394,19 @@ function AddCastPlaceholderModal({
         setError(null);
         try {
             const kindMap = { character: "characters", scene: "scenes", prop: "props" } as const;
-            await api.createSeriesAsset(seriesId, kindMap[kind], {
+            const data = {
                 name: name.trim(),
                 description: description.trim() || undefined,
                 persona: kind === "character" ? (persona.trim() || undefined) : undefined,
                 voice_id: kind === "character" ? (voiceId.trim() || undefined) : undefined,
                 image_url: imageUrl || undefined,
-            });
+            };
+            if (seriesId) {
+                await api.createSeriesAsset(seriesId, kindMap[kind], data);
+            } else {
+                const create = { character: crudApi.createCharacter, scene: crudApi.createScene, prop: crudApi.createProp }[kind];
+                await create(projectId, data);
+            }
             onCreated();
             reset();
             onClose();
@@ -551,7 +568,7 @@ function AddCastPlaceholderModal({
                         size="sm"
                         loading={submitting}
                         onClick={handleSubmit}
-                        disabled={!name.trim() || !seriesId}
+                        disabled={!name.trim() || !projectId || uploading}
                         className="flex-1"
                     >
                         {tab === "ai" ? t("createAndGenerate") : t("create")}

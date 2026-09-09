@@ -2256,6 +2256,9 @@ export const crudApi = {
     createCharacter: async (scriptId: string, data: {
         name: string;
         description?: string;
+        image_url?: string;
+        persona?: string;
+        voice_id?: string;
         age?: string;
         gender?: string;
         clothing?: string;
@@ -2273,6 +2276,7 @@ export const crudApi = {
     createScene: async (scriptId: string, data: {
         name: string;
         description?: string;
+        image_url?: string;
         time_of_day?: string;
         lighting_mood?: string;
     }) => {
@@ -2289,6 +2293,7 @@ export const crudApi = {
     createProp: async (scriptId: string, data: {
         name: string;
         description?: string;
+        image_url?: string;
     }) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/props`, data);
         return res.data;
