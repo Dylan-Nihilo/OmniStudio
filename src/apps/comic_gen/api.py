@@ -28,6 +28,7 @@ from typing import Optional, Dict, List, Any, Tuple, Literal
 import asyncio
 import time
 from contextvars import copy_context
+from copy import deepcopy
 from functools import partial
 import concurrent.futures
 import hashlib
@@ -318,8 +319,11 @@ def _asset_output_refs(item):
     container = pipeline.get_series(task["script_id"]) if task.get("is_series") else pipeline.get_script(task["script_id"])
     if not container:
         raise RuntimeError("asset generation project disappeared")
-    asset = next((candidate for values in (container.characters, container.scenes, container.props)
-                  for candidate in values if candidate.id == task["asset_id"]), None)
+    if task.get("is_series"):
+        asset = next((candidate for values in (container.characters, container.scenes, container.props)
+                      for candidate in values if candidate.id == task["asset_id"]), None)
+    else:
+        asset, _ = pipeline._find_asset_with_source(container, task["asset_id"], task["asset_type"])
     if asset is None:
         raise RuntimeError("generated asset disappeared")
     urls: list[str] = []
@@ -327,9 +331,9 @@ def _asset_output_refs(item):
         value = getattr(asset, field, None)
         if value and value not in urls:
             urls.append(value)
-    for field in ("image_asset", "full_body_asset", "three_view_asset", "headshot_asset"):
+    for field in ("image_asset", "full_body_asset", "three_view_asset", "headshot_asset", "reference_sheet", "full_body", "three_views", "head_shot"):
         value = getattr(asset, field, None)
-        for variant in getattr(value, "variants", []) if value else []:
+        for variant in (getattr(value, "variants", None) or getattr(value, "image_variants", [])) if value else []:
             url = getattr(variant, "url", None)
             if url and url not in urls:
                 urls.append(url)
@@ -343,9 +347,26 @@ def _dispatch_production_item(item):
     payload = item.payload
     kind = item.kind
     if kind == "asset":
-        pipeline.process_asset_generation_task(payload["legacy_task_id"])
+        legacy_id = payload["legacy_task_id"]
+        saved_task = payload.get("legacy_task") or pipeline.asset_generation_tasks.get(legacy_id)
+        if saved_task is None:
+            raise RuntimeError("原始任务参数已不可用，请重新生成素材")
+        if item.retry_of:
+            legacy_id = item.id
+        if legacy_id not in pipeline.asset_generation_tasks:
+            pipeline.asset_generation_tasks[legacy_id] = {**deepcopy(saved_task), "task_id": legacy_id, "status": "pending", "error": None, "progress": 0}
+        if payload["legacy_task_id"] != legacy_id:
+            item = _production_adapter().repository.update_item_payload(item.id, {**payload, "legacy_task_id": legacy_id, "legacy_task": deepcopy(saved_task)})
+            payload = item.payload
+        pipeline.process_asset_generation_task(legacy_id)
         return _asset_output_refs(item)
     if kind == "video":
+        if item.retry_of:
+            source_item = _production_adapter().repository.get_item(item.retry_of)
+            if source_item and payload["legacy_task_id"] == source_item.payload.get("legacy_task_id"):
+                retry, _ = pipeline.retry_video_task(item.project_id, payload["legacy_task_id"])
+                item = _production_adapter().repository.update_item_payload(item.id, {**payload, "legacy_task_id": retry.id})
+                payload = item.payload
         pipeline.process_video_task(item.project_id, payload["legacy_task_id"])
         script = pipeline.get_script(item.project_id)
         task = next((candidate for candidate in (script.video_tasks if script else [])
@@ -431,6 +452,8 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
                 break
     if not workspace_id:
         return None
+    if kind == "asset" and payload.get("legacy_task_id"):
+        payload = {**payload, "legacy_task": deepcopy(pipeline.asset_generation_tasks.get(payload["legacy_task_id"]))}
     return _production_adapter().create(kind, workspace_id, project_id, episode_id, payload, idempotency_key)
 
 
@@ -4220,11 +4243,15 @@ def cancel_task(job_id: str, request: Request):
 
 
 @app.post("/tasks/{job_id}/retry")
-def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest] = None):
+def retry_task(job_id: str, request: Request, background_tasks: BackgroundTasks, payload: Optional[RetryTaskRequest] = None):
     """Create idempotent pending retry items for failed items."""
     context = _task_context(request)
     repository = _task_repository(request)
     body = payload or RetryTaskRequest()
+    before = repository.get_job(context.workspace.id, job_id)
+    if before and any(item.status == "failed" and (not body.item_ids or item.id in body.item_ids)
+                      and item.kind not in ProductionJobAdapter.SUPPORTED_KINDS for item in before.items):
+        raise TaskAPIError("TASK_RETRY_UNAVAILABLE", "该任务请在原页面重试", status_code=409)
     job = repository.retry_failed_items(
         context.workspace.id,
         job_id,
@@ -4241,6 +4268,9 @@ def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest
         object_id=job_id,
         metadata={"item_ids": body.item_ids or []},
     )
+    for item in job.items:
+        if item.status == "pending" and item.retry_of and (not body.item_ids or item.retry_of in body.item_ids):
+            background_tasks.add_task(_context_call(_start_production_item, item.id))
     return _task_payload(job)
 
 

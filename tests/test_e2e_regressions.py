@@ -80,3 +80,65 @@ def test_project_writes_return_inherited_assets_without_copying_them_into_episod
     assert fresh["props"][0]["source"] == "global"
     stored = api_module.pipeline.repository.load_scripts()[project["id"]]
     assert stored.characters == [] and stored.props == []
+
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_task_center_retry_executes_saved_asset_inputs_once_and_keeps_failure_history(api_client, restart):
+    project = _create_project(api_client, "Retry cast")
+    route = f"/projects/{project['id']}"
+    character = api_client.post(route + "/characters", json={"name": "阿岚"}).json()["characters"][0]
+    calls = []
+    def provider(character, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise TimeoutError("Temporary provider failure")
+        character.reference_sheet = AssetUnit(selected_image_id="ref", image_variants=[ImageVariant(id="ref", url="assets/characters/retry.png")])
+    api_module.pipeline.asset_generator.generate_character.side_effect = provider
+    started = api_client.post(route + "/assets/generate", json={"asset_id": character["id"], "asset_type": "character", "generation_type": "reference_sheet", "model_name": "wan2.7-image-pro", "prompt": "Night watch", "batch_size": 1})
+    assert started.status_code == 200, started.text
+    repository = JobRepository(api_module.pipeline.storage_engine)
+    original = repository.get_item(started.json()["_job_item_id"])
+    assert original.status == "failed"
+    if restart:
+        api_module.pipeline.asset_generation_tasks.clear()
+    retry = api_client.post(f"/tasks/{original.job_id}/retry", json={"item_ids": [original.id], "idempotency_key": "recover-once"})
+    assert retry.status_code == 200, retry.text
+    job = api_client.get(f"/tasks/{original.job_id}").json()["job"]
+    child = next(item for item in job["items"] if item["retry_of"] == original.id)
+    assert child["status"] == "succeeded", child
+    assert child["media_refs"][0]["uri"] == "assets/characters/retry.png"
+    repeated = api_client.post(f"/tasks/{original.job_id}/retry", json={"item_ids": [original.id], "idempotency_key": "recover-once"})
+    assert repeated.status_code == 200
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert repository.get_item(original.id).status == "failed"
+
+
+def test_task_center_video_retry_creates_a_new_take_from_saved_inputs_and_adopts_it(api_client):
+    project = _create_project(api_client, "Retry video")
+    route = f"/projects/{project['id']}"
+    frame = api_client.post(route + "/frames", json={"action_description": "Current edited prompt"}).json()["frames"][0]
+    script = api_module.pipeline.scripts[project["id"]]
+    script.video_tasks = [VideoTask(id="failed-take", project_id=script.id, frame_id=frame["id"], image_url="", prompt="Saved original prompt", status="failed", model="wan2.6-t2v", resolution="720p", duration=5)]
+    api_module.pipeline._save_data()
+    adapter = api_module._production_adapter()
+    workspace = api_client.get("/auth/me").json()["workspace"]["id"]
+    item = adapter.create("video", workspace, script.id, None, {"legacy_task_id": "failed-take"}, "failed-video")
+    adapter.repository.transition_item(item.id, "processing")
+    adapter.repository.transition_item(item.id, "failed", error={"code": "TIMEOUT", "message": "timeout"})
+    calls = []
+    def provider(**kwargs):
+        calls.append(kwargs)
+        Path(kwargs["output_path"]).write_bytes(b"video-fixture")
+        return kwargs["output_path"], None
+    api_module.pipeline.video_generator.model.generate.side_effect = provider
+    for _ in range(2):
+        response = api_client.post(f"/tasks/{item.job_id}/retry", json={"item_ids": [item.id], "idempotency_key": "retry-video-once"})
+        assert response.status_code == 200, response.text
+    saved = api_client.get(route).json()
+    take = next(take for take in saved["video_tasks"] if take["retry_of_task_id"] == "failed-take")
+    assert take["status"] == "completed", take
+    assert saved["frames"][0]["selected_video_id"] == take["id"]
+    assert len(calls) == 1
+    assert calls[0]["prompt"] == "Saved original prompt"
+    assert calls[0]["resolution"] == "720p"
+    assert adapter.repository.get_item(item.id).status == "failed"
