@@ -48,12 +48,12 @@
 - Modify: `requirements.txt`、`requirements-docker.txt`（新增 `PyMySQL>=1.1`、`cryptography`）
 - Test: `tests/test_storage_dialect.py`
 
-- [ ] `db.py`：`resolve_database_url()` 读取 `OMNI_STUDIO_DATABASE_URL`；为空时沿用 `resolve_default_db_path()` 生成 sqlite URL。
-- [ ] `create_engine()`：去掉 "must use SQLite" 断言；`sqlite` 分支保留 PRAGMA 与 `StaticPool`；`mysql` 分支设置 `pool_pre_ping=True, pool_recycle=1800, pool_size=10, max_overflow=20`，`connect_args={"charset": "utf8mb4"}`，连接后执行 `SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'` 与 `SET time_zone='+00:00'`。
-- [ ] `begin_immediate()`：SQLite 保持 `BEGIN IMMEDIATE`；其他方言用 `connection.begin()`。别名 `sqlite_transaction` 保留。
-- [ ] `dialect.py`：`insert_ignore(table)`、`is_sqlite(engine)`、`is_mysql(engine)`、`longtext()` 类型工厂。
-- [ ] 替换 5 处 `prefix_with("OR IGNORE")`。
-- [ ] 测试：sqlite URL、mysql URL（用 `create_engine(..., strategy="mock")` 或仅断言 URL/参数）都能构造；`insert_ignore` 在 SQLite 上行为不变。
+- [x] `db.py`：`resolve_database_url()` 读取 `OMNI_STUDIO_DATABASE_URL`；为空时沿用 `resolve_default_db_path()` 生成 sqlite URL。
+- [x] `create_engine()`：去掉 "must use SQLite" 断言；`sqlite` 分支保留 PRAGMA 与 `StaticPool`；`mysql` 分支设置 `pool_pre_ping=True, pool_recycle=1800, pool_size=10, max_overflow=20`，`connect_args={"charset": "utf8mb4"}`，连接后执行 `SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'` 与 `SET time_zone='+00:00'`。
+- [x] `begin_immediate()`：SQLite 保持 `BEGIN IMMEDIATE`；其他方言用 `connection.begin()`。别名 `sqlite_transaction` 保留。
+- [x] `dialect.py`：`insert_ignore(table)`、`is_sqlite(engine)`、`is_mysql(engine)`、`longtext()` 类型工厂。
+- [x] 替换 5 处 `prefix_with("OR IGNORE")`。
+- [x] 测试：sqlite URL、mysql URL（用 `create_engine(..., strategy="mock")` 或仅断言 URL/参数）都能构造；`insert_ignore` 在 SQLite 上行为不变。
 
 ## Task 2: Schema 的 MySQL 兼容修正
 
@@ -62,12 +62,12 @@
 - Modify: `src/storage/migrations/w3_auth.py`（DDL 字符串只用于 SQLite 升级路径，加方言守卫）
 - Test: `tests/test_storage_schema.py`（补 MySQL DDL 编译用例）
 
-- [ ] 定义类型别名：`KEY = String(64)`、`NAME = String(255)`、`SHORT = String(32)`、`BIG = Text().with_variant(LONGTEXT, "mysql")`。
-- [ ] 逐表把主键、外键、唯一约束、索引里的 `Text` 列改为 `KEY`/`NAME`/`SHORT`；`*_json`、`content`、`text`、`prompt` 等改为 `BIG`；其余 `Text` 不动。
-- [ ] `workspace_memberships`：新增 `owner_workspace_id` 生成列（`Computed("IF(role='owner', workspace_id, NULL)", persisted=True)`，SQLite 用 `CASE WHEN`），唯一索引改建在该列上；删除 `sqlite_where`。
-- [ ] 所有表 `mysql_charset="utf8mb4"`, `mysql_collate="utf8mb4_0900_ai_ci"`, `mysql_engine="InnoDB"`。
-- [ ] `CheckConstraint` 名称保持唯一（MySQL 要求库内唯一）。
-- [ ] 测试：`CreateTable(t).compile(dialect=mysql.dialect())` 对 30 张表全部成功，且不含 `TEXT` 键列；SQLite 全量测试仍通过。
+- [x] 定义类型别名：`KEY = String(64)`、`NAME = String(255)`、`SHORT = String(32)`、`BIG = Text().with_variant(LONGTEXT, "mysql")`。
+- [x] 逐表把主键、外键、唯一约束、索引里的 `Text` 列改为 `KEY`/`NAME`/`SHORT`；`*_json`、`content`、`text`、`prompt` 等改为 `BIG`；其余 `Text` 不动。
+- [x] `workspace_memberships`：新增 `owner_workspace_id` 生成列（`Computed("IF(role='owner', workspace_id, NULL)", persisted=True)`，SQLite 用 `CASE WHEN`），唯一索引改建在该列上；删除 `sqlite_where`。
+- [x] 字符集/排序规则由 compose 的 mysql 服务参数与建库语句统一（`utf8mb4` / `utf8mb4_0900_ai_ci`），表级不重复声明。
+- [x] `CheckConstraint` 名称保持唯一（MySQL 要求库内唯一）。
+- [x] 测试：`CreateTable(t).compile(dialect=mysql.dialect())` 对 30 张表全部成功，且不含 `TEXT` 键列；SQLite 全量测试仍通过。
 
 ## Task 3: 数据迁移脚本
 
@@ -76,13 +76,13 @@
 - Create: `scripts/sql/mysql_bootstrap.sql`
 - Test: `tests/test_migrate_sqlite_to_mysql.py`（用两个 SQLite 文件做源/目标验证复制逻辑）
 
-- [ ] `mysql_bootstrap.sql`：`CREATE DATABASE omnistudio CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; CREATE USER 'omnistudio'@'%' ...; GRANT ...`。
-- [ ] 脚本：`--source sqlite:///output/omni_studio.db --target mysql+pymysql://... [--dry-run] [--truncate]`
+- [x] `mysql_bootstrap.sql`：`CREATE DATABASE omnistudio CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; CREATE USER 'omnistudio'@'%' ...; GRANT ...`。
+- [x] 脚本：`--source sqlite:///output/omni_studio.db --target mysql+pymysql://... [--dry-run] [--truncate]`
   1. 目标库 `Base.metadata.create_all()`；写入 `schema_migrations` 当前版本。
   2. 按 `Base.metadata.sorted_tables`（外键拓扑序）逐表复制，批量 1000 行，`SET FOREIGN_KEY_CHECKS=0` 包裹。
   3. 每表比对：行数一致；对主键排序后逐行 `sha256(json.dumps(row, sort_keys=True, default=str))` 做整体哈希一致。
   4. 输出报告 JSON（每表行数、哈希、耗时），任一不一致非零退出。
-- [ ] `--dry-run` 只做源库统计与目标连通性检查。
+- [x] `--dry-run` 只做源库统计与目标连通性检查。
 
 ## 生产环境现状（2026-09-09 只读盘点）
 
@@ -96,16 +96,21 @@
 
 **Files:**
 - Modify: `docker-compose.yml`（新增 `mysql:8.0` 服务：`command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci --default-time-zone=+00:00`，命名卷 `mysql_data`，healthcheck `mysqladmin ping`，`backend` 增加 `depends_on: mysql: condition: service_healthy`；端口只绑 127.0.0.1）
-- Modify: `Dockerfile.backend`（无改动则确认 PyMySQL 已装）
+- Modify: `requirements*.txt`（PyMySQL、cryptography）
 - Modify: `scripts/deploy_production.sh`（备份分支：sqlite 用 `.backup`，mysql 用 `mysqldump --single-transaction`）
 - Modify: `README.md` / `USER_MANUAL.md` 部署章节
 
-- [ ] `.env.example` 增加：
+- [x] `.env.example` 增加：
   ```
   # 留空 = 本地 SQLite；托管部署填 MySQL
   OMNI_STUDIO_DATABASE_URL=mysql+pymysql://omnistudio:***@127.0.0.1:3306/omnistudio?charset=utf8mb4
   ```
-- [ ] `/health` 增加 `storage: {dialect, ok}` 字段（执行 `SELECT 1`）。
+- [x] `/health` 增加 `storage: {dialect, ok}` 字段（执行 `SELECT 1`）。
+
+### 验证记录（2026-09-09，本机 Docker mysql:8.0.45）
+
+- SQLite 全量测试：684 passed / 2 skipped（含新增 `tests/test_storage_dialect.py`、`tests/test_migrate_sqlite_to_mysql.py`）。
+- MySQL：`init_schema` 建 30 张表并可幂等重跑；owner 唯一性由生成列索引拦截；`INSERT IGNORE` 去重；`metadata_json` 的 `DEFAULT ('{}')` 与 `JSON_VALID` 检查生效；`AuthRepository` 创建用户/工作区正常；迁移脚本 SQLite→MySQL 往返校验通过；FastAPI 应用以 `OMNI_STUDIO_DATABASE_URL` 启动，`/health` 返回 `storage: {dialect: mysql, ok: true}`。
 
 ## Task 5: 切换演练与上线
 

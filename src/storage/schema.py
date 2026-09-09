@@ -9,14 +9,32 @@ from __future__ import annotations
 
 from sqlalchemy import (
     CheckConstraint,
+    DDL,
     REAL,
     ForeignKey,
     Index,
     Integer,
+    String,
     Text,
     UniqueConstraint,
+    event,
+    text,
 )
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# Column type vocabulary shared by SQLite (desktop/local) and MySQL 8 (hosted).
+# SQLite ignores VARCHAR lengths, so these only constrain MySQL, where TEXT columns
+# cannot carry an index, a plain DEFAULT, or a foreign key.
+KEY = String(64)       # uuid / sha256 / short enum used as PK, FK, unique or indexed column
+NAME = String(255)     # human-readable identifiers used in keys (titles, slugs, normalized emails)
+LABEL = String(64)     # short status/role/mode values that carry a server default
+BIG = Text().with_variant(LONGTEXT(), "mysql")   # JSON blobs and free text without a 64 KB ceiling
+
+
+def text_default(value: str):
+    """Server default usable on BIG columns: MySQL 8.0.13+ and SQLite both accept ``DEFAULT ('...')``."""
+    return text("('" + value.replace("'", "''") + "')")
 
 
 class Base(DeclarativeBase):
@@ -26,22 +44,22 @@ class Base(DeclarativeBase):
 class SchemaMigration(Base):
     __tablename__ = "schema_migrations"
 
-    version: Mapped[str] = mapped_column(Text, primary_key=True)
+    version: Mapped[str] = mapped_column(KEY, primary_key=True)
     applied_at: Mapped[float] = mapped_column(REAL, nullable=False)
     checksum: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(BIG, nullable=False)
 
 
 class MigrationRun(Base):
     __tablename__ = "migration_runs"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    migration_name: Mapped[str] = mapped_column(Text, nullable=False)
-    source_name: Mapped[str] = mapped_column(Text, nullable=False)
-    source_path: Mapped[str] = mapped_column(Text, nullable=False)
-    source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
+    migration_name: Mapped[str] = mapped_column(NAME, nullable=False)
+    source_name: Mapped[str] = mapped_column(NAME, nullable=False)
+    source_path: Mapped[str] = mapped_column(BIG, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(KEY, nullable=False)
     mode: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         nullable=False,
     )
     status: Mapped[str] = mapped_column(Text, nullable=False)
@@ -49,7 +67,7 @@ class MigrationRun(Base):
     rows_inserted: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     rows_updated: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_text: Mapped[str | None] = mapped_column(BIG, nullable=True)
     started_at: Mapped[float] = mapped_column(REAL, nullable=False)
     completed_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
 
@@ -73,25 +91,25 @@ class MigrationRun(Base):
 class LegacyClaimBatch(Base):
     __tablename__ = "legacy_claim_batches"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     user_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    source_sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    source_manifest_json: Mapped[str] = mapped_column(Text, nullable=False)
-    mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(KEY, nullable=False)
+    source_manifest_json: Mapped[str] = mapped_column(BIG, nullable=False)
+    mapping_json: Mapped[str] = mapped_column(BIG, nullable=False)
     project_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     series_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     media_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     conflict_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    status: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(KEY, nullable=False)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     completed_at: Mapped[float] = mapped_column(REAL, nullable=False)
     rolled_back_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
@@ -111,19 +129,19 @@ class LegacyClaimBatch(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     username: Mapped[str] = mapped_column(Text, nullable=False)
-    username_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    username_normalized: Mapped[str] = mapped_column(NAME, nullable=False)
     email: Mapped[str] = mapped_column(Text, nullable=False)
-    email_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    email_normalized: Mapped[str] = mapped_column(NAME, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
     metadata_json: Mapped[str] = mapped_column(
-        Text,
+        BIG,
         nullable=False,
-        server_default="{}",
+        server_default=text_default("{}"),
     )
 
     __table_args__ = (
@@ -144,20 +162,20 @@ class User(Base):
 class Workspace(Base):
     __tablename__ = "workspaces"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     owner_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    slug: Mapped[str | None] = mapped_column(Text, nullable=True)
+    slug: Mapped[str | None] = mapped_column(NAME, nullable=True)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
     metadata_json: Mapped[str] = mapped_column(
-        Text,
+        BIG,
         nullable=False,
-        server_default="{}",
+        server_default=text_default("{}"),
     )
 
     __table_args__ = (
@@ -171,19 +189,19 @@ class WorkspaceMembership(Base):
     __tablename__ = "workspace_memberships"
 
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         primary_key=True,
     )
     user_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)
-    access_role: Mapped[str] = mapped_column(Text, nullable=False, server_default="member")
+    access_role: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="member")
     invited_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -192,23 +210,44 @@ class WorkspaceMembership(Base):
     __table_args__ = (
         CheckConstraint("role IN ('owner', 'member')", name="ck_workspace_memberships_role"),
         Index("ix_workspace_memberships_user", "user_id", "workspace_id"),
-        Index("uq_workspace_memberships_owner", "workspace_id", unique=True, sqlite_where=(role == "owner")),
     )
+
+
+# One owner per workspace. SQLite expresses this as a partial unique index; MySQL has no
+# partial indexes, so it gets a virtual generated column that is NULL for non-owners
+# (NULLs never collide in a UNIQUE index) plus a unique index on that column.
+event.listen(
+    WorkspaceMembership.__table__,
+    "after_create",
+    DDL(
+        "CREATE UNIQUE INDEX uq_workspace_memberships_owner "
+        "ON workspace_memberships (workspace_id) WHERE role = 'owner'"
+    ).execute_if(dialect="sqlite"),
+)
+event.listen(
+    WorkspaceMembership.__table__,
+    "after_create",
+    DDL(
+        "ALTER TABLE workspace_memberships ADD COLUMN owner_workspace_id VARCHAR(64) "
+        "GENERATED ALWAYS AS (CASE WHEN role = 'owner' THEN workspace_id ELSE NULL END) VIRTUAL, "
+        "ADD UNIQUE INDEX uq_workspace_memberships_owner (owner_workspace_id)"
+    ).execute_if(dialect="mysql"),
+)
 
 
 class WorkspaceInvitation(Base):
     __tablename__ = "workspace_invitations"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    email_normalized: Mapped[str] = mapped_column(Text, nullable=False)
-    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    email_normalized: Mapped[str] = mapped_column(NAME, nullable=False)
+    token_hash: Mapped[str] = mapped_column(KEY, nullable=False, unique=True)
     invited_by_user_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -216,12 +255,12 @@ class WorkspaceInvitation(Base):
     expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
     accepted_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
     accepted_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     revoked_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
-    access_role: Mapped[str] = mapped_column(Text, nullable=False, server_default="member")
+    access_role: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="member")
 
     __table_args__ = (
         CheckConstraint("expires_at > created_at", name="ck_workspace_invitations_expiry"),
@@ -234,13 +273,13 @@ class WorkspaceProviderConfig(Base):
     __tablename__ = "workspace_provider_configs"
 
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    config_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    config_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     updated_by_user_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -254,20 +293,20 @@ class WorkspaceProviderConfig(Base):
 class Session(Base):
     __tablename__ = "sessions"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     user_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    refresh_token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token_hash: Mapped[str] = mapped_column(KEY, nullable=False)
     rotation_counter: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     last_used_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
     revoked_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
     revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(BIG, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
@@ -292,21 +331,21 @@ class AuditEvent(Base):
 
     __tablename__ = "audit_events"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     actor_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     action: Mapped[str] = mapped_column(Text, nullable=False)
-    object_type: Mapped[str] = mapped_column(Text, nullable=False)
-    object_id: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    object_type: Mapped[str] = mapped_column(NAME, nullable=False)
+    object_id: Mapped[str] = mapped_column(NAME, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
     __table_args__ = (
@@ -319,22 +358,22 @@ class AuditEvent(Base):
 class Project(Base):
     __tablename__ = "projects"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="SET NULL"),
         nullable=True,
     )
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="standalone")
-    legacy_series_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str] = mapped_column(NAME, nullable=False)
+    description: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default(""))
+    mode: Mapped[str] = mapped_column(KEY, nullable=False, server_default="standalone")
+    legacy_series_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
     metadata_json: Mapped[str] = mapped_column(
-        Text,
+        BIG,
         nullable=False,
-        server_default="{}",
+        server_default=text_default("{}"),
     )
 
     __table_args__ = (
@@ -349,16 +388,16 @@ class Project(Base):
 class Series(Base):
     __tablename__ = "series"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("projects.id", ondelete="RESTRICT"),
         nullable=False,
         unique=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default(""))
+    payload_json: Mapped[str] = mapped_column(BIG, nullable=False)
     payload_schema_version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -376,26 +415,26 @@ class Series(Base):
 class Episode(Base):
     __tablename__ = "episodes"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     project_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
     series_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("series.id", ondelete="SET NULL"),
         nullable=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     episode_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    status: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="draft")
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
     metadata_json: Mapped[str] = mapped_column(
-        Text,
+        BIG,
         nullable=False,
-        server_default="{}",
+        server_default=text_default("{}"),
     )
 
     __table_args__ = (
@@ -411,18 +450,18 @@ class SourceDocument(Base):
 
     __tablename__ = "source_documents"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="text")
+    source_type: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="text")
     original_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
-    encoding: Mapped[str] = mapped_column(Text, nullable=False, server_default="utf-8")
-    summary: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    encoding: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="utf-8")
+    summary: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default(""))
+    metadata_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
@@ -442,16 +481,16 @@ class SourceChapter(Base):
 
     __tablename__ = "source_chapters"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     current_revision_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_revisions.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -471,26 +510,26 @@ class SourceRevision(Base):
 
     __tablename__ = "source_revisions"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     chapter_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_chapters.id", ondelete="CASCADE"),
         nullable=False,
     )
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(BIG, nullable=False)
     content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    metadata_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
     __table_args__ = (
@@ -509,38 +548,38 @@ class SourceRevisionImpact(Base):
 
     __tablename__ = "source_revision_impacts"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     chapter_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_chapters.id", ondelete="CASCADE"),
         nullable=False,
     )
     revision_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_revisions.id", ondelete="CASCADE"),
         nullable=False,
     )
     previous_revision_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_revisions.id", ondelete="SET NULL"),
         nullable=True,
     )
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
     previous_revision_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     change_type: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="open")
+    status: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="open")
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -571,33 +610,33 @@ class SourceImpactTarget(Base):
 
     __tablename__ = "source_impact_targets"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     impact_event_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_revision_impacts.id", ondelete="CASCADE"),
         nullable=False,
     )
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     chapter_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_chapters.id", ondelete="CASCADE"),
         nullable=False,
     )
-    target_type: Mapped[str] = mapped_column(Text, nullable=False)
-    target_id: Mapped[str] = mapped_column(Text, nullable=False)
-    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    target_stage: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="needs_review")
-    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    target_type: Mapped[str] = mapped_column(KEY, nullable=False)
+    target_id: Mapped[str] = mapped_column(NAME, nullable=False)
+    episode_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    target_stage: Mapped[str] = mapped_column(KEY, nullable=False)
+    status: Mapped[str] = mapped_column(KEY, nullable=False, server_default="needs_review")
+    metadata_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
     __table_args__ = (
@@ -632,17 +671,17 @@ class SourceEpisodeLink(Base):
     __tablename__ = "source_episode_links"
 
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         primary_key=True,
     )
     episode_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("episodes.id", ondelete="CASCADE"),
         primary_key=True,
     )
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -659,9 +698,9 @@ class SourceImportPreview(Base):
 
     __tablename__ = "source_import_previews"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -669,18 +708,18 @@ class SourceImportPreview(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     original_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
     encoding: Mapped[str] = mapped_column(Text, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(BIG, nullable=False)
     content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    summary: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="previewing")
+    summary: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default(""))
+    proposals_json: Mapped[str] = mapped_column(BIG, nullable=False)
+    status: Mapped[str] = mapped_column(KEY, nullable=False, server_default="previewing")
     source_document_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="SET NULL"),
         nullable=True,
     )
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -710,27 +749,27 @@ class SourceEpisodeSplitPreview(Base):
 
     __tablename__ = "source_episode_split_previews"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(BIG, nullable=False)
     content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     suggested_episodes: Mapped[int] = mapped_column(Integer, nullable=False)
-    proposals_json: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="previewing")
+    proposals_json: Mapped[str] = mapped_column(BIG, nullable=False)
+    status: Mapped[str] = mapped_column(KEY, nullable=False, server_default="previewing")
     series_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    episode_ids_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    episode_ids_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("[]"))
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -758,37 +797,37 @@ class SourceChapterAnalysis(Base):
 
     __tablename__ = "source_chapter_analyses"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     chapter_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_chapters.id", ondelete="CASCADE"),
         nullable=False,
     )
     revision_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_revisions.id", ondelete="CASCADE"),
         nullable=False,
     )
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
     content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    events_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    status: Mapped[str] = mapped_column(KEY, nullable=False)
+    events_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("[]"))
     error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(BIG, nullable=True)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     retry_of: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -816,25 +855,25 @@ class SourceAnalysisBatch(Base):
 
     __tablename__ = "source_analysis_batches"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="processing")
-    requested_chapter_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(LABEL, nullable=False, server_default="processing")
+    requested_chapter_ids_json: Mapped[str] = mapped_column(BIG, nullable=False)
     total: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     succeeded: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_by_user_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -858,37 +897,37 @@ class SourceAnalysisBatchItem(Base):
 
     __tablename__ = "source_analysis_batch_items"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     batch_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_analysis_batches.id", ondelete="CASCADE"),
         nullable=False,
     )
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     source_document_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_documents.id", ondelete="CASCADE"),
         nullable=False,
     )
     chapter_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_chapters.id", ondelete="CASCADE"),
         nullable=False,
     )
     analysis_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("source_chapter_analyses.id", ondelete="SET NULL"),
         nullable=True,
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    status: Mapped[str] = mapped_column(KEY, nullable=False, server_default="pending")
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(BIG, nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(BIG, nullable=True)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
@@ -907,15 +946,15 @@ class SourceAnalysisBatchItem(Base):
 class Script(Base):
     __tablename__ = "scripts"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     episode_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("episodes.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
     )
-    original_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    original_text: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default(""))
+    payload_json: Mapped[str] = mapped_column(BIG, nullable=False)
     payload_schema_version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -937,22 +976,22 @@ class ScriptEditLease(Base):
     __tablename__ = "script_edit_leases"
 
     script_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("scripts.id", ondelete="CASCADE"),
         primary_key=True,
     )
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     holder_user_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     client_instance_id: Mapped[str] = mapped_column(Text, nullable=False)
-    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(KEY, nullable=False, unique=True)
     acquired_at: Mapped[float] = mapped_column(REAL, nullable=False)
     heartbeat_at: Mapped[float] = mapped_column(REAL, nullable=False)
     expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -969,18 +1008,18 @@ class DirectorPlan(Base):
 
     __tablename__ = "director_plans"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
-    scope: Mapped[str] = mapped_column(Text, nullable=False)
-    scope_id: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str] = mapped_column(KEY, nullable=False)
+    scope_id: Mapped[str] = mapped_column(NAME, nullable=False)
     project_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
     shot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    payload_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
@@ -997,24 +1036,24 @@ class DirectorPlan(Base):
 class Job(Base):
     __tablename__ = "jobs"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     project_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,
     )
     episode_id: Mapped[str | None] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("episodes.id", ondelete="SET NULL"),
         nullable=True,
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    metadata_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
@@ -1028,28 +1067,28 @@ class Job(Base):
 class JobItem(Base):
     __tablename__ = "job_items"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     job_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("jobs.id", ondelete="CASCADE"),
         nullable=False,
     )
     workspace_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
     )
     project_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     episode_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     kind: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    status: Mapped[str] = mapped_column(KEY, nullable=False, server_default="pending")
     progress: Mapped[float] = mapped_column(REAL, nullable=False, server_default="0")
-    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(NAME, nullable=False)
     retry_of: Mapped[str | None] = mapped_column(Text, nullable=True)
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
-    media_refs_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="[]")
+    payload_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
+    media_refs_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("[]"))
     error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(BIG, nullable=True)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
     started_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
@@ -1072,9 +1111,9 @@ class JobItem(Base):
 class JobItemEvent(Base):
     __tablename__ = "job_item_events"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
     item_id: Mapped[str] = mapped_column(
-        Text,
+        KEY,
         ForeignKey("job_items.id", ondelete="CASCADE"),
         nullable=False,
     )
