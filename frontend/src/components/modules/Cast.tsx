@@ -20,7 +20,7 @@
  */
 import { SelectField } from "@omnistudio/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Users, MapPin, Box, AlertTriangle, Sparkles, Plus, Upload, X, Loader2, Play, Pause, Volume2, Wand2, Layers, Maximize2 } from "lucide-react";
+import { Users, MapPin, Box, AlertTriangle, Sparkles, Plus, Upload, X, Loader2, Play, Pause, Volume2, Wand2, Layers, Maximize2, Lock, Unlock } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
 import { api, crudApi } from "@/lib/api";
@@ -41,6 +41,7 @@ interface CastItem {
     appearances: number;            // 出场次数（在多少 frame 中被引用）
     referenceImageUrl?: string;     // 参考图（优先 reference_sheet → full_body fallback）
     status: "ready" | "pending" | "new";
+    locked: boolean;
     persona?: string;               // R2V v2 P1-a — characters only; groups visual variants of same person
 }
 
@@ -97,6 +98,12 @@ export default function Cast() {
     // PR-3* · Cast redesign — tab filter + workbench launcher.
     const [activeTab, setActiveTab] = useState<"all" | "character" | "scene" | "prop">("all");
     const [workbench, setWorkbench] = useState<{ kind: "character" | "scene" | "prop"; entityId: string } | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Record<AssetKind, Set<string>>>({
+        character: new Set(),
+        scene: new Set(),
+        prop: new Set(),
+    });
+    const [batchUpdating, setBatchUpdating] = useState(false);
 
     const removeGeneratingTask = useProjectStore((s) => s.removeGeneratingTask);
     const generatingTasks = useProjectStore((s) => s.generatingTasks);
@@ -147,6 +154,7 @@ export default function Cast() {
                 appearances: characterCounts.get(c.id) ?? 0,
                 referenceImageUrl: imageUrl,
                 status: (imageUrl ? "ready" : "pending") as "ready" | "pending",
+                locked: Boolean(c.locked),
                 persona: c.persona ?? "",
             };
         }).sort((a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name));
@@ -160,6 +168,7 @@ export default function Cast() {
                 appearances: sceneCounts.get(s.id) ?? 0,
                 referenceImageUrl: imageUrl,
                 status: (imageUrl ? "ready" : "pending") as "ready" | "pending",
+                locked: Boolean(s.locked),
             };
         }).sort((a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name));
 
@@ -172,6 +181,7 @@ export default function Cast() {
                 appearances: propCounts.get(p.id) ?? 0,
                 referenceImageUrl: imageUrl,
                 status: (imageUrl ? "ready" : "pending") as "ready" | "pending",
+                locked: Boolean(p.locked),
             };
         }).sort((a, b) => b.appearances - a.appearances || a.name.localeCompare(b.name));
 
@@ -179,6 +189,31 @@ export default function Cast() {
     }, [currentProject?.frames, currentProject?.characters, currentProject?.scenes, currentProject?.props]);
 
     const totalCast = characters.length + scenes.length + props.length;
+    const selectedCount = Object.values(selectedIds).reduce((count, ids) => count + ids.size, 0);
+    const qualityReady = [...characters, ...scenes, ...props].filter(item => item.status === "ready").length;
+
+    const toggleSelected = (kind: AssetKind, id: string) => {
+        setSelectedIds(current => {
+            const next = new Set(current[kind]);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return { ...current, [kind]: next };
+        });
+    };
+
+    const applyBatchLock = async (locked: boolean) => {
+        if (!currentProject?.series_id || selectedCount === 0) return;
+        setBatchUpdating(true);
+        try {
+            for (const kind of ["character", "scene", "prop"] as const) {
+                const ids = Array.from(selectedIds[kind]);
+                if (ids.length) await api.toggleSeriesAssetLockBatch(currentProject.series_id, kind, ids, locked);
+            }
+            setSelectedIds({ character: new Set(), scene: new Set(), prop: new Set() });
+            await useProjectStore.getState().selectProject(currentProject.id);
+        } finally {
+            setBatchUpdating(false);
+        }
+    };
 
     return (
         <div className="flex h-full w-full flex-col overflow-hidden">
@@ -197,6 +232,12 @@ export default function Cast() {
                     </>
                 ) : null}
             />
+            {totalCast > 0 && (
+                <div className="shrink-0 flex flex-wrap items-center gap-2 px-7 pb-3 text-[0.6875rem] font-mono text-text-muted bg-surface">
+                    <span>{t("qualityReady", { ready: qualityReady, total: totalCast })}</span>
+                    {selectedCount > 0 && <span className="text-primary">{t("selectedCount", { count: selectedCount })}</span>}
+                </div>
+            )}
 
             {/* Empty state — no entities extracted yet */}
             {totalCast === 0 ? (
@@ -252,6 +293,19 @@ export default function Cast() {
                                 )}
                             </button>
                         ))}
+                        {selectedCount > 0 && (
+                            <div className="ml-auto flex items-center gap-1.5 pb-2">
+                                <WorkflowActionButton variant="ghost" size="sm" leftIcon={<Lock size={12} />} loading={batchUpdating} onClick={() => applyBatchLock(true)}>
+                                    {t("batchLock")}
+                                </WorkflowActionButton>
+                                <WorkflowActionButton variant="ghost" size="sm" leftIcon={<Unlock size={12} />} loading={batchUpdating} onClick={() => applyBatchLock(false)}>
+                                    {t("batchUnlock")}
+                                </WorkflowActionButton>
+                                <button type="button" className="px-2 text-[0.6875rem] text-text-muted hover:text-foreground" onClick={() => setSelectedIds({ character: new Set(), scene: new Set(), prop: new Set() })}>
+                                    {t("clearSelection")}
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto bg-surface px-8 py-6 space-y-10 custom-scrollbar">
@@ -266,6 +320,8 @@ export default function Cast() {
                                 addLabel={t("addCharacter")}
                                 groupByPersona
                                 onOpenWorkbench={(id) => setWorkbench({ kind: "character", entityId: id })}
+                                selectedIds={selectedIds.character}
+                                onToggleSelect={(id) => toggleSelected("character", id)}
                                 hideHeader={activeTab === "character"}
                             />
                         )}
@@ -279,6 +335,8 @@ export default function Cast() {
                                 onAddNew={() => setAddModalOpen("scene")}
                                 addLabel={t("addScene")}
                                 onOpenWorkbench={(id) => setWorkbench({ kind: "scene", entityId: id })}
+                                selectedIds={selectedIds.scene}
+                                onToggleSelect={(id) => toggleSelected("scene", id)}
                                 hideHeader={activeTab === "scene"}
                             />
                         )}
@@ -292,6 +350,8 @@ export default function Cast() {
                                 onAddNew={() => setAddModalOpen("prop")}
                                 addLabel={t("addProp")}
                                 onOpenWorkbench={(id) => setWorkbench({ kind: "prop", entityId: id })}
+                                selectedIds={selectedIds.prop}
+                                onToggleSelect={(id) => toggleSelected("prop", id)}
                                 hideHeader={activeTab === "prop"}
                             />
                         )}
@@ -671,12 +731,14 @@ interface CastSectionProps {
     /** Cast redesign — clicking a card (or its empty CTA) launches the
      *  per-entity generation workbench in the parent. */
     onOpenWorkbench?: (entityId: string) => void;
+    selectedIds: Set<string>;
+    onToggleSelect: (id: string) => void;
     /** When the parent's tab filter is already focused on this kind,
      *  the section's own header becomes redundant — hide it. */
     hideHeader?: boolean;
 }
 
-function CastSection({ kind, icon, title, items, emptyLabel, onAddNew, addLabel, groupByPersona, onOpenWorkbench, hideHeader }: CastSectionProps) {
+function CastSection({ kind, icon, title, items, emptyLabel, onAddNew, addLabel, groupByPersona, onOpenWorkbench, selectedIds, onToggleSelect, hideHeader }: CastSectionProps) {
     const t = useTranslations("cast");
     // R2V v2 P1-a — persona grouping (characters only)
     const groups = useMemo(() => {
@@ -762,21 +824,21 @@ function CastSection({ kind, icon, title, items, emptyLabel, onAddNew, addLabel,
                                 </div>
                             )}
                             <div className={`grid gap-3 ${gridCols}`}>
-                                {group.items.map(item => <CastCard key={item.id} item={item} onOpenWorkbench={() => onOpenWorkbench?.(item.id)} />)}
+                                {group.items.map(item => <CastCard key={item.id} item={item} selected={selectedIds.has(item.id)} onToggleSelect={() => onToggleSelect(item.id)} onOpenWorkbench={() => onOpenWorkbench?.(item.id)} />)}
                             </div>
                         </div>
                     ))}
                 </div>
             ) : (
                 <div className={`grid gap-3 ${gridCols}`}>
-                    {items.map(item => <CastCard key={item.id} item={item} onOpenWorkbench={() => onOpenWorkbench?.(item.id)} />)}
+                    {items.map(item => <CastCard key={item.id} item={item} selected={selectedIds.has(item.id)} onToggleSelect={() => onToggleSelect(item.id)} onOpenWorkbench={() => onOpenWorkbench?.(item.id)} />)}
                 </div>
             )}
         </section>
     );
 }
 
-function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?: () => void }) {
+function CastCard({ item, selected, onToggleSelect, onOpenWorkbench }: { item: CastItem; selected: boolean; onToggleSelect: () => void; onOpenWorkbench?: () => void }) {
     const t = useTranslations("cast");
     const { open: openLightbox } = useLightbox();
     const updateProject = useProjectStore((state) => state.updateProject);
@@ -918,8 +980,11 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
     return (
         <>
             <div
-                className={`group/cast-card relative flex flex-col gap-2 ${cardRadius} border border-glass-border bg-glass p-2 transition-[border-color,background-color] duration-fast ease-out-quart hover:border-foreground/30`}
+                className={`group/cast-card relative flex flex-col gap-2 ${cardRadius} border ${selected ? "border-primary/70 bg-primary/[0.06]" : "border-glass-border bg-glass"} p-2 transition-[border-color,background-color] duration-fast ease-out-quart hover:border-foreground/30`}
             >
+                <label className="absolute left-2 top-2 z-20 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded bg-black/60 backdrop-blur" title={selected ? "取消选择" : "选择素材"}>
+                    <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={selected} onChange={onToggleSelect} aria-label={`选择${item.name}`} />
+                </label>
                 {/* Kind chip — a media overlay with stable contrast on both
                     bright and dark artwork. */}
                 <span className={getCastKindChipClasses()}>
@@ -989,6 +1054,7 @@ function CastCard({ item, onOpenWorkbench }: { item: CastItem; onOpenWorkbench?:
                         </span>
                         <StatusBadge status={item.status} />
                     </div>
+                    {item.locked && <span className="inline-flex items-center gap-1 text-[0.625rem] text-status-success-fg"><Lock size={10} /> {t("locked")}</span>}
                 </div>
                 {/* PR-3g Stage B · Voice binding hover bar (Q2 A · characters only).
                     Bound state: 🔊 voice_name + ▶ inline preview + ▼ open picker.

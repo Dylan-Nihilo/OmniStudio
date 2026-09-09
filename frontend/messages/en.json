@@ -430,8 +430,14 @@
     "voiceBindChange": "Change voice",
     "generateScene": "Generate Scene",
     "generateProp": "Generate Prop",
-    "charactersLabel": "Cast",
-    "voiceBoundLabel": "Voice"
+      "charactersLabel": "Cast",
+      "voiceBoundLabel": "Voice",
+      "qualityReady": "Quality ready {ready}/{total}",
+      "selectedCount": "{count} selected",
+      "batchLock": "Lock selected",
+      "batchUnlock": "Unlock selected",
+      "clearSelection": "Clear selection",
+      "locked": "Locked"
   },
   "common": {
     "save": "Save",

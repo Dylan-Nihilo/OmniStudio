@@ -430,8 +430,14 @@
     "voiceBindChange": "更换音色",
     "generateScene": "生成场景",
     "generateProp": "生成道具",
-    "charactersLabel": "角色",
-    "voiceBoundLabel": "语音"
+      "charactersLabel": "角色",
+      "voiceBoundLabel": "语音",
+      "qualityReady": "质检就绪 {ready}/{total}",
+      "selectedCount": "已选择 {count} 项",
+      "batchLock": "批量锁定",
+      "batchUnlock": "批量解锁",
+      "clearSelection": "清除选择",
+      "locked": "已锁定"
   },
   "common": {
     "save": "保存",
