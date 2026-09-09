@@ -19,6 +19,7 @@ type ExportFps = 24 | 25 | 30;
 type ExportCrf = 18 | 20 | 23 | 26 | 28;
 type ExportPreset = "fast" | "medium" | "slow";
 type AudioBitrate = "128k" | "192k" | "256k";
+type SubtitleMode = "none" | "soft";
 
 interface ExportSettings {
     resolution?: ExportResolution;
@@ -26,6 +27,7 @@ interface ExportSettings {
     crf?: ExportCrf;
     preset?: ExportPreset;
     audio_bitrate?: AudioBitrate;
+    subtitles?: SubtitleMode;
 }
 
 interface ExportSettingsDraft {
@@ -34,6 +36,7 @@ interface ExportSettingsDraft {
     crf: ExportCrf;
     preset: ExportPreset;
     audio_bitrate: AudioBitrate;
+    subtitles: SubtitleMode;
 }
 
 interface MergeProgress {
@@ -86,6 +89,7 @@ const EXPORT_SETTINGS_DEFAULTS: ExportSettingsDraft = {
     crf: 23,
     preset: "fast",
     audio_bitrate: "128k",
+    subtitles: "none",
 };
 
 function normalizeExportSettings(value: unknown): ExportSettings {
@@ -100,6 +104,7 @@ function toExportSettingsDraft(settings: ExportSettings): ExportSettingsDraft {
         crf: settings.crf ?? EXPORT_SETTINGS_DEFAULTS.crf,
         preset: settings.preset ?? EXPORT_SETTINGS_DEFAULTS.preset,
         audio_bitrate: settings.audio_bitrate ?? EXPORT_SETTINGS_DEFAULTS.audio_bitrate,
+        subtitles: settings.subtitles ?? EXPORT_SETTINGS_DEFAULTS.subtitles,
     };
 }
 
@@ -785,6 +790,7 @@ export function ExportPhase({
                 crf: draftSettings.crf,
                 preset: draftSettings.preset,
                 audio_bitrate: draftSettings.audio_bitrate,
+                subtitles: draftSettings.subtitles,
             });
         } finally {
             setIsSavingSettings(false);
@@ -835,7 +841,7 @@ export function ExportPhase({
                     </div>
                 </div>
 
-                <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                     <SelectField label={ta("resolution")} value={draftSettings.resolution || "__none"}
                         onChange={value => setDraftSettings(current => ({ ...current, resolution: value === "__none" ? "" : value as ExportResolution }))}
                         options={[{ id: "__none", label: "—" }, ...["1920x1080", "1280x720", "640x360"].map(value => ({ id: value, label: value.replace("x", "×") }))]} />
@@ -851,6 +857,9 @@ export function ExportPhase({
                     <SelectField label={ta("audioBitrate")} value={draftSettings.audio_bitrate}
                         onChange={value => setDraftSettings(current => ({ ...current, audio_bitrate: value as AudioBitrate }))}
                         options={["128k", "192k", "256k"].map(value => ({ id: value, label: value }))} />
+                    <SelectField label={ta("subtitles")} value={draftSettings.subtitles}
+                        onChange={value => setDraftSettings(current => ({ ...current, subtitles: value as SubtitleMode }))}
+                        options={[{ id: "none", label: "none" }, { id: "soft", label: "soft" }]} />
                 </div>
 
                 <div className="mt-5 flex justify-end">
