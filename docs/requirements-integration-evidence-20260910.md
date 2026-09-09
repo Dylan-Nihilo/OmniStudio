@@ -11,13 +11,14 @@
 - 后端：`714 passed, 106 warnings`。
 - 前端 build：通过（Next.js 静态导出成功）。
 - 前端 typecheck：通过。
-- 前端普通测试：45 个文件，290 条通过。
-- 前端 UI 测试：58 个文件，220 条通过，且无未处理异常。
+- 前端普通测试：46 个文件，294 条通过。
+- 前端 UI 测试：58 个文件，222 条通过，且无未处理异常。
 - 真实 FFmpeg/ffprobe：裁切、分辨率、帧率、H.264、AAC、软字幕、转场、merge 校验通过。
 - 只读主链浏览器 smoke：8/8 步骤通过。
 - 真实可写浏览器验收：登录、旧数据承接、视觉手册保存/刷新/模板/Markdown 下载、Source 导入预览、章节 revision/恢复、章节关联两个 Episode 后解绑、章节分析历史、影响事件确认、Script API 持久化通过。
 - 真实 Task Center 浏览器验收：使用 acceptance Workspace 登录，读取跨项目任务列表、状态筛选/分页空态、打开失败任务详情和状态事件历史；点击重试后服务端返回幂等 `409` 并在 UI 显示可恢复错误，不产生重复 provider 调用；另以真实 pending 生产任务验证取消确认、状态变为“已取消”和关联项目跳转。证据截图：`.artifacts/acceptance/task-center-real.png`、`.artifacts/acceptance/task-detail-real.png`、`.artifacts/acceptance/task-retry-real.png`、`.artifacts/acceptance/task-cancel-object-jump-real.png`。
 - 本轮浏览器复验：登录、Workspace/Source/Tasks/Playground/Projects 路由、视觉手册保存/刷新/模板/下载、Source 可写导入预览/修订恢复/章节级 Episode 关联与解绑/分析历史/影响确认均通过；证据脚本为 `docs/agents/tools/acceptance_browser_check.py` 和 `docs/agents/tools/live_writable_source_acceptance.py`，输出见 `.artifacts/acceptance/live-source/`。
+- Cast 工作台已补齐素材多选、质检就绪统计以及系列素材批量锁定/解锁；前端集成测试覆盖选择两项并断言批量 API 请求，真实浏览器批量点击仍纳入下一轮权限/媒体矩阵。
 
 真实可写 Source 证据：`.artifacts/acceptance/live-source/run.json`、`.artifacts/acceptance/live-source/source-final.png`。
 
