@@ -9,6 +9,7 @@ from tests.test_w2_project_api import api_client, _create_project
 from tests.test_w2_project_api import _create_series, _add_episode
 import src.apps.comic_gen.api as api_module
 import src.apps.playground.api as playground_api
+from src.apps.playground.models import GenerateRequest, PlaygroundMode
 from src.apps.comic_gen.models import VideoTask
 from src.apps.comic_gen.models import AssetUnit, ImageVariant
 from src.storage.job_repository import JobRepository
@@ -198,6 +199,36 @@ def test_task_center_playground_retry_replays_saved_generation_once(api_client, 
     assert child["media_refs"][0]["kind"] == "image"
     assert child["payload"]["generation_id"] != original.payload["generation_id"]
     assert len(calls) == 2
+
+
+def test_playground_processing_generation_recovers_after_restart(api_client, monkeypatch):
+    calls = []
+
+    def generate_image(gen, output_path, idx):
+        calls.append(gen.id)
+        Path(output_path).write_bytes(b"recovered-image")
+
+    monkeypatch.setattr(playground_api._service, "_generate_image_wanx", generate_image)
+    generation = playground_api._service.create_generation(
+        GenerateRequest(mode=PlaygroundMode.T2I, model_id="wan2.7-image-pro", prompt="recover me"),
+        api_client.get("/auth/me").json()["workspace"]["id"],
+    )
+    playground_api._storage.start_generation(generation)
+    repository = JobRepository(api_client.app.state.storage_engine)
+    job = repository.create_job(generation.workspace_id, "playground.t2i")
+    item = repository.create_item(
+        job.id,
+        "t2i",
+        "playground-recovery",
+        payload={"generation_id": generation.id, "model_id": generation.model_id},
+    )
+    repository.transition_item(item.id, "processing")
+
+    report = api_module._production_adapter().recover_inflight()
+    recovered = repository.get_item(item.id)
+    assert report["recovered"] == 1
+    assert recovered is not None and recovered.status == "succeeded"
+    assert calls == [generation.id]
 
 
 @pytest.mark.parametrize("format", ["pdf", "docx"])
