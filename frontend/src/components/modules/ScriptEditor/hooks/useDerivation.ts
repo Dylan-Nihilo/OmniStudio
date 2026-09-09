@@ -44,14 +44,12 @@ function deriveFromDocument(editor: Editor) {
   const doc = editor.state.doc;
   const scenes: DerivedScene[] = [];
   const characterMap = new Map<string, { name: string; count: number; firstScene: number }>();
-  let totalChars = 0;
+  const totalChars = doc.textContent.length;
   let structuredChars = 0;
   let sceneIndex = 0;
 
   // 遍历文档节点
   doc.descendants((node) => {
-    totalChars += node.textContent.length;
-
     if (node.type.name === 'sceneHeading') {
       sceneIndex++;
       const text = node.textContent;
