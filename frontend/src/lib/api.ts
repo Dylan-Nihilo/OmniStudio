@@ -2094,6 +2094,16 @@ export const api = {
         return res.data;
     },
 
+    getStoryboardReadiness: async (scriptId: string): Promise<{
+        ready: boolean;
+        storyboard_ready: boolean;
+        checked_frames: number;
+        blockers: Array<{ code: string; frame_id?: string; previous_frame_id?: string; message: string }>;
+    }> => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/storyboard/readiness`);
+        return res.data;
+    },
+
     /** R2V v2 Phase 2 — clear project-level art_direction (return to series inherit). */
     clearProjectArtDirection: async (scriptId: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/clear`);

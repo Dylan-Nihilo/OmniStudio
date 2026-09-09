@@ -5419,6 +5419,22 @@ class RenderFrameRequest(BaseModel):
     batch_size: int = 1
 
 
+@app.get("/projects/{script_id}/storyboard/readiness")
+def storyboard_readiness(script_id: str):
+    """Run and persist deterministic storyboard readiness checks."""
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+    from .storyboard_readiness import evaluate_storyboard_readiness
+
+    report = evaluate_storyboard_readiness(script)
+    script.storyboard_ready = bool(report["ready"])
+    script.storyboard_readiness = report
+    pipeline.scripts[script_id] = script
+    pipeline._save_data()
+    return signed_response(report | {"storyboard_ready": script.storyboard_ready})
+
+
 @app.post("/projects/{script_id}/storyboard/render", response_model=Script)
 def render_frame(script_id: str, request: RenderFrameRequest):
     """Renders a specific frame using composition data (I2I)."""
