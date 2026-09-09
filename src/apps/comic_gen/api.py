@@ -1016,6 +1016,7 @@ class GenerateAssetRequest(BaseModel):
     batch_size: int = 1
     model_name: Optional[str] = None
     aspect_ratio: Optional[str] = None
+    candidate_type: Optional[Literal["simple", "detailed", "design_sheet"]] = None
 
 
 class CastGenerationPreviewRequest(BaseModel):
@@ -4317,6 +4318,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             request.batch_size,
             request.model_name,
             request.aspect_ratio,
+            request.candidate_type,
         )
         
         job_item = _create_production_item(

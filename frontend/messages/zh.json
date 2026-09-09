@@ -192,6 +192,11 @@
     "cancel": "取消"
   },
   "castWorkbench": {
+    "candidateType": {
+      "simple": "简洁三视图",
+      "detailed": "详细设定图",
+      "design_sheet": "Design Sheet"
+    },
     "close": "关闭",
     "done": "完成",
     "retry": "重试",

@@ -192,6 +192,11 @@
     "cancel": "Cancel"
   },
   "castWorkbench": {
+    "candidateType": {
+      "simple": "Simple three-view",
+      "detailed": "Detailed reference",
+      "design_sheet": "Design Sheet"
+    },
     "close": "Close",
     "done": "Done",
     "retry": "Retry",

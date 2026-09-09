@@ -1054,7 +1054,7 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None) -> Script:
+    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None, candidate_type: str = None) -> Script:
         """Step 2: Generate a specific asset (character/scene/prop).
         If style_preset is None, uses the project's global style."""
         script = self.scripts.get(script_id)
@@ -1172,7 +1172,8 @@ class ComicGenPipeline:
                     batch_size=batch_size,
                     model_name=t2i_model,
                     i2i_model_name=i2i_model,
-                    size=effective_size
+                    size=effective_size,
+                    candidate_type=candidate_type,
                 )
             elif asset_type == "scene":
                 self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size)
@@ -1199,7 +1200,8 @@ class ComicGenPipeline:
                                       style_prompt: str = None, generation_type: str = "all",
                                       prompt: str = None, apply_style: bool = True,
                                       negative_prompt: str = None, batch_size: int = 1,
-                                      model_name: str = None, aspect_ratio: str = None) -> Tuple[Script, str]:
+                                      model_name: str = None, aspect_ratio: str = None,
+                                      candidate_type: str = None) -> Tuple[Script, str]:
         """Creates an async asset generation task and returns (script, task_id) immediately."""
         script = self.scripts.get(script_id)
         if not script:
@@ -1260,6 +1262,7 @@ class ComicGenPipeline:
                 "batch_size": batch_size,
                 "model_name": model_name,
                 "aspect_ratio": aspect_ratio,
+                "candidate_type": candidate_type,
             }
         }
         
@@ -1296,6 +1299,7 @@ class ComicGenPipeline:
                     params["batch_size"],
                     params["model_name"],
                     params.get("aspect_ratio"),
+                    params.get("candidate_type"),
                 )
             task["status"] = "completed"
             task["progress"] = 100

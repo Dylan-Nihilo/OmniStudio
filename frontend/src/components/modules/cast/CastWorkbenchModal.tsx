@@ -112,6 +112,7 @@ interface ImageVariant {
     id: string;
     url: string;
     is_favorited?: boolean;
+    candidate_type?: CharacterTemplate;
 }
 
 type CharacterTemplate = "simple" | "detailed" | "design_sheet";
@@ -181,7 +182,7 @@ function readVariants(entity: any, kind: CastKind): ImageVariant[] {
     if (kind === "character") {
         const sheet = entity?.reference_sheet?.image_variants ?? [];
         if (sheet.length > 0) {
-            return sheet.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited }));
+            return sheet.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited, candidate_type: v.candidate_type }));
         }
         const legacy = entity?.full_body_asset?.variants ?? [];
         return legacy.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited }));
@@ -369,6 +370,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 effectiveBatchSize,
                 modelOverride || currentProject.model_settings?.t2i_model,
                 aspectRatioOverride || undefined,
+                kind === "character" ? selectedTemplate : undefined,
             );
 
             const taskId = (resp as any)?._task_id;
@@ -890,6 +892,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                                         clickToLightbox
                                                     />
                                                 </div>
+                                                {v.candidate_type && <span className="absolute bottom-1.5 left-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[0.625rem] text-white">{t(`candidateType.${v.candidate_type}`)}</span>}
                                                 {/* Favorite star */}
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); handleToggleFavorite(v.id, !!v.is_favorited); }}

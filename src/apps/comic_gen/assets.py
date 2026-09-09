@@ -62,7 +62,7 @@ class AssetGenerator:
             return self._mulerouter_image_model
         return self.model
 
-    def generate_character(self, character: Character, generation_type: str = "all", prompt: str = "", positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, i2i_model_name: str = None, size: str = None) -> Character:
+    def generate_character(self, character: Character, generation_type: str = "all", prompt: str = "", positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, i2i_model_name: str = None, size: str = None, candidate_type: str = None) -> Character:
         """
         Generates character assets based on generation_type.
         Types: 'full_body', 'three_view', 'headshot', 'all'
@@ -118,6 +118,7 @@ class AssetGenerator:
                                 "seed": None,
                             },
                             source="generated",
+                            candidate_type=candidate_type,
                         )
                         character.reference_sheet.image_variants.append(variant)
 

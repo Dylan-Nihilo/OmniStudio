@@ -1240,7 +1240,7 @@ export const api = {
         return res.data;
     },
 
-    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string) => {
+    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string, candidateType?: "simple" | "detailed" | "design_sheet") => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/generate`, {
             asset_id: assetId,
             asset_type: assetType,
@@ -1253,6 +1253,7 @@ export const api = {
             batch_size: batchSize,
             model_name: modelName,
             aspect_ratio: aspectRatio,
+            candidate_type: candidateType,
         });
         return res.data;
     },
