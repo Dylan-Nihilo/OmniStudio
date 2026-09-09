@@ -130,11 +130,6 @@ function normalizeApiResponse(existing: EnvConfig, data: { [key: string]: unknow
   };
 }
 
-/** Mirrors required-dialog close gating */
-function computeCanClose(isRequired: boolean, config: EnvConfig): boolean {
-  return !isRequired || validateRequiredFields(config);
-}
-
 describe("ENDPOINT_PROVIDERS registry", () => {
   it("has key, label, placeholder for each provider", () => {
     for (const provider of ENDPOINT_PROVIDERS) {
@@ -337,36 +332,5 @@ describe("normalizeApiResponse", () => {
     };
     const result = normalizeApiResponse(existing, { DASHSCOPE_API_KEY: "sk-updated" });
     expect(result.endpoint_overrides).toEqual({ DASHSCOPE_BASE_URL: "https://existing.example.com" });
-  });
-});
-
-describe("computeCanClose", () => {
-  it("returns true when dialog is not required", () => {
-    expect(computeCanClose(false, DEFAULT_CONFIG)).toBe(true);
-  });
-
-  it("blocks closing required dialog until DashScope key is set", () => {
-    expect(computeCanClose(true, DEFAULT_CONFIG)).toBe(false);
-    const valid = { ...DEFAULT_CONFIG, DASHSCOPE_API_KEY: "sk-test" };
-    expect(computeCanClose(true, valid)).toBe(true);
-  });
-
-  it("blocks closing required dialog in vendor mode when vendor keys are missing", () => {
-    const invalid = {
-      ...DEFAULT_CONFIG,
-      DASHSCOPE_API_KEY: "sk-test",
-      KLING_PROVIDER_MODE: "vendor" as const,
-    };
-    expect(computeCanClose(true, invalid)).toBe(false);
-  });
-
-  it("allows the required dialog to close with an OpenAI-compatible key", () => {
-    const openAiConfig = {
-      ...DEFAULT_CONFIG,
-      LLM_PROVIDER: "openai" as const,
-      OPENAI_API_KEY: "",
-    };
-    expect(computeCanClose(true, openAiConfig)).toBe(false);
-    expect(computeCanClose(true, { ...openAiConfig, OPENAI_API_KEY: "sk-test" })).toBe(true);
   });
 });

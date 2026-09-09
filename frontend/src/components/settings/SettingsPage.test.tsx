@@ -2,12 +2,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
+import { useAuthStore } from '@/store/authStore';
 
 const mocks = vi.hoisted(() => ({
   getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
 }));
 const t = vi.hoisted(() => (key: string) => key);
-vi.mock('next-intl', () => ({useTranslations: () => t}));
+const translations = vi.hoisted(() => ({current: (key: string) => key}));
+vi.mock('next-intl', () => ({useTranslations: () => translations.current}));
 vi.mock('@/lib/api', () => ({api: mocks, API_URL: 'http://localhost:3021'}));
 vi.mock('@/components/layout/OmniStudioBranding', () => ({default: () => null}));
 vi.mock('./UpdateChecker', () => ({default: () => null}));
@@ -17,7 +19,13 @@ const config = {DASHSCOPE_API_KEY:'sk-••••••••demo', LLM_PROVIDE
 const choose = (name: string) => fireEvent.click(screen.getByRole('tab', {name}));
 beforeEach(() => {
   vi.resetAllMocks();
+  translations.current = t;
   localStorage.clear();
+  useAuthStore.setState({
+    user: {id:'owner', username:'owner', email:'owner@example.test', display_name:null, created_at:''},
+    activeWorkspace: {id:'workspace-a', name:'Workspace A', slug:null, role:'owner'},
+    bootstrapping:false,
+  });
   mocks.getEnvConfig.mockResolvedValue(config);
   mocks.saveEnvConfig.mockResolvedValue({status:'success'});
   mocks.fetchPromptDefaults.mockResolvedValue({});
@@ -92,7 +100,11 @@ describe('settings controls and recovery', () => {
     choose('tabPrompts');
     await screen.findByDisplayValue('Built-in entity prompt');
     fireEvent.change(screen.getByRole('textbox', {name:'promptStyleLabel'}), {target:{value:'Custom style prompt'}});
-    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {throw new Error('Quota exceeded');});
+    const setItem = localStorage.setItem;
+    const storage = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'omni_studio_default_prompt_config') throw new Error('Quota exceeded');
+      return setItem.call(localStorage, key, value);
+    });
     fireEvent.click(screen.getByRole('button', {name:'saveDefaults'}));
     expect(await screen.findByRole('alert')).toHaveTextContent('saveLocalFailed');
     expect(screen.getByRole('textbox', {name:'promptStyleLabel'})).toHaveValue('Custom style prompt');
@@ -156,5 +168,63 @@ describe('settings controls and recovery', () => {
     view.unmount();
     await act(async () => {finish(config); await vi.advanceTimersByTimeAsync(120000);});
     expect(mocks.getEnvConfig).toHaveBeenCalledTimes(calls);
+  });
+});
+
+
+describe('workspace configuration boundaries', () => {
+  it('preserves unsaved configuration when the user changes language', async () => {
+    const view = render(<SettingsPage initialCategory="storage" />);
+    fireEvent.change(await screen.findByDisplayValue('original-bucket'), {target:{value:'unsaved-bucket'}});
+    choose('tabGeneral');
+    translations.current = key => `translated:${key}`;
+    await act(async () => view.rerender(<SettingsPage initialCategory="storage" />));
+    choose('translated:tabStorage');
+    expect(screen.getByDisplayValue('unsaved-bucket')).toBeInTheDocument();
+    expect(mocks.getEnvConfig).toHaveBeenCalledOnce();
+  });
+
+  it('keeps member preferences usable without requesting owner-only config or diagnostics', async () => {
+    useAuthStore.setState({activeWorkspace:{id:'member-workspace', name:'Member workspace', slug:null, role:'member'}});
+    await act(async () => { render(<SettingsPage initialCategory="apikeys" />); });
+    expect(screen.getByRole('status')).toHaveTextContent('ownerConfigOnly');
+    expect(screen.queryByRole('button', {name:'saveConfig'})).not.toBeInTheDocument();
+    choose('tabStorage');
+    expect(screen.queryByRole('textbox', {name:'bucketLabel'})).not.toBeInTheDocument();
+    choose('tabAbout');
+    expect(screen.queryByRole('button', {name:'recheck'})).not.toBeInTheDocument();
+    choose('tabModels');
+    fireEvent.click(screen.getByRole('button', {name:'saveDefaults'}));
+    expect(localStorage.getItem('omni_studio_default_model_settings')).not.toBeNull();
+    expect(mocks.getEnvConfig).not.toHaveBeenCalled();
+    expect(mocks.checkSystem).not.toHaveBeenCalled();
+    expect(mocks.saveEnvConfig).not.toHaveBeenCalled();
+  });
+
+  it('discards old workspace loads and drafts before saving configuration in another workspace', async () => {
+    let finish!: (value: object) => void;
+    mocks.getEnvConfig.mockReturnValueOnce(new Promise(resolve => {finish = resolve;})).mockResolvedValue({...config, OSS_BUCKET_NAME:'workspace-b-bucket'});
+    render(<SettingsPage initialCategory="storage" />);
+    await act(async () => useAuthStore.setState({activeWorkspace:{id:'workspace-b', name:'Workspace B', slug:null, role:'owner'}}));
+    expect(await screen.findByDisplayValue('workspace-b-bucket')).toBeInTheDocument();
+    await act(async () => finish(config));
+    expect(screen.queryByDisplayValue('original-bucket')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', {name:'bucketLabel'}), {target:{value:'updated-b-bucket'}});
+    fireEvent.click(screen.getByRole('button', {name:'saveConfig'}));
+    await waitFor(() => expect(mocks.saveEnvConfig).toHaveBeenCalledWith({OSS_BUCKET_NAME:'updated-b-bucket'}));
+  });
+
+  it('does not close the new workspace dialog when an old workspace save completes', async () => {
+    let finish!: () => void;
+    mocks.saveEnvConfig.mockReturnValue(new Promise<void>(resolve => {finish = resolve;}));
+    const saved = vi.fn();
+    render(<SettingsPage initialCategory="apikeys" onProviderConfigSaved={saved} />);
+    fireEvent.change(await screen.findByLabelText('DashScope API Key'), {target:{value:'test-new-key'}});
+    fireEvent.click(screen.getByRole('button', {name:'saveConfig'}));
+    await waitFor(() => expect(mocks.saveEnvConfig).toHaveBeenCalledOnce());
+    await act(async () => useAuthStore.setState({activeWorkspace:{id:'workspace-b', name:'Workspace B', slug:null, role:'owner'}}));
+    await act(async () => finish());
+    expect(saved).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', {name:'saveConfig'})).toBeEnabled();
   });
 });
