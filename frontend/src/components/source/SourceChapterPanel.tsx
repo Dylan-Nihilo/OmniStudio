@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, FileText, History, RotateCcw, Save } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FileText, History, RotateCcw, Save } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, TextAreaField, TextField } from "@omnistudio/ui";
 import type { SourceChapter, SourceRevision, SourceRevisionImpact } from "@/lib/api";
@@ -23,10 +23,11 @@ interface Props {
   onSave: (payload: { title: string; content: string }) => void;
   onRestore: (revision: SourceRevision) => void;
   onClose: () => void;
+  onAcknowledgeImpact?: (impactId: string) => void;
   onOpenScript?: (episodeId: string) => void;
 }
 
-export default function SourceChapterPanel({ chapters, total, page, pageSize, query, selectedChapter, revisions, impacts, saving = false, onQueryChange, onPageChange, onSelect, onSave, onRestore, onClose, onOpenScript }: Props) {
+export default function SourceChapterPanel({ chapters, total, page, pageSize, query, selectedChapter, revisions, impacts, saving = false, onQueryChange, onPageChange, onSelect, onSave, onRestore, onClose, onOpenScript, onAcknowledgeImpact }: Props) {
   const t = useTranslations("sourceWorkspace");
   const tc = useTranslations("common");
   const ts = useTranslations("script");
@@ -71,6 +72,7 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
               {impacts.length === 0 ? <p className={styles.muted}>{t("noImpactEvents")}</p> : impacts.map(impact => (
                 <article key={impact.id} className={styles.impactEvent}>
                   <p>{t("impactSummary", { revision: impact.revision_number, count: impact.target_count })}</p>
+                  {onAcknowledgeImpact && impact.status === "open" && <Button variant="quiet" onPress={() => onAcknowledgeImpact(impact.id)} isDisabled={saving}><Check size={14} />确认已处理</Button>}
                   {impact.targets.length > 0 && (
                     <ul className={styles.impactTargets} aria-label={t("impactTargets")}>
                       {impact.targets.map(target => (

@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   listEpisodeCandidates: vi.fn(),
   linkEpisode: vi.fn(),
   unlinkEpisode: vi.fn(),
+  remove: vi.fn(),
+  acknowledgeRevisionImpact: vi.fn(),
   analyzeSourceBatch: vi.fn(),
   retrySourceAnalysisBatch: vi.fn(),
 }));
@@ -297,5 +299,15 @@ describe("SourceWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: /重试失败项 初见/ }));
 
     await waitFor(() => expect(mocks.retrySourceAnalysisBatch).toHaveBeenCalledWith("source-1", "batch-1", { chapter_ids: ["chapter-1"] }));
+  });
+
+  it("deletes the selected source and refreshes the source list", async () => {
+    mocks.list.mockResolvedValueOnce({ items: [source], total: 1 }).mockResolvedValueOnce({ items: [], total: 0 });
+    mocks.remove.mockResolvedValue({ id: "source-1", deleted: true });
+    renderWithIntl(<SourceWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: /既有来源/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "删除来源" }));
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith("source-1"));
+    expect(mocks.remove).toHaveBeenCalledWith("source-1");
   });
 });

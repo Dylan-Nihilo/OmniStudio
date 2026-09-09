@@ -21,6 +21,15 @@ class SourceDocumentCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceDocumentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    summary: str | None = Field(default=None, max_length=2000)
+    original_filename: str | None = Field(default=None, max_length=255)
+    metadata: dict[str, Any] | None = None
+
+
 class SourceRevisionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -114,6 +123,12 @@ class SourceRevisionImpactList(BaseModel):
 
     items: list[SourceRevisionImpactRead] = Field(default_factory=list)
     total: int = Field(ge=0)
+
+
+class SourceImpactAckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_ids: list[str] | None = Field(default=None, max_length=500)
 
 
 class SourceChapterRead(BaseModel):

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, FileText, Link2, Plus, RefreshCw, Search, Upload } from "lucide-react";
+import { BookOpen, FileText, Link2, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, EmptyState, LoadingState, TextAreaField, TextField } from "@omnistudio/ui";
 import {
@@ -62,6 +62,7 @@ export default function SourceWorkspace() {
   const [linkedEpisodes, setLinkedEpisodes] = useState<SourceEpisode[]>([]);
   const [availableEpisodes, setAvailableEpisodes] = useState<SourceEpisode[]>([]);
   const [episodeBusy, setEpisodeBusy] = useState(false);
+  const [sourceBusy, setSourceBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -326,6 +327,38 @@ export default function SourceWorkspace() {
     }
   };
 
+  const deleteSelectedSource = async () => {
+    if (!selectedSourceId || sourceBusy) return;
+    setSourceBusy(true);
+    setError(null);
+    try {
+      await sourceApi.remove(selectedSourceId);
+      setSelectedSourceId(null);
+      setSelectedChapter(null);
+      await loadSources();
+      setNotice("来源资料已删除");
+    } catch (cause) {
+      setError(errorMessage(cause, "删除来源资料失败"));
+    } finally {
+      setSourceBusy(false);
+    }
+  };
+
+  const acknowledgeImpact = async (impactId: string) => {
+    if (!selectedSourceId || !selectedChapter || saving) return;
+    setSaving(true);
+    try {
+      await sourceApi.acknowledgeRevisionImpact(selectedSourceId, impactId);
+      const updated = await sourceApi.listChapterRevisionImpacts(selectedSourceId, selectedChapter.id);
+      setImpacts(updated.items);
+      setNotice("影响项已确认");
+    } catch (cause) {
+      setError(errorMessage(cause, "确认影响项失败"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const previewEpisodeSplit = async (suggestedEpisodes?: number) => {
     if (!selectedSourceId || splitBusy) return;
     setSplitBusy(true);
@@ -426,8 +459,8 @@ export default function SourceWorkspace() {
 
         <main className={styles.detailPanel}>
           {!selectedSource ? <EmptyState title={t("selectSource")} description={t("selectSourceHint")} /> : <>
-            <header className={styles.detailHeader}><div><p className={styles.eyebrow}>{t("detailEyebrow")}</p><h2>{selectedSource.title}</h2><p className={styles.muted}>{selectedSummary}</p></div><span className={styles.fileTag}>{selectedSource.original_filename || selectedSource.source_type}</span></header>
-            <SourceChapterPanel chapters={chapters} total={chapterTotal} page={chapterPage} pageSize={pageSize} query={chapterQuery} selectedChapter={selectedChapter} revisions={revisions} impacts={impacts} saving={saving} onQueryChange={value => { setChapterQuery(value); setChapterPage(1); }} onPageChange={value => setChapterPage(Math.max(1, value))} onSelect={chapter => void selectChapter(chapter)} onSave={saveChapter} onRestore={restoreRevision} onClose={() => setSelectedChapter(null)} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
+            <header className={styles.detailHeader}><div><p className={styles.eyebrow}>{t("detailEyebrow")}</p><h2>{selectedSource.title}</h2><p className={styles.muted}>{selectedSummary}</p></div><div className={styles.actionRow}><span className={styles.fileTag}>{selectedSource.original_filename || selectedSource.source_type}</span><Button variant="quiet" onPress={() => void deleteSelectedSource()} isDisabled={sourceBusy}><Trash2 size={15} />删除来源</Button></div></header>
+            <SourceChapterPanel chapters={chapters} total={chapterTotal} page={chapterPage} pageSize={pageSize} query={chapterQuery} selectedChapter={selectedChapter} revisions={revisions} impacts={impacts} saving={saving} onQueryChange={value => { setChapterQuery(value); setChapterPage(1); }} onPageChange={value => setChapterPage(Math.max(1, value))} onSelect={chapter => void selectChapter(chapter)} onSave={saveChapter} onRestore={restoreRevision} onClose={() => setSelectedChapter(null)} onAcknowledgeImpact={acknowledgeImpact} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
             {!selectedChapter && <>
               <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisBusy} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
               <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />

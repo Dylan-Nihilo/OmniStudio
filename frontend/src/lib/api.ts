@@ -144,6 +144,13 @@ export interface SourceDocumentCreate {
     metadata?: Record<string, unknown>;
 }
 
+export interface SourceDocumentUpdate {
+    title?: string;
+    summary?: string;
+    original_filename?: string | null;
+    metadata?: Record<string, unknown>;
+}
+
 export interface SourceRevisionCreate {
     content: string;
     metadata?: Record<string, unknown>;
@@ -452,6 +459,8 @@ export const sourceApi = {
     list: () => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/sources`).then((response) => response.data),
     get: (sourceId: string) => apiClient.get<SourceDocument>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
     create: (payload: SourceDocumentCreate) => apiClient.post<SourceDocument>(`${API_URL}/sources`, payload).then((response) => response.data),
+    update: (sourceId: string, payload: SourceDocumentUpdate) => apiClient.patch<SourceDocument>(`${API_URL}/sources/${sourceId}`, payload).then((response) => response.data),
+    remove: (sourceId: string) => apiClient.delete<{ id: string; deleted: boolean }>(`${API_URL}/sources/${sourceId}`).then((response) => response.data),
     listChapters: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
     createChapter: (sourceId: string, payload: SourceChapterCreate) => apiClient.post<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters`, payload).then((response) => response.data),
     listChaptersPage: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
@@ -473,6 +482,7 @@ export const sourceApi = {
     retrySourceAnalysisBatch: (sourceId: string, batchId: string, payload?: SourceAnalysisBatchRetryRequest) => apiClient.post<SourceAnalysisBatch>(`${API_URL}/sources/${sourceId}/analysis/batches/${batchId}/retry`, payload ?? {}).then((response) => response.data),
     listRevisionImpacts: (sourceId: string, params?: { chapter_id?: string; revision_id?: string }) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/impact-events`, { params }).then((response) => response.data),
     listChapterRevisionImpacts: (sourceId: string, chapterId: string) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/impact-events`).then((response) => response.data),
+    acknowledgeRevisionImpact: (sourceId: string, impactId: string, targetIds?: string[]) => apiClient.post<{ impact_event_id: string; status: "open" | "resolved"; resolved_target_count: number }>(`${API_URL}/sources/${sourceId}/impact-events/${impactId}/ack`, { target_ids: targetIds }).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
     listEpisodeCandidates: async (sourceId: string): Promise<SourceEpisodeCandidateList> => {
         const [linkedResponse, projectsResponse] = await Promise.all([
@@ -509,6 +519,37 @@ export const sourceApi = {
     updateImportBoundaries: (previewId: string, proposals: SourceImportBoundaryProposal[]) => apiClient.patch<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/boundaries`, { proposals }).then((response) => response.data),
     confirmImport: (previewId: string) => apiClient.post<{ preview_id: string; status: "confirmed"; source_document: SourceDocument }>(`${API_URL}/sources/import/previews/${previewId}/confirm`).then((response) => response.data),
     cancelImport: (previewId: string) => apiClient.post<SourceImportPreview>(`${API_URL}/sources/import/previews/${previewId}/cancel`).then((response) => response.data),
+};
+
+export interface DirectorPlan {
+    tempo: string;
+    composition: string;
+    lens: string;
+    blocking: string;
+    lighting: string;
+    transition: string;
+    sound: string;
+    continuity_rules: string[];
+}
+
+export type DirectorPlanScope = "project" | "episode" | "shot";
+
+export interface DirectorPlanResolved {
+    episode_id: string;
+    shot_id?: string | null;
+    plan: DirectorPlan;
+    source_chain: Record<keyof DirectorPlan, string>;
+    prompt?: string;
+    prompt_provenance?: Record<keyof DirectorPlan, string>;
+}
+
+export const directorPlanApi = {
+    get: (scope: DirectorPlanScope, scopeId: string, episodeId?: string) => apiClient.get<{ scope: DirectorPlanScope; scope_id: string; payload: Partial<DirectorPlan> }>(`${API_URL}/director-plans/${scope}/${scopeId}`, { params: episodeId ? { episode_id: episodeId } : undefined }).then((response) => response.data),
+    update: (scope: DirectorPlanScope, scopeId: string, payload: Partial<DirectorPlan> & { episode_id?: string }) => apiClient.put(`${API_URL}/director-plans/${scope}/${scopeId}`, payload).then((response) => response.data),
+    remove: (scope: DirectorPlanScope, scopeId: string, episodeId?: string) => apiClient.delete(`${API_URL}/director-plans/${scope}/${scopeId}`, { params: episodeId ? { episode_id: episodeId } : undefined }).then((response) => response.data),
+    resolve: (episodeId: string, shotId?: string) => apiClient.get<DirectorPlanResolved>(`${API_URL}/director-plans/resolve/${episodeId}`, { params: shotId ? { shot_id: shotId } : undefined }).then((response) => response.data),
+    preview: (scope: DirectorPlanScope, scopeId: string, instruction: string) => apiClient.post(`${API_URL}/director-plans/${scope}/${scopeId}/preview`, { instruction }).then((response) => response.data as { preview_id: string; status: "preview"; payload: DirectorPlan }),
+    confirm: (scope: DirectorPlanScope, scopeId: string, previewId: string) => apiClient.post(`${API_URL}/director-plans/${scope}/${scopeId}/confirm`, { preview_id: previewId }).then((response) => response.data),
 };
 
 // R2V v2 Phase 4 — Cross-episode reconcile types

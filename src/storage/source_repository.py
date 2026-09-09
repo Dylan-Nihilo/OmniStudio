@@ -841,6 +841,46 @@ class SourceRepository:
                 ).mappings().one()
         return self._document_payload(row, 0, 0) | {"chapters": [], "episodes": []}
 
+    def update_document(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        title: str | None = None,
+        summary: str | None = None,
+        original_filename: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        normalized_title = None if title is None else str(title).strip()
+        if normalized_title == "":
+            raise SourceRepositoryError("SOURCE_INVALID_INPUT", "来源资料标题不能为空", status_code=422)
+        if summary is not None and len(str(summary)) > 2000:
+            raise SourceRepositoryError("SOURCE_INVALID_INPUT", "来源资料摘要过长", status_code=422)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                current = self._source_row(connection, source_id, workspace_id)
+                values: dict[str, Any] = {"updated_at": timestamp}
+                if normalized_title is not None:
+                    values["title"] = normalized_title
+                if summary is not None:
+                    values["summary"] = str(summary)
+                if original_filename is not None:
+                    values["original_filename"] = str(original_filename).strip() or None
+                if metadata is not None:
+                    values["metadata_json"] = _json(metadata)
+                if len(values) > 1:
+                    connection.execute(update(SourceDocument).where(SourceDocument.id == current["id"]).values(**values))
+        return self.get_document(workspace_id, source_id)
+
+    def delete_document(self, *, workspace_id: str, source_id: str) -> bool:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._source_row(connection, source_id, workspace_id)
+                result = connection.execute(delete(SourceDocument).where(SourceDocument.id == source_id))
+        return result.rowcount == 1
+
     @staticmethod
     def _preview_payload(row: Mapping[str, Any]) -> dict[str, Any]:
         return {
@@ -1824,6 +1864,55 @@ class SourceRepository:
                 .order_by(SourceImpactTarget.created_at.desc(), SourceImpactTarget.id)
             ).mappings().all()
             return [dict(row) for row in rows]
+
+    def acknowledge_revision_impact(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        impact_id: str,
+        target_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                impact = connection.execute(
+                    select(SourceRevisionImpact.__table__).where(
+                        SourceRevisionImpact.id == self._id(impact_id, "impact_id"),
+                        SourceRevisionImpact.source_document_id == self._id(source_id, "source_id"),
+                        SourceRevisionImpact.workspace_id == self._id(workspace_id, "workspace_id"),
+                    )
+                ).mappings().first()
+                if impact is None:
+                    raise SourceRepositoryError("SOURCE_IMPACT_NOT_FOUND", "来源影响事件不存在", status_code=404)
+                conditions = [
+                    SourceImpactTarget.impact_event_id == impact_id,
+                    SourceImpactTarget.source_document_id == source_id,
+                    SourceImpactTarget.workspace_id == workspace_id,
+                    SourceImpactTarget.status == "needs_review",
+                ]
+                if target_ids is not None:
+                    normalized_ids = [self._id(value, "target_id") for value in target_ids]
+                    if not normalized_ids:
+                        raise SourceRepositoryError("SOURCE_INVALID_INPUT", "至少需要一个影响目标", status_code=422)
+                    conditions.append(SourceImpactTarget.id.in_(normalized_ids))
+                result = connection.execute(
+                    update(SourceImpactTarget).where(and_(*conditions)).values(status="resolved")
+                )
+                remaining = connection.execute(
+                    select(func.count()).select_from(SourceImpactTarget).where(
+                        SourceImpactTarget.impact_event_id == impact_id,
+                        SourceImpactTarget.status == "needs_review",
+                    )
+                ).scalar_one()
+                status = "resolved" if int(remaining) == 0 else "open"
+                connection.execute(
+                    update(SourceRevisionImpact).where(SourceRevisionImpact.id == impact_id).values(status=status)
+                )
+                return {
+                    "impact_event_id": impact_id,
+                    "status": status,
+                    "resolved_target_count": int(result.rowcount or 0),
+                }
 
     @staticmethod
     def _episode_row(connection, episode_id: str, workspace_id: str):
