@@ -235,6 +235,11 @@ export interface SourceEpisode {
     linked_at: number;
 }
 
+export interface SourceEpisodeCandidateList {
+    linked: SourceEpisode[];
+    available: SourceEpisode[];
+}
+
 export interface SourceEpisodeSplitProposal {
     episode_number: number;
     title: string;
@@ -469,6 +474,33 @@ export const sourceApi = {
     listRevisionImpacts: (sourceId: string, params?: { chapter_id?: string; revision_id?: string }) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/impact-events`, { params }).then((response) => response.data),
     listChapterRevisionImpacts: (sourceId: string, chapterId: string) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/impact-events`).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
+    listEpisodeCandidates: async (sourceId: string): Promise<SourceEpisodeCandidateList> => {
+        const [linkedResponse, projectsResponse] = await Promise.all([
+            apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`),
+            apiClient.get<unknown>(`${API_URL}/projects`),
+        ]);
+        const linked = linkedResponse.data.items;
+        const linkedIds = new Set(linked.map((episode) => episode.id));
+        const available = asList<Record<string, unknown>>(projectsResponse.data)
+            .map((project) => {
+                const id = typeof project.id === "string" ? project.id : null;
+                if (!id) return null;
+                const rawEpisodeNumber = project.episode_number;
+                const episodeNumber = typeof rawEpisodeNumber === "number" && Number.isFinite(rawEpisodeNumber)
+                    ? rawEpisodeNumber
+                    : null;
+                return {
+                    id,
+                    project_id: id,
+                    title: typeof project.title === "string" && project.title.trim() ? project.title : id,
+                    episode_number: episodeNumber,
+                    status: typeof project.status === "string" ? project.status : "draft",
+                    linked_at: 0,
+                } satisfies SourceEpisode;
+            })
+            .filter((episode): episode is SourceEpisode => episode !== null && !linkedIds.has(episode.id));
+        return { linked, available };
+    },
     linkEpisode: (sourceId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     unlinkEpisode: (sourceId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/episodes/${episodeId}`).then((response) => response.data),
     listForEpisode: (episodeId: string) => apiClient.get<SourceList<SourceDocument>>(`${API_URL}/episodes/${episodeId}/sources`).then((response) => response.data),

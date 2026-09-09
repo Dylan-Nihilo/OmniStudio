@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import SidebarSection from "@/components/layout/SidebarSection";
 import styles from "@/components/layout/GlobalSidebar.module.css";
 
-export type WorkspaceSection = "overview" | "projects" | "series" | "drafts";
+export type WorkspaceSection = "overview" | "projects" | "series" | "drafts" | "sources";
 
 export default function WorkspaceNavigation({ active, section }: { active: boolean; section: WorkspaceSection }) {
   const t = useTranslations("workspaceOverview");
@@ -17,6 +17,7 @@ export default function WorkspaceNavigation({ active, section }: { active: boole
           ["overview", "#/workspace"],
           ["projects", "#/workspace/projects"],
           ["series", "#/workspace/series"],
+          ["sources", "#/sources"],
         ] as const).map(([id, href]) => (
           <a key={id} href={href} aria-current={active && (section === id || section === "drafts" && id === "projects") ? "page" : undefined}>{t(id)}</a>
         ))}

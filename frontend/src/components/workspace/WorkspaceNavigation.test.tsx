@@ -33,7 +33,8 @@ describe("workspace navigation", () => {
     expect(screen.getByRole("link", { name: "series" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "overview" })).toHaveAttribute("href", "#/workspace");
     expect(screen.getByRole("link", { name: "projects" })).toHaveAttribute("href", "#/workspace/projects");
-    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(screen.getAllByRole("link")).toHaveLength(4);
+    expect(screen.getByRole("link", { name: "sources" })).toHaveAttribute("href", "#/sources");
     expect(summary).not.toHaveAttribute("aria-current");
     fireEvent.click(summary);
     expect(disclosure).not.toHaveAttribute("open");
@@ -42,6 +43,8 @@ describe("workspace navigation", () => {
     rerender(<WorkspaceNavigation active section="drafts" />);
     expect(disclosure).toHaveAttribute("open");
     expect(screen.getByRole("link", { name: "projects" })).toHaveAttribute("aria-current", "page");
+    rerender(<WorkspaceNavigation active section="sources" />);
+    expect(screen.getByRole("link", { name: "sources" })).toHaveAttribute("aria-current", "page");
   });
 
   it("keeps global, context and account actions inside one sidebar", async () => {

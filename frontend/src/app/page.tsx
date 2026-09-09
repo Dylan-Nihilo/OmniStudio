@@ -45,6 +45,7 @@ const AssetLibraryPage = dynamic(() => withChunkLoadRecovery(() => import("@/com
 const PlaygroundPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/playground/PlaygroundPage")), { ssr: false });
 const ScriptEditorShell = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/ScriptEditorShell")), { ssr: false });
 const StandaloneScriptEditor = dynamic(() => withChunkLoadRecovery(() => import("@/components/modules/ScriptEditor/StandaloneScriptEditor")), { ssr: false });
+const SourceWorkspace = dynamic(() => withChunkLoadRecovery(() => import("@/components/source/SourceWorkspace")), { ssr: false });
 
 // ── New Project Tile (Line B dashed add card) ──
 function NewProjectTile({ onClick, episode = false }: { onClick: () => void; episode?: boolean }) {
@@ -199,7 +200,7 @@ function AuthenticatedHome() {
   const [syncError, setSyncError] = useState(false);
   const syncRequest = useRef(0);
   const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
-  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'studio/editor' | 'project-editor'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'sources' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
   const [wsSearch, setWsSearch] = useState("");
@@ -398,6 +399,15 @@ function AuthenticatedHome() {
         setEpisodeId(null);
         return;
       }
+      if (hash === '#/sources') {
+        setCurrentView('sources');
+        setActiveTab('workspace');
+        setWorkspaceSection('sources');
+        setProjectId(null);
+        setSeriesId(null);
+        setEpisodeId(null);
+        return;
+      }
       // Menu action: open new project dialog then land on workspace
       if (hash === '#/new-project' || hash === '#/new-series') {
         setCurrentView('home');
@@ -483,6 +493,9 @@ function AuthenticatedHome() {
         if (target) window.location.hash = `#/project/${target}`;
       };
       return <TaskCenter key={activeWorkspace?.id} workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
+    }
+    if (currentView === 'sources') {
+      return <SourceWorkspace />;
     }
     if (currentView === 'studio/editor') {
       return <StandaloneScriptEditor />;
@@ -795,7 +808,7 @@ function AuthenticatedHome() {
       {/* AppShell with GlobalSidebar + content */}
       <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
         <AppShell transitionKey={`${currentView}/${workspaceSection}`} activeTab={activeTab} onTabChange={handleTabChange} workspaceSection={workspaceSection} context={activeTab === "playground" ? <PlaygroundModeSelector /> : undefined}>
-          <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : currentView === "tasks" ? "任务中心" : "工作区"}>
+          <ModuleErrorBoundary key={currentView} moduleName={currentView === "playground" ? "创作台" : currentView === "settings" ? "设置" : currentView === "tasks" ? "任务中心" : currentView === "sources" ? "来源资料" : "工作区"}>
             {renderContent()}
           </ModuleErrorBoundary>
         </AppShell>
