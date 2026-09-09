@@ -2461,6 +2461,9 @@
         "txtDesc": "Unformatted plain text",
         "pdfDesc": "Portable document format, suitable for printing",
         "docxDesc": "Microsoft Word format",
+        "validationEmpty": "The screenplay is empty and cannot be exported in a professional format.",
+        "validationUnsupportedNode": "This screenplay contains a node that cannot be mapped to {format}: {nodeType}",
+        "validationUnsupportedFormat": "Unsupported export format: {format}",
         "failed": "Export failed",
         "footer": "FDX / Fountain / TXT generated locally · PDF / DOCX via server"
       },

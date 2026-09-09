@@ -1,4 +1,7 @@
-from src.apps.comic_gen.api import build_script_export
+import pytest
+from fastapi import HTTPException
+
+from src.apps.comic_gen.api import build_script_export, validate_script_document_export
 from src.apps.comic_gen.models import Character, Scene, Script, StoryboardFrame
 
 
@@ -63,3 +66,37 @@ def test_markdown_alias_matches_md_export():
 
     assert build_script_export(script, "markdown") == build_script_export(script, "md")
 
+
+def test_document_export_rejects_empty_professional_document():
+    with pytest.raises(HTTPException) as error:
+        validate_script_document_export({"type": "doc", "content": []}, "pdf")
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "empty_document"
+
+    with pytest.raises(HTTPException) as blank_paragraph:
+        validate_script_document_export({"type": "doc", "content": [{"type": "paragraph"}]}, "pdf")
+    assert blank_paragraph.value.detail["code"] == "empty_document"
+
+
+def test_document_export_rejects_unmapped_node():
+    with pytest.raises(HTTPException) as error:
+        validate_script_document_export({
+            "type": "doc",
+            "content": [{"type": "shotBlock", "content": [{"type": "text", "text": "镜头"}]}],
+        }, "docx")
+
+    assert error.value.status_code == 422
+    assert error.value.detail == {
+        "code": "unsupported_node",
+        "format": "docx",
+        "node_type": "shotBlock",
+    }
+
+
+def test_document_export_rejects_server_unsupported_format_explicitly():
+    with pytest.raises(HTTPException) as error:
+        validate_script_document_export({"type": "doc", "content": [{"type": "action"}]}, "fdx")
+
+    assert error.value.status_code == 400
+    assert error.value.detail["code"] == "unsupported_format"

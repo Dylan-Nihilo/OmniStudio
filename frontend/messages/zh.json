@@ -2461,6 +2461,9 @@
         "txtDesc": "无格式纯文本",
         "pdfDesc": "便携文档格式，适合打印",
         "docxDesc": "Microsoft Word 格式",
+        "validationEmpty": "剧本文档为空，无法导出专业格式。",
+        "validationUnsupportedNode": "当前剧本包含无法映射到 {format} 的结构节点：{nodeType}",
+        "validationUnsupportedFormat": "不支持的导出格式：{format}",
         "failed": "导出失败",
         "footer": "FDX / Fountain / TXT 在本地生成 · PDF / DOCX 通过服务端生成"
       },

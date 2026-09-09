@@ -1,5 +1,44 @@
 import type { JSONContent } from '@tiptap/core'
 
+export type ExportValidationIssue =
+  | { code: 'empty_document' }
+  | { code: 'unsupported_node'; nodeType: string }
+  | { code: 'unsupported_format'; format: string }
+
+const EXPORT_FORMATS = new Set(['fountain', 'fdx', 'pdf', 'docx', 'txt'])
+const PROFESSIONAL_NODE_TYPES = new Set([
+  'sceneHeading',
+  'action',
+  'characterCue',
+  'dialogue',
+  'parenthetical',
+  'transition',
+  'paragraph',
+])
+
+/** Validate that a Tiptap document has a deterministic mapping for export. */
+export function validateExportDocument(doc: JSONContent, format: string): ExportValidationIssue | null {
+  const normalizedFormat = format.toLowerCase()
+  if (!EXPORT_FORMATS.has(normalizedFormat)) {
+    return { code: 'unsupported_format', format: normalizedFormat }
+  }
+  if (doc?.type !== 'doc' || !Array.isArray(doc.content) || doc.content.length === 0) {
+    return { code: 'empty_document' }
+  }
+  if (doc.content.every((node) => !getNodeText(node).trim())) {
+    return { code: 'empty_document' }
+  }
+  if (normalizedFormat === 'txt') return null
+
+  for (const node of doc.content) {
+    const nodeType = node.type || 'unknown'
+    if (!PROFESSIONAL_NODE_TYPES.has(nodeType)) {
+      return { code: 'unsupported_node', nodeType }
+    }
+  }
+  return null
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Tiptap JSON → Fountain format serializer
 // ═══════════════════════════════════════════════════════════════

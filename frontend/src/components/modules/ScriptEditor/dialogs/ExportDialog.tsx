@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import { useTranslations } from 'next-intl'
-import { toFountain, toFDX, toPlainText } from './serializers'
+import { toFountain, toFDX, toPlainText, validateExportDocument } from './serializers'
 import { scriptEditorApi } from '@/lib/scriptEditorApi'
 
 export interface ExportDialogProps {
@@ -118,6 +118,18 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
       const filename = `script${format.ext}`
 
       try {
+        const validation = validateExportDocument(doc, format.id)
+        if (validation) {
+          if (validation.code === 'empty_document') {
+            setErrorMsg(t('dialogs.export.validationEmpty'))
+          } else if (validation.code === 'unsupported_node') {
+            setErrorMsg(t('dialogs.export.validationUnsupportedNode', { format: format.label || format.id, nodeType: validation.nodeType }))
+          } else {
+            setErrorMsg(t('dialogs.export.validationUnsupportedFormat', { format: validation.format }))
+          }
+          setStatus('error')
+          return
+        }
         if (!format.backend) {
           // Frontend serialization
           let content: string

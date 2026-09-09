@@ -6151,6 +6151,61 @@ class ExportDocRequest(BaseModel):
     options: dict = {}
 
 
+_SERVER_DOCUMENT_EXPORT_FORMATS = {"pdf", "docx"}
+_DOCUMENT_EXPORT_NODE_TYPES = {
+    "sceneHeading",
+    "action",
+    "characterCue",
+    "dialogue",
+    "parenthetical",
+    "transition",
+    "paragraph",
+}
+
+
+def validate_script_document_export(content: dict, fmt: str) -> None:
+    """Reject document structures the server cannot map deterministically."""
+    normalized_format = str(fmt or "").strip().lower()
+    if normalized_format not in _SERVER_DOCUMENT_EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_format",
+                "format": normalized_format,
+                "supported_formats": sorted(_SERVER_DOCUMENT_EXPORT_FORMATS),
+            },
+        )
+    if not isinstance(content, dict) or content.get("type") != "doc" or not isinstance(content.get("content"), list) or not content["content"]:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "empty_document", "format": normalized_format},
+        )
+    def node_text(node: object) -> str:
+        if not isinstance(node, dict):
+            return ""
+        children = node.get("content")
+        if not isinstance(children, list):
+            return str(node.get("text") or "")
+        return str(node.get("text") or "") + "".join(node_text(child) for child in children)
+
+    if all(not node_text(node).strip() for node in content["content"]):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "empty_document", "format": normalized_format},
+        )
+    for node in content["content"]:
+        node_type = str(node.get("type") or "unknown") if isinstance(node, dict) else "unknown"
+        if node_type not in _DOCUMENT_EXPORT_NODE_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "unsupported_node",
+                    "format": normalized_format,
+                    "node_type": node_type,
+                },
+            )
+
+
 def _parse_fdx(xml_text: str) -> dict:
     """Parse FDX (Final Draft XML) into Tiptap JSON."""
     import re
@@ -6383,7 +6438,8 @@ def export_document(project_id: str, req: ExportDocRequest):
     from fastapi.responses import Response
 
     doc = req.content
-    fmt = req.format.lower()
+    fmt = req.format.strip().lower()
+    validate_script_document_export(doc, fmt)
 
     # Helper to extract plain text from Tiptap doc
     def extract_text(node: dict) -> str:
@@ -6560,7 +6616,8 @@ def export_document(project_id: str, req: ExportDocRequest):
             )
 
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported export format: {fmt}")
+        # Guarded by validate_script_document_export; keep this branch defensive.
+        raise HTTPException(status_code=400, detail={"code": "unsupported_format", "format": fmt})
 
 
 # ═══════════════════════════════════════════════════════════════

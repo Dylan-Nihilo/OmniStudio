@@ -46,7 +46,7 @@ it('rejects unsupported and oversized imports before requesting the API', () => 
 });
 
 it('reports a failed export and keeps every supported format available for retry', async () => {
-  const close = vi.fn(); const content = { type: 'doc', content: [] };
+  const close = vi.fn(); const content = { type: 'doc', content: [{ type: 'action', content: [{ type: 'text', text: 'Rain starts.' }] }] };
   vi.mocked(scriptEditorApi.exportDocument).mockRejectedValue(new Error('Export unavailable'));
   render(<ExportDialog open projectId="a" onClose={close} editor={{ getJSON: () => content } as unknown as Editor} />);
   fireEvent.click(screen.getByRole('button', { name: /^PDF / }));
@@ -54,6 +54,16 @@ it('reports a failed export and keeps every supported format available for retry
   expect(scriptEditorApi.exportDocument).toHaveBeenCalledWith('a', content, 'pdf');
   for (const name of [/^Fountain /, /^Final Draft/, /^dialogs.export.txtLabel/, /^PDF /, /^DOCX /]) expect(screen.getByRole('button', { name })).toBeEnabled();
   expect(close).not.toHaveBeenCalled();
+});
+
+it('blocks a professional export when the document has no structure mapping', async () => {
+  const content = { type: 'doc', content: [{ type: 'shotBlock', content: [{ type: 'text', text: '镜头' }] }] };
+  render(<ExportDialog open projectId="a" onClose={vi.fn()} editor={{ getJSON: () => content } as unknown as Editor} />);
+
+  fireEvent.click(screen.getByRole('button', { name: /^PDF / }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('dialogs.export.validationUnsupportedNode');
+  expect(scriptEditorApi.exportDocument).not.toHaveBeenCalled();
 });
 
 it('distinguishes failed history loading from empty history and confirms restoration', async () => {
