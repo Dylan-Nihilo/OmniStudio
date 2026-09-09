@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, History, RotateCcw, Save } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, History, RotateCcw, Save } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, TextAreaField, TextField } from "@omnistudio/ui";
 import type { SourceChapter, SourceRevision, SourceRevisionImpact } from "@/lib/api";
@@ -23,10 +23,13 @@ interface Props {
   onSave: (payload: { title: string; content: string }) => void;
   onRestore: (revision: SourceRevision) => void;
   onClose: () => void;
+  onOpenScript?: (episodeId: string) => void;
 }
 
-export default function SourceChapterPanel({ chapters, total, page, pageSize, query, selectedChapter, revisions, impacts, saving = false, onQueryChange, onPageChange, onSelect, onSave, onRestore, onClose }: Props) {
+export default function SourceChapterPanel({ chapters, total, page, pageSize, query, selectedChapter, revisions, impacts, saving = false, onQueryChange, onPageChange, onSelect, onSave, onRestore, onClose, onOpenScript }: Props) {
   const t = useTranslations("sourceWorkspace");
+  const tc = useTranslations("common");
+  const ts = useTranslations("script");
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const [title, setTitle] = React.useState(selectedChapter?.title || "");
   const [content, setContent] = React.useState(selectedChapter?.current_revision?.content || "");
@@ -74,6 +77,15 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
                         <li key={target.id}>
                           <strong>{target.target_type}</strong>
                           <span>{t("impactTarget", { stage: target.target_stage, status: target.status, id: target.target_id })}</span>
+                          {onOpenScript && target.episode_id && <Button
+                            variant="quiet"
+                            aria-label={`${tc("open")} ${ts("scriptEditor")}`}
+                            isDisabled={saving}
+                            onPress={() => onOpenScript(target.episode_id!)}
+                          >
+                            <FileText size={14} aria-hidden="true" />
+                            {tc("open")}
+                          </Button>}
                         </li>
                       ))}
                     </ul>
