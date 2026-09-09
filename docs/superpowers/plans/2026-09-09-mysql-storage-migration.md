@@ -84,10 +84,18 @@
   4. 输出报告 JSON（每表行数、哈希、耗时），任一不一致非零退出。
 - [ ] `--dry-run` 只做源库统计与目标连通性检查。
 
+## 生产环境现状（2026-09-09 只读盘点）
+
+- 主机：阿里云新加坡 `47.236.165.75`（SSH host `47`），4 核 / 14G / 磁盘 49G 用 38%，1Panel 管理。
+- 部署：`/opt/omnistudio/app`，docker compose 两个容器 `omni-studio-backend`（127.0.0.1:17177）、`omni-studio-frontend`（0.0.0.0:3000→80）；`.deployed-commit = 54d1bd0`（= 当前 main HEAD）。另有 UI 站点 `/opt/omnistudio-ui`（80 端口，独立 compose）。
+- 数据：`output/lumenx.db`（沿用旧文件名）≈1 MB + WAL 0.5 MB，`schema_migrations = w3.1-auth`；users 4 / workspaces 4 / projects 15 / jobs 3。`output/` 共 54 MB（assets、video、uploads 等媒体仍在本地卷）。
+- 备份：`/opt/omnistudio/backups/lumenx.db.<ts>.bak`，由 `deploy_production.sh` 每次部署前生成；无定时备份。
+- **主机上没有 MySQL。** 需要二选一：(A) 在同一 compose 里加 `mysql:8.0` 服务 + 命名卷 + 每日 `mysqldump` 到 `/opt/omnistudio/backups`；(B) 阿里云 RDS MySQL 8.0（新加坡）。推荐先 A（数据量 MB 级，一小时内可上线，零额外费用），RDS 作为后续升级路径，切换只需改 URL。
+
 ## Task 4: 部署与配置
 
 **Files:**
-- Modify: `docker-compose.yml`（可选 `mysql` 服务 + healthcheck，或注释指向外部 MySQL）
+- Modify: `docker-compose.yml`（新增 `mysql:8.0` 服务：`command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci --default-time-zone=+00:00`，命名卷 `mysql_data`，healthcheck `mysqladmin ping`，`backend` 增加 `depends_on: mysql: condition: service_healthy`；端口只绑 127.0.0.1）
 - Modify: `Dockerfile.backend`（无改动则确认 PyMySQL 已装）
 - Modify: `scripts/deploy_production.sh`（备份分支：sqlite 用 `.backup`，mysql 用 `mysqldump --single-transaction`）
 - Modify: `README.md` / `USER_MANUAL.md` 部署章节
@@ -102,11 +110,11 @@
 ## Task 5: 切换演练与上线
 
 - [ ] **演练（预发布）**：用生产 SQLite 的备份跑一遍脚本 → 起一个指向 MySQL 的后端实例（另一个端口）→ 跑 `scripts/run_acceptance.py` 主链验收。
-- [ ] **上线窗口（预计 5–10 分钟，数据量 MB 级）**：
+- [ ] **上线窗口（预计 5–10 分钟；生产库 1 MB、15 个项目，整表复制秒级）**，在 `47.236.165.75:/opt/omnistudio/app` 执行：
   1. 公告 / 前端置为只读横幅（`OMNI_STUDIO_READ_ONLY=1`，后端对写接口返回 503）。
-  2. `sqlite3 .backup` 冷备份。
+  2. `sqlite3 output/lumenx.db ".backup '/opt/omnistudio/backups/lumenx.db.pre-mysql.<ts>.bak'"` 冷备份（含 WAL checkpoint）。
   3. 运行迁移脚本（非 dry-run）→ 报告全绿。
-  4. 改 `.env` 的 `OMNI_STUDIO_DATABASE_URL` → `docker compose up -d backend` → `/health` 确认 `dialect=mysql`。
+  4. 改 `.env` 的 `OMNI_STUDIO_DATABASE_URL` → `docker compose up -d backend` → `curl 127.0.0.1:17177/health` 确认 `dialect=mysql`；前端 3000 端口不重启。
   5. 登录 + 新建项目 + 一条 Playground 生成的冒烟。
   6. 关只读。
 - [ ] **回滚**：改回空 URL → 重启；窗口内的写入（理论上为 0）无需回灌。
