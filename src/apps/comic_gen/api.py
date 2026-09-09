@@ -1146,6 +1146,8 @@ def upload_asset(
         
         return signed_response(updated_script)
         
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -5745,6 +5747,18 @@ def merge_videos(script_id: str):
     """Merge all selected frame videos into final output"""
     import traceback
     try:
+        precheck = pipeline.precheck_merge(script_id)
+        if not precheck.get("ok"):
+            reasons = list(precheck.get("errors") or [])
+            for key in ("missing", "unreadable", "no_video_available"):
+                reasons.extend(
+                    str(item.get("reason") or item.get("expected") or item.get("path") or key)
+                    for item in (precheck.get(key) or [])
+                )
+            if precheck.get("disk", {}).get("sufficient") is False:
+                reasons.append("insufficient disk space")
+            detail = "; ".join(dict.fromkeys(reasons)) or "export precheck failed"
+            raise HTTPException(status_code=400, detail=f"Export precheck failed: {detail}")
         job_item = _create_production_item(
             "export", script_id, None,
             {"project_id": script_id, "export": True},
@@ -5754,6 +5768,8 @@ def merge_videos(script_id: str):
             _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)
         )
         return signed_response(merged_script)
+    except HTTPException:
+        raise
     except ValueError as e:
         # Known validation errors (no videos, etc.)
         logger.error(f"[MERGE ERROR] Validation failed: {e}")

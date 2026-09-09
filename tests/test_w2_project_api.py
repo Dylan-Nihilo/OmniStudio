@@ -150,6 +150,27 @@ def test_video_export_request_persists_real_merge_settings(api_client):
     assert captured["subtitles"] == "soft"
 
 
+def test_merge_endpoint_rejects_failed_precheck_before_dispatch(api_client):
+    project = _create_project(api_client, "Merge precheck guard")
+    with patch.object(
+        api_module.pipeline,
+        "precheck_merge",
+        return_value={
+            "ok": False,
+            "errors": ["not enough disk space"],
+            "missing": [],
+            "unreadable": [],
+            "no_video_available": [],
+            "disk": {"sufficient": False},
+        },
+    ), patch.object(api_module, "_create_production_item", return_value=None), patch.object(api_module.pipeline, "merge_videos") as merge:
+        response = api_client.post(f"/projects/{project['id']}/merge")
+
+    assert response.status_code == 400, response.text
+    assert "precheck" in response.json()["detail"].lower()
+    merge.assert_not_called()
+
+
 @pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown"])
 def test_reordering_frames_rejects_incomplete_or_repeated_ids_without_losing_shots(api_client, invalid):
     project = _create_project(api_client, "Storyboard order")
