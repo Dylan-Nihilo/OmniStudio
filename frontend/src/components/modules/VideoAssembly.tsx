@@ -8,6 +8,7 @@ import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download,
 import { useProjectStore } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
+import { apiStreamRequest } from "@/lib/apiClient";
 import { getAssetUrl, extractErrorDetail } from "@/lib/utils";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import SidePanelHeader from "@/components/shared/SidePanelHeader";
@@ -287,15 +288,8 @@ export default function VideoAssembly() {
         if (!currentProject?.merged_video_url) return;
         setIsDownloading(true);
         try {
-            // Build download URL - use proxy in dev to avoid CORS, direct in production
-            const rawPath = currentProject.merged_video_url;
-            const cleanPath = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
-            const isDev = process.env.NODE_ENV === "development";
-            const url = isDev
-                ? `/api-proxy/files/${cleanPath}`
-                : getAssetUrl(rawPath);
-
-            const response = await fetch(url);
+            const url = getAssetUrl(currentProject.merged_video_url);
+            const response = await (url.startsWith("/") ? apiStreamRequest(url) : fetch(url));
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const blob = await response.blob();
             const blobUrl = URL.createObjectURL(blob);

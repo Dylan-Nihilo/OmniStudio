@@ -17,6 +17,7 @@ import {
 import { useTranslations } from "next-intl";
 import { legacyClaimApi, type LegacyClaimStatus } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
+import { Button } from "@omnistudio/ui";
 import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import AuthThemeMenu from "./AuthThemeMenu";
 
@@ -90,6 +91,7 @@ export default function LegacyClaimPanel() {
   const canApply = Boolean(
     status?.source_sha256 && (status.state === "ready" || status.state === "rolled_back"),
   );
+  const readyToEnter = status?.state === "claimed" || (status?.state === "ready" && !canApply);
 
   return (
     <main className="auth-surface">
@@ -202,14 +204,15 @@ export default function LegacyClaimPanel() {
                 ) : <span />}
 
                 <div className="flex flex-col-reverse gap-3 sm:flex-row">
-                  <button
+                  <Button
                     type="button"
-                    onClick={enterWorkspace}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm text-text-secondary transition hover:bg-white/5 hover:text-foreground"
+                    variant={readyToEnter ? "primary" : "quiet"}
+                    onPress={enterWorkspace}
+                    isDisabled={action !== null}
                   >
-                    {status?.state === "claimed" ? t("legacyClaimEnterWorkspace") : t("legacyClaimLater")}
+                    {readyToEnter ? t("legacyClaimEnterWorkspace") : t("legacyClaimLater")}
                     <ArrowRight size={15} />
-                  </button>
+                  </Button>
                   {canApply ? (
                     <button
                       type="button"

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const updateLibraryAsset = vi.fn();
+const deleteLibraryAsset = vi.fn();
 const uploadLibraryImage = vi.fn();
 const updateSeriesAssetImage = vi.fn();
 const updateAssetImage = vi.fn();
@@ -23,6 +24,7 @@ vi.mock("@/lib/api", () => ({
     updateSeriesAssetImage: (...args: unknown[]) => updateSeriesAssetImage(...args),
     updateAssetImage: (...args: unknown[]) => updateAssetImage(...args),
     updateLibraryAsset: (...args: unknown[]) => updateLibraryAsset(...args),
+    deleteLibraryAsset: (...args: unknown[]) => deleteLibraryAsset(...args),
     listSeries: (...args: unknown[]) => listSeries(...args),
     getProjects: (...args: unknown[]) => getProjects(...args),
     listLibraryAssets: (...args: unknown[]) => listLibraryAssets(...args),
@@ -33,6 +35,29 @@ import AssetLibraryPage from "./AssetLibraryPage";
 import AssetInspector from "./AssetInspector";
 
 describe("AssetLibraryPage", () => {
+  it("edits shared metadata, cancels deletion, and keeps referenced assets after a rejected delete", async () => {
+    render(<AssetLibraryPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stage 2 protected image" }));
+    fireEvent.click(screen.getByRole("button", { name: "editAsset" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /nameLabel/ }), { target: { value: "Night station" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "descLabel" }), { target: { value: "Warm lights" } });
+    updateLibraryAsset.mockResolvedValueOnce({ id: "scene-stage2", name: "Night station", description: "Warm lights", image_url: "uploads/stage2.jpg" });
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    await waitFor(() => expect(updateLibraryAsset).toHaveBeenCalledWith("scene", "scene-stage2", { name: "Night station", description: "Warm lights" }));
+    expect(await screen.findByRole("heading", { name: "Night station" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "deleteAsset" }));
+    fireEvent.click(screen.getByRole("button", { name: "cancel" }));
+    expect(deleteLibraryAsset).not.toHaveBeenCalled();
+    deleteLibraryAsset.mockRejectedValueOnce({ response: { data: { detail: { message: "Still used by shot 1" } } } });
+    fireEvent.click(screen.getByRole("button", { name: "deleteAsset" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirmDelete" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Still used by shot 1");
+    expect(screen.getByRole("heading", { name: "Night station" })).toBeVisible();
+    deleteLibraryAsset.mockResolvedValueOnce({ status: "deleted" });
+    listLibraryAssets.mockResolvedValueOnce({ characters: [], scenes: [], props: [] });
+    fireEvent.click(screen.getByRole("button", { name: "confirmDelete" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Night station" })).not.toBeInTheDocument());
+  });
   it("keeps asset types in navigation and source filtering in the gallery toolbar", async () => {
     render(<AssetLibraryPage />);
     await screen.findByRole("img", { name: "Stage 2 protected image" });

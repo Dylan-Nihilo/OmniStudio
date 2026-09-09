@@ -98,11 +98,13 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
   const [status, setStatus] = useState<'idle' | 'exporting' | 'success' | 'error'>('idle')
   const [activeFormat, setActiveFormat] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
+  const [fallbackFilename, setFallbackFilename] = useState('')
 
   const handleClose = useCallback(() => {
     setStatus('idle')
     setActiveFormat(null)
     setErrorMsg('')
+    setFallbackFilename('')
     onClose()
   }, [onClose])
 
@@ -113,6 +115,7 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
       setActiveFormat(format.id)
       setStatus('exporting')
       setErrorMsg('')
+      setFallbackFilename('')
 
       const doc = editor.getJSON()
       const filename = `script${format.ext}`
@@ -154,10 +157,11 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
           handleClose()
         } else {
           // Backend export (PDF/DOCX)
-          const blob = await scriptEditorApi.exportDocument(projectId, doc, format.id)
-          downloadBlob(blob, filename)
+          const result = await scriptEditorApi.exportDocument(projectId, doc, format.id)
+          downloadBlob(result.blob, result.filename)
           setStatus('success')
-          handleClose()
+          if (result.fallback) setFallbackFilename(result.filename)
+          else handleClose()
         }
       } catch (e: any) {
         setStatus('error')
@@ -178,5 +182,6 @@ export default function ExportDialog({ open, onClose, projectId, editor }: Expor
       </Button>)}
     </div>
     {status === 'error' && <p role="alert" className="mt-3 text-sm text-status-failed-fg">{errorMsg}</p>}
+    {fallbackFilename && <p role="status" className="mt-3 text-sm text-text-secondary">{t('dialogs.export.fallbackSaved', { filename: fallbackFilename })}</p>}
   </Dialog>
 }

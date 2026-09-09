@@ -6,7 +6,7 @@ import { useEditLeaseStore } from '@/store/editLeaseStore';
 import { api } from '@/lib/api';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
-vi.mock('@/lib/api', () => ({ api: { updateScriptText: vi.fn(), extractPreview: vi.fn() } }));
+vi.mock('@/lib/api', () => ({ api: { updateScriptText: vi.fn(), extractPreview: vi.fn(), getProject: vi.fn() } }));
 vi.mock('./PreviousEpisodeSummary', () => ({ default: () => <p>Previous episode</p> }));
 vi.mock('./ReconcileModal', () => ({ default: () => null }));
 const project = { id: 'script-one', title: 'Episode one', originalText: 'Opening scene', characters: [], scenes: [], props: [], frames: [] };
@@ -41,6 +41,23 @@ it('retains the text and exposes save failures for retry', async () => {
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('saveFailed'));
   expect(editor).toHaveValue('Keep this draft');
   expect(screen.getByRole('button', { name: 'save' })).toBeEnabled();
+});
+it.each([false, true])('rebases metadata-only conflicts and preserves changed server text: %s', async (textChanged) => {
+  const conflict = { isAxiosError: true, response: { data: { error: { code: 'EDIT_REVISION_CONFLICT' } } } };
+  vi.mocked(api.updateScriptText).mockReset().mockRejectedValueOnce(conflict).mockResolvedValueOnce({ _revision: '3' } as never);
+  vi.mocked(api.getProject).mockReset().mockResolvedValueOnce({ originalText: textChanged ? 'Other author edit' : project.originalText, _revision: '2' } as never);
+  render(<ScriptProcessor />);
+  const editor = screen.getByRole('textbox', { name: 'scriptEditor' });
+  fireEvent.change(editor, { target: { value: 'Keep my draft' } });
+  fireEvent.blur(editor);
+  if (textChanged) {
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('conflict'));
+    expect(api.updateScriptText).toHaveBeenCalledTimes(1);
+  } else {
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('saved'));
+    expect(api.updateScriptText).toHaveBeenLastCalledWith(project.id, 'Keep my draft', '2', 'lease', 'tab');
+  }
+  expect(editor).toHaveValue('Keep my draft');
 });
 it('preserves extraction confirmation and prevents editing without a lease', async () => {
   const preview = { characters: [{ name: 'A' }], scenes: [], props: [] };

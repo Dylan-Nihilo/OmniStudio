@@ -370,7 +370,7 @@
     "statusPending": "待生成",
     "statusNew": "本集新增",
     "emptyTitle": "本集素材为空",
-    "emptyBody": "请先在 Script 步骤导入剧本并提取实体，本集出场的角色、场景与道具会自动汇总到这里。",
+    "emptyBody": "从剧本提取角色、场景和道具，或在这里手动添加。",
     "viewHistory": "查看出场历史",
     "totalAppearances": "{count} 次出场，分布在 {episodes} 集",
     "noAppearancesYet": "暂未出场",
@@ -406,6 +406,7 @@
     "fieldDescriptionAiPlaceholder": "用于 AI 生成参考图的描述（外观、风格、姿势等）",
     "fieldImageUpload": "上传 master sheet 参考图",
     "clickToUpload": "点击或拖拽图片到此",
+    "manualAssetHint": "创建后，可在素材卡片中生成参考图。",
     "aiTabHint": "先预览生成计划，确认调用规模与费用后才会创建任务。",
     "aiPreviewTitle": "生成预览",
     "aiPreviewSummary": "将调用 {calls} 次模型，预计消耗 {cost} credits。确认后才会创建素材和任务。",
@@ -1328,6 +1329,11 @@
     "saving": "保存中..."
   },
   "library": {
+    "editAsset": "编辑资产",
+    "deleteAsset": "删除资产",
+    "confirmDelete": "确认删除",
+    "deleteAssetBody": "从全局资产库删除“{name}”？正在被分镜引用的资产无法删除。",
+    "saveFailed": "保存失败，请重试",
     "replaceImage": "替换图片",
     "replacing": "替换中…",
     "replaceSuccess": "图片已替换",
@@ -2100,12 +2106,13 @@
       "localUpload": "本地上传",
       "pickFromLibrary": "从资产库选取",
       "replaceFile": "替换文件",
+      "tooManyReferences": "当前模型最多支持 {max} 份参考素材，请移除多余素材后生成。",
       "fileCount": "{current} / {max} 张",
       "hints": {
         "t2i": "上传参考图自动切换为图像编辑模式",
         "i2i": "支持 JPG / PNG / WebP，建议尺寸不小于 512px",
         "i2v": "支持 JPG / PNG / WebP，建议尺寸不小于 720px",
-        "r2v": "支持 JPG / PNG / WebP，最多 9 张参考图",
+        "r2v": "支持 JPG / PNG / WebP，最多 {max} 张参考图",
         "v2v": "支持 MP4 / MOV / WebM",
         "r2vSeedance": "Seedance 支持图片、视频、音频作为参考素材"
       },
@@ -2490,6 +2497,7 @@
         "validationEmpty": "剧本文档为空，无法导出专业格式。",
         "validationUnsupportedNode": "当前剧本包含无法映射到 {format} 的结构节点：{nodeType}",
         "validationUnsupportedFormat": "不支持的导出格式：{format}",
+        "fallbackSaved": "当前无法生成所选格式，已保存为 {filename}。",
         "failed": "导出失败",
         "footer": "FDX / Fountain / TXT 在本地生成 · PDF / DOCX 通过服务端生成"
       },

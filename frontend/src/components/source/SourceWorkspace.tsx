@@ -96,6 +96,7 @@ export default function SourceWorkspace() {
     try {
       const detail = await sourceApi.get(sourceId);
       setSelectedSource(detail);
+      setSources(current => current.map(source => source.id === detail.id ? detail : source));
       setSelectedChapter(current => current && detail.chapters?.some(chapter => chapter.id === current.id) ? detail.chapters!.find(chapter => chapter.id === current.id) || null : null);
     } catch (cause) {
       setError(errorMessage(cause, t("loadFailed")));

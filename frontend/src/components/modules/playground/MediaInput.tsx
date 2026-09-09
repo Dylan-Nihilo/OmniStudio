@@ -7,6 +7,7 @@ import { playgroundApi } from '@/lib/api';
 import { getAssetUrl } from '@/lib/utils';
 import { usePlaygroundStore, type PlaygroundMode } from './usePlaygroundStore';
 import AssetPickerModal from './AssetPickerModal';
+import { getModelsForMode } from './playgroundModels';
 
 // ---------------------------------------------------------------------------
 // Mode config
@@ -93,7 +94,7 @@ function isVideoPath(path: string): boolean {
 // root-relative (/files/...) URLs pass through untouched. The raw path is still kept
 // in store state + the generate payload — only the <img>/<video> src is resolved.
 function resolveMediaSrc(path: string): string {
-  if (/^(https?:|blob:|data:|\/)/i.test(path)) return path;
+  if (/^(blob:|data:)/i.test(path)) return path;
   return getAssetUrl(path.replace(/^output\//, ''));
 }
 
@@ -188,6 +189,10 @@ export default function MediaInput() {
   const isSeedance = modelId.startsWith('seedance');
 
   let config = MODE_CONFIG[mode];
+  const referenceLimit = getModelsForMode(mode).find(model => model.id === modelId)?.maxReferenceImages;
+  if (config && referenceLimit && ["t2i", "i2i", "r2v"].includes(mode)) {
+    config = { ...config, maxFiles: referenceLimit, multiple: referenceLimit > 1 };
+  }
 
   // Override r2v config when Seedance is selected
   if (config && mode === 'r2v' && isSeedance) {
@@ -214,7 +219,7 @@ export default function MediaInput() {
     if (fileArray.length === 0) return;
 
     // Respect max file limit
-    const available = config.maxFiles - inputMedia.length;
+    const available = config.multiple ? Math.max(0, config.maxFiles - inputMedia.length) : 1;
     const toUpload = fileArray.slice(0, available);
 
     setUploading(true);
@@ -349,7 +354,7 @@ export default function MediaInput() {
             {uploading ? t('media.uploading') : t('media.dragOrClick')}
           </span>
 
-          <span className="text-[0.6875rem] text-text-muted">{t(`media.hints.${config.hintKey}`)}</span>
+          <span className="text-[0.6875rem] text-text-muted">{t(`media.hints.${config.hintKey}`, { max: config.maxFiles })}</span>
         </div>
 
         {/* Action buttons */}

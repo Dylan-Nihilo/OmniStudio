@@ -1462,7 +1462,7 @@ class ComicGenPipeline:
         logger.info(f"Descriptions synced for script {script_id}: cleared prompts for {len(script.characters)} characters, {len(script.scenes)} scenes, {len(script.props)} props")
         return script
 
-    def add_character(self, script_id: str, name: str, description: str) -> Script:
+    def add_character(self, script_id: str, name: str, description: str, *, persona: str = "", voice_id: Optional[str] = None, image_url: Optional[str] = None) -> Script:
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
@@ -1470,7 +1470,10 @@ class ComicGenPipeline:
         new_char = Character(
             id=f"char_{uuid.uuid4().hex[:8]}",
             name=name,
-            description=description
+            description=description,
+            persona=persona,
+            voice_id=voice_id,
+            full_body_image_url=image_url,
         )
         script.characters.append(new_char)
         self._save_data()
@@ -1485,7 +1488,7 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def add_scene(self, script_id: str, name: str, description: str) -> Script:
+    def add_scene(self, script_id: str, name: str, description: str, *, image_url: Optional[str] = None) -> Script:
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
@@ -1493,7 +1496,8 @@ class ComicGenPipeline:
         new_scene = Scene(
             id=f"scene_{uuid.uuid4().hex[:8]}",
             name=name,
-            description=description
+            description=description,
+            image_url=image_url,
         )
         script.scenes.append(new_scene)
         self._save_data()

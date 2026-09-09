@@ -370,7 +370,7 @@
     "statusPending": "Pending",
     "statusNew": "New",
     "emptyTitle": "No cast yet",
-    "emptyBody": "Import a script in Step 1 and extract entities — characters, scenes, and props referenced in this episode will be aggregated here.",
+    "emptyBody": "Extract characters, scenes, and props from your script, or add them here.",
     "viewHistory": "View appearance history",
     "totalAppearances": "{count} appearances across {episodes} episode(s)",
     "noAppearancesYet": "No appearances yet",
@@ -406,6 +406,7 @@
     "fieldDescriptionAiPlaceholder": "Description used by AI to generate the reference sheet",
     "fieldImageUpload": "Upload master sheet",
     "clickToUpload": "Click or drag image here",
+    "manualAssetHint": "After creating the asset, open its card to generate a reference image.",
     "aiTabHint": "Preview the generation plan first. Assets and paid jobs are created only after confirmation.",
     "aiPreviewTitle": "Generation preview",
     "aiPreviewSummary": "This will make {calls} model call(s), estimated at {cost} credits. Confirmation creates the asset and job.",
@@ -1328,6 +1329,11 @@
     "saving": "Saving..."
   },
   "library": {
+    "editAsset": "Edit asset",
+    "deleteAsset": "Delete asset",
+    "confirmDelete": "Confirm deletion",
+    "deleteAssetBody": "Delete “{name}” from the shared library? Assets referenced by shots cannot be deleted.",
+    "saveFailed": "Could not save. Try again.",
     "replaceImage": "Replace image",
     "replacing": "Replacing…",
     "replaceSuccess": "Image replaced",
@@ -2100,12 +2106,13 @@
       "localUpload": "Local upload",
       "pickFromLibrary": "Pick from library",
       "replaceFile": "Replace file",
+      "tooManyReferences": "This model accepts up to {max} references. Remove the extras to generate.",
       "fileCount": "{current} / {max}",
       "hints": {
         "t2i": "Upload a reference image to auto-switch to image-edit mode",
         "i2i": "JPG / PNG / WebP supported; recommended at least 512px",
         "i2v": "JPG / PNG / WebP supported; recommended at least 720px",
-        "r2v": "JPG / PNG / WebP supported; up to 9 reference images",
+        "r2v": "JPG / PNG / WebP supported; up to {max} reference images",
         "v2v": "MP4 / MOV / WebM supported",
         "r2vSeedance": "Seedance accepts image, video, and audio as reference material"
       },
@@ -2490,6 +2497,7 @@
         "validationEmpty": "The screenplay is empty and cannot be exported in a professional format.",
         "validationUnsupportedNode": "This screenplay contains a node that cannot be mapped to {format}: {nodeType}",
         "validationUnsupportedFormat": "Unsupported export format: {format}",
+        "fallbackSaved": "The selected format is unavailable. Saved as {filename} instead.",
         "failed": "Export failed",
         "footer": "FDX / Fountain / TXT generated locally · PDF / DOCX via server"
       },

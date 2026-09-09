@@ -244,7 +244,7 @@ describe("SourceWorkspace", () => {
     await waitFor(() => expect(mocks.listEpisodeCandidates).toHaveBeenCalledWith("source-1"));
   });
 
-  it("loads source episode links and links an available episode", async () => {
+  it("keeps the source list count in sync when an episode is linked and unlinked", async () => {
     mocks.listEpisodeCandidates.mockResolvedValue({
       linked: [],
       available: [{ id: "episode-2", project_id: "project-2", title: "第二集：回声", episode_number: 2, status: "draft", linked_at: 0 }],
@@ -253,10 +253,22 @@ describe("SourceWorkspace", () => {
     renderWithIntl(<SourceWorkspace />);
 
     expect(await screen.findByRole("heading", { name: "Episode 关联" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /既有来源.*0 个关联集/ })).toBeVisible();
+    mocks.get.mockResolvedValue({ ...source, linked_episode_count: 1, chapters: [chapter], episodes: [] });
+    mocks.listEpisodeCandidates.mockResolvedValue({
+      linked: [{ id: "episode-2", project_id: "project-2", title: "第二集：回声", episode_number: 2, status: "draft", linked_at: 1 }],
+      available: [],
+    });
     expect(screen.getByRole("button", { name: "关联 Episode" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "关联 Episode" }));
 
     await waitFor(() => expect(mocks.linkEpisode).toHaveBeenCalledWith("source-1", "episode-2"));
+    expect(await screen.findByRole("button", { name: /既有来源.*1 个关联集/ })).toBeVisible();
+    mocks.get.mockResolvedValue({ ...source, chapters: [chapter], episodes: [] });
+    mocks.listEpisodeCandidates.mockResolvedValue({ linked: [], available: [] });
+    mocks.unlinkEpisode.mockResolvedValue({ linked: false });
+    fireEvent.click(screen.getByRole("button", { name: "解除关联" }));
+    expect(await screen.findByRole("button", { name: /既有来源.*0 个关联集/ })).toBeVisible();
   });
 
   it("passes a failed chapter id when retrying one analysis item", async () => {

@@ -94,13 +94,20 @@ export const scriptEditorApi = {
   },
 
   /** 导出文档（Tiptap JSON → PDF/DOCX，返回 Blob） */
-  exportDocument: async (projectId: string, content: any, format: string): Promise<Blob> => {
+  exportDocument: async (projectId: string, content: any, format: string): Promise<{ blob: Blob; filename: string; fallback: boolean }> => {
     const res = await apiClient.post(
       `${API_URL}/projects/${projectId}/document/export`,
       { content, format, options: {} },
       { responseType: 'blob' }
     );
-    return res.data;
+    const mime = String(res.headers['content-type'] || res.data.type || '').split(';')[0];
+    const extension = ({
+      'application/pdf': 'pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'text/html': 'html',
+      'text/plain': 'txt',
+    } as Record<string, string>)[mime] || format;
+    return { blob: res.data, filename: `script.${extension}`, fallback: extension !== format || res.headers['x-export-fallback'] === 'true' };
   },
 
   /** 同步派生数据到后端 */

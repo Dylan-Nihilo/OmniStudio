@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, MapPin, Box, AlertTriangle, Sparkles, Plus, Upload, X, Loader2, Play, Pause, Volume2, Wand2, Layers, Maximize2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
-import { api } from "@/lib/api";
+import { api, crudApi } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 import { useLightbox } from "@/components/shared/preview/LightboxProvider";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
@@ -211,6 +211,14 @@ export default function Cast() {
                         <p className="mt-2 text-sm text-text-secondary leading-relaxed">
                             {t("emptyBody")}
                         </p>
+                        <div className="mt-5 flex justify-center gap-2">
+                            {(["character", "scene", "prop"] as const).map((kind) => (
+                                <WorkflowActionButton key={kind} size="sm" onClick={() => setAddModalOpen(kind)}>
+                                    <Plus size={14} />
+                                    {t(kind === "character" ? "addCharacter" : kind === "scene" ? "addScene" : "addProp")}
+                                </WorkflowActionButton>
+                            ))}
+                        </div>
                     </div>
                 </div>
             ) : (
@@ -303,6 +311,7 @@ export default function Cast() {
             <AddCastPlaceholderModal
                 kind={addModalOpen}
                 seriesId={currentProject?.series_id ?? null}
+                projectId={currentProject?.id ?? null}
                 onClose={() => setAddModalOpen(null)}
                 onCreated={() => {
                     // Trigger a project refresh by re-selecting; simplest
@@ -326,11 +335,13 @@ export default function Cast() {
 function AddCastPlaceholderModal({
     kind,
     seriesId,
+    projectId,
     onClose,
     onCreated,
 }: {
     kind: null | "character" | "scene" | "prop";
     seriesId: string | null;
+    projectId: string | null;
     onClose: () => void;
     onCreated: () => void;
 }) {
@@ -371,6 +382,42 @@ function AddCastPlaceholderModal({
             setError(err?.response?.data?.detail || err?.message || "Upload failed");
         } finally {
             setUploading(false);
+        }
+    };
+
+    const handleSubmit = async () => {
+        if (!projectId) {
+            setError(t("seriesRequired"));
+            return;
+        }
+        if (!name.trim()) {
+            setError(t("nameRequired"));
+            return;
+        }
+        setSubmitting(true);
+        setError(null);
+        try {
+            const kindMap = { character: "characters", scene: "scenes", prop: "props" } as const;
+            const data = {
+                name: name.trim(),
+                description: description.trim() || undefined,
+                persona: kind === "character" ? (persona.trim() || undefined) : undefined,
+                voice_id: kind === "character" ? (voiceId.trim() || undefined) : undefined,
+                image_url: imageUrl || undefined,
+            };
+            if (seriesId) {
+                await api.createSeriesAsset(seriesId, kindMap[kind], data);
+            } else {
+                const create = { character: crudApi.createCharacter, scene: crudApi.createScene, prop: crudApi.createProp }[kind];
+                await create(projectId, data);
+            }
+            onCreated();
+            reset();
+            onClose();
+        } catch (err: any) {
+            setError(err?.response?.data?.detail || err?.message || "Create failed");
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -562,15 +609,15 @@ function AddCastPlaceholderModal({
                             </div>
                         ) : (
                             <div className="rounded-lg bg-primary/[0.06] border border-primary/20 px-3 py-2.5">
-                                <p className="text-[0.71875rem] text-text-secondary leading-relaxed">{t("aiTabHint")}</p>
-                                <div className="mt-2 flex items-center gap-2">
+                                <p className="text-[0.71875rem] text-text-secondary leading-relaxed">{t(seriesId ? "aiTabHint" : "manualAssetHint")}</p>
+                                {seriesId && <div className="mt-2 flex items-center gap-2">
                                     <span className="text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">Batch</span>
                                     {[1, 2, 4].map((size) => (
                                         <button key={size} type="button" onClick={() => setBatchSize(size)} className={`px-2 py-0.5 rounded border text-[0.6875rem] ${batchSize === size ? "border-primary/50 text-primary bg-primary/10" : "border-glass-border text-text-muted"}`}>
                                             {size}
                                         </button>
                                     ))}
-                                </div>
+                                </div>}
                             </div>
                         )
                     )}
@@ -591,26 +638,11 @@ function AddCastPlaceholderModal({
                         variant="primary"
                         size="sm"
                         loading={submitting}
-                        onClick={tab === "ai" ? (preview ? handleConfirm : handlePreview) : async () => {
-                            if (!seriesId || !name.trim()) return;
-                            setSubmitting(true); setError(null);
-                            try {
-                                const kindMap = { character: "characters", scene: "scenes", prop: "props" } as const;
-                                await api.createSeriesAsset(seriesId, kindMap[kind], {
-                                    name: name.trim(), description: description.trim() || undefined,
-                                    persona: kind === "character" ? (persona.trim() || undefined) : undefined,
-                                    voice_id: kind === "character" ? (voiceId.trim() || undefined) : undefined,
-                                    image_url: imageUrl || undefined,
-                                });
-                                onCreated(); reset(); onClose();
-                            } catch (err: any) {
-                                setError(err?.response?.data?.detail || err?.message || "Create failed");
-                            } finally { setSubmitting(false); }
-                        }}
-                        disabled={!name.trim() || !seriesId}
+                        onClick={tab === "ai" && seriesId ? (preview ? handleConfirm : handlePreview) : handleSubmit}
+                        disabled={!name.trim() || !projectId || uploading}
                         className="flex-1"
                     >
-                        {tab === "ai" ? (preview ? t("aiPreviewConfirm") : t("createAndGenerate")) : t("create")}
+                        {tab === "ai" && seriesId ? (preview ? t("aiPreviewConfirm") : t("createAndGenerate")) : t("create")}
                     </WorkflowActionButton>
                 </div>
                 {tab === "ai" && preview && (

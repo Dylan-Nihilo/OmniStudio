@@ -14,6 +14,14 @@ export function getAssetUrl(path: string | null | undefined): string {
         && !window.location.protocol.startsWith("tauri")
         ? "/api-proxy"
         : API_URL;
+    const scopeMediaUrl = (url: string): string => {
+        const workspaceId = typeof window !== "undefined" ? window.localStorage.getItem("omni_studio.activeWorkspaceId") : null;
+        if (!workspaceId) return url;
+        const [pathname, query = ""] = url.split("?");
+        const params = new URLSearchParams(query);
+        if (!params.has("workspace_id")) params.set("workspace_id", workspaceId);
+        return `${pathname}?${params}`;
+    };
     if (path.startsWith("http") || path.startsWith("blob:")) {
         // Only pass through well-formed http(s)/blob URLs; anything else
         // (e.g. javascript: smuggled behind a weird prefix) is dropped.
@@ -26,7 +34,7 @@ export function getAssetUrl(path: string | null | undefined): string {
                 try {
                     const parsed = new URL(cleanUrl);
                     if (parsed.origin === API_URL && parsed.pathname.startsWith("/files/")) {
-                        return `${mediaBase}${parsed.pathname}${parsed.search}`;
+                        return scopeMediaUrl(`${mediaBase}${parsed.pathname}${parsed.search}`);
                     }
                 } catch {
                     // Keep the validated URL below when parsing is unavailable.
@@ -39,11 +47,11 @@ export function getAssetUrl(path: string | null | undefined): string {
         return "";
     }
 
-    if (normalizedPath.startsWith("/api-proxy/files/")) return normalizedPath;
-    if (normalizedPath.startsWith("/files/")) return `${mediaBase}${normalizedPath.slice("/files".length)}`;
+    if (normalizedPath.startsWith("/api-proxy/files/")) return scopeMediaUrl(normalizedPath);
+    if (normalizedPath.startsWith("/files/")) return scopeMediaUrl(`${mediaBase}${normalizedPath}`);
     // Remove leading slash if present to avoid double slashes with the media route.
     const cleanPath = normalizedPath.startsWith("/") ? normalizedPath.slice(1) : normalizedPath;
-    return `${mediaBase}/files/${encodeURI(cleanPath)}`;
+    return scopeMediaUrl(`${mediaBase}/files/${encodeURI(cleanPath)}`);
 }
 
 export function getAssetUrlWithTimestamp(path: string | null | undefined, timestamp?: number): string {

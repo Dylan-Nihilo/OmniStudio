@@ -28,6 +28,7 @@ from typing import Optional, Dict, List, Any, Tuple, Literal
 import asyncio
 import time
 from contextvars import copy_context
+from copy import deepcopy
 from functools import partial
 import concurrent.futures
 import hashlib
@@ -326,8 +327,11 @@ def _asset_output_refs(item):
     container = pipeline.get_series(task["script_id"]) if task.get("is_series") else pipeline.get_script(task["script_id"])
     if not container:
         raise RuntimeError("asset generation project disappeared")
-    asset = next((candidate for values in (container.characters, container.scenes, container.props)
-                  for candidate in values if candidate.id == task["asset_id"]), None)
+    if task.get("is_series"):
+        asset = next((candidate for values in (container.characters, container.scenes, container.props)
+                      for candidate in values if candidate.id == task["asset_id"]), None)
+    else:
+        asset, _ = pipeline._find_asset_with_source(container, task["asset_id"], task["asset_type"])
     if asset is None:
         raise RuntimeError("generated asset disappeared")
     urls: list[str] = []
@@ -335,9 +339,9 @@ def _asset_output_refs(item):
         value = getattr(asset, field, None)
         if value and value not in urls:
             urls.append(value)
-    for field in ("image_asset", "full_body_asset", "three_view_asset", "headshot_asset"):
+    for field in ("image_asset", "full_body_asset", "three_view_asset", "headshot_asset", "reference_sheet", "full_body", "three_views", "head_shot"):
         value = getattr(asset, field, None)
-        for variant in getattr(value, "variants", []) if value else []:
+        for variant in (getattr(value, "variants", None) or getattr(value, "image_variants", [])) if value else []:
             url = getattr(variant, "url", None)
             if url and url not in urls:
                 urls.append(url)
@@ -351,9 +355,26 @@ def _dispatch_production_item(item):
     payload = item.payload
     kind = item.kind
     if kind == "asset":
-        pipeline.process_asset_generation_task(payload["legacy_task_id"])
+        legacy_id = payload["legacy_task_id"]
+        saved_task = payload.get("legacy_task") or pipeline.asset_generation_tasks.get(legacy_id)
+        if saved_task is None:
+            raise RuntimeError("原始任务参数已不可用，请重新生成素材")
+        if item.retry_of:
+            legacy_id = item.id
+        if legacy_id not in pipeline.asset_generation_tasks:
+            pipeline.asset_generation_tasks[legacy_id] = {**deepcopy(saved_task), "task_id": legacy_id, "status": "pending", "error": None, "progress": 0}
+        if payload["legacy_task_id"] != legacy_id:
+            item = _production_adapter().repository.update_item_payload(item.id, {**payload, "legacy_task_id": legacy_id, "legacy_task": deepcopy(saved_task)})
+            payload = item.payload
+        pipeline.process_asset_generation_task(legacy_id)
         return _asset_output_refs(item)
     if kind == "video":
+        if item.retry_of:
+            source_item = _production_adapter().repository.get_item(item.retry_of)
+            if source_item and payload["legacy_task_id"] == source_item.payload.get("legacy_task_id"):
+                retry, _ = pipeline.retry_video_task(item.project_id, payload["legacy_task_id"])
+                item = _production_adapter().repository.update_item_payload(item.id, {**payload, "legacy_task_id": retry.id})
+                payload = item.payload
         pipeline.process_video_task(item.project_id, payload["legacy_task_id"])
         script = pipeline.get_script(item.project_id)
         task = next((candidate for candidate in (script.video_tasks if script else [])
@@ -439,6 +460,8 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
                 break
     if not workspace_id:
         return None
+    if kind == "asset" and payload.get("legacy_task_id"):
+        payload = {**payload, "legacy_task": deepcopy(pipeline.asset_generation_tasks.get(payload["legacy_task_id"]))}
     return _production_adapter().create(kind, workspace_id, project_id, episode_id, payload, idempotency_key)
 
 
@@ -738,7 +761,11 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             if not request.url.path.startswith("/auth/"):
                 context = service.resolve_workspace(
                     context,
-                    request.headers.get("x-workspace-id"),
+                    request.headers.get("x-workspace-id") or (
+                        request.query_params.get("workspace_id")
+                        if request.method in {"GET", "HEAD"} and request.url.path.startswith("/files/")
+                        else None
+                    ),
                 )
             request.state.auth_context = context
             role_token = current_workspace_role.set(
@@ -924,6 +951,24 @@ def debug_config():
         }
     }
 
+def _project_payload(script: Script) -> dict:
+    """Present shared assets consistently without persisting inherited copies."""
+    payload = script.model_dump()
+    series = pipeline.get_series(script.series_id) if script.series_id else None
+    workspace_id = pipeline.repository.workspace_for_script(script.id)
+    library = pipeline.list_library_assets(workspace_id) if workspace_id else None
+    for kind in ("characters", "scenes", "props"):
+        for asset in payload[kind]:
+            asset["source"] = "episode"
+        seen = {asset["id"] for asset in payload[kind]}
+        for source, container in (("series", series), ("global", library)):
+            for asset in getattr(container, kind, []):
+                if asset.id not in seen:
+                    payload[kind].append({**asset.model_dump(), "source": source})
+                    seen.add(asset.id)
+    return payload
+
+
 def signed_response(data):
     """Helper to sign OSS URLs in data before returning to frontend.
     
@@ -934,7 +979,9 @@ def signed_response(data):
         return JSONResponse(content=None)
     
     # Convert Pydantic models to dict
-    if hasattr(data, "model_dump"):
+    if isinstance(data, Script):
+        processed_data = _project_payload(data)
+    elif hasattr(data, "model_dump"):
         processed_data = data.model_dump()
     elif isinstance(data, list):
         processed_data = [item.model_dump() if hasattr(item, "model_dump") else item for item in data]
@@ -1643,7 +1690,7 @@ def update_script_text(script_id: str, request: UpdateScriptTextRequest, http_re
         )
     script = result.script
     pipeline.scripts[script_id] = script
-    response = script.model_dump()
+    response = _project_payload(script)
     response["_revision"] = result.revision
     return signed_response(response)
 
@@ -1664,6 +1711,8 @@ async def reparse_project(script_id: str, request: ReparseProjectRequest):
             )
         )
         return signed_response(result)
+    except ProviderError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -1685,6 +1734,8 @@ async def extract_preview(script_id: str, request: ReparseProjectRequest):
             "scenes": [s.dict() for s in result.scenes],
             "props": [p.dict() for p in result.props],
         }
+    except ProviderError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -3061,85 +3112,14 @@ def purge_project(script_id: str, request: PermanentPurgeRequest, background_tas
 
 @app.get("/projects/{script_id}")
 def get_project(script_id: str, request: Request):
-    """Retrieves a project by ID. When the project belongs to a
-    Series, the response merges series-shared characters / scenes /
-    props on top of the episode-local lists. Each item carries a
-    `source` field ("episode" | "series" | "global") so the frontend can
-    visually distinguish where the asset lives and route writes
-    appropriately (per A2 design decision — shared writes default to
-    the series side; local writes stay episode-side; the helper
-    `_find_asset_with_source` in pipeline routes mutations correctly).
-
-    Response model dropped from `Script` because the `source` field
-    is a presentation-layer concern (never persisted, derived from
-    container membership at read time)."""
+    """Read the current project, including series and Workspace shared assets."""
     with pipeline._save_lock:
         script = pipeline.repository.load_scripts().get(script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Project not found")
         pipeline.scripts[script_id] = script
-        payload = script.model_dump()
+        payload = _project_payload(script)
         payload["_revision"] = pipeline.repository.script_revision(script_id)
-
-    # Episode-local entries always carry source="episode".
-    for asset_list in (payload.get("characters", []),
-                      payload.get("scenes", []),
-                      payload.get("props", [])):
-        for item in asset_list:
-            item["source"] = "episode"
-
-    # Merge series-shared assets on top (any id not already present
-    # locally — episode-local overrides series). Without this step
-    # the user "loses" characters when switching between episodes of
-    # the same series, because the series shared pool isn't
-    # reflected on each episode's response.
-    if script.series_id:
-        series = pipeline.get_series(script.series_id)
-        if series:
-            ep_char_ids = {c.id for c in script.characters}
-            ep_scene_ids = {s.id for s in script.scenes}
-            ep_prop_ids = {p.id for p in script.props}
-            for ch in series.characters:
-                if ch.id not in ep_char_ids:
-                    d = ch.model_dump()
-                    d["source"] = "series"
-                    payload["characters"].append(d)
-            for sc in series.scenes:
-                if sc.id not in ep_scene_ids:
-                    d = sc.model_dump()
-                    d["source"] = "series"
-                    payload["scenes"].append(d)
-            for pr in series.props:
-                if pr.id not in ep_prop_ids:
-                    d = pr.model_dump()
-                    d["source"] = "series"
-                    payload["props"].append(d)
-
-    # Merge the project-independent global asset library underneath as
-    # the lowest layer. Any id not already present from the episode or
-    # series layers is appended with source="global" (read-time only —
-    # never written back to projects.json). When the library is empty
-    # this is a no-op and the response is byte-identical to before.
-    lib = pipeline.list_library_assets(request.state.auth_context.workspace.id)
-    if lib.characters or lib.scenes or lib.props:
-        seen_char_ids = {c["id"] for c in payload["characters"]}
-        seen_scene_ids = {s["id"] for s in payload["scenes"]}
-        seen_prop_ids = {p["id"] for p in payload["props"]}
-        for ch in lib.characters:
-            if ch.id not in seen_char_ids:
-                d = ch.model_dump()
-                d["source"] = "global"
-                payload["characters"].append(d)
-        for sc in lib.scenes:
-            if sc.id not in seen_scene_ids:
-                d = sc.model_dump()
-                d["source"] = "global"
-                payload["scenes"].append(d)
-        for pr in lib.props:
-            if pr.id not in seen_prop_ids:
-                d = pr.model_dump()
-                d["source"] = "global"
-                payload["props"].append(d)
     return signed_response(payload)
 
 
@@ -3777,13 +3757,16 @@ def sync_descriptions(script_id: str):
 
 class AddCharacterRequest(BaseModel):
     name: str
-    description: str
+    description: str = ""
+    persona: str = ""
+    voice_id: Optional[str] = None
+    image_url: Optional[str] = None
 
 @app.post("/projects/{script_id}/characters", response_model=Script)
 def add_character(script_id: str, request: AddCharacterRequest):
     """Adds a new character."""
     try:
-        updated_script = pipeline.add_character(script_id, request.name, request.description)
+        updated_script = pipeline.add_character(script_id, **request.model_dump())
         return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -3803,13 +3786,14 @@ def delete_character(script_id: str, char_id: str):
 
 class AddSceneRequest(BaseModel):
     name: str
-    description: str
+    description: str = ""
+    image_url: Optional[str] = None
 
 @app.post("/projects/{script_id}/scenes", response_model=Script)
 def add_scene(script_id: str, request: AddSceneRequest):
     """Adds a new scene."""
     try:
-        updated_script = pipeline.add_scene(script_id, request.name, request.description)
+        updated_script = pipeline.add_scene(script_id, **request.model_dump())
         return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -3899,7 +3883,7 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
         background_tasks.add_task(_context_call(pipeline.process_motion_ref_task, script_id, task_id))
         
         # Return script with task_id for frontend polling
-        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
+        response_data = _project_payload(script)
         response_data["_task_id"] = task_id
         return signed_response(response_data)
 
@@ -4343,7 +4327,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             background_tasks.add_task(_context_call(_start_production_item, job_item.id))
         
         # Return script with task_id for frontend polling
-        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
+        response_data = _project_payload(script)
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
@@ -4481,11 +4465,15 @@ def cancel_task(job_id: str, request: Request):
 
 
 @app.post("/tasks/{job_id}/retry")
-def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest] = None):
+def retry_task(job_id: str, request: Request, background_tasks: BackgroundTasks, payload: Optional[RetryTaskRequest] = None):
     """Create idempotent pending retry items for failed items."""
     context = _task_context(request)
     repository = _task_repository(request)
     body = payload or RetryTaskRequest()
+    before = repository.get_job(context.workspace.id, job_id)
+    if before and any(item.status == "failed" and (not body.item_ids or item.id in body.item_ids)
+                      and item.kind not in ProductionJobAdapter.SUPPORTED_KINDS for item in before.items):
+        raise TaskAPIError("TASK_RETRY_UNAVAILABLE", "该任务请在原页面重试", status_code=409)
     job = repository.retry_failed_items(
         context.workspace.id,
         job_id,
@@ -4502,6 +4490,9 @@ def retry_task(job_id: str, request: Request, payload: Optional[RetryTaskRequest
         object_id=job_id,
         metadata={"item_ids": body.item_ids or []},
     )
+    for item in job.items:
+        if item.status == "pending" and item.retry_of and (not body.item_ids or item.retry_of in body.item_ids):
+            background_tasks.add_task(_context_call(_start_production_item, item.id))
     return _task_payload(job)
 
 
@@ -5293,7 +5284,7 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
     """Generate current dialogue and persist progress so retries can reuse completed audio."""
     try:
         script = pipeline.generate_dialogue_audio_batch(script_id, request.instructions if request else None)
-        payload = script.model_dump()
+        payload = _project_payload(script)
         results = script.dialogue_audio_batch.results.values()
         payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
         return signed_response(payload)
@@ -6442,6 +6433,7 @@ def get_env_config():
 class CreatePropRequest(BaseModel):
     name: str
     description: str = ""
+    image_url: Optional[str] = None
 
 @app.post("/projects/{script_id}/props")
 def create_prop(script_id: str, request: CreatePropRequest):
@@ -6457,6 +6449,7 @@ def create_prop(script_id: str, request: CreatePropRequest):
         id=f"prop_{uuid.uuid4().hex[:8]}",
         name=request.name,
         description=request.description,
+        image_url=request.image_url,
         status=GenerationStatus.PENDING
     )
 
@@ -7097,6 +7090,9 @@ def export_document(project_id: str, req: ExportDocRequest):
     if fmt == "pdf":
         # Try reportlab first, fallback to HTML
         try:
+            from html import escape
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
             from reportlab.lib.pagesizes import letter
             from reportlab.lib.units import inch
             from reportlab.platypus import SimpleDocTemplate, Paragraph as RLParagraph, Spacer
@@ -7109,18 +7105,22 @@ def export_document(project_id: str, req: ExportDocRequest):
                                         leftMargin=1.5 * inch, rightMargin=1 * inch,
                                         topMargin=1 * inch, bottomMargin=1 * inch)
 
+            pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
             styles = getSampleStyleSheet()
+            for style in styles.byName.values():
+                style.fontName = "STSong-Light"
+                style.wordWrap = "CJK"
             styles.add(ParagraphStyle("SceneHeading", parent=styles["Heading3"],
-                                      fontName="Helvetica-Bold", fontSize=12,
+                                      fontName="STSong-Light", fontSize=12,
                                       spaceAfter=6, spaceBefore=18))
             styles.add(ParagraphStyle("CharacterCue", parent=styles["Normal"],
-                                      fontName="Helvetica-Bold", fontSize=10,
+                                      fontName="STSong-Light", fontSize=10,
                                       alignment=TA_CENTER, spaceBefore=12))
             styles.add(ParagraphStyle("DialogueStyle", parent=styles["Normal"],
-                                      fontName="Helvetica", fontSize=10,
+                                      fontName="STSong-Light", fontSize=10,
                                       leftIndent=1.5 * inch, rightIndent=1.5 * inch))
             styles.add(ParagraphStyle("TransitionStyle", parent=styles["Normal"],
-                                      fontName="Helvetica-Bold", fontSize=10,
+                                      fontName="STSong-Light", fontSize=10,
                                       alignment=TA_RIGHT, spaceBefore=12))
 
             story = []
@@ -7134,7 +7134,7 @@ def export_document(project_id: str, req: ExportDocRequest):
 
             for node_type, text in lines:
                 style_name = style_map.get(node_type, "Normal")
-                story.append(RLParagraph(text or " ", styles[style_name]))
+                story.append(RLParagraph(escape(text).replace("\n", "<br/>") or " ", styles[style_name]))
 
             doc_pdf.build(story)
             pdf_bytes = buffer.getvalue()

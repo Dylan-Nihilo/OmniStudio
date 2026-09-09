@@ -70,6 +70,19 @@ describe("authStore legacy claim discovery", () => {
     expect(useAuthStore.getState().legacyClaimPending).toBe(true);
   });
 
+  it.each([0, 1])("opens the claim step after owner setup only when old data exists (%s projects)", async (projects) => {
+    get.mockResolvedValue({ data: {
+      ...claimStatus,
+      source_sha256: projects ? claimStatus.source_sha256 : null,
+      summary: { projects, series: 0, media: 0, conflicts: 0 },
+    } });
+
+    await useAuthStore.getState().setup({ username: "owner", email: "owner@example.com", password: "demo password" });
+
+    expect(useAuthStore.getState().legacyClaimPending).toBe(projects > 0);
+    expect(get).toHaveBeenCalledWith("/auth/legacy-claim/status");
+  });
+
   it("does not reopen the claim gate after the owner acknowledges it", async () => {
     useAuthStore.getState().finishLegacyClaim();
 

@@ -866,7 +866,8 @@ export const api = {
 
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
-            params: { skip_analysis: skipAnalysis }
+            params: { skip_analysis: skipAnalysis },
+            timeout: skipAnalysis ? 30_000 : 120_000,
         });
         return { ...res.data, originalText: res.data.original_text };
     },
@@ -959,12 +960,12 @@ export const api = {
         const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, {
             text,
             ...(selectedEntityIds ? { selected_entity_ids: selectedEntityIds } : {}),
-        });
+        }, { timeout: 120_000 });
         return { ...res.data, originalText: res.data.original_text };
     },
 
     extractPreview: async (scriptId: string, text: string) => {
-        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text });
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text }, { timeout: 120_000 });
         return res.data as { characters: any[]; scenes: any[]; props: any[] };
     },
 
@@ -1996,6 +1997,10 @@ export const api = {
         const res = await apiClient.put(`${API_URL}/library/assets/${assetType}/${assetId}`, patch);
         return res.data;
     },
+    deleteLibraryAsset: async (assetType: string, assetId: string) => {
+        const res = await apiClient.delete(`${API_URL}/library/assets/${assetType}/${assetId}`);
+        return res.data;
+    },
     /** 把项目/系列来源资产 deep-copy 提升进全局共享池。后端：POST /library/assets/promote。
      *  sourceKind: "project"|"series"；assetType 单数。 */
     promoteAssetToLibrary: async (
@@ -2331,6 +2336,9 @@ export const crudApi = {
     createCharacter: async (scriptId: string, data: {
         name: string;
         description?: string;
+        image_url?: string;
+        persona?: string;
+        voice_id?: string;
         age?: string;
         gender?: string;
         clothing?: string;
@@ -2348,6 +2356,7 @@ export const crudApi = {
     createScene: async (scriptId: string, data: {
         name: string;
         description?: string;
+        image_url?: string;
         time_of_day?: string;
         lighting_mood?: string;
     }) => {
@@ -2364,6 +2373,7 @@ export const crudApi = {
     createProp: async (scriptId: string, data: {
         name: string;
         description?: string;
+        image_url?: string;
     }) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/props`, data);
         return res.data;
