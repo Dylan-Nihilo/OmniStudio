@@ -34,7 +34,7 @@ import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
 import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
 import TaskCenter from "@/components/tasks/TaskCenter";
-import type { TaskObjectRef } from "@/components/tasks/taskCenterModel";
+import { taskObjectHash, type TaskObjectRef } from "@/components/tasks/taskCenterModel";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -480,8 +480,8 @@ function AuthenticatedHome() {
     }
     if (currentView === 'tasks') {
       const openTaskObject = (ref: TaskObjectRef) => {
-        const target = ref.episodeId || ref.projectId;
-        if (target) window.location.hash = `#/project/${target}`;
+        const target = taskObjectHash(ref);
+        if (target) window.location.hash = target;
       };
       return <TaskCenter key={activeWorkspace?.id} workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
     }
