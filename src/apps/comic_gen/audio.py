@@ -31,8 +31,8 @@ def _compute_sfx_fingerprint(description: Optional[str], video_url: Optional[str
 
 # PR-3k · BGM preset catalog. Each entry maps a stable id → human label,
 # mood tag, and a relative path under output/presets/bgm/. v1 ships the
-# catalog only; actual audio files are dropped in by the operator (or
-# left empty, in which case merge_videos will skip the BGM track).
+# catalog only; actual audio files are dropped in by the operator. Availability
+# is returned to the UI so a missing preset cannot look publishable.
 BGM_PRESETS: List[Dict[str, Any]] = [
     {"id": "calm_warm",      "label": "温暖治愈",   "mood": "warm",      "url": "presets/bgm/calm_warm.mp3"},
     {"id": "uplifting_pop",  "label": "明朗轻快",   "mood": "uplifting", "url": "presets/bgm/uplifting_pop.mp3"},
@@ -48,7 +48,12 @@ BGM_PRESETS: List[Dict[str, Any]] = [
 def get_bgm_presets() -> List[Dict[str, Any]]:
     """PR-3k · Return BGM preset list. UI displays these in the Mix phase
     picker; selected entry's url is stored on Script.bgm_url."""
-    return list(BGM_PRESETS)
+    presets = []
+    for preset in BGM_PRESETS:
+        item = dict(preset)
+        item["available"] = os.path.isfile(os.path.join("output", preset["url"]))
+        presets.append(item)
+    return presets
 
 
 def _effective_dialogue_text(frame: StoryboardFrame) -> str:
@@ -314,16 +319,12 @@ class AudioGenerator:
         return frame
 
     def generate_bgm(self, frame: StoryboardFrame) -> StoryboardFrame:
-        """Generates BGM based on frame context."""
-        logger.info(f"Generating BGM for frame {frame.id}")
-        # Mock MusicGen Logic
-        time.sleep(1)
-        
-        output_path = os.path.join(self.output_dir, 'bgm', f"{frame.id}.mp3")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
-        with open(output_path, 'wb') as f:
-            f.write(b'dummy bgm content')
-            
-        frame.bgm_url = os.path.relpath(output_path, "output")
-        return frame
+        """Reject BGM generation until a real music provider is configured.
+
+        Writing placeholder bytes creates an apparently valid asset that
+        cannot be published or decoded by FFmpeg, so callers must select a
+        supplied preset or provide their own audio file instead.
+        """
+        raise RuntimeError(
+            "BGM generation is not configured. Select an available preset or upload a real audio file."
+        )

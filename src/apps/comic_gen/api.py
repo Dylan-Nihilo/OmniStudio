@@ -60,6 +60,7 @@ from .models import (
     Series,
     StoryboardFrame,
     VideoTask,
+    AudioMode,
 )
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
@@ -4054,6 +4055,7 @@ class CreateVideoTaskRequest(BaseModel):
     resolution: str = "720p"
     generate_audio: bool = False
     audio_url: Optional[str] = None
+    audio_mode: Optional[AudioMode] = None
     prompt_extend: bool = True
     negative_prompt: Optional[str] = None
     batch_size: int = 1
@@ -4228,6 +4230,7 @@ def create_video_task(script_id: str, request: CreateVideoTaskRequest, backgroun
                 resolution=request.resolution,
                 generate_audio=request.generate_audio,
                 audio_url=request.audio_url,
+                audio_mode=request.audio_mode,
                 prompt_extend=request.prompt_extend,
                 negative_prompt=request.negative_prompt,
                 model=request.model,
@@ -5350,12 +5353,11 @@ def generate_mix_sfx(script_id: str):
 
 @app.post("/projects/{script_id}/mix/generate_bgm", response_model=Script)
 def generate_mix_bgm(script_id: str):
-    """Triggers BGM generation."""
-    try:
-        updated_script = pipeline.generate_audio(script_id)
-        return signed_response(updated_script)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """BGM generation is unavailable until a real music provider is configured."""
+    raise HTTPException(
+        status_code=501,
+        detail="BGM generation is not configured. Select an available preset or upload a real audio file.",
+    )
 
 
 class ToggleFrameLockRequest(BaseModel):
