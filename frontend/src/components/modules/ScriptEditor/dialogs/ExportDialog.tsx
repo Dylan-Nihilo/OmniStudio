@@ -82,7 +82,12 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(a)
   a.click()
   setTimeout(() => {
-    document.body.removeChild(a)
+    // The dialog can unmount before this delayed cleanup runs (for example
+    // when a test or route transition tears down the document). Guard the
+    // global before touching the detached anchor so cleanup stays harmless.
+    if (typeof document !== 'undefined' && a.parentNode) {
+      a.parentNode.removeChild(a)
+    }
     URL.revokeObjectURL(url)
   }, 100)
 }
