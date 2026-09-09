@@ -328,6 +328,38 @@ export default function SourceWorkspace() {
     }
   };
 
+  const linkChapterEpisode = async (chapterId: string, episodeId: string) => {
+    if (!selectedSourceId || episodeBusy) return;
+    setEpisodeBusy(true);
+    setError(null);
+    try {
+      await sourceApi.linkChapterEpisode(selectedSourceId, chapterId, episodeId);
+      await Promise.all([loadChapters(selectedSourceId), loadSourceDetail(selectedSourceId), loadEpisodeLinks(selectedSourceId)]);
+      setNotice(t("chapterEpisodeLinked"));
+    } catch (cause) {
+      setError(errorMessage(cause, t("linkFailed")));
+      throw cause;
+    } finally {
+      setEpisodeBusy(false);
+    }
+  };
+
+  const unlinkChapterEpisode = async (chapterId: string, episodeId: string) => {
+    if (!selectedSourceId || episodeBusy) return;
+    setEpisodeBusy(true);
+    setError(null);
+    try {
+      await sourceApi.unlinkChapterEpisode(selectedSourceId, chapterId, episodeId);
+      await Promise.all([loadChapters(selectedSourceId), loadSourceDetail(selectedSourceId), loadEpisodeLinks(selectedSourceId)]);
+      setNotice(t("chapterEpisodeUnlinked"));
+    } catch (cause) {
+      setError(errorMessage(cause, t("unlinkFailed")));
+      throw cause;
+    } finally {
+      setEpisodeBusy(false);
+    }
+  };
+
   const deleteSelectedSource = async () => {
     if (!selectedSourceId || sourceBusy) return;
     setSourceBusy(true);
@@ -461,7 +493,7 @@ export default function SourceWorkspace() {
         <main className={styles.detailPanel}>
           {!selectedSource ? <EmptyState title={t("selectSource")} description={t("selectSourceHint")} /> : <>
             <header className={styles.detailHeader}><div><p className={styles.eyebrow}>{t("detailEyebrow")}</p><h2>{selectedSource.title}</h2><p className={styles.muted}>{selectedSummary}</p></div><div className={styles.actionRow}><span className={styles.fileTag}>{selectedSource.original_filename || selectedSource.source_type}</span><Button variant="quiet" onPress={() => void deleteSelectedSource()} isDisabled={sourceBusy}><Trash2 size={15} />删除来源</Button></div></header>
-            <SourceChapterPanel chapters={chapters} total={chapterTotal} page={chapterPage} pageSize={pageSize} query={chapterQuery} selectedChapter={selectedChapter} revisions={revisions} impacts={impacts} saving={saving} onQueryChange={value => { setChapterQuery(value); setChapterPage(1); }} onPageChange={value => setChapterPage(Math.max(1, value))} onSelect={chapter => void selectChapter(chapter)} onSave={saveChapter} onRestore={restoreRevision} onClose={() => setSelectedChapter(null)} onAcknowledgeImpact={acknowledgeImpact} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
+            <SourceChapterPanel chapters={chapters} total={chapterTotal} page={chapterPage} pageSize={pageSize} query={chapterQuery} selectedChapter={selectedChapter} revisions={revisions} impacts={impacts} saving={saving || episodeBusy} episodes={[...linkedEpisodes, ...availableEpisodes]} onQueryChange={value => { setChapterQuery(value); setChapterPage(1); }} onPageChange={value => setChapterPage(Math.max(1, value))} onSelect={chapter => void selectChapter(chapter)} onSave={saveChapter} onRestore={restoreRevision} onClose={() => setSelectedChapter(null)} onAcknowledgeImpact={acknowledgeImpact} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} onLinkChapterEpisode={linkChapterEpisode} onUnlinkChapterEpisode={unlinkChapterEpisode} />
             {!selectedChapter && <>
               <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisBusy} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
               <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />

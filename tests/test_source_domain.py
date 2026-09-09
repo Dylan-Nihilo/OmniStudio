@@ -893,3 +893,51 @@ def test_source_impact_ack_resolves_targets_and_event(source_client):
     refreshed = client.get(f"/sources/{source['id']}/impact-events").json()["items"][0]
     assert refreshed["status"] == "resolved"
     assert all(target["status"] == "resolved" for target in refreshed["targets"])
+
+
+def test_source_chapter_episode_links_are_idempotent_and_workspace_scoped(source_client):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "章节关联来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "正文"},
+    ).json()
+    first = pipeline.create_project("第一集", "正文", skip_analysis=True)
+    second = pipeline.create_project("第二集", "正文", skip_analysis=True)
+    user = client.app.state.auth_service.repository.find_user_by_username("owner")
+    workspace_id = client.app.state.auth_service.repository.get_default_workspace(user.id).id
+    pipeline.repository.assign_workspace_for_script(first.id, workspace_id)
+    pipeline.repository.assign_workspace_for_script(second.id, workspace_id)
+
+    linked = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{first.id}"
+    )
+    assert linked.status_code == 201, linked.text
+    assert linked.json()["created"] is True
+    duplicate = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{first.id}"
+    )
+    assert duplicate.status_code == 201, duplicate.text
+    assert duplicate.json()["created"] is False
+    assert client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{second.id}"
+    ).status_code == 201
+
+    refreshed = client.get(f"/sources/{source['id']}/chapters/{chapter['id']}")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["linked_episode_ids"] == [first.id, second.id]
+
+    unlinked = client.delete(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{first.id}"
+    )
+    assert unlinked.status_code == 200, unlinked.text
+    assert unlinked.json()["linked"] is False
+    assert client.get(f"/sources/{source['id']}/chapters/{chapter['id']}").json()["linked_episode_ids"] == [second.id]
+
+    other_workspace = client.post("/auth/workspaces", json={"name": "Other chapter links"}).json()["id"]
+    other = pipeline.create_project("隔离集", "正文", skip_analysis=True)
+    pipeline.repository.assign_workspace_for_script(other.id, other_workspace)
+    denied = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{other.id}"
+    )
+    assert denied.status_code == 404

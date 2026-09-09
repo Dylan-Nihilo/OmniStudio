@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   listEpisodeCandidates: vi.fn(),
   linkEpisode: vi.fn(),
   unlinkEpisode: vi.fn(),
+  linkChapterEpisode: vi.fn(),
+  unlinkChapterEpisode: vi.fn(),
   remove: vi.fn(),
   acknowledgeRevisionImpact: vi.fn(),
   analyzeSourceBatch: vi.fn(),
@@ -78,6 +80,7 @@ const chapter = {
   title: "初见",
   current_revision_id: "revision-2",
   revision_count: 2,
+  linked_episode_ids: [],
   current_revision: {
     id: "revision-2",
     source_document_id: "source-1",
@@ -269,6 +272,23 @@ describe("SourceWorkspace", () => {
     mocks.unlinkEpisode.mockResolvedValue({ linked: false });
     fireEvent.click(screen.getByRole("button", { name: "解除关联" }));
     expect(await screen.findByRole("button", { name: /既有来源.*0 个关联集/ })).toBeVisible();
+  });
+
+  it("refreshes chapter data after linking an episode to a chapter", async () => {
+    const episode = { id: "episode-2", project_id: "project-2", title: "第二集：回声", episode_number: 2, status: "draft", linked_at: 0 };
+    mocks.listEpisodeCandidates.mockResolvedValue({ linked: [], available: [episode] });
+    mocks.linkChapterEpisode.mockResolvedValue({ source_document_id: "source-1", chapter_id: "chapter-1", episode_id: "episode-2", created: true, linked: true });
+    renderWithIntl(<SourceWorkspace />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "初见" }));
+    mocks.listChapters.mockClear();
+    mocks.get.mockResolvedValue({ ...source, chapters: [{ ...chapter, linked_episode_ids: ["episode-2"] }], episodes: [] });
+    mocks.listChapters.mockResolvedValue({ items: [{ ...chapter, linked_episode_ids: ["episode-2"] }], total: 1, page: 1, page_size: 20 });
+    fireEvent.click(screen.getByRole("button", { name: "关联到本章节" }));
+
+    await waitFor(() => expect(mocks.linkChapterEpisode).toHaveBeenCalledWith("source-1", "chapter-1", "episode-2"));
+    await waitFor(() => expect(mocks.listChapters).toHaveBeenCalled());
+    expect(await screen.findByText("第二集：回声")).toBeVisible();
   });
 
   it("passes a failed chapter id when retrying one analysis item", async () => {

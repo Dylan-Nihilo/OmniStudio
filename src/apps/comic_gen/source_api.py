@@ -1010,6 +1010,57 @@ def get_source_chapter(source_id: str, chapter_id: str, request: Request):
     return _repository(request).get_chapter(_workspace_id(request), source_id, chapter_id)
 
 
+@router.post(
+    "/sources/{source_id}/chapters/{chapter_id}/episodes/{episode_id}",
+    response_model=SourceLinkResponse,
+    status_code=201,
+)
+def link_source_chapter_episode(source_id: str, chapter_id: str, episode_id: str, request: Request):
+    result = _repository(request).link_chapter_episode(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        chapter_id=chapter_id,
+        episode_id=episode_id,
+        user_id=_user_id(request),
+    )
+    record_request_event(
+        request,
+        action="source.chapter.episode.link",
+        object_type="source_chapter",
+        object_id=chapter_id,
+        metadata={"episode_id": episode_id, "created": result["created"]},
+    )
+    return result
+
+
+@router.delete(
+    "/sources/{source_id}/chapters/{chapter_id}/episodes/{episode_id}",
+    response_model=SourceLinkResponse,
+)
+def unlink_source_chapter_episode(source_id: str, chapter_id: str, episode_id: str, request: Request):
+    removed = _repository(request).unlink_chapter_episode(
+        workspace_id=_workspace_id(request),
+        source_id=source_id,
+        chapter_id=chapter_id,
+        episode_id=episode_id,
+    )
+    result = {
+        "source_document_id": source_id,
+        "chapter_id": chapter_id,
+        "episode_id": episode_id,
+        "created": False,
+        "linked": False,
+    }
+    record_request_event(
+        request,
+        action="source.chapter.episode.unlink",
+        object_type="source_chapter",
+        object_id=chapter_id,
+        metadata={"episode_id": episode_id, "removed": removed},
+    )
+    return result
+
+
 @router.get("/sources/{source_id}/chapters/{chapter_id}/revisions", response_model=SourceRevisionList)
 def list_source_revisions(source_id: str, chapter_id: str, request: Request):
     items = _repository(request).list_revisions(_workspace_id(request), source_id, chapter_id)

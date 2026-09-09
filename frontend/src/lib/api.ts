@@ -221,6 +221,7 @@ export interface SourceChapter {
     title: string;
     current_revision_id: string | null;
     revision_count: number;
+    linked_episode_ids?: string[];
     current_revision: SourceRevision | null;
     created_at: number;
     updated_at: number;
@@ -408,6 +409,7 @@ export interface SourceList<T> {
 
 export interface SourceLinkResponse {
     source_document_id: string;
+    chapter_id?: string | null;
     episode_id: string;
     created: boolean;
     linked: boolean;
@@ -465,6 +467,8 @@ export const sourceApi = {
     createChapter: (sourceId: string, payload: SourceChapterCreate) => apiClient.post<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters`, payload).then((response) => response.data),
     listChaptersPage: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
     updateChapter: (sourceId: string, chapterId: string, payload: SourceChapterUpdate) => apiClient.patch<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}`, payload).then((response) => response.data),
+    linkChapterEpisode: (sourceId: string, chapterId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/episodes/${episodeId}`).then((response) => response.data),
+    unlinkChapterEpisode: (sourceId: string, chapterId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/episodes/${episodeId}`).then((response) => response.data),
     listRevisions: (sourceId: string, chapterId: string) => apiClient.get<SourceList<SourceRevision>>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`).then((response) => response.data),
     createRevision: (sourceId: string, chapterId: string, payload: SourceRevisionCreate) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`, payload).then((response) => response.data),
     restoreRevision: (sourceId: string, chapterId: string, revisionId: string) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions/${revisionId}/restore`).then((response) => response.data),
