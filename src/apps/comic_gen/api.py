@@ -5505,6 +5505,7 @@ def storyboard_readiness(script_id: str):
     report = evaluate_storyboard_readiness(script)
     script.storyboard_ready = bool(report["ready"])
     script.storyboard_readiness = report
+    script.storyboard_continuity_ledger = report.get("continuity_ledger")
     pipeline.scripts[script_id] = script
     pipeline._save_data()
     return signed_response(report | {"storyboard_ready": script.storyboard_ready})

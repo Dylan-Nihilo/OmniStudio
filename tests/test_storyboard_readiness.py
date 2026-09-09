@@ -38,3 +38,43 @@ def test_readiness_detects_match_cut_across_different_scenes_and_persists_api_re
     persisted = api_client.get(route).json()
     assert persisted["storyboard_ready"] is False
     assert persisted["storyboard_readiness"]["blockers"]
+
+
+def test_continuity_ledger_localizes_scene_and_screen_direction_issues():
+    script = Script(
+        id="script-continuity",
+        title="Continuity",
+        original_text="text",
+        scenes=[Scene(id="scene-a", name="Dock", description="A dock"), Scene(id="scene-b", name="Room", description="A room")],
+        frames=[
+            StoryboardFrame(id="frame-1", scene_id="scene-a", action_description="Look", composition_data={"screen_direction": "left_to_right"}),
+            StoryboardFrame(id="frame-2", scene_id="scene-b", action_description="Run", composition_data={"screen_direction": "right_to_left"}),
+        ],
+        created_at=0,
+        updated_at=0,
+    )
+
+    report = evaluate_storyboard_readiness(script)
+
+    issues = report["continuity_issues"]
+    assert {issue["code"] for issue in issues} == {"ADJACENT_SCENE_MISMATCH", "SCREEN_DIRECTION_MISMATCH"}
+    assert {issue["shot_id"] for issue in issues} == {"frame-2"}
+    assert {issue["field"] for issue in issues} == {"scene_id", "screen_direction"}
+    assert report["continuity_ledger"]["issues"] == issues
+
+
+def test_continuity_ledger_allows_explicit_scene_transition():
+    script = Script(
+        id="script-transition",
+        title="Transition",
+        original_text="text",
+        scenes=[Scene(id="scene-a", name="Dock", description="A dock"), Scene(id="scene-b", name="Room", description="A room")],
+        frames=[
+            StoryboardFrame(id="frame-1", scene_id="scene-a", action_description="Look", transition_hint="cut"),
+            StoryboardFrame(id="frame-2", scene_id="scene-b", action_description="Run"),
+        ],
+        created_at=0,
+        updated_at=0,
+    )
+    report = evaluate_storyboard_readiness(script)
+    assert not any(issue["code"] == "ADJACENT_SCENE_MISMATCH" for issue in report["continuity_issues"])

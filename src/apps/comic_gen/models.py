@@ -602,6 +602,7 @@ class Script(BaseModel):
     storyboard_generation: Optional[StoryboardGeneration] = None
     storyboard_ready: bool = Field(False, description="Whether deterministic storyboard readiness checks pass")
     storyboard_readiness: Optional[Dict[str, Any]] = Field(None, description="Latest storyboard readiness report")
+    storyboard_continuity_ledger: Optional[Dict[str, Any]] = Field(None, description="Latest deterministic continuity ledger")
     
     # Global style settings (legacy, will be replaced by art_direction)
     style_preset: str = Field("realistic", description="Global style preset for all image generations")

@@ -20,7 +20,7 @@ interface StoryboardGenerateDialogProps {
     onJumpToScript?: () => void;
     readiness?: {
         ready: boolean;
-        blockers: Array<{ code: string; message: string; frame_id?: string; previous_frame_id?: string }>;
+        blockers: Array<{ code: string; message: string; frame_id?: string; previous_frame_id?: string; shot_id?: string; previous_shot_id?: string; field?: string; blocking?: boolean }>;
     } | null;
     readinessLoading?: boolean;
 }
@@ -53,7 +53,7 @@ export default function StoryboardGenerateDialog({ isOpen, onClose, project, exi
                 {readiness && !readiness.ready && <ul className="mt-3 space-y-2 border-t border-glass-border pt-3" aria-label="storyboard-readiness-blockers">
                     {readiness.blockers.map((blocker, index) => <li key={`${blocker.code}-${blocker.frame_id ?? index}`} className="flex items-start gap-2 text-xs text-status-failed-fg">
                         <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
-                        <span>{blocker.message}{blocker.frame_id ? ` · ${blocker.frame_id}` : ""}</span>
+                        <span>{blocker.message}{(blocker.shot_id || blocker.frame_id) ? ` · ${blocker.shot_id || blocker.frame_id}` : ""}{blocker.field ? ` · ${blocker.field}` : ""}</span>
                     </li>)}
                 </ul>}
                 {readinessLoading && <p role="status" className="mt-3 border-t border-glass-border pt-3 text-xs text-text-secondary">{t("checkingReadiness")}</p>}
