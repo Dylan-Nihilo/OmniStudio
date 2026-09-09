@@ -4,19 +4,20 @@
 
 - 飞书需求表：175 条。
 - 远端基线：`github/main` = `1b838ec`，即已合并的 PR #63（视频音频模式与后期混音）。PR #63 不等于 175 条需求全部完成。
-- 当前分支：`feature/sflynnn-development`，相对 `github/main` 包含 Source、连续性、Assembly 编辑、Cast 类型候选、视觉手册、FFmpeg 验证、生产 JobItem 接入等后续提交。
+- 当前分支：`feature/sflynnn-development`，相对 `github/main` 包含 Source、连续性、Assembly 编辑、Cast 类型候选、视觉手册、FFmpeg 验证、生产 JobItem 接入等后续提交；本轮新增 Take 就绪状态校验和导出延迟清理防护。
 
 ## 当前验证结果
 
-- 后端：`700 passed, 106 warnings`。
+- 后端：`714 passed, 106 warnings`。
 - 前端 build：通过（Next.js 静态导出成功）。
 - 前端 typecheck：通过。
-- 前端普通测试：45 个文件，288 条通过。
-- 前端 UI 测试：58 个文件，218 条通过。
+- 前端普通测试：45 个文件，290 条通过。
+- 前端 UI 测试：58 个文件，220 条通过，且无未处理异常。
 - 真实 FFmpeg/ffprobe：裁切、分辨率、帧率、H.264、AAC、软字幕、转场、merge 校验通过。
 - 只读主链浏览器 smoke：8/8 步骤通过。
 - 真实可写浏览器验收：登录、旧数据承接、视觉手册保存/刷新/模板/Markdown 下载、Source 导入预览、章节 revision/恢复、章节关联两个 Episode 后解绑、章节分析历史、影响事件确认、Script API 持久化通过。
 - 真实 Task Center 浏览器验收：使用 acceptance Workspace 登录，读取跨项目任务列表、状态筛选/分页空态、打开失败任务详情和状态事件历史；点击重试后服务端返回幂等 `409` 并在 UI 显示可恢复错误，不产生重复 provider 调用；另以真实 pending 生产任务验证取消确认、状态变为“已取消”和关联项目跳转。证据截图：`.artifacts/acceptance/task-center-real.png`、`.artifacts/acceptance/task-detail-real.png`、`.artifacts/acceptance/task-retry-real.png`、`.artifacts/acceptance/task-cancel-object-jump-real.png`。
+- 本轮浏览器复验：登录、Workspace/Source/Tasks/Playground/Projects 路由、视觉手册保存/刷新/模板/下载、Source 可写导入预览/修订恢复/章节级 Episode 关联与解绑/分析历史/影响确认均通过；证据脚本为 `docs/agents/tools/acceptance_browser_check.py` 和 `docs/agents/tools/live_writable_source_acceptance.py`，输出见 `.artifacts/acceptance/live-source/`。
 
 真实可写 Source 证据：`.artifacts/acceptance/live-source/run.json`、`.artifacts/acceptance/live-source/source-final.png`。
 
@@ -28,7 +29,7 @@
 - 品牌图标补充宽高比例声明和 above-the-fold `priority`，消除浏览器尺寸/LCP 警告。
 - `generate_storyboard`、`generate_video`、对白批量、对白单句、SFX 批量入口统一通过 `ProductionJobAdapter`；任务中心取消/重试/恢复继续复用同一 Job/JobItem 状态机。新增 `tests/test_production_entrypoints.py` 5 条真实 API 回归，连同受影响 W2/Task/Adapter 测试共 `114 passed`。
 - 真实专业格式结构验收已覆盖 PDF、DOCX、FDX、Fountain、TXT：PDF 头与字体、DOCX `word/document.xml`、FDX XML 段落类型与转义、Fountain 场景/对白语义、TXT 内容和 MIME/扩展名均有断言；相关导出回归 `35 passed`。
-- 前端门禁：普通测试 `45 个文件 / 288 条通过`；UI 测试 `58 个文件 / 218 条通过`；typecheck 与 Next.js 静态 build 均通过。并行运行时曾出现三个重型 UI 用例超时，逐文件串行复跑全部通过。
+- 前端门禁：普通测试 `45 个文件 / 290 条通过`；UI 测试 `58 个文件 / 220 条通过`；typecheck 与 Next.js 静态 build 均通过。修复了导出下载锚点在卸载后延迟清理导致的 `document is not defined` 未处理异常，并新增可用 Take 计数回归。
 
 ## 明确延期或仍需后续集成矩阵
 
