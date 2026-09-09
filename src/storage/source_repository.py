@@ -1767,6 +1767,64 @@ class SourceRepository:
                 for row in rows
             ]
 
+    def list_script_source_dependencies(self, workspace_id: str, episode_id: str) -> list[dict[str, Any]]:
+        """Return the current Source chapter revisions linked to one Script/Episode."""
+        with self.engine.connect() as connection:
+            self._episode_row(connection, episode_id, workspace_id)
+            rows = connection.execute(
+                select(
+                    SourceDocument.id.label("source_id"),
+                    SourceDocument.title.label("source_title"),
+                    SourceChapter.id.label("chapter_id"),
+                    SourceChapter.title.label("chapter_title"),
+                    SourceRevision.id.label("revision_id"),
+                    SourceRevision.revision_number,
+                )
+                .join(SourceEpisodeLink, SourceEpisodeLink.source_document_id == SourceDocument.id)
+                .join(SourceChapter, SourceChapter.source_document_id == SourceDocument.id)
+                .join(SourceRevision, SourceRevision.id == SourceChapter.current_revision_id)
+                .where(
+                    SourceEpisodeLink.episode_id == episode_id,
+                    SourceDocument.workspace_id == workspace_id,
+                )
+                .order_by(SourceDocument.id, SourceChapter.chapter_number, SourceChapter.id)
+            ).mappings().all()
+            return [
+                {
+                    "source_id": str(row["source_id"]),
+                    "source_title": str(row["source_title"]),
+                    "chapter_id": str(row["chapter_id"]),
+                    "chapter_title": str(row["chapter_title"]),
+                    "revision_id": str(row["revision_id"]),
+                    "revision_number": int(row["revision_number"]),
+                }
+                for row in rows
+            ]
+
+    def list_open_impact_targets_for_episode(self, workspace_id: str, episode_id: str) -> list[dict[str, Any]]:
+        """Return unresolved Source impact targets for one Script/Episode."""
+        with self.engine.connect() as connection:
+            self._episode_row(connection, episode_id, workspace_id)
+            rows = connection.execute(
+                select(
+                    SourceImpactTarget.id,
+                    SourceImpactTarget.target_type,
+                    SourceImpactTarget.target_id,
+                    SourceImpactTarget.target_stage,
+                    SourceImpactTarget.status,
+                    SourceImpactTarget.source_document_id,
+                    SourceImpactTarget.chapter_id,
+                    SourceImpactTarget.created_at,
+                )
+                .where(
+                    SourceImpactTarget.workspace_id == workspace_id,
+                    SourceImpactTarget.episode_id == episode_id,
+                    SourceImpactTarget.status == "needs_review",
+                )
+                .order_by(SourceImpactTarget.created_at.desc(), SourceImpactTarget.id)
+            ).mappings().all()
+            return [dict(row) for row in rows]
+
     @staticmethod
     def _episode_row(connection, episode_id: str, workspace_id: str):
         row = connection.execute(

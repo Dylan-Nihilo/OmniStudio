@@ -89,6 +89,7 @@ from ...storage.db import DEFAULT_DB_PATH
 from ...storage.job_repository import JobRepository
 from ...storage.legacy_claim import LegacyClaimService
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
+from .revision import compute_dependency_fingerprint, compute_revision, evaluate_stale
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
@@ -5932,6 +5933,58 @@ def _write_json_atomically(path: Path, content: dict) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+def _script_source_context(project_id: str) -> tuple[list[dict[str, object]], str]:
+    """Resolve current Source revisions for a Script and fingerprint them."""
+    repository = getattr(pipeline, "repository", None)
+    workspace_id = repository.workspace_for_script(project_id) if repository is not None else None
+    if not workspace_id:
+        return [], compute_dependency_fingerprint("script", refs={"source_revisions": []})
+    source_repository = SourceRepository(pipeline.storage_engine)
+    dependencies = source_repository.list_script_source_dependencies(str(workspace_id), project_id)
+    refs = [
+        {
+            "source_id": item["source_id"],
+            "chapter_id": item["chapter_id"],
+            "revision_id": item["revision_id"],
+        }
+        for item in dependencies
+    ]
+    return dependencies, compute_dependency_fingerprint("script", refs={"source_revisions": refs})
+
+
+def _document_response(project_id: str, stored: dict, *, persisted: bool = True) -> dict:
+    """Return a stable document envelope while accepting legacy bare documents."""
+    raw_content = stored.get("content") if isinstance(stored, dict) and isinstance(stored.get("content"), dict) else stored
+    content = raw_content if isinstance(raw_content, dict) else {"type": "doc", "content": []}
+    dependencies, current_fingerprint = _script_source_context(project_id)
+    source_revision = compute_revision(
+        [
+            {"source_id": item["source_id"], "chapter_id": item["chapter_id"], "revision_id": item["revision_id"]}
+            for item in dependencies
+        ]
+    )
+    stored_fingerprint = stored.get("dependency_fingerprint") if persisted and isinstance(stored, dict) else None
+    stored_source_revision = stored.get("source_revision") if persisted and isinstance(stored, dict) else None
+    stale = bool(dependencies) and (
+        not stored_fingerprint
+        or evaluate_stale(source_revision, stored_source_revision, current_fingerprint, stored_fingerprint)
+    )
+    updated_at = stored.get("updated_at") if isinstance(stored, dict) else None
+    return {
+        "project_id": project_id,
+        "content": content,
+        "revision": stored.get("revision") if isinstance(stored, dict) and stored.get("revision") else compute_revision(content),
+        "source_revision": source_revision,
+        "dependency_fingerprint": current_fingerprint,
+        "source_dependencies": dependencies,
+        "stale": stale,
+        "stale_targets": SourceRepository(pipeline.storage_engine).list_open_impact_targets_for_episode(
+            str(pipeline.repository.workspace_for_script(project_id)), project_id
+        ) if stale and pipeline.repository.workspace_for_script(project_id) else [],
+        "updated_at": updated_at or datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.post("/projects/{project_id}/document")
 def save_document(project_id: str, request: SaveDocumentRequest):
     """Save the Tiptap JSON document for a project."""
@@ -5943,12 +5996,37 @@ def save_document(project_id: str, request: SaveDocumentRequest):
     if request.create_snapshot and doc_path.exists():
         _create_snapshot(project_dir)
 
+    dependencies, dependency_fingerprint = _script_source_context(project_id)
+    if not dependencies:
+        try:
+            _write_json_atomically(doc_path, request.content)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
+        return {"status": "ok", "size_bytes": doc_path.stat().st_size}
+
+    now = datetime.now(timezone.utc).isoformat()
+    envelope = {
+        "content": request.content,
+        "revision": compute_revision(request.content),
+        "source_revision": compute_revision(
+            [
+                {"source_id": item["source_id"], "chapter_id": item["chapter_id"], "revision_id": item["revision_id"]}
+                for item in dependencies
+            ]
+        ),
+        "dependency_fingerprint": dependency_fingerprint,
+        "source_dependencies": dependencies,
+        "updated_at": now,
+    }
     try:
-        _write_json_atomically(doc_path, request.content)
+        _write_json_atomically(doc_path, envelope)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
 
-    return {"status": "ok", "size_bytes": doc_path.stat().st_size}
+    return _document_response(project_id, envelope, persisted=True) | {
+        "status": "ok",
+        "size_bytes": doc_path.stat().st_size,
+    }
 
 
 @app.get("/projects/{project_id}/document")
@@ -5962,7 +6040,9 @@ def load_document(project_id: str):
     if not doc_path.exists():
         script = pipeline.scripts.get(project_id) or pipeline.repository.load_scripts().get(project_id)
         original_text = getattr(script, "original_text", "") if script else ""
-        return _parse_txt(original_text)
+        content = _parse_txt(original_text)
+        dependencies, _ = _script_source_context(project_id)
+        return _document_response(project_id, content, persisted=False) if dependencies else content
 
     try:
         with open(doc_path, "r", encoding="utf-8") as f:
@@ -5970,7 +6050,10 @@ def load_document(project_id: str):
     except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
 
-    return content
+    if not isinstance(content, dict) or not isinstance(content.get("content"), dict):
+        dependencies, _ = _script_source_context(project_id)
+        return _document_response(project_id, content, persisted=True) if dependencies else content
+    return _document_response(project_id, content, persisted=True)
 
 
 @app.get("/projects/{project_id}/document/snapshots")
@@ -6029,7 +6112,7 @@ def restore_document_snapshot(project_id: str, timestamp: str):
     except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to restore snapshot: {e}")
 
-    return content
+    return _document_response(project_id, content, persisted=True)
 
 
 # ═══════════════════════════════════════════════════════════════
