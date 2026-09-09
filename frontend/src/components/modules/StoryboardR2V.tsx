@@ -354,6 +354,21 @@ function StoryboardWorkbench() {
     }, [currentProject, t, queueDraft, materializeShot, beginStructure, endStructure]);
 
     const [genDialogOpen, setGenDialogOpen] = useState(false);
+    const [storyboardReadiness, setStoryboardReadiness] = useState<Awaited<ReturnType<typeof api.getStoryboardReadiness>> | null>(null);
+    const [storyboardReadinessLoading, setStoryboardReadinessLoading] = useState(false);
+    useEffect(() => {
+        if (!genDialogOpen || !currentProject?.id) return;
+        let active = true;
+        setStoryboardReadinessLoading(true);
+        void api.getStoryboardReadiness(currentProject.id).then(report => {
+            if (active) setStoryboardReadiness(report);
+        }).catch(() => {
+            if (active) setStoryboardReadiness(null);
+        }).finally(() => {
+            if (active) setStoryboardReadinessLoading(false);
+        });
+        return () => { active = false; };
+    }, [genDialogOpen, currentProject?.id]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
@@ -2174,6 +2189,8 @@ function StoryboardWorkbench() {
             project={currentProject as any}
             existingShotCount={shots.length}
             onConfirm={handleSmartGenerate}
+            readiness={storyboardReadinessLoading ? null : storyboardReadiness}
+            readinessLoading={storyboardReadinessLoading}
             onJumpToScript={() => {
                 setGenDialogOpen(false);
                 document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "script" }));

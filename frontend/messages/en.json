@@ -175,6 +175,7 @@
     "checkTextHint": "Add at least 40 characters in the Script step.",
     "checkChars": "Entities have been extracted",
     "checkCharsHint": "Extract characters in the Script step before generating the storyboard.",
+    "checkingReadiness": "Checking storyboard references and continuity…",
     "goFixInScript": "Go to script",
     "willReplaceWarning": "On success, the new storyboard replaces all {count} existing shots. Replacement cannot be undone. Failed generation retains the original content.",
     "freshHint": "Split the script into shots and connect existing characters and scenes.",

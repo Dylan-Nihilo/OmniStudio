@@ -18,16 +18,21 @@ interface StoryboardGenerateDialogProps {
     existingShotCount: number;
     onConfirm: () => void;
     onJumpToScript?: () => void;
+    readiness?: {
+        ready: boolean;
+        blockers: Array<{ code: string; message: string; frame_id?: string; previous_frame_id?: string }>;
+    } | null;
+    readinessLoading?: boolean;
 }
 
-export default function StoryboardGenerateDialog({ isOpen, onClose, project, existingShotCount, onConfirm, onJumpToScript }: StoryboardGenerateDialogProps) {
+export default function StoryboardGenerateDialog({ isOpen, onClose, project, existingShotCount, onConfirm, onJumpToScript, readiness, readinessLoading = false }: StoryboardGenerateDialogProps) {
     const t = useTranslations("storyboardGen");
     const text = project?.original_text ?? project?.originalText ?? "";
     const checks = [
         { key: "text", pass: text.trim().length >= 40, label: t("checkText"), hint: t("checkTextHint") },
         { key: "characters", pass: (project?.characters?.length ?? 0) > 0, label: t("checkChars"), hint: t("checkCharsHint") },
     ];
-    const ready = checks.every(check => check.pass);
+    const ready = checks.every(check => check.pass) && !readinessLoading && (readiness?.ready ?? true);
     return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) onClose(); }} title={t("title")} closeLabel={t("close")} className="max-w-[640px]"
         footer={<>
             <Button variant="secondary" onPress={onClose}>{t("cancel")}</Button>
@@ -45,6 +50,13 @@ export default function StoryboardGenerateDialog({ isOpen, onClose, project, exi
                     </li>)}
                 </ul>
                 {!ready && onJumpToScript && <Button variant="quiet" onPress={onJumpToScript}>{t("goFixInScript")}<ArrowRight size={14} aria-hidden="true" /></Button>}
+                {readiness && !readiness.ready && <ul className="mt-3 space-y-2 border-t border-glass-border pt-3" aria-label="storyboard-readiness-blockers">
+                    {readiness.blockers.map((blocker, index) => <li key={`${blocker.code}-${blocker.frame_id ?? index}`} className="flex items-start gap-2 text-xs text-status-failed-fg">
+                        <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                        <span>{blocker.message}{blocker.frame_id ? ` · ${blocker.frame_id}` : ""}</span>
+                    </li>)}
+                </ul>}
+                {readinessLoading && <p role="status" className="mt-3 border-t border-glass-border pt-3 text-xs text-text-secondary">{t("checkingReadiness")}</p>}
             </section>
             {existingShotCount > 0 ? <div className="flex items-start gap-3 border-t border-glass-border pt-4 text-sm text-status-processing-fg">
                 <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden="true" /><p>{t("willReplaceWarning", { count: existingShotCount })}</p>
