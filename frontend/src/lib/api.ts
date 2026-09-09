@@ -1475,6 +1475,10 @@ export const api = {
         });
         return res.data;
     },
+    getVisualHandbook: async (scriptId: string) => (await apiClient.get(`${API_URL}/projects/${scriptId}/art_direction/handbook`)).data,
+    importVisualHandbook: async (scriptId: string, markdown: string, title?: string) => (await apiClient.put(`${API_URL}/projects/${scriptId}/art_direction/handbook`, { markdown, title })).data,
+    listVisualHandbookTemplates: async () => (await apiClient.get(`${API_URL}/art_direction/handbook/templates`)).data,
+    saveVisualHandbookTemplate: async (scriptId: string, name: string, markdown?: string) => (await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/handbook/templates`, { name, markdown })).data,
 
     getStylePresets: async () => {
         const res = await apiClient.get(`${API_URL}/art_direction/presets`);

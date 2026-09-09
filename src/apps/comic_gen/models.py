@@ -612,6 +612,8 @@ class Script(BaseModel):
     
     # Art Direction configuration (new approach)
     art_direction: Optional[ArtDirection] = Field(None, description="Global visual style configuration")
+    visual_handbook_markdown: Optional[str] = Field(None, description="Markdown visual handbook source")
+    visual_handbook_templates: List[Dict[str, Any]] = Field(default_factory=list, description="Saved visual handbook templates")
     
     # Model Settings for each generation stage
     model_settings: ModelSettings = Field(default_factory=ModelSettings, description="Model selection for T2I/I2I/I2V")
@@ -705,6 +707,8 @@ class Series(BaseModel):
 
     # Unified visual style
     art_direction: Optional[ArtDirection] = Field(None, description="Series-level art direction")
+    visual_handbook_markdown: Optional[str] = Field(None, description="Markdown visual handbook source")
+    visual_handbook_templates: List[Dict[str, Any]] = Field(default_factory=list, description="Saved visual handbook templates")
 
     # Series-level prompt configuration
     prompt_config: PromptConfig = Field(default_factory=PromptConfig, description="Series-level custom prompts")

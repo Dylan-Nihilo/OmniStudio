@@ -6034,6 +6034,70 @@ class SaveArtDirectionRequest(BaseModel):
     custom_styles: List[Dict[str, Any]] = []
     ai_recommendations: List[Dict[str, Any]] = []
 
+class VisualHandbookRequest(BaseModel):
+    markdown: str = Field(..., min_length=1, max_length=200_000)
+    title: Optional[str] = None
+
+class VisualHandbookTemplateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    markdown: Optional[str] = Field(None, max_length=200_000)
+
+def _handbook_style(markdown: str, title: Optional[str]) -> Dict[str, Any]:
+    heading = title or next((line[2:].strip() for line in markdown.splitlines() if line.startswith("# ")), "视觉手册")
+    sections: Dict[str, str] = {}
+    current = "overview"
+    values: list[str] = []
+    for line in markdown.splitlines():
+        if line.startswith("## "):
+            if values:
+                sections[current] = "\n".join(values).strip()
+            current = line[3:].strip() or "overview"
+            values = []
+        elif not line.startswith("# "):
+            values.append(line)
+    if values:
+        sections[current] = "\n".join(values).strip()
+    return {"id": f"handbook:{heading.lower().replace(' ', '-')}", "name": heading, "positive_prompt": markdown, "negative_prompt": "", "sections": sections}
+
+@app.get("/projects/{script_id}/art_direction/handbook")
+def export_visual_handbook(script_id: str):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    markdown = script.visual_handbook_markdown or ""
+    return {"project_id": script_id, "markdown": markdown, "style_config": _handbook_style(markdown, None) if markdown else None}
+
+@app.put("/projects/{script_id}/art_direction/handbook")
+def import_visual_handbook(script_id: str, request: VisualHandbookRequest):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    script.visual_handbook_markdown = request.markdown
+    style = _handbook_style(request.markdown, request.title)
+    existing = script.art_direction
+    script.art_direction = ArtDirection(selected_style_id=style["id"], style_config=style, custom_styles=(existing.custom_styles if existing else []), ai_recommendations=(existing.ai_recommendations if existing else []))
+    script.updated_at = time.time()
+    pipeline._save_data()
+    return signed_response(script)
+
+@app.get("/art_direction/handbook/templates")
+def list_visual_handbook_templates():
+    templates = []
+    for script in pipeline.scripts.values():
+        templates.extend(getattr(script, "visual_handbook_templates", []) or [])
+    return {"templates": templates}
+
+@app.post("/projects/{script_id}/art_direction/handbook/templates")
+def save_visual_handbook_template(script_id: str, request: VisualHandbookTemplateRequest):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    item = {"id": f"template:{uuid.uuid4().hex[:10]}", "name": request.name.strip(), "markdown": request.markdown or script.visual_handbook_markdown or "", "created_at": time.time()}
+    script.visual_handbook_templates = [*script.visual_handbook_templates, item]
+    script.updated_at = time.time()
+    pipeline._save_data()
+    return item
+
 
 @app.post("/projects/{script_id}/art_direction/analyze")
 async def analyze_script_for_styles(script_id: str, request: AnalyzeStyleRequest):
