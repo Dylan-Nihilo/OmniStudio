@@ -5,7 +5,7 @@ import { Copy, Plus, Users } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, Dialog, EmptyState, IconButton, LoadingState, SelectField, TextField } from "@omnistudio/ui";
 import { apiClient, AUTH_API_URL } from "@/lib/apiClient";
-import { useAuthStore } from "@/store/authStore";
+import { useAuthStore, type WorkspaceRole } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
 
 interface WorkspaceMember {
@@ -13,7 +13,7 @@ interface WorkspaceMember {
   username: string;
   email: string;
   display_name: string | null;
-  role: "owner" | "member";
+  role: WorkspaceRole;
 }
 
 export default function WorkspaceControls({ children }: { children?: (controls: ReactNode) => ReactNode }) {
@@ -63,7 +63,7 @@ export default function WorkspaceControls({ children }: { children?: (controls: 
         <SelectField label={t("currentWorkspace")} value={active?.id ?? null} onChange={(value) => { if (typeof value === "string") void switchWorkspace(value); }}
           options={workspaces.map(workspace => ({ id: workspace.id, label: workspace.name }))} isDisabled={busy || membersOpen || createOpen} />
         <div className="flex items-center gap-1">
-          <span className="mr-auto text-xs text-text-muted">{t(active?.role === "owner" ? "owner" : "member")}</span>
+          <span className="mr-auto text-xs text-text-muted">{t(active?.role ?? "member")}</span>
           <IconButton aria-label={t("createWorkspace")} isDisabled={busy} onPress={() => { setName(""); setCreatedId(undefined); setError(""); setCreateOpen(true); }}><Plus size={16} /></IconButton>
           {active?.role === "owner" && <IconButton aria-label={t("manageMembers")} isDisabled={busy} onPress={() => setMembersOpen(true)}><Users size={16} /></IconButton>}
         </div>
@@ -93,12 +93,27 @@ function MemberDialog({ workspaceId, workspaceName, onClose }: { workspaceId: st
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [email, setEmail] = useState("");
   const [inviteLink, setInviteLink] = useState("");
+  const [accessRole, setAccessRole] = useState<Exclude<WorkspaceRole, "owner">>("member");
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<WorkspaceMember | null>(null);
+
+  const updateRole = async (member: WorkspaceMember, value: string | null) => {
+    if (busy || member.role === "owner" || (value !== "member" && value !== "editor" && value !== "viewer")) return;
+    const previous = member.role;
+    setBusy(true);
+    setError("");
+    setMembers(current => current.map(item => item.id === member.id ? { ...item, role: value } : item));
+    try {
+      await apiClient.patch(`${AUTH_API_URL}/auth/workspaces/${workspaceId}/members/${member.id}`, { access_role: value });
+    } catch {
+      setMembers(current => current.map(item => item.id === member.id ? { ...item, role: previous } : item));
+      setError(t("roleUpdateFailed"));
+    } finally { setBusy(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -117,7 +132,7 @@ function MemberDialog({ workspaceId, workspaceName, onClose }: { workspaceId: st
     setBusy(true);
     setError("");
     try {
-      const { data } = await apiClient.post<{ token: string }>(`${AUTH_API_URL}/auth/workspaces/${workspaceId}/invitations`, { email: email.trim() });
+      const { data } = await apiClient.post<{ token: string }>(`${AUTH_API_URL}/auth/workspaces/${workspaceId}/invitations`, { email: email.trim(), access_role: accessRole });
       setInviteLink(`${window.location.origin}${window.location.pathname}#/invite/${encodeURIComponent(data.token)}`);
       setEmail("");
     } catch { setError(t("inviteFailed")); }
@@ -147,6 +162,7 @@ function MemberDialog({ workspaceId, workspaceName, onClose }: { workspaceId: st
         <p className="text-sm text-text-muted">{workspaceName}</p>
         <form onSubmit={invite} className="flex flex-wrap items-end gap-2">
           <TextField label={t("memberEmail")} type="email" value={email} onChange={setEmail} isRequired isDisabled={busy} className="min-w-40 flex-1" />
+          <SelectField label={t("role")} value={accessRole} onChange={(value) => { if (value === "member" || value === "editor" || value === "viewer") setAccessRole(value); }} options={["member", "editor", "viewer"].map(role => ({ id: role, label: t(role) }))} isDisabled={busy} />
           <Button type="submit" isPending={busy && !removing}>{t("generateInvite")}</Button>
         </form>
         {inviteLink && <div className="grid gap-2 rounded-lg border border-glass-border p-3">
@@ -159,7 +175,7 @@ function MemberDialog({ workspaceId, workspaceName, onClose }: { workspaceId: st
         </div> : members.length === 0 ? <EmptyState title={t("noMembers")} /> : <ul className="divide-y divide-glass-border">
           {members.map(member => <li key={member.id} className="flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{member.display_name || member.username}</p><p className="truncate text-xs text-text-muted">{member.email}</p></div>
-            <span className="text-xs text-text-muted">{t(member.role)}</span>
+            {member.role === "owner" ? <span className="text-xs text-text-muted">{t(member.role)}</span> : <SelectField aria-label={`${t("role")} ${member.username}`} label={t("role")} value={member.role} onChange={(value) => void updateRole(member, typeof value === "string" ? value : null)} options={["member", "editor", "viewer"].map(role => ({ id: role, label: t(role) }))} isDisabled={busy} />}
             {member.role !== "owner" && <Button variant="quiet" isDisabled={busy} onPress={() => { setError(""); setRemoving(member); }}>{t("removeMember")}</Button>}
           </li>)}
         </ul>}

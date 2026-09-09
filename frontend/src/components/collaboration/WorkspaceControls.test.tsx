@@ -3,13 +3,13 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import GlobalSidebar from '../layout/GlobalSidebar';
 import WorkspaceControls from './WorkspaceControls';
 
-const { auth, get, post, remove } = vi.hoisted(() => ({
+const { auth, get, post, patch, remove } = vi.hoisted(() => ({
   auth: { user: { username: 'artist' }, activeWorkspace: { id: 'one', name: 'First', role: 'owner' }, workspaces: [{ id: 'one', name: 'First', role: 'owner' }, { id: 'two', name: 'Second', role: 'member' }], setActiveWorkspace: vi.fn(), createWorkspace: vi.fn(), logout: vi.fn() },
-  get: vi.fn(), post: vi.fn(), remove: vi.fn(),
+  get: vi.fn(), post: vi.fn(), patch: vi.fn(), remove: vi.fn(),
 }));
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
 vi.mock('@/store/authStore', () => ({ useAuthStore: (select: (state: typeof auth) => unknown) => select(auth) }));
-vi.mock('@/lib/apiClient', () => ({ AUTH_API_URL: '', apiClient: { get, post, delete: remove } }));
+vi.mock('@/lib/apiClient', () => ({ AUTH_API_URL: '', apiClient: { get, post, patch, delete: remove } }));
 vi.mock('@/components/auth/ChangePasswordDialog', () => ({ default: () => null }));
 beforeEach(() => { vi.clearAllMocks(); get.mockResolvedValue({ data: [] }); auth.setActiveWorkspace.mockResolvedValue(undefined); });
 

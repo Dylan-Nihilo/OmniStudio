@@ -37,6 +37,7 @@ from .schemas import (
     UserResponse,
     WorkspaceResponse,
     WorkspaceMemberResponse,
+    UpdateWorkspaceMemberRequest,
 )
 from .service import AuthContext, AuthError, AuthResult, AuthService
 from .tokens import decode_access_token, decode_refresh_token
@@ -404,7 +405,7 @@ def create_invitation(
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> InvitationResponse:
     require_csrf(request, service, session_id=context.session.id)
-    invitation, token = service.create_invitation(context, workspace_id, payload.email)
+    invitation, token = service.create_invitation(context, workspace_id, payload.email, payload.access_role)
     _no_store(response)
     return InvitationResponse(
         id=str(getattr(invitation, "id")),
@@ -412,6 +413,7 @@ def create_invitation(
         email=str(getattr(invitation, "email_normalized")),
         token=token,
         expires_at=_utc(float(getattr(invitation, "expires_at"))),
+        access_role=str(getattr(invitation, "access_role", payload.access_role)),
     )
 
 
@@ -432,11 +434,44 @@ def list_workspace_members(
             username=row["username"],
             email=row["email"],
             display_name=row["display_name"],
-            role=row["role"],
+            role=row.get("access_role") or row["role"],
             joined_at=_utc(row["joined_at"]),
         )
         for row in service.repository.list_workspace_members(selected.workspace.id)
     ]
+
+
+@router.patch(
+    "/workspaces/{workspace_id}/members/{user_id}",
+    response_model=WorkspaceMemberResponse,
+)
+def update_workspace_member(
+    workspace_id: str,
+    user_id: str,
+    payload: UpdateWorkspaceMemberRequest,
+    request: Request,
+    response: Response,
+    context: Annotated[AuthContext, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> WorkspaceMemberResponse:
+    selected = service.resolve_workspace(context, workspace_id)
+    _require_owner(selected)
+    require_csrf(request, service, session_id=context.session.id)
+    try:
+        row = service.repository.update_member_access_role(workspace_id, user_id, payload.access_role)
+    except ValueError as exc:
+        raise AuthError("AUTH_OWNER_CANNOT_BE_UPDATED", "Workspace Owner 的角色不能修改", status_code=409) from exc
+    if row is None:
+        raise AuthError("AUTH_MEMBER_NOT_FOUND", "成员不存在", status_code=404)
+    _no_store(response)
+    return WorkspaceMemberResponse(
+        id=row["id"],
+        username=row["username"],
+        email=row["email"],
+        display_name=row["display_name"],
+        role=row.get("access_role") or row["role"],
+        joined_at=_utc(row["joined_at"]),
+    )
 
 
 @router.delete("/workspaces/{workspace_id}/members/{user_id}", status_code=204)
@@ -592,7 +627,7 @@ def me(
     ]
     return MeResponse(
         user=_user(context.user),
-        workspace=_workspace(context.workspace, context.membership.role),
+        workspace=_workspace(context.workspace, getattr(context.membership, "access_role", context.membership.role)),
         workspaces=workspaces,
     )
 

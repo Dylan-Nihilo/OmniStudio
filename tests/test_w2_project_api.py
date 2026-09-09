@@ -1512,6 +1512,41 @@ def test_member_can_read_team_projects_but_cannot_create_top_level_project(api_c
     assert next(item for item in shared_after if item["id"] == shared_prop["id"])["starred"] is False
 
 
+def test_editor_can_edit_project_but_cannot_delete_it(api_client):
+    team_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    project = _create_project(api_client, "Editor 可编辑项目")
+    invitation = api_client.post(
+        f"/auth/workspaces/{team_id}/invitations",
+        json={"email": "editor@example.com", "access_role": "editor"},
+    )
+    assert invitation.status_code == 201, invitation.text
+
+    with make_client(api_module.app) as editor:
+        registered = editor.post(
+            "/auth/invitations/register",
+            json={
+                "token": invitation.json()["token"],
+                "username": "editor",
+                "email": "editor@example.com",
+                "password": "editor password 123",
+            },
+        )
+        assert registered.status_code == 201, registered.text
+        workspace_headers = {"X-Workspace-ID": team_id}
+
+        updated = editor.patch(
+            f"/projects/{project['id']}/style",
+            headers=workspace_headers,
+            json={"style_preset": "anime"},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["style_preset"] == "anime"
+
+        deleted = editor.delete(f"/projects/{project['id']}", headers=workspace_headers)
+        assert deleted.status_code == 403, deleted.text
+        assert deleted.json()["error"]["code"] == "AUTH_OWNER_REQUIRED"
+
+
 def test_episode_edit_lease_blocks_second_editor_and_text_save_uses_cas(api_client):
     project = _create_project(api_client, "并发写作")
     project_id = project["id"]

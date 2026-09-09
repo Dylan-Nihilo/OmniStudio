@@ -181,6 +181,7 @@ class WorkspaceMembership(Base):
         primary_key=True,
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)
+    access_role: Mapped[str] = mapped_column(Text, nullable=False, server_default="member")
     invited_by_user_id: Mapped[str | None] = mapped_column(
         Text,
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -220,6 +221,7 @@ class WorkspaceInvitation(Base):
         nullable=True,
     )
     revoked_at: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    access_role: Mapped[str] = mapped_column(Text, nullable=False, server_default="member")
 
     __table_args__ = (
         CheckConstraint("expires_at > created_at", name="ck_workspace_invitations_expiry"),

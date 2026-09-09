@@ -669,6 +669,10 @@ def _is_workspace_owner(context) -> bool:
     return getattr(getattr(context, "membership", None), "role", "owner") == "owner"
 
 
+def _is_workspace_viewer(context) -> bool:
+    return getattr(getattr(context, "membership", None), "access_role", "member") == "viewer"
+
+
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
@@ -773,6 +777,12 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 raise AuthError(
                     "AUTH_OWNER_REQUIRED",
                     "只有 Workspace Owner 可以执行此操作",
+                    status_code=403,
+                )
+            if request.method.upper() in _MUTATING_METHODS and _is_workspace_viewer(context):
+                raise AuthError(
+                    "AUTH_VIEWER_READ_ONLY",
+                    "Viewer 只能查看 Workspace 内容",
                     status_code=403,
                 )
             repository = getattr(pipeline, "repository", None)
