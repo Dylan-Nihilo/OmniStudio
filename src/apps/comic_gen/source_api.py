@@ -351,6 +351,7 @@ def process_analysis_batch_job(
     batch_id: str,
     retry: bool = False,
     force: bool = False,
+    retry_chapter_ids: list[str] | None = None,
 ) -> dict[str, object]:
     """Run a persisted analysis batch from the unified JobItem dispatcher."""
     chapter_ids = None
@@ -358,6 +359,7 @@ def process_analysis_batch_job(
         chapter_ids = repository.reset_failed_analysis_batch_items(
             workspace_id=workspace_id,
             batch_id=batch_id,
+            chapter_ids=retry_chapter_ids,
         )
     return _process_analysis_batch(
         None,
@@ -975,6 +977,11 @@ def retry_source_analysis_batch(
     if existing_item.status != "failed":
         raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_RETRYABLE", "当前批量分析没有可重试的失败任务", status_code=409)
     retry_item = job_repository.create_retry(existing_item.id, f"source-analysis:{batch_id}:retry")
+    if payload and payload.chapter_ids:
+        retry_item = job_repository.update_item_payload(
+            retry_item.id,
+            {**retry_item.payload, "retry_chapter_ids": payload.chapter_ids},
+        )
     _production_adapter(request).start(retry_item.id, workspace_id=workspace_id)
     result = repository.get_analysis_batch(workspace_id, batch_id)
     result = {**result, "job_id": retry_item.job_id, "job_item_id": retry_item.id}

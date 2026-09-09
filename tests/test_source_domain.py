@@ -828,6 +828,40 @@ def test_source_analysis_batch_force_reanalyzes_current_revision(source_client, 
     assert item["attempt"] == 2
 
 
+def test_source_analysis_batch_retry_can_target_one_failed_chapter(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "单章重试来源"}).json()
+    chapters = [
+        client.post(
+            f"/sources/{source['id']}/chapters",
+            json={"chapter_number": number, "title": title, "content": f"正文-{number}"},
+        ).json()
+        for number, title in ((1, "失败一"), (2, "失败二"))
+    ]
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: (_ for _ in ()).throw(RuntimeError("provider down")),
+    )
+    batch = client.post(f"/sources/{source['id']}/analysis/batch").json()
+    assert batch["failed"] == 2
+
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: [{"event_type": "action", "description": title}],
+    )
+    retried = client.post(
+        f"/sources/{source['id']}/analysis/batches/{batch['id']}/retry",
+        json={"chapter_ids": [chapters[0]["id"]]},
+    )
+    assert retried.status_code == 200, retried.text
+    result = retried.json()
+    assert result["succeeded"] == 1
+    assert result["failed"] == 1
+    assert next(item for item in result["items"] if item["chapter_id"] == chapters[1]["id"])["status"] == "failed"
+
+
 def test_source_revision_emits_queryable_downstream_impact_markers(source_client):
     client, pipeline = source_client
     source = client.post("/sources", json={"title": "影响追踪来源"}).json()

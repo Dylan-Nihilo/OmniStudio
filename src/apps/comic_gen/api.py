@@ -382,6 +382,7 @@ def _dispatch_production_item(item):
             batch_id=str(payload["batch_id"]),
             retry=bool(item.retry_of),
             force=bool(payload.get("force")),
+            retry_chapter_ids=payload.get("retry_chapter_ids"),
         )
         if batch["status"] in {"failed", "partially_succeeded"}:
             raise RuntimeError(
