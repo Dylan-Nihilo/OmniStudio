@@ -1438,6 +1438,11 @@ export const api = {
         return res.data;
     },
 
+    deleteFrame: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}`);
+        return res.data;
+    },
+
     mergeVideos: async (scriptId: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/merge`);
         return res.data;
