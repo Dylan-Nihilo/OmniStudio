@@ -2214,7 +2214,8 @@
     "source": {
       "staleTitle": "Upstream source changed",
       "staleBanner": "A source chapter used by this script has a newer revision. Review it before continuing production.",
-      "staleTargets": "Downstream items to review: {count}"
+      "staleTargets": "Downstream items to review: {count}",
+      "localCacheConflict": "A local draft was also found; confirm it is based on the latest source before restoring it."
     },
     "standalone": {
       "emptyTitle": "Choose a project to start editing",

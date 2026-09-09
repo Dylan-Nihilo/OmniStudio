@@ -195,6 +195,7 @@ export default function ScriptEditorShell({
   const hideAllSidebars = mode === 'focus' || viewMode === 'focus';
   const hideLeftOnly = mode === 'embedded';
   const ready = documentState === 'ready';
+  const hasSourceCacheConflict = sourceStale && hasNewerLocal;
   useEffect(() => { editor?.setEditable(ready && !isReadOnly, false); }, [editor, ready, isReadOnly]);
 
   useEffect(() => {
@@ -295,6 +296,13 @@ export default function ScriptEditorShell({
               <p className="font-medium">{t('source.staleTitle')}</p>
               <p className="mt-1 leading-5">{t('source.staleBanner')} {sourceDependencies.map(item => `${item.source_title} · ${item.chapter_title} · v${item.revision_number}`).join('、')}</p>
               {sourceStaleTargets.length > 0 && <p className="mt-1 text-xs opacity-80">{t('source.staleTargets', { count: sourceStaleTargets.length })}</p>}
+              {hasSourceCacheConflict && <div data-testid="script-source-cache-conflict" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-status-warning-border/70 bg-status-warning-bg/70 px-3 py-2 text-xs">
+                <span className="min-w-0 flex-1">{t('source.localCacheConflict')}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button variant="secondary" onPress={restoreFromLocal}>{t('status.restore')}</Button>
+                  <IconButton aria-label={t('status.dismissLocalCache')} onPress={dismissLocalRestore} className="rounded p-1 text-status-warning-fg/80 transition-colors hover:bg-status-warning-bg hover:text-status-warning-fg"><X size={14} /></IconButton>
+                </div>
+              </div>}
             </div>
           </div>}
         </>
@@ -325,7 +333,7 @@ export default function ScriptEditorShell({
                 <span>{t('status.offlineBanner')}</span>
               </div>
             )}
-            {hasNewerLocal && (
+            {hasNewerLocal && !hasSourceCacheConflict && (
               <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-primary/25 bg-primary/10 px-4 py-2 text-xs text-primary">
                 <div className="flex items-center gap-2">
                   <RotateCcw size={14} />
