@@ -370,6 +370,42 @@ def _dispatch_production_item(item):
     """Dispatch legacy production work while keeping JobItem authoritative."""
     payload = item.payload
     kind = item.kind
+    if kind in {"t2i", "i2i", "t2v", "i2v", "r2v", "v2v"}:
+        # Playground stores its provider result in a JSON history record, but
+        # retries must still run through the same durable JobItem.  A failed
+        # generation is terminal, so replay it as a fresh generation while
+        # retaining the JobItem retry lineage.
+        from ..playground.api import _service as playground_service, _storage as playground_storage
+        from ..playground.models import GenerateRequest, PlaygroundMode
+
+        generation_id = payload.get("generation_id")
+        generation = playground_storage.get_generation(generation_id, item.workspace_id) if generation_id else None
+        if generation is None:
+            raise RuntimeError("Playground generation disappeared")
+        if item.retry_of:
+            replay = playground_service.create_generation(
+                GenerateRequest(
+                    mode=PlaygroundMode(kind),
+                    model_id=generation.model_id,
+                    prompt=generation.prompt,
+                    negative_prompt=generation.negative_prompt,
+                    input_media=generation.input_media,
+                    parameters=generation.parameters,
+                    batch_size=generation.batch_size,
+                ),
+                item.workspace_id,
+            )
+            generation_id = replay.id
+            payload = {**payload, "generation_id": generation_id}
+            _production_adapter().repository.update_item_payload(item.id, payload)
+        playground_service.process_generation(generation_id)
+        generation = playground_storage.get_generation(generation_id, item.workspace_id)
+        if generation is None or generation.status != "completed":
+            raise RuntimeError((generation.error if generation else None) or "Playground generation did not complete")
+        return [
+            _production_media_ref(output.media_path, kind=output.media_type, item_id=output.id)
+            for output in generation.outputs
+        ]
     if kind == "asset":
         legacy_id = payload["legacy_task_id"]
         saved_task = payload.get("legacy_task") or pipeline.asset_generation_tasks.get(legacy_id)
