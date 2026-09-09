@@ -32,7 +32,6 @@ import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
-import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
 import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
 import TaskCenter from "@/components/tasks/TaskCenter";
 import type { TaskObjectRef } from "@/components/tasks/taskCenterModel";
@@ -183,11 +182,7 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
     { label: episodeNumber != null ? t("episodeNum", { number: episodeNumber }) : t("episodeLabel") },
   ];
 
-  return (
-    <EpisodeEditLeaseGuard scriptId={episodeId}>
-      <ProjectClient id={episodeId} breadcrumbSegments={segments} />
-    </EpisodeEditLeaseGuard>
-  );
+  return <ProjectClient id={episodeId} breadcrumbSegments={segments} />;
 }
 
 // ── Main Component ──
@@ -443,11 +438,7 @@ function AuthenticatedHome() {
 
   // 项目详情页 — 全屏，无 GlobalSidebar
   if (currentView === 'project' && projectId) {
-    return (
-      <EpisodeEditLeaseGuard scriptId={projectId}>
-        <ProjectClient id={projectId} />
-      </EpisodeEditLeaseGuard>
-    );
+    return <ProjectClient id={projectId} />;
   }
 
   // 系列集数编辑 — 全屏，BreadcrumbBar 内嵌在 ProjectClient
