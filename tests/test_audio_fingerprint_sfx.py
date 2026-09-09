@@ -78,10 +78,12 @@ def test_sfx_preview_apply_and_revert_keep_previous_media(pipeline):
 
 
 def test_sfx_apply_rejects_preview_when_inputs_changed(pipeline):
+    from src.apps.comic_gen.audio import _compute_sfx_fingerprint
+
     frame = SimpleNamespace(
         id="frame-stale", action_description="Door slam", video_url="video/shot.mp4",
         sfx_url="audio/sfx-old.wav", preview_sfx_url="audio/sfx-preview.wav",
-        sfx_fingerprint="old", preview_sfx_fingerprint="preview",
+        sfx_fingerprint="old", preview_sfx_fingerprint=_compute_sfx_fingerprint("Door slam", "video/shot.mp4"),
     )
     script = SimpleNamespace(id="script-stale", frames=[frame])
     pipeline.scripts[script.id] = script
