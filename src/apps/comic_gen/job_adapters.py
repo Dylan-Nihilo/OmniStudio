@@ -23,7 +23,7 @@ Dispatcher = Callable[[JobItemRecord], DispatchResult]
 class ProductionJobAdapter:
     """Coordinate durable JobItems with provider dispatch callbacks."""
 
-    SUPPORTED_KINDS = frozenset({"asset", "storyboard", "video", "audio", "tts", "export"})
+    SUPPORTED_KINDS = frozenset({"asset", "asset_batch", "storyboard", "video", "audio", "tts", "export"})
 
     def __init__(self, repository: JobRepository, *, dispatchers: Mapping[str, Dispatcher] | None = None):
         self.repository = repository
