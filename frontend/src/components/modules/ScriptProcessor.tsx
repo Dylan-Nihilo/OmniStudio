@@ -61,7 +61,18 @@ export default function ScriptProcessor() {
         setSaving(true);
         setSaveError(null);
         try {
-            const saved = await api.updateScriptText(projectId, text, revision, leaseToken, clientInstanceId);
+            let saved;
+            try {
+                saved = await api.updateScriptText(projectId, text, revision, leaseToken, clientInstanceId);
+            } catch (error) {
+                if (getApiErrorCode(error) !== "EDIT_REVISION_CONFLICT") throw error;
+                const latest = await api.getProject(projectId);
+                // Asset and render updates also advance the project revision.
+                // Rebase only while the saved text is unchanged; CAS still protects the retry.
+                if (latest.originalText !== savedText || !latest._revision
+                    || useProjectStore.getState().currentProject?.id !== projectId) throw error;
+                saved = await api.updateScriptText(projectId, text, latest._revision, leaseToken, clientInstanceId);
+            }
             if (useProjectStore.getState().currentProject?.id !== projectId) return;
             setSavedText(text);
             if (saved._revision) setRevision(saved._revision);
