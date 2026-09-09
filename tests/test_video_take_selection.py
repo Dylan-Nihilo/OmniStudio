@@ -155,3 +155,15 @@ def test_unpin_video_clears_pin_but_preserves_selection(pipeline):
     assert frame.is_video_pinned is False
     assert frame.selected_video_id == "video-existing"
     assert frame.video_url == "video/existing.mp4"
+
+
+def test_clear_video_selection_removes_take_and_pin(pipeline):
+    frame = _frame(pinned=True)
+    script = _script(frame, [])
+    pipeline.scripts[script.id] = script
+
+    pipeline.clear_video_selection(script.id, frame.id)
+
+    assert frame.selected_video_id is None
+    assert frame.video_url is None
+    assert frame.is_video_pinned is False

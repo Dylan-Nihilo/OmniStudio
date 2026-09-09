@@ -1182,6 +1182,16 @@ export const api = {
         return res.data;
     },
 
+    /** Download completed candidate takes as a zip with Shot/Take manifest. */
+    downloadVideoCandidates: async (scriptId: string, taskIds: string[] = []): Promise<Blob> => {
+        const res = await apiClient.post(
+            `${API_URL}/projects/${scriptId}/video_tasks/download`,
+            { task_ids: taskIds },
+            { responseType: "blob" },
+        );
+        return res.data;
+    },
+
     /** Mark a video task as failed-by-cancel. Provider-side render
      *  keeps going; this just unblocks the local UI. Already-completed
      *  tasks are a 404 no-op. */
@@ -1409,6 +1419,11 @@ export const api = {
         // Clear the pin; selected_video_id and video_url stay put until
         // the next auto-select picks a newer completed task.
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/unpin_video`);
+        return res.data;
+    },
+
+    clearVideoSelection: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/clear_video_selection`);
         return res.data;
     },
 

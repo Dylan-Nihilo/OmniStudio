@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, RotateCcw, Film } from "lucide-react";
+import { ChevronDown, ChevronRight, RotateCcw, Download, Film } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, EmptyState, IconButton, LoadingState, SelectField, StatusBadge } from "@omnistudio/ui";
 import type { VideoTask } from "@/lib/api";
@@ -28,6 +28,7 @@ interface CandidatesSectionProps {
     onRetry?: (task: VideoTask) => Promise<void> | void;
     retryingTaskIds?: ReadonlySet<string>;
     onReuseBatchParams?: (batch: BatchSummary) => void;
+    onDownloadBatch?: (tasks: VideoTask[]) => void | Promise<void>;
     onOpenCompare?: () => void;
     onClearCompare?: () => void;
     resolveUrl?: (url: string) => string;
@@ -127,7 +128,7 @@ export default function CandidatesSection(props: CandidatesSectionProps) {
     </SectionShell>;
 }
 
-function BatchBlock({ batch, defaultOpen, tasks, compareSelectedIds, activeTaskId, isPinned, isSelecting, retryingTaskIds, dubbedVideoUrl, dubbedVideoTaskId, resolveUrl, onClickThumb, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry, onReuseBatchParams }: CandidatesSectionProps & { batch: BatchSummary; defaultOpen: boolean }) {
+function BatchBlock({ batch, defaultOpen, tasks, compareSelectedIds, activeTaskId, isPinned, isSelecting, retryingTaskIds, dubbedVideoUrl, dubbedVideoTaskId, resolveUrl, onClickThumb, onToggleStar, onSetLabel, onSetActive, onCancel, onRetry, onReuseBatchParams, onDownloadBatch }: CandidatesSectionProps & { batch: BatchSummary; defaultOpen: boolean }) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = useState(defaultOpen);
     const runningCount = batch.tasks.filter(task => task.status === "pending" || task.status === "processing").length;
@@ -140,7 +141,10 @@ function BatchBlock({ batch, defaultOpen, tasks, compareSelectedIds, activeTaskI
                 {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 <span><strong>{batch.model || t("candidateUnknownModel")}</strong><span>{t("candidatesCount", { count: batch.tasks.length })} · {age}</span></span>
             </Button>
-            {onReuseBatchParams && <IconButton aria-label={t("batchReuse")} onPress={() => onReuseBatchParams(batch)}><RotateCcw size={16} /></IconButton>}
+            <div className="flex items-center gap-1">
+                {onDownloadBatch && <IconButton aria-label={t("batchDownload")} onPress={() => onDownloadBatch(batch.tasks.filter(task => task.status === "completed" && !!task.video_url))}><Download size={16} /></IconButton>}
+                {onReuseBatchParams && <IconButton aria-label={t("batchReuse")} onPress={() => onReuseBatchParams(batch)}><RotateCcw size={16} /></IconButton>}
+            </div>
         </div>
         <div className={styles.batchSummary}>
             {batch.summary && <span>{batch.summary}</span>}

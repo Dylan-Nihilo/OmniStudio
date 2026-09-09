@@ -39,10 +39,17 @@ import uuid
 import logging
 import traceback
 import mimetypes
+from io import BytesIO
 from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlparse
-from .pipeline import ComicGenPipeline, GenerationInProgressError, LibraryAssetInUseError, _resolve_export_settings
+from .pipeline import (
+    ComicGenPipeline,
+    GenerationInProgressError,
+    LibraryAssetInUseError,
+    _resolve_export_settings,
+    build_video_download_archive,
+)
 from .models import (
     ArtDirection,
     PromptConfig,
@@ -4077,6 +4084,11 @@ class CreateVideoTaskRequest(BaseModel):
     workbench_tab: Optional[str] = None  # 't2i_i2v' | 'direct_r2v'
 
 
+class VideoDownloadRequest(BaseModel):
+    """Optional explicit take ids for a candidate download."""
+    task_ids: List[str] = Field(default_factory=list, max_length=200)
+
+
 def process_video_task(script_id: str, task_id: str):
     """Background task to generate video.
 
@@ -4264,6 +4276,27 @@ def create_video_task(script_id: str, request: CreateVideoTaskRequest, backgroun
     except Exception as e:
         logger.exception("An error occurred")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/projects/{script_id}/video_tasks/download")
+def download_video_tasks(script_id: str, request: VideoDownloadRequest):
+    """Download completed candidate takes with a Shot/Take manifest."""
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+    try:
+        archive, manifest = build_video_download_archive(script, request.task_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    filename = f"{script_id}_video_candidates.zip"
+    return StreamingResponse(
+        BytesIO(archive),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Omni-Manifest-Count": str(len(manifest["files"])),
+        },
+    )
 
 
 @app.post("/projects/{script_id}/assets/generate")
@@ -5504,6 +5537,17 @@ def unpin_video(script_id: str, frame_id: str):
     try:
         updated_script = pipeline.unpin_video(script_id, frame_id)
         return signed_response(updated_script)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/projects/{script_id}/frames/{frame_id}/clear_video_selection", response_model=Script)
+def clear_video_selection(script_id: str, frame_id: str):
+    """Clear a frame's explicit take selection before a new Assembly review."""
+    try:
+        return signed_response(pipeline.clear_video_selection(script_id, frame_id))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

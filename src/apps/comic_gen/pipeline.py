@@ -11,6 +11,8 @@ import subprocess
 import threading
 import platform
 import copy
+from io import BytesIO
+import zipfile
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
 from .llm import ScriptProcessor
@@ -38,6 +40,79 @@ logger = get_logger(__name__)
 
 class GenerationInProgressError(Exception):
     """A frame already has an active generation for this media type."""
+
+
+def _video_status_value(task: Any) -> str:
+    status = getattr(task, "status", "")
+    return getattr(status, "value", status)
+
+
+def _resolve_explicit_video_take(script: Any, frame: Any) -> Tuple[Optional[Any], Optional[str], str]:
+    """Resolve only the take explicitly selected on a frame.
+
+    ``selected_video_id`` is the persisted selection contract used by both
+    Storyboard and Assembly.  Deliberately do not inspect other completed
+    tasks: an unselected candidate must never silently enter an export.
+    """
+    selected_id = getattr(frame, "selected_video_id", None)
+    if not selected_id:
+        return None, None, "No explicit video take selected for this frame"
+    task = next((candidate for candidate in (getattr(script, "video_tasks", None) or [])
+                 if getattr(candidate, "id", None) == selected_id), None)
+    if task is None or getattr(task, "project_id", script.id) != script.id or getattr(task, "frame_id", None) != getattr(frame, "id", None):
+        return None, None, f"Selected video {selected_id} is unavailable and no completed fallback video exists"
+    if _video_status_value(task) != "completed" or not getattr(task, "video_url", None):
+        return None, None, f"Selected video {selected_id} is unavailable and no completed fallback video exists"
+    # A dubbed clip is an explicit transformation of the selected take, so it
+    # is safe to use only after the source take has passed the checks above.
+    dubbed_url = getattr(frame, "dubbed_video_url", None)
+    return task, dubbed_url or task.video_url, ""
+
+
+def build_video_download_archive(script: Any, task_ids: Optional[List[str]] = None) -> Tuple[bytes, Dict[str, Any]]:
+    """Build a deterministic zip of completed video takes and a Shot/Take manifest."""
+    wanted = set(task_ids or [])
+    frames = list(getattr(script, "frames", None) or [])
+    frame_indexes = {getattr(frame, "id", ""): index + 1 for index, frame in enumerate(frames)}
+    frame_take_counts: Dict[str, int] = {}
+    selected_tasks = []
+    for task in (getattr(script, "video_tasks", None) or []):
+        task_id = getattr(task, "id", None)
+        if wanted and task_id not in wanted:
+            continue
+        if _video_status_value(task) != "completed" or not getattr(task, "video_url", None):
+            continue
+        if getattr(task, "project_id", script.id) != script.id or getattr(task, "frame_id", None) not in frame_indexes:
+            continue
+        selected_tasks.append(task)
+    if not selected_tasks:
+        raise ValueError("No completed video takes matched the requested selection")
+
+    manifest_files: List[Dict[str, Any]] = []
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+        for task in sorted(selected_tasks, key=lambda item: (frame_indexes[item.frame_id], getattr(item, "created_at", 0), item.id)):
+            frame_id = task.frame_id
+            frame_take_counts[frame_id] = frame_take_counts.get(frame_id, 0) + 1
+            source_url = str(task.video_url)
+            source_path = _safe_resolve_path("output", source_url)
+            if not os.path.isfile(source_path):
+                raise ValueError(f"Video file not found for take {task.id}")
+            filename = os.path.basename(source_url) or f"{task.id}.mp4"
+            archive_path = f"shots/shot-{frame_indexes[frame_id]:03d}_{frame_id}/take-{frame_take_counts[frame_id]:03d}_{filename}"
+            zipped.write(source_path, archive_path)
+            manifest_files.append({
+                "shot_id": frame_id,
+                "shot_index": frame_indexes[frame_id],
+                "take_id": task.id,
+                "take_index": frame_take_counts[frame_id],
+                "filename": filename,
+                "archive_path": archive_path,
+                "video_url": source_url,
+            })
+        manifest = {"version": 1, "script_id": script.id, "files": manifest_files}
+        zipped.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    return archive.getvalue(), manifest
 
 
 def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
@@ -2901,6 +2976,23 @@ class ComicGenPipeline:
             self._save_data()
             return script
 
+    def clear_video_selection(self, script_id: str, frame_id: str) -> Script:
+        """Clear the explicit take so Assembly must be re-confirmed."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError("Frame not found")
+            frame.selected_video_id = None
+            frame.video_url = None
+            frame.is_video_pinned = False
+            if hasattr(frame, "final_take_id"):
+                frame.final_take_id = None
+            self._save_data()
+            return script
+
     def _resolve_media_path(self, url: str, suffix: str = "") -> Optional[str]:
         """Resolve a media URL to a local file path.
 
@@ -3331,56 +3423,10 @@ class ComicGenPipeline:
 
         candidate_files: List[Tuple[Any, str, str]] = []
         for frame in script.frames:
-            candidate_url: Optional[str] = None
-
-            if frame.dubbed_video_url:
-                try:
-                    dubbed_path = _safe_resolve_path("output", frame.dubbed_video_url)
-                except ValueError as exc:
-                    error = f"Frame {frame.id}: {exc}"
-                    report["errors"].append(error)
-                    fatal_errors.append(error)
-                    continue
-                if os.path.isfile(dubbed_path):
-                    candidate_url = frame.dubbed_video_url
-
-            if not candidate_url and frame.selected_video_id:
-                selected_video = next(
-                    (
-                        video
-                        for video in script.video_tasks
-                        if video.id == frame.selected_video_id
-                        and video.status == "completed"
-                        and video.video_url
-                    ),
-                    None,
-                )
-                if selected_video:
-                    candidate_url = selected_video.video_url
-
+            _, candidate_url, selection_error = _resolve_explicit_video_take(script, frame)
             if not candidate_url:
-                default_video = next(
-                    (
-                        video
-                        for video in script.video_tasks
-                        if video.frame_id == frame.id
-                        and video.status == "completed"
-                        and video.video_url
-                    ),
-                    None,
-                )
-                if default_video:
-                    candidate_url = default_video.video_url
-
-            if not candidate_url:
-                reason = "No completed video task with a video URL is available"
-                if frame.selected_video_id:
-                    reason = (
-                        f"Selected video {frame.selected_video_id} is unavailable and "
-                        "no completed fallback video exists"
-                    )
                 report["no_video_available"].append(
-                    {"frame_id": frame.id, "reason": reason}
+                    {"frame_id": frame.id, "reason": selection_error}
                 )
                 continue
 
@@ -3571,33 +3617,12 @@ class ComicGenPipeline:
         video_paths = []
         for i, frame in enumerate(script.frames):
             logger.info(f"[MERGE] Processing frame {i+1}/{len(script.frames)}: {frame.id}")
-
-            # Prefer dubbed version (TTS audio already overlaid with lip-sync offset)
-            if frame.dubbed_video_url:
-                dubbed_path = _safe_resolve_path("output", frame.dubbed_video_url)
-                if os.path.exists(dubbed_path):
-                    logger.debug(f"[MERGE]   -> Using dubbed video: {frame.dubbed_video_url}")
-                    video_paths.append(frame.dubbed_video_url)
-                    continue
-                else:
-                    logger.warning(f"[MERGE]   -> Dubbed video file missing: {dubbed_path}, falling back")
-
-            if not frame.selected_video_id:
-                # Try to find a default completed video
-                default_video = next((v for v in script.video_tasks if v.frame_id == frame.id and v.status == "completed"), None)
-                if default_video and default_video.video_url:
-                    logger.debug(f"[MERGE]   -> Using default video: {default_video.video_url}")
-                    video_paths.append(default_video.video_url)
-                else:
-                    logger.warning(f"[MERGE]   -> No video selected or available, skipping")
-                continue
-                
-            video = next((v for v in script.video_tasks if v.id == frame.selected_video_id), None)
-            if video and video.video_url:
-                logger.debug(f"[MERGE]   -> Selected video: {video.video_url}")
-                video_paths.append(video.video_url)
+            _, selected_url, selection_error = _resolve_explicit_video_take(script, frame)
+            if selected_url:
+                logger.debug(f"[MERGE]   -> Explicit take: {selected_url}")
+                video_paths.append(selected_url)
             else:
-                logger.warning(f"[MERGE]   -> Selected video {frame.selected_video_id} not found or has no URL")
+                logger.warning(f"[MERGE]   -> {selection_error}")
                 
         if not video_paths:
             logger.error("[MERGE] No videos found to merge!")

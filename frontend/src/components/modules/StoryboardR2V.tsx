@@ -359,6 +359,13 @@ function StoryboardWorkbench() {
     useEffect(() => {
         if (!genDialogOpen || !currentProject?.id) return;
         let active = true;
+        // Older test clients and embedded shells may not expose the optional
+        // readiness endpoint yet; preserve the pre-readiness flow there.
+        if (typeof api.getStoryboardReadiness !== "function") {
+            setStoryboardReadiness(null);
+            setStoryboardReadinessLoading(false);
+            return () => { active = false; };
+        }
         setStoryboardReadinessLoading(true);
         void api.getStoryboardReadiness(currentProject.id).then(report => {
             if (active) setStoryboardReadiness(report);
@@ -1777,6 +1784,19 @@ function StoryboardWorkbench() {
     const handleSetLabel = useCallback((task: VideoTask, next: string | null) =>
         annotateCandidate(task, next ? { label: next } : { clear_label: true }), [annotateCandidate]);
 
+    const handleDownloadBatch = useCallback(async (tasks: VideoTask[]) => {
+        const projectId = currentProject?.id;
+        const ids = tasks.filter(task => task.status === "completed" && task.video_url).map(task => task.id);
+        if (!projectId || ids.length === 0) return;
+        const blob = await api.downloadVideoCandidates(projectId, ids);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${projectId}_video_candidates.zip`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }, [currentProject?.id]);
+
     const cancelRequests = useRef(new Map<string, Promise<void>>());
     const cancelTask = useCallback((taskId: string): Promise<void> => {
         const existing = cancelRequests.current.get(taskId);
@@ -2141,6 +2161,7 @@ function StoryboardWorkbench() {
                                     onRetry={handleRetryTask}
                                     retryingTaskIds={retryingTaskIds}
                                     onReuseBatchParams={handleReuseBatchParams}
+                                    onDownloadBatch={handleDownloadBatch}
                                     onOpenCompare={() => setCompareModalOpen(true)}
                                     resolveUrl={resolveAssetUrl}
                                 />}
