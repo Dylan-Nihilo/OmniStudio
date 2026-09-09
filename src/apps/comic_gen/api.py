@@ -5950,8 +5950,8 @@ def export_project(script_id: str, request: ExportRequest):
             raise HTTPException(status_code=400, detail="Unsupported export resolution")
         if request.format.lower() != "mp4":
             raise HTTPException(status_code=400, detail="Unsupported export format; only mp4 is available")
-        if request.subtitles.lower() != "none":
-            raise HTTPException(status_code=400, detail="Subtitle burning is not available in this export path")
+        if request.subtitles.lower() not in {"none", "soft"}:
+            raise HTTPException(status_code=400, detail="Unsupported subtitle mode; use none or soft")
 
         # If already merged, return existing URL directly
         if script.merged_video_url:
@@ -5959,6 +5959,7 @@ def export_project(script_id: str, request: ExportRequest):
 
         settings = dict(getattr(script, "export_settings", None) or {})
         settings["resolution"] = resolution
+        settings["subtitles"] = request.subtitles.lower()
         _resolve_export_settings(settings)
         script.export_settings = settings
         pipeline._save_data()

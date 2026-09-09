@@ -281,13 +281,51 @@ def _resolve_export_settings(export_settings: Optional[Dict[str, Any]]) -> Dict[
             "Invalid export setting 'audio_bitrate': expected a bitrate such as 128k"
         )
 
+    subtitles = settings.get("subtitles", "none")
+    if subtitles is None:
+        subtitles = "none"
+    if not isinstance(subtitles, str) or subtitles not in {"none", "soft"}:
+        raise ValueError("Invalid export setting 'subtitles': expected 'none' or 'soft'")
+
     return {
         "resolution": resolution,
         "fps": fps,
         "crf": crf,
         "preset": preset,
         "audio_bitrate": audio_bitrate,
+        "subtitles": subtitles,
     }
+
+
+def _format_srt_timestamp(seconds: float) -> str:
+    milliseconds = max(0, int(round(seconds * 1000)))
+    hours, remainder = divmod(milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d},{millis:03d}"
+
+
+def _write_soft_subtitles(script: Script, path: str) -> bool:
+    """Write deterministic SRT captions from frame dialogue and durations."""
+    elapsed = 0.0
+    entries: List[str] = []
+    for frame in script.frames:
+        structured = getattr(frame, "dialogue_structured", None)
+        text = (getattr(structured, "line", None) if structured else None) or getattr(frame, "dialogue", None) or ""
+        duration = getattr(frame, "duration", None) or 0.5
+        try:
+            duration = max(0.1, float(duration))
+        except (TypeError, ValueError):
+            duration = 0.5
+        start, end = elapsed, elapsed + duration
+        elapsed = end
+        if text.strip():
+            entries.append(f"{len(entries) + 1}\n{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}\n{text.strip()}\n")
+    if not entries:
+        return False
+    with open(path, "w", encoding="utf-8", newline="\n") as subtitles:
+        subtitles.write("\n".join(entries) + "\n")
+    return True
 
 
 class LibraryAssetInUseError(Exception):
@@ -3790,6 +3828,23 @@ class ComicGenPipeline:
             except Exception as bgm_err:
                 # BGM is optional; log + carry on with the silent video
                 logger.warning(f"[MERGE] BGM mux skipped due to error: {bgm_err}")
+
+            if export_settings["subtitles"] == "soft":
+                subtitle_path = os.path.join(normalization_dir, "captions.srt")
+                if _write_soft_subtitles(script, subtitle_path):
+                    subtitled_path = f"{output_path}.subtitles.mp4"
+                    subtitle_cmd = [
+                        ffmpeg_path, "-y", "-i", output_path, "-i", subtitle_path,
+                        "-map", "0:v:0", "-map", "0:a?", "-map", "1:0",
+                        "-c:v", "copy", "-c:a", "copy", "-c:s", "mov_text",
+                        "-metadata:s:s:0", "language=und", "-movflags", "+faststart",
+                        subtitled_path,
+                    ]
+                    logger.debug(f"[MERGE] Adding soft subtitles: {' '.join(subtitle_cmd)}")
+                    subprocess.run(subtitle_cmd, check=True, capture_output=True, timeout=120)
+                    if not os.path.isfile(subtitled_path) or not os.path.getsize(subtitled_path):
+                        raise RuntimeError("FFmpeg subtitle mux completed without an output file")
+                    os.replace(subtitled_path, output_path)
 
             self._set_merge_progress(script, "mixing", "混音处理", 0.9)
             self._set_merge_progress(script, "verifying", "验收成片", 0.95)

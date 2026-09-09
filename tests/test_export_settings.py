@@ -38,7 +38,7 @@ def merge_harness(tmp_path, monkeypatch):
             return SimpleNamespace(returncode=0, stdout=b"ffmpeg version", stderr=b"")
         # The audio probe succeeds, so merge does not need the normalization
         # branch.  The final command creates the output expected by merge.
-        if "concat" in command and command[-1] != "NUL":
+        if command and str(command[-1]).lower().endswith(".mp4") and command[-1] != "NUL":
             Path(command[-1]).write_bytes(b"merged")
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
@@ -141,5 +141,18 @@ def test_merge_rejects_invalid_export_settings(merge_harness, setting, value):
     with pytest.raises(ValueError, match=setting):
         pipeline.merge_videos("script-1")
 
+
+def test_merge_soft_subtitles_muxes_a_real_mov_text_stream(merge_harness):
+    pipeline, install_script, commands = merge_harness
+    script = install_script({"subtitles": "soft"})
+    script.frames[0].dialogue = "Hello world"
+    script.frames[0].duration = 1
+
+    pipeline.merge_videos("script-1")
+
+    subtitle_command = next(command for command in commands if "mov_text" in command)
+    assert "-c:s" in subtitle_command
+    assert subtitle_command[subtitle_command.index("-c:s") + 1] == "mov_text"
+    assert any(str(value).endswith(".srt") for value in subtitle_command)
 
 

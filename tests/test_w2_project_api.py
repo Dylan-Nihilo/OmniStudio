@@ -144,9 +144,10 @@ def test_video_export_request_persists_real_merge_settings(api_client):
         return api_module.pipeline.scripts[script_id]
 
     with patch.object(api_module, "_create_production_item", return_value=None), patch.object(api_module.pipeline, "merge_videos", side_effect=fake_merge):
-        response = api_client.post(f"/projects/{project['id']}/export", json={"resolution": "720p", "format": "mp4", "subtitles": "none"})
+        response = api_client.post(f"/projects/{project['id']}/export", json={"resolution": "720p", "format": "mp4", "subtitles": "soft"})
     assert response.status_code == 200, response.text
     assert captured["resolution"] == "1280x720"
+    assert captured["subtitles"] == "soft"
 
 
 @pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown"])
