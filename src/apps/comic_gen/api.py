@@ -5922,22 +5922,46 @@ class ExportRequest(BaseModel):
     format: str = "mp4"
     subtitles: str = "none"
 
+
+_VIDEO_EXPORT_RESOLUTIONS = {
+    "1080p": "1920x1080",
+    "720p": "1280x720",
+    "360p": "640x360",
+    "1920x1080": "1920x1080",
+    "1280x720": "1280x720",
+    "640x360": "640x360",
+}
+
 @app.post("/projects/{script_id}/export")
 def export_project(script_id: str, request: ExportRequest):
     """Export project video by merging all selected frame videos.
 
-    Currently delegates to the existing merge_videos pipeline.
-    resolution/format/subtitles parameters are accepted but not yet applied
-    (requires FFmpeg pipeline iteration).
+    Delegates to the merge pipeline after persisting the requested resolution.
+    Unsupported container and subtitle modes are rejected instead of being
+    silently ignored by the legacy endpoint.
     """
     try:
         script = pipeline.get_script(script_id)
         if not script:
             raise HTTPException(status_code=404, detail="Project not found")
 
+        resolution = _VIDEO_EXPORT_RESOLUTIONS.get(request.resolution.lower())
+        if not resolution:
+            raise HTTPException(status_code=400, detail="Unsupported export resolution")
+        if request.format.lower() != "mp4":
+            raise HTTPException(status_code=400, detail="Unsupported export format; only mp4 is available")
+        if request.subtitles.lower() != "none":
+            raise HTTPException(status_code=400, detail="Subtitle burning is not available in this export path")
+
         # If already merged, return existing URL directly
         if script.merged_video_url:
             return signed_response({"url": script.merged_video_url})
+
+        settings = dict(getattr(script, "export_settings", None) or {})
+        settings["resolution"] = resolution
+        _resolve_export_settings(settings)
+        script.export_settings = settings
+        pipeline._save_data()
 
         # Otherwise, run merge pipeline through the durable production ledger.
         job_item = _create_production_item(

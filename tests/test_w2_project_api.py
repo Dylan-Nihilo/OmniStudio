@@ -133,6 +133,22 @@ def test_sfx_preview_apply_and_revert_round_trip_over_http(api_client):
     assert reverted.json()["frames"][0]["preview_sfx_url"] is None
 
 
+def test_video_export_request_persists_real_merge_settings(api_client):
+    project = _create_project(api_client, "Export settings contract")
+    script = api_module.pipeline.scripts[project["id"]]
+    captured = {}
+
+    def fake_merge(script_id):
+        captured.update(api_module.pipeline.scripts[script_id].export_settings or {})
+        api_module.pipeline.scripts[script_id].merged_video_url = "video/merged.mp4"
+        return api_module.pipeline.scripts[script_id]
+
+    with patch.object(api_module, "_create_production_item", return_value=None), patch.object(api_module.pipeline, "merge_videos", side_effect=fake_merge):
+        response = api_client.post(f"/projects/{project['id']}/export", json={"resolution": "720p", "format": "mp4", "subtitles": "none"})
+    assert response.status_code == 200, response.text
+    assert captured["resolution"] == "1280x720"
+
+
 @pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown"])
 def test_reordering_frames_rejects_incomplete_or_repeated_ids_without_losing_shots(api_client, invalid):
     project = _create_project(api_client, "Storyboard order")
