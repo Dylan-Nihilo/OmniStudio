@@ -1308,6 +1308,11 @@
     "saving": "Saving..."
   },
   "library": {
+    "editAsset": "Edit asset",
+    "deleteAsset": "Delete asset",
+    "confirmDelete": "Confirm deletion",
+    "deleteAssetBody": "Delete “{name}” from the shared library? Assets referenced by shots cannot be deleted.",
+    "saveFailed": "Could not save. Try again.",
     "replaceImage": "Replace image",
     "replacing": "Replacing…",
     "replaceSuccess": "Image replaced",

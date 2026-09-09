@@ -1308,6 +1308,11 @@
     "saving": "保存中..."
   },
   "library": {
+    "editAsset": "编辑资产",
+    "deleteAsset": "删除资产",
+    "confirmDelete": "确认删除",
+    "deleteAssetBody": "从全局资产库删除“{name}”？正在被分镜引用的资产无法删除。",
+    "saveFailed": "保存失败，请重试",
     "replaceImage": "替换图片",
     "replacing": "替换中…",
     "replaceSuccess": "图片已替换",

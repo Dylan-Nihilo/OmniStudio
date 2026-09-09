@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef, Fragment, type ChangeEvent } from "react";
 import { useTranslations } from "next-intl";
-import { X, Star, Download, Sparkles, Globe, Upload } from "lucide-react";
+import { X, Star, Download, Sparkles, Globe, Upload, Pencil, Trash2 } from "lucide-react";
 import type { Character, Scene, Prop, ImageAsset, ImageVariant } from "@/store/projectStore";
 import { characterImageAsset } from "@/lib/characterImage";
 import { api } from "@/lib/api";
 import { toast } from "@/store/toastStore";
-import { Button, IconButton } from "@omnistudio/ui";
+import { Button, IconButton, Dialog, TextField, TextAreaField } from "@omnistudio/ui";
 import styles from "./AssetLibraryPage.module.css";
 import { getAssetUrl } from "@/lib/utils";
 
@@ -39,6 +39,7 @@ interface AssetInspectorProps {
   onToggleStar: () => void;
   /** 提升到全局成功后回调（父层刷新库以显示新入池资产）。可选。 */
   onPromoted?: () => void;
+  onAssetDeleted?: () => void;
   onAssetUpdated?: (asset: Character | Scene | Prop) => void;
 }
 
@@ -98,8 +99,10 @@ export default function AssetInspector({
   onToggleStar,
   onPromoted,
   onAssetUpdated,
+  onAssetDeleted,
 }: AssetInspectorProps) {
   const t = useTranslations("library");
+  const tc = useTranslations("common");
   const TYPE_LABEL: Record<AssetTab, string> = {
     characters: t("characterLabel"),
     scenes: t("sceneLabel"),
@@ -130,6 +133,12 @@ export default function AssetInspector({
   const [downloading, setDownloading] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [replaceError, setReplaceError] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editName, setEditName] = useState(asset.name);
+  const [editDescription, setEditDescription] = useState(asset.description || "");
+  const [metadataBusy, setMetadataBusy] = useState(false);
+  const [metadataError, setMetadataError] = useState("");
   const replaceInput = useRef<HTMLInputElement>(null);
 
   // 切换选中资产时重置本地高亮的变体 + 丢弃上一个资产本地追加的变体。
@@ -155,7 +164,7 @@ export default function AssetInspector({
   const asideRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
-    onCloseRef.current = () => { if (!replacing) onClose(); };
+    onCloseRef.current = () => { if (!replacing && !metadataBusy && !editOpen && !deleteOpen) onClose(); };
   });
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -329,9 +338,31 @@ export default function AssetInspector({
     }
   };
 
+  const saveMetadata = async (remove = false) => {
+    if (metadataBusy || sourceKind !== "global" || (!remove && !editName.trim())) return;
+    setMetadataBusy(true);
+    setMetadataError("");
+    try {
+      if (remove) {
+        await api.deleteLibraryAsset(SINGULAR_TYPE[type], asset.id);
+        onAssetDeleted?.();
+        onClose();
+      } else {
+        const updated = await api.updateLibraryAsset(SINGULAR_TYPE[type], asset.id, {
+          name: editName.trim(), description: editDescription.trim(),
+        });
+        onAssetUpdated?.(updated);
+        setEditOpen(false);
+      }
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      setMetadataError(typeof detail === "string" ? detail : detail?.message || error?.message || t("saveFailed"));
+    } finally { setMetadataBusy(false); }
+  };
+
   return <aside ref={asideRef} tabIndex={-1} className={styles.inspector} aria-label={t("inspectorAria")}>
     <header className={styles.inspectorHeader}><div><p>{t("inspectorAria")}</p><h2>{asset.name}</h2></div>
-      <IconButton aria-label={t("closeInspector")} isDisabled={replacing} onPress={onClose}><X size={18} /></IconButton>
+      <IconButton aria-label={t("closeInspector")} isDisabled={replacing || metadataBusy} onPress={onClose}><X size={18} /></IconButton>
     </header>
     {heroUrl && <img src={heroUrl} alt={asset.name} className={styles.hero} />}
     <div className={styles.details}>
@@ -342,6 +373,10 @@ export default function AssetInspector({
       {asset.description && <section><h3>{t("descLabel")}</h3><p className={styles.prompt}>{asset.description}</p></section>}
       {prompt && <section><h3>{t("promptSection")}</h3><p className={styles.prompt}>{prompt}</p></section>}
       <div className={styles.actions}>
+        {sourceKind === "global" && <>
+          <Button variant="secondary" isDisabled={replacing} onPress={() => { setEditName(asset.name); setEditDescription(asset.description || ""); setMetadataError(""); setEditOpen(true); }}><Pencil size={15} />{t("editAsset")}</Button>
+          <Button variant="quiet" isDisabled={replacing} onPress={() => { setMetadataError(""); setDeleteOpen(true); }}><Trash2 size={15} />{t("deleteAsset")}</Button>
+        </>}
         <input ref={replaceInput} type="file" accept="image/*" aria-label={t("replaceImage")} className="hidden" disabled={replacing} onChange={handleReplace} />
         <Button variant="secondary" isPending={replacing} onPress={() => replaceInput.current?.click()}><Upload size={15} />{replacing ? t("replacing") : t("replaceImage")}</Button>
         {replaceError && <p role="alert" className="text-sm text-status-failed-fg">{replaceError}</p>}
@@ -352,5 +387,18 @@ export default function AssetInspector({
         <Button variant="quiet" onPress={() => void handleDownload()} isDisabled={!heroUrl} isPending={downloading}><Download size={15} />{t("download")}</Button>
       </div>
     </div>
+    <Dialog isOpen={editOpen} onOpenChange={open => { if (!metadataBusy) setEditOpen(open); }} isDismissable={!metadataBusy} title={t("editAsset")} closeLabel={tc("close")}
+      footer={<><Button variant="secondary" isDisabled={metadataBusy} onPress={() => setEditOpen(false)}>{tc("cancel")}</Button><Button type="submit" form={`edit-asset-${asset.id}`} isPending={metadataBusy} isDisabled={!editName.trim()}>{tc("save")}</Button></>}>
+      <form id={`edit-asset-${asset.id}`} onSubmit={event => { event.preventDefault(); void saveMetadata(); }} className="flex flex-col gap-4">
+        <TextField autoFocus label={t("nameLabel")} value={editName} onChange={setEditName} isRequired isDisabled={metadataBusy} />
+        <TextAreaField label={t("descLabel")} value={editDescription} onChange={setEditDescription} isDisabled={metadataBusy} rows={3} />
+        {metadataError && <p role="alert">{metadataError}</p>}
+      </form>
+    </Dialog>
+    <Dialog isOpen={deleteOpen} onOpenChange={open => { if (!metadataBusy) setDeleteOpen(open); }} isDismissable={!metadataBusy} title={t("deleteAsset")} closeLabel={tc("close")}
+      footer={<><Button variant="secondary" isDisabled={metadataBusy} onPress={() => setDeleteOpen(false)}>{tc("cancel")}</Button><Button isPending={metadataBusy} onPress={() => void saveMetadata(true)}>{t("confirmDelete")}</Button></>}>
+      <p>{t("deleteAssetBody", { name: asset.name })}</p>
+      {metadataError && <p role="alert">{metadataError}</p>}
+    </Dialog>
   </aside>;
 }
