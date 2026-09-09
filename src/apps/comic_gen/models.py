@@ -32,6 +32,15 @@ class GenerationStatus(str, Enum):
     FAILED = "failed"
 
 
+class AudioMode(str, Enum):
+    """Unified video audio intent shared by UI, API, and providers."""
+
+    SILENT = "silent"
+    NATIVE = "native"
+    DRIVEN = "driven"
+    POST = "post"
+
+
 # === Storyboard Schema v2: Enums ===
 
 class ShotSizeEnum(str, Enum):
@@ -201,6 +210,10 @@ class VideoTask(BaseModel):
     resolution: str = Field("720p", description="Video resolution")
     generate_audio: bool = Field(False, description="Whether to generate audio")
     audio_url: Optional[str] = Field(None, description="URL of generated/uploaded audio")
+    audio_mode: Optional[AudioMode] = Field(
+        None,
+        description="Unified audio intent: silent, native, driven, or post",
+    )
     prompt_extend: bool = Field(True, description="Whether to use prompt extension")
     negative_prompt: Optional[str] = Field(None, description="Negative prompt")
     model: str = Field("wan2.7-i2v", description="Model used for generation")

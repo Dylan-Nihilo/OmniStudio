@@ -116,6 +116,8 @@ function StoryboardWorkbench() {
         const ls = typeof window !== 'undefined' ? window.localStorage : null;
         const savedI2v = ls?.getItem('storyboard-r2v-model') ?? null;
         const savedR2v = ls?.getItem('storyboard-r2v-r2v-model') ?? null;
+        const savedAudioMode = ls?.getItem('storyboard-r2v-audio-mode') ?? null;
+        const savedAudioUrl = ls?.getItem('storyboard-r2v-audio-url') ?? null;
         const projectI2v = currentProject?.model_settings?.i2v_model || DEFAULT_I2V_MODEL_ID;
 
         // I2V — defensive: a cached localStorage model id may have been
@@ -161,6 +163,10 @@ function StoryboardWorkbench() {
             model: i2vModelId,
             r2vModel: r2vModelId,
             duration: defaultDuration,
+            audioMode: savedAudioMode === "silent" || savedAudioMode === "native" || savedAudioMode === "driven" || savedAudioMode === "post"
+                ? savedAudioMode
+                : DEFAULT_VIDEO_CONFIG.audioMode,
+            audioUrl: savedAudioUrl || undefined,
         };
     });
 
@@ -976,7 +982,7 @@ function StoryboardWorkbench() {
                     undefined, // seed
                     videoConfig.resolution,
                     false, // generateAudio
-                    "", // audioUrl
+                    videoConfig.audioUrl ?? "", // audioUrl
                     videoConfig.promptExtend,
                     videoConfig.negativePrompt,
                     1, // batchSize
@@ -988,6 +994,10 @@ function StoryboardWorkbench() {
                     undefined, undefined, undefined, // kling params
                     undefined, undefined, // vidu params
                     imageBased ? referenceUrls : undefined, // referenceImageUrls
+                    undefined, // ratio
+                    undefined, // workbenchTab
+                    undefined, // watermark
+                    videoConfig.audioMode,
                 );
                 const task = Array.isArray(tasks) ? tasks[0] : tasks;
 
@@ -1049,7 +1059,7 @@ function StoryboardWorkbench() {
                     undefined, // seed
                     videoConfig.resolution,
                     false, // generateAudio
-                    "", // audioUrl
+                    videoConfig.audioUrl ?? "", // audioUrl
                     videoConfig.promptExtend,
                     videoConfig.negativePrompt,
                     1, // batchSize
@@ -1067,6 +1077,10 @@ function StoryboardWorkbench() {
                     videoConfig.movementAmplitude,
                     // HappyHorse
                     undefined,
+                    undefined, // ratio
+                    undefined, // workbenchTab
+                    undefined, // watermark
+                    videoConfig.audioMode,
                 );
                 const task = Array.isArray(tasks) ? tasks[0] : tasks;
 
@@ -1180,7 +1194,7 @@ function StoryboardWorkbench() {
                     const imageBased = isR2vImageBased(routeModelId);
                     const tasks = await api.createVideoTask(
                         currentProject.id,
-                        "",
+                        params?.audioUrl ?? videoConfig.audioUrl ?? "",
                         promptText,
                         params?.duration ?? videoConfig.duration,
                         params?.seed,
@@ -1201,6 +1215,7 @@ function StoryboardWorkbench() {
                         params?.ratio,
                         tabMode,
                         params?.watermark,
+                        params?.audioMode ?? videoConfig.audioMode,
                     );
                     const task = Array.isArray(tasks) ? tasks[0] : tasks;
                     return task?.id ?? null;
@@ -1221,7 +1236,7 @@ function StoryboardWorkbench() {
                     params?.seed,
                     params?.resolution ?? videoConfig.resolution,
                     false,
-                    "",
+                    params?.audioUrl ?? videoConfig.audioUrl ?? "",
                     params?.promptExtend ?? videoConfig.promptExtend,
                     params?.negativePrompt ?? videoConfig.negativePrompt,
                     1,
@@ -1239,6 +1254,7 @@ function StoryboardWorkbench() {
                     undefined,
                     tabMode,
                     params?.watermark,
+                    params?.audioMode ?? videoConfig.audioMode,
                 );
                 const task = Array.isArray(tasks) ? tasks[0] : tasks;
                 return task?.id ?? null;
@@ -1674,6 +1690,8 @@ function StoryboardWorkbench() {
             resolution: videoConfig.resolution,
             ratio: undefined,
             negativePrompt: videoConfig.negativePrompt,
+            audioMode: videoConfig.audioMode,
+            audioUrl: videoConfig.audioUrl,
             promptExtend: videoConfig.promptExtend,
             cfgScale: videoConfig.cfgScale,
             mode: videoConfig.mode,
@@ -1723,6 +1741,8 @@ function StoryboardWorkbench() {
                 duration: next.duration,
                 resolution: next.resolution ?? prev.resolution,
                 negativePrompt: next.negativePrompt ?? prev.negativePrompt,
+                audioMode: next.audioMode ?? prev.audioMode ?? "post",
+                audioUrl: next.audioUrl ?? prev.audioUrl,
                 promptExtend: next.promptExtend ?? prev.promptExtend,
                 cfgScale: next.cfgScale ?? prev.cfgScale,
                 mode: next.mode ?? prev.mode,
@@ -1740,6 +1760,9 @@ function StoryboardWorkbench() {
                 updated.model = next.model;
                 ls?.setItem("storyboard-r2v-model", next.model);
             }
+            if (updated.audioMode) ls?.setItem("storyboard-r2v-audio-mode", updated.audioMode);
+            if (updated.audioUrl) ls?.setItem("storyboard-r2v-audio-url", updated.audioUrl);
+            else ls?.removeItem("storyboard-r2v-audio-url");
             return updated;
         });
     }, [persistWorkbench, shotCounts, shots, videoConfig.duration, handleUpdateField]);

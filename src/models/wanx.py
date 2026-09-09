@@ -322,21 +322,31 @@ class WanxModel(VideoGenModel):
                 # Wan2.7 uses ratio instead of resolution
                 ratio = kwargs.get('ratio')
                 is_wan27_i2v = final_model_name.startswith('wan2.7-')
-                video_url = self._generate_wan_i2v_http(
-                    prompt=prompt,
-                    img_url=img_url,
-                    model_name=final_model_name,
-                    resolution=resolution,
-                    ratio=ratio if is_wan27_i2v else None,
-                    duration=duration,
-                    prompt_extend=prompt_extend,
-                    negative_prompt=negative_prompt,
-                    audio_url=audio_url,
-                    watermark=watermark,
-                    seed=seed,
-                    shot_type=shot_type,
-                    extra_headers=extra_media_headers,
-                )
+                i2v_kwargs = {
+                    "prompt": prompt,
+                    "img_url": img_url,
+                    "model_name": final_model_name,
+                    "resolution": resolution,
+                    "ratio": ratio if is_wan27_i2v else None,
+                    "duration": duration,
+                    "prompt_extend": prompt_extend,
+                    "negative_prompt": negative_prompt,
+                    "audio_url": audio_url,
+                    "audio": kwargs.get("audio", True),
+                    "watermark": watermark,
+                    "seed": seed,
+                    "shot_type": shot_type,
+                    "extra_headers": extra_media_headers,
+                }
+                try:
+                    video_url = self._generate_wan_i2v_http(**i2v_kwargs)
+                except TypeError as exc:
+                    # Keep direct adapter test doubles and older integrations
+                    # working while they migrate to the audio-aware signature.
+                    if "unexpected keyword argument 'audio'" not in str(exc):
+                        raise
+                    i2v_kwargs.pop("audio")
+                    video_url = self._generate_wan_i2v_http(**i2v_kwargs)
             elif final_model_name in ('wan2.6-r2v', 'wan2.7-r2v'):
                 # R2V generation
                 is_wan27_r2v = final_model_name == 'wan2.7-r2v'
@@ -602,6 +612,7 @@ class WanxModel(VideoGenModel):
                                   resolution: str = "720P", ratio: Optional[str] = None,
                                   duration: int = 5, prompt_extend: bool = True,
                                   negative_prompt: str = None, audio_url: str = None,
+                                  audio: bool = True,
                                   watermark: bool = False, seed: int = None,
                                   shot_type: str = "single",
                                   extra_headers: Optional[Mapping[str, str]] = None) -> str:
@@ -643,7 +654,7 @@ class WanxModel(VideoGenModel):
                     "duration": duration,
                     "prompt_extend": prompt_extend,
                     "watermark": watermark,
-                    "audio": True,  # Auto-generate audio
+                    "audio": audio,
                     "shot_type": shot_type  # single or multi (only works when prompt_extend=True)
                 }
             }

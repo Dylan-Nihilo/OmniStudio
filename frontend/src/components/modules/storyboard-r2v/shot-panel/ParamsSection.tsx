@@ -38,6 +38,8 @@ export interface ParamsState {
     ratio?: string;
     // Advanced
     negativePrompt?: string;
+    audioMode?: "silent" | "native" | "driven" | "post";
+    audioUrl?: string;
     seed?: number;
     promptExtend?: boolean;
     cfgScale?: number;
@@ -198,6 +200,29 @@ export default function ParamsSection({
                             options={modelParams.ratio.options}
                             value={params.ratio ?? modelParams.ratio.default}
                             onChange={(v) => set("ratio", v)}
+                        />
+                    </ParamRow>
+                ) : null}
+
+                <SelectField
+                        label={t("audioModeLabel")}
+                        value={params.audioMode ?? "post"}
+                        onChange={(value) => set("audioMode", String(value) as ParamsState["audioMode"])}
+                        options={[
+                            { id: "post", label: t("audioModePost") },
+                            { id: "native", label: t("audioModeNative") },
+                            { id: "driven", label: t("audioModeDriven") },
+                            { id: "silent", label: t("audioModeSilent") },
+                        ]}
+                    />
+                {params.audioMode === "driven" ? (
+                    <ParamRow label={t("audioDriverUrlLabel")}>
+                        <input
+                            type="url"
+                            value={params.audioUrl ?? ""}
+                            onChange={(event) => set("audioUrl", event.target.value)}
+                            placeholder={t("audioDriverUrlPlaceholder")}
+                            className="w-full rounded-lg border border-glass-border bg-surface-inset px-2.5 py-1.5 font-sans text-body-sm text-foreground placeholder:text-text-muted outline-none transition-colors duration-fast ease-out-quart focus:border-primary/55 focus-visible:ring-2 focus-visible:ring-primary/45"
                         />
                     </ParamRow>
                 ) : null}

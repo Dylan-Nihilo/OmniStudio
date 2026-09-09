@@ -15,6 +15,7 @@ from io import BytesIO
 import zipfile
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
+from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
 from .storyboard import StoryboardGenerator
@@ -2720,7 +2721,7 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None) -> Tuple[Script, str]:
+    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None) -> Tuple[Script, str]:
         """Creates a new video generation task."""
         script = self.get_script(script_id)
         if not script:
@@ -2728,6 +2729,17 @@ class ComicGenPipeline:
 
         if frame_id and not any(frame.id == frame_id for frame in script.frames):
             raise ValueError(f"Frame not found: {frame_id}")
+
+        # Validate the unified mode at task creation time so unsupported
+        # provider combinations return a clean 400 before queuing work.
+        resolve_video_audio_options(
+            model=model,
+            audio_mode=audio_mode,
+            audio_url=audio_url,
+            legacy_generate_audio=generate_audio,
+            legacy_sound=sound,
+            legacy_vidu_audio=vidu_audio,
+        )
         
         task_id = str(uuid.uuid4())
         
@@ -2836,6 +2848,7 @@ class ComicGenPipeline:
             resolution=resolution,
             generate_audio=generate_audio,
             audio_url=audio_url,
+            audio_mode=audio_mode,
             prompt_extend=prompt_extend,
             negative_prompt=negative_prompt,
             model=model,
@@ -4457,26 +4470,16 @@ class ComicGenPipeline:
             output_path = os.path.join("output", "video", output_filename)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Handle Audio Logic
-            # 1. Silent: audio_url=None, audio=False
-            # 2. AI Sound: audio_url=None, audio=True
-            # 3. Sound Driven: audio_url=URL (audio param ignored)
-            
-            final_audio_url = None
-            final_generate_audio = False
-            
-            if task.audio_url:
-                # Sound Driven Mode
-                final_audio_url = task.audio_url
-                final_generate_audio = False # API says audio param ignored if url present, but let's be explicit
-            elif task.generate_audio:
-                # AI Sound Mode
-                final_audio_url = None
-                final_generate_audio = True
-            else:
-                # Silent Mode
-                final_audio_url = None
-                final_generate_audio = False
+            audio_options = resolve_video_audio_options(
+                model=task.model,
+                audio_mode=getattr(task.audio_mode, "value", task.audio_mode),
+                audio_url=task.audio_url,
+                legacy_generate_audio=task.generate_audio,
+                legacy_sound=task.sound,
+                legacy_vidu_audio=task.vidu_audio,
+            )
+            final_audio_url = audio_options["audio_url"]
+            final_generate_audio = audio_options["audio"]
 
             # Ensure img_url is passed correctly for OSS
             img_url = task.image_url
@@ -4546,7 +4549,7 @@ class ComicGenPipeline:
                     negative_prompt=task.negative_prompt,
                     aspect_ratio="16:9",
                     mode=task.mode or "std",
-                    sound=task.sound or "off",
+                    sound=audio_options["sound"],
                     cfg_scale=task.cfg_scale,
                 )
             elif use_vendor_vidu:
@@ -4564,7 +4567,7 @@ class ComicGenPipeline:
                     resolution=task.resolution,
                     aspect_ratio="16:9",
                     seed=task.seed or 0,
-                    audio=task.vidu_audio if task.vidu_audio is not None else True,
+                    audio=audio_options["vidu_audio"],
                     movement_amplitude=task.movement_amplitude or "auto",
                 )
             else:
