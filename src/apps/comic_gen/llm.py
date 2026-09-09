@@ -8,6 +8,8 @@ import re
 from difflib import SequenceMatcher
 from typing import List, Dict, Any, Optional
 
+from ...utils.provider_errors import ProviderError, ProviderErrorCategory
+
 from .models import Script, Character, Scene, Prop, StoryboardFrame, GenerationStatus
 
 
@@ -418,7 +420,7 @@ class ScriptProcessor:
         
         if not self.is_configured:
              logger.error("LLM API key not configured.")
-             raise ValueError("LLM API Key 未配置。请在 API 配置中设置对应的 API Key 后重试。")
+             raise ProviderError(ProviderErrorCategory.AUTH, status_code=503, detail="LLM API Key 未配置。请在 API 配置中设置对应的 API Key 后重试。")
 
         prompt = self._construct_prompt(text, custom_extraction_prompt)
 

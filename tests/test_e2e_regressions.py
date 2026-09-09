@@ -82,6 +82,20 @@ def test_project_writes_return_inherited_assets_without_copying_them_into_episod
     assert stored.characters == [] and stored.props == []
 
 
+@pytest.mark.parametrize("operation", ["extract_preview", "reparse"])
+def test_missing_llm_config_reports_service_failure_and_keeps_project(api_client, operation):
+    assert api_client.post("/config/env", json={"DASHSCOPE_API_KEY": "", "LLM_API_KEY": ""}).status_code == 200
+    project = _create_project(api_client, "Missing model config")
+    route = f"/projects/{project['id']}"
+    before = api_client.get(route).json()
+    method = api_client.put if operation == "reparse" else api_client.post
+    response = method(route + "/" + operation, json={"text": "夜班员打开信封。"})
+    assert response.status_code == 503, response.text
+    assert "API Key" in response.json()["detail"]
+    assert api_client.get(route).json() == before
+    assert method("/projects/missing/" + operation, json={"text": "正文"}).status_code == 404
+
+
 def test_native_media_query_selects_workspace_and_still_enforces_membership(api_client):
     workspace = api_client.post("/auth/workspaces", json={"name": "Native media"}).json()["id"]
     uploaded = api_client.post("/upload", headers={"X-Workspace-ID": workspace}, files={"file": ("take.mp4", b"test-video-bytes", "video/mp4")})

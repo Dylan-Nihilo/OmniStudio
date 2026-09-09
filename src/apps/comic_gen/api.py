@@ -1668,6 +1668,8 @@ async def reparse_project(script_id: str, request: ReparseProjectRequest):
             )
         )
         return signed_response(result)
+    except ProviderError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -1689,6 +1691,8 @@ async def extract_preview(script_id: str, request: ReparseProjectRequest):
             "scenes": [s.dict() for s in result.scenes],
             "props": [p.dict() for p in result.props],
         }
+    except ProviderError:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

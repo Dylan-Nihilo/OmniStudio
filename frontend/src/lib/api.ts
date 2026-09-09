@@ -866,7 +866,8 @@ export const api = {
 
     createProject: async (title: string, text: string, skipAnalysis: boolean = false, workflowMode: string = "r2v", seriesId?: string) => {
         const res = await apiClient.post(`${API_URL}/projects`, { title, text, workflow_mode: workflowMode, series_id: seriesId }, {
-            params: { skip_analysis: skipAnalysis }
+            params: { skip_analysis: skipAnalysis },
+            timeout: skipAnalysis ? 30_000 : 120_000,
         });
         return { ...res.data, originalText: res.data.original_text };
     },
@@ -959,12 +960,12 @@ export const api = {
         const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, {
             text,
             ...(selectedEntityIds ? { selected_entity_ids: selectedEntityIds } : {}),
-        });
+        }, { timeout: 120_000 });
         return { ...res.data, originalText: res.data.original_text };
     },
 
     extractPreview: async (scriptId: string, text: string) => {
-        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text });
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text }, { timeout: 120_000 });
         return res.data as { characters: any[]; scenes: any[]; props: any[] };
     },
 
