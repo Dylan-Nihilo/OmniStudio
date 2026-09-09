@@ -1480,6 +1480,7 @@
     "noVideosHint": "返回 Motion 步骤为此帧生成视频。",
     "mergeAndProceed": "合并并继续",
     "mergeFailed": "合并失败",
+    "retainedIntermediate": "失败中间结果已保留，可直接重试；诊断路径：",
     "dismiss": "关闭",
     "selected": "已选择",
     "clearSelection": "清除 Take 选择",

@@ -46,6 +46,13 @@ interface MergeProgress {
     progress: number;
 }
 
+interface MergeFailure {
+    stage?: string;
+    message?: string;
+    intermediate_dir?: string | null;
+    merge_list_path?: string | null;
+}
+
 interface MergePrecheckItem {
     frame_id?: string;
     expected?: string;
@@ -520,6 +527,7 @@ export default function VideoAssembly() {
                             isMerging={isMerging}
                             isDownloading={isDownloading}
                             mergeError={mergeError}
+                            mergeFailure={(currentProject as any)?.merge_failure as MergeFailure | null | undefined}
                             framesReady={framesReady}
                             framesTotal={framesTotal}
                             exportSettings={exportSettings}
@@ -783,6 +791,7 @@ export function ExportPhase({
     isMerging,
     isDownloading,
     mergeError,
+    mergeFailure,
     framesReady,
     framesTotal,
     exportSettings,
@@ -799,6 +808,7 @@ export function ExportPhase({
     isMerging: boolean;
     isDownloading: boolean;
     mergeError: string | null;
+    mergeFailure?: MergeFailure | null;
     framesReady: number;
     framesTotal: number;
     exportSettings: ExportSettings;
@@ -1025,6 +1035,13 @@ export function ExportPhase({
                                 <a href="https://ffmpeg.org/download.html" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300 underline mt-2 inline-block">
                                     Download FFmpeg →
                                 </a>
+                            )}
+                            {mergeFailure && (mergeFailure.intermediate_dir || mergeFailure.merge_list_path) && (
+                                <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-100/85">
+                                    <p className="font-medium">{ta("retainedIntermediate")}</p>
+                                    {mergeFailure.intermediate_dir && <p className="mt-1 break-all font-mono">{mergeFailure.intermediate_dir}</p>}
+                                    {mergeFailure.merge_list_path && <p className="mt-1 break-all font-mono">{mergeFailure.merge_list_path}</p>}
+                                </div>
                             )}
                             <button onClick={onDismissError} className="mt-3 text-xs text-text-secondary hover:text-foreground underline">
                                 {ta("dismiss")}

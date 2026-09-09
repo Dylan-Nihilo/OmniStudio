@@ -30,3 +30,12 @@ it('offers an explicit retry action after a merge failure', () => {
   fireEvent.click(screen.getByRole('button', { name: 'retryMerge' }));
   expect(onMerge).toHaveBeenCalledTimes(1);
 });
+
+it('shows retained intermediate export context after a failed merge', () => {
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError="ffmpeg failed" mergeFailure={{ stage: 'transcoding', intermediate_dir: 'tmp/export-1' }} framesReady={1} framesTotal={1}
+    exportSettings={{}} precheckReport={null} mergeProgress={null} mergeVerification={null}
+    onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()} />);
+
+  expect(screen.getByText('retainedIntermediate')).toBeInTheDocument();
+  expect(screen.getByText('tmp/export-1')).toBeInTheDocument();
+});

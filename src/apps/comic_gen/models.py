@@ -637,6 +637,10 @@ class Script(BaseModel):
     merged_video_url: Optional[str] = Field(None, description="URL of the merged final video")
     merge_verification: Optional[Dict[str, Any]] = None
     merge_progress: Optional[Dict[str, Any]] = None
+    merge_failure: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Structured export failure context, including retained intermediate paths for retry diagnostics",
+    )
 
     # Final FFmpeg output settings.  ``None`` (or an omitted key) keeps the
     # merge pipeline's existing defaults.

@@ -3805,11 +3805,26 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
 
+        script.merge_failure = None
         self._set_merge_progress(script, "preparing", "准备导出", 0.05)
         try:
             return self._merge_videos_impl(script_id, script)
         except Exception as err:
+            progress = dict(script.merge_progress or {})
+            failure = dict(script.merge_failure or {})
+            failure.update(
+                {
+                    "stage": progress.get("stage", "failed"),
+                    "message": str(err),
+                    "failed_at": time.time(),
+                }
+            )
+            script.merge_failure = failure
             self._set_merge_progress(script, "failed", str(err), 0)
+            try:
+                self._save_data()
+            except Exception:
+                logger.exception("[MERGE] Could not persist export failure context")
             raise
 
     def _merge_videos_impl(self, script_id: str, script: Script) -> Script:
@@ -3881,6 +3896,11 @@ class ComicGenPipeline:
         # Create file list for ffmpeg
         # script.id comes from the store (== script_id), keeping ffmpeg args taint-free.
         list_path = _safe_resolve_path("output", f"merge_list_{script.id}.txt")
+        script.merge_failure = {
+            "stage": "collecting",
+            "merge_list_path": list_path,
+            "intermediate_dir": None,
+        }
         abs_video_paths = []
 
         for index, path in enumerate(video_paths):
@@ -3912,6 +3932,8 @@ class ComicGenPipeline:
         import tempfile
         import shutil
         normalization_dir = tempfile.mkdtemp(prefix=f"omni_studio_merge_{script.id}_")
+        script.merge_failure["intermediate_dir"] = normalization_dir
+        self._save_data()
         normalized_paths = []
         try:
             for index, source_path in enumerate(abs_video_paths):
@@ -3972,7 +3994,7 @@ class ComicGenPipeline:
                 for path in abs_video_paths:
                     merge_list.write(f"file '{path}'\n")
         except Exception:
-            shutil.rmtree(normalization_dir, ignore_errors=True)
+            logger.exception("[MERGE] Normalization failed; retaining intermediate directory %s", normalization_dir)
             raise
 
         self._set_merge_progress(script, "normalizing", "统一音轨", 0.3)
@@ -4110,6 +4132,7 @@ class ComicGenPipeline:
                 )
 
             self._set_merge_progress(script, "done", "导出完成", 1.0)
+            script.merge_failure = None
             self._save_data()
 
             # Cleanup list file

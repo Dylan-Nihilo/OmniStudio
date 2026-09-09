@@ -1480,6 +1480,7 @@
     "noVideosHint": "Go back to the Motion step to generate videos for this frame.",
     "mergeAndProceed": "Merge & Proceed",
     "mergeFailed": "Merge Failed",
+    "retainedIntermediate": "Intermediate export results were retained for retry; diagnostic paths:",
     "dismiss": "Dismiss",
     "selected": "Selected",
     "clearSelection": "Clear take selection",
