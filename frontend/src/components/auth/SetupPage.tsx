@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
+import { AlertCircle, ArrowUpRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuthStore } from "@/store/authStore";
-import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
-import AuthThemeMenu from "./AuthThemeMenu";
+import { Button, PasswordField, TextField } from "@omnistudio/ui";
+import AuthLayout from "./AuthLayout";
 import LegacyClaimPanel from "./LegacyClaimPanel";
+import authStyles from "./LoginPage.module.css";
+import styles from "./SetupPage.module.css";
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error !== "object" || error === null) return fallback;
@@ -29,6 +31,7 @@ export default function SetupPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
     if (password !== confirmPassword) {
       setError(t("errorPasswordsDoNotMatch"));
@@ -49,70 +52,43 @@ export default function SetupPage() {
     return <LegacyClaimPanel />;
   }
 
+  const tokenField = (
+    <TextField className={authStyles.field} label={t("setupToken")} description={t("setupTokenHint")} name="setup_token" type="password" value={setupToken} onChange={setSetupToken} autoComplete="off" isRequired={setupStatus?.setup_token_required} isDisabled={submitting} />
+  );
+
   return (
-    <main className="auth-surface auth-setup-surface">
-      <div className="auth-storyboard" />
-      <AuthThemeMenu />
-      <div className="auth-shell auth-setup-shell">
-        <div className="auth-brand"><OmniStudioBranding size="lg" variant="auth" /></div>
-        <section className="auth-panel auth-setup-panel">
-          <div className="mb-7 flex items-start gap-3">
-            <div className="rounded-xl border border-primary/30 bg-primary/10 p-2.5 text-primary"><ShieldCheck size={22} /></div>
-            <div>
-              <h1 className="font-display text-2xl font-semibold tracking-tight">{t("setupTitle")}</h1>
-              <p className="mt-1.5 text-sm leading-6 text-text-secondary">{t("setupSubtitle")}</p>
-            </div>
+    <AuthLayout title={t("setupTitle")} subtitle={t("setupSubtitle")} titleId="setup-title">
+      {setupStatus && !setupStatus.setup_allowed ? (
+        <p role="status" className={styles.notice}>{t("setupNotAllowed")}</p>
+      ) : (
+        <form className={styles.form} onSubmit={handleSubmit} aria-busy={submitting}>
+          <TextField className={authStyles.field} label={t("username")} name="username" value={username} onChange={setUsername} autoComplete="username" isRequired maxLength={128} isDisabled={submitting} autoFocus />
+          <TextField className={authStyles.field} label={t("email")} name="email" type="email" value={email} onChange={setEmail} autoComplete="email" isRequired isDisabled={submitting} />
+          <div className={styles.passwords}>
+            <PasswordField className={authStyles.field} label={t("password")} description={t("passwordRequirements")} name="password" value={password} onChange={setPassword} autoComplete="new-password" isRequired minLength={8} maxLength={128} isDisabled={submitting} showPasswordLabel={t("showPassword")} hidePasswordLabel={t("hidePassword")} />
+            <PasswordField className={authStyles.field} label={t("confirmPassword")} name="confirm_password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" isRequired minLength={8} maxLength={128} isDisabled={submitting} showPasswordLabel={t("showPassword")} hidePasswordLabel={t("hidePassword")} />
           </div>
 
-          {setupStatus && !setupStatus.setup_allowed ? (
-            <div className="rounded-xl border border-status-processing-border bg-status-processing-bg p-4 text-sm leading-6 text-status-processing-fg">
-              {t("setupNotAllowed")}
-            </div>
-          ) : (
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium">{t("username")}</span>
-                <input className="auth-input" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required maxLength={128} autoFocus />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium">{t("email")}</span>
-                <input className="auth-input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
-              </label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium">{t("password")}</span>
-                  <input className="auth-input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required minLength={8} maxLength={128} />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium">{t("confirmPassword")}</span>
-                  <input className="auth-input" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required minLength={8} maxLength={128} />
-                </label>
-              </div>
-              <p className="-mt-1 text-xs text-text-muted">{t("passwordRequirements")}</p>
-              <label className="block">
-                <span className="mb-1.5 flex items-center justify-between gap-3 text-sm font-medium">
-                  <span>{t("setupToken")}</span>
-                  <span className="text-xs font-normal text-text-muted">{t("optional")}</span>
-                </span>
-                <input className="auth-input font-mono" type="password" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} autoComplete="off" />
-                <span className="mt-1.5 block text-xs leading-5 text-text-muted">{t("setupTokenHint")}</span>
-              </label>
-
-              {error && (
-                <div role="alert" className="flex items-start gap-2 rounded-lg border border-status-failed-border bg-status-failed-bg px-3 py-2.5 text-sm text-status-failed-fg">
-                  <AlertCircle className="mt-0.5 shrink-0" size={15} />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <button type="submit" disabled={submitting} className="auth-submit">
-                {submitting && <Loader2 className="animate-spin" size={16} />}
-                {submitting ? t("settingUp") : t("setupAction")}
-              </button>
-            </form>
+          {setupStatus?.setup_token_required ? tokenField : (
+            <details className={styles.token}>
+              <summary>{t("setupToken")} <span>{t("optional")}</span></summary>
+              {tokenField}
+            </details>
           )}
-        </section>
-      </div>
-    </main>
+
+          {error && (
+            <div role="alert" className={authStyles.error}>
+              <AlertCircle size={17} aria-hidden="true" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <Button type="submit" isPending={submitting} fullWidth className={authStyles.submit}>
+            <span>{submitting ? t("settingUp") : t("setupAction")}</span>
+            {!submitting && <ArrowUpRight size={21} aria-hidden="true" />}
+          </Button>
+        </form>
+      )}
+    </AuthLayout>
   );
 }

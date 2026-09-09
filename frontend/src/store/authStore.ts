@@ -216,13 +216,14 @@ export const useAuthStore = create<AuthStore>()(
           setup_token: input.setup_token?.trim() || undefined,
         };
         const { data } = await apiClient.post<AuthResponse>(`${AUTH_API_URL}/auth/setup`, payload);
+        const claimPending = await discoverLegacyClaim();
         set((state) => ({
           initialized: true,
           setupStatus: authenticatedStatus(state.setupStatus),
           user: data.user,
           activeWorkspace: data.workspace,
           workspaces: [data.workspace],
-          legacyClaimPending: true,
+          legacyClaimPending: claimPending,
           legacyClaimAcknowledged: false,
         }));
         rememberActiveWorkspace(data.workspace);

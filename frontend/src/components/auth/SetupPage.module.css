@@ -1,0 +1,54 @@
+.form {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.passwords {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.token {
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.token summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.token summary span {
+  float: right;
+  font-size: 11px;
+}
+
+.token summary:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.token[open] {
+  padding-bottom: 4px;
+}
+
+.notice {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--color-status-processing-bg);
+  color: var(--color-status-processing-fg);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+@media (max-width: 599px) {
+  .passwords { grid-template-columns: minmax(0, 1fr); }
+  .form { margin-top: 20px; gap: 12px; }
+}
