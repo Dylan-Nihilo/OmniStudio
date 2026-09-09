@@ -749,7 +749,11 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             if not request.url.path.startswith("/auth/"):
                 context = service.resolve_workspace(
                     context,
-                    request.headers.get("x-workspace-id"),
+                    request.headers.get("x-workspace-id") or (
+                        request.query_params.get("workspace_id")
+                        if request.method in {"GET", "HEAD"} and request.url.path.startswith("/files/")
+                        else None
+                    ),
                 )
             request.state.auth_context = context
             role_token = current_workspace_role.set(

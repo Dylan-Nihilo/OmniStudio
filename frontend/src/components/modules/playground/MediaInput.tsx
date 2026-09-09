@@ -93,7 +93,7 @@ function isVideoPath(path: string): boolean {
 // root-relative (/files/...) URLs pass through untouched. The raw path is still kept
 // in store state + the generate payload — only the <img>/<video> src is resolved.
 function resolveMediaSrc(path: string): string {
-  if (/^(https?:|blob:|data:|\/)/i.test(path)) return path;
+  if (/^(blob:|data:)/i.test(path)) return path;
   return getAssetUrl(path.replace(/^output\//, ''));
 }
 

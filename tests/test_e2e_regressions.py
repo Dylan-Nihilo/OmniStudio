@@ -82,6 +82,22 @@ def test_project_writes_return_inherited_assets_without_copying_them_into_episod
     assert stored.characters == [] and stored.props == []
 
 
+def test_native_media_query_selects_workspace_and_still_enforces_membership(api_client):
+    workspace = api_client.post("/auth/workspaces", json={"name": "Native media"}).json()["id"]
+    uploaded = api_client.post("/upload", headers={"X-Workspace-ID": workspace}, files={"file": ("take.mp4", b"test-video-bytes", "video/mp4")})
+    assert uploaded.status_code == 200, uploaded.text
+    path = "/files/" + uploaded.json()["url"]
+    assert api_client.get(path).status_code == 404
+    native = api_client.get(path, params={"workspace_id": workspace}, headers={"Range": "bytes=0-3"})
+    assert native.status_code == 206, native.text
+    assert native.content == b"test"
+    assert api_client.get(path, params={"workspace_id": "unknown-workspace"}).status_code == 404
+    # Query scope is accepted only for media; business routes still use the header.
+    assert api_client.get("/projects", params={"workspace_id": workspace}).status_code == 200
+    api_client.post("/auth/logout")
+    assert api_client.get(path, params={"workspace_id": workspace}).status_code == 401
+
+
 @pytest.mark.parametrize("restart", [False, True])
 def test_task_center_retry_executes_saved_asset_inputs_once_and_keeps_failure_history(api_client, restart):
     project = _create_project(api_client, "Retry cast")
