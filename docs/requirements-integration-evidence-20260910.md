@@ -18,7 +18,20 @@
 - 真实可写浏览器验收：登录、旧数据承接、视觉手册保存/刷新/模板/Markdown 下载、Source 导入预览、章节 revision/恢复、章节关联两个 Episode 后解绑、章节分析历史、影响事件确认、Script API 持久化通过。
 - 真实 Task Center 浏览器验收：使用 acceptance Workspace 登录，读取跨项目任务列表、状态筛选/分页空态、打开失败任务详情和状态事件历史；点击重试后服务端返回幂等 `409` 并在 UI 显示可恢复错误，不产生重复 provider 调用；另以真实 pending 生产任务验证取消确认、状态变为“已取消”和关联项目跳转。证据截图：`.artifacts/acceptance/task-center-real.png`、`.artifacts/acceptance/task-detail-real.png`、`.artifacts/acceptance/task-retry-real.png`、`.artifacts/acceptance/task-cancel-object-jump-real.png`。
 - 本轮浏览器复验：登录、Workspace/Source/Tasks/Playground/Projects 路由、视觉手册保存/刷新/模板/下载、Source 可写导入预览/修订恢复/章节级 Episode 关联与解绑/分析历史/影响确认均通过；证据脚本为 `docs/agents/tools/acceptance_browser_check.py` 和 `docs/agents/tools/live_writable_source_acceptance.py`，输出见 `.artifacts/acceptance/live-source/`。
-- Cast 工作台已补齐素材多选、质检就绪统计以及系列素材批量锁定/解锁；前端集成测试覆盖选择两项并断言批量 API 请求，真实浏览器批量点击仍纳入下一轮权限/媒体矩阵。
+- Cast 工作台已补齐素材多选、质检就绪统计以及系列素材批量锁定/解锁；前端集成测试覆盖选择两项并断言批量 API 请求。使用 acceptance 账号真实浏览器进入专用 `workflow_mode=r2v` 项目后，检测到 `11` 个素材复选框、`4/11` 质检就绪，勾选两项后选择计数与批量锁定/解锁控件均出现；截图见 `.artifacts/acceptance/cast-browser/cast-workbench.png`。
+
+## PR #64 复核纠偏
+
+本轮对照 `github/main` 与当前分支代码后，确认旧版缺口分析中以下条目已经在 PR #64 及其父提交中落地，不能继续按“未实现”统计：
+
+- `SRC-00/04/05/09`：Source CRUD、章节级 Episode 关系、revision 恢复和目标级影响确认。
+- `STYLE-03/04/05/06`、`DIR-01/02/03/04/05`：系列继承、视觉手册、AI 风格推荐预览/确认、Director Plan 继承/来源链/确认。
+- `CAST-07/08/10/13`：类型化候选、批量质检与锁定、生成预览费用提示、当前候选和工作台操作。
+- `SHOT-09/10/14`、`VIDEO-10/11`：连续性账本、生成前 readiness、显式 Take 门控和下载 manifest。
+- `ASM-01/02/03/04/05/07/08/09/10/12`：显式 Take 预检、非破坏性裁切/分段编辑、真实 FFmpeg 混音/转场/编码、磁盘预检与失败上下文。
+- `TASK-08/09/10/11/12/13`：生产入口 Job/JobItem、Playground 纳入统一任务账本、恢复派发、取消/重试和 retry lineage。
+
+这些条目均有后端/前端自动化覆盖，且本轮全量门禁通过；仍需补的是 owner/editor/viewer、跨 Workspace 媒体、真实外部 Provider 以及登录过期等环境矩阵，不应把 fixture 或本地 deterministic provider 误报成线上 Provider 验收。
 
 真实可写 Source 证据：`.artifacts/acceptance/live-source/run.json`、`.artifacts/acceptance/live-source/source-final.png`。
 
