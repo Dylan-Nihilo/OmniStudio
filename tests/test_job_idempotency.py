@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.storage.db import create_engine, init_schema
 from src.storage.job_repository import JobRepository
-from src.storage.schema import JobItem, Workspace
+from src.storage.schema import JobItem, JobItemEvent, Workspace
 
 
 def test_recovery_resumes_recoverable_items_and_fails_unknown_kind():
@@ -33,8 +33,16 @@ def test_recovery_resumes_recoverable_items_and_fails_unknown_kind():
     assert report == {"resumed": 1, "failed": 1}
     with engine.connect() as connection:
         states = dict(connection.execute(select(JobItem.id, JobItem.status)).all())
+        events = list(
+            connection.execute(
+                select(JobItemEvent.item_id, JobItemEvent.to_status)
+                .where(JobItemEvent.item_id == recoverable.id)
+                .order_by(JobItemEvent.created_at, JobItemEvent.id)
+            ).all()
+        )
     assert states[recoverable.id] == "processing"
     assert states[unknown.id] == "failed"
+    assert events[-1].to_status == "recovered"
     engine.dispose()
 
 

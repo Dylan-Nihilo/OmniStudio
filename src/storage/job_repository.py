@@ -538,6 +538,25 @@ class JobRepository:
             for row in rows:
                 if row["kind"] in recoverable:
                     resumed += 1
+                    # Keep the item in ``processing`` so the provider adapter
+                    # can replay it, but make the restart boundary visible in
+                    # the durable lifecycle history.
+                    connection.execute(
+                        JobItemEvent.__table__.insert().values(
+                            id=str(uuid.uuid4()),
+                            item_id=row["id"],
+                            from_status=JobStatus.PROCESSING.value,
+                            to_status="recovered",
+                            progress=row["progress"],
+                            error_code=None,
+                            created_at=now,
+                        )
+                    )
+                    connection.execute(
+                        update(Job.__table__)
+                        .where(Job.__table__.c.id == row["job_id"])
+                        .values(updated_at=now)
+                    )
                     continue
                 failed += 1
                 connection.execute(
