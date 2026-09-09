@@ -1566,11 +1566,18 @@ export const api = {
         shot_size?: string;
         camera_movement_description?: string;
         transition_hint?: string;
+        in_point?: number;
+        out_point?: number;
     }) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/update`, {
             frame_id: frameId,
             ...data
         });
+        return res.data;
+    },
+
+    splitAssemblyFrame: async (scriptId: string, frameId: string, splitPoint: number) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/split`, { split_point: splitPoint });
         return res.data;
     },
 

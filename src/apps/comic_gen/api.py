@@ -5392,6 +5392,8 @@ class UpdateFrameRequest(BaseModel):
     shot_size: Optional[str] = None
     camera_movement_description: Optional[str] = None
     transition_hint: Optional[str] = None
+    in_point: Optional[float] = Field(None, ge=0)
+    out_point: Optional[float] = Field(None, gt=0)
 
 @app.post("/projects/{script_id}/frames/update", response_model=Script)
 def update_frame(script_id: str, request: UpdateFrameRequest):
@@ -5411,6 +5413,8 @@ def update_frame(script_id: str, request: UpdateFrameRequest):
             shot_size=request.shot_size,
             camera_movement_description=request.camera_movement_description,
             transition_hint=request.transition_hint,
+            in_point=request.in_point,
+            out_point=request.out_point,
         )
         return signed_response(updated_script)
     except ValueError as e:
@@ -5423,6 +5427,18 @@ class AddFrameRequest(BaseModel):
     action_description: str = ""
     camera_angle: str = "medium_shot"
     insert_at: Optional[int] = None
+
+class SplitAssemblyFrameRequest(BaseModel):
+    split_point: float = Field(..., gt=0)
+
+@app.post("/projects/{script_id}/frames/{frame_id}/split", response_model=Script)
+def split_assembly_frame(script_id: str, frame_id: str, request: SplitAssemblyFrameRequest):
+    try:
+        return signed_response(pipeline.split_assembly_frame(script_id, frame_id, request.split_point))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @app.post("/projects/{script_id}/frames", response_model=Script)
 def add_frame(script_id: str, request: AddFrameRequest):

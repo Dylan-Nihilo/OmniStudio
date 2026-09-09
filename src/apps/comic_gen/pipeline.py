@@ -2307,6 +2307,16 @@ class ComicGenPipeline:
             frame.character_ids = kwargs['character_ids']
         if kwargs.get('duration') is not None:
             frame.duration = kwargs['duration']
+        if 'in_point' in kwargs and kwargs.get('in_point') is not None:
+            frame.in_point = max(0.0, float(kwargs['in_point']))
+        if 'out_point' in kwargs and kwargs.get('out_point') is not None:
+            frame.out_point = float(kwargs['out_point'])
+        if frame.in_point is not None and frame.out_point is not None:
+            if frame.out_point <= frame.in_point:
+                raise ValueError("out_point must be greater than in_point")
+            selected_task = next((task for task in (script.video_tasks or []) if task.id == frame.selected_video_id), None)
+            if selected_task and selected_task.duration and frame.out_point > float(selected_task.duration):
+                raise ValueError("out_point exceeds the selected video's duration")
         if kwargs.get('shot_size') is not None:
             frame.shot_size = kwargs['shot_size']
         if kwargs.get('camera_movement_description') is not None:
@@ -2347,6 +2357,33 @@ class ComicGenPipeline:
             )
             frames = list(script.frames)
             frames.insert(len(frames) if insert_at is None else insert_at, new_frame)
+            self._save_fields(script, frames=frames)
+            return script
+
+    def split_assembly_frame(self, script_id: str, frame_id: str, split_point: float) -> Script:
+        """Split one selected take into two ordered edit-list segments."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            index = next((i for i, frame in enumerate(script.frames) if frame.id == frame_id), None)
+            if index is None:
+                raise LookupError(f"Frame {frame_id} not found")
+            frame = script.frames[index]
+            task = next((item for item in (script.video_tasks or []) if item.id == frame.selected_video_id), None)
+            start = float(frame.in_point or 0)
+            end = float(frame.out_point or (task.duration if task else 0))
+            point = float(split_point)
+            if not start < point < end:
+                raise ValueError("split_point must be inside the selected segment")
+            second = frame.model_copy(deep=True)
+            second.id = f"frame_{uuid.uuid4().hex[:8]}"
+            frame.in_point = start
+            frame.out_point = point
+            second.in_point = point
+            second.out_point = end
+            frames = list(script.frames)
+            frames.insert(index + 1, second)
             self._save_fields(script, frames=frames)
             return script
 
@@ -3865,6 +3902,21 @@ class ComicGenPipeline:
         normalized_paths = []
         try:
             for index, source_path in enumerate(abs_video_paths):
+                frame = selected_frames[index]
+                trim_start = getattr(frame, "in_point", None)
+                trim_end = getattr(frame, "out_point", None)
+                if trim_start is not None or trim_end is not None:
+                    trimmed_path = os.path.join(normalization_dir, f"trimmed_{index + 1:03d}.mp4")
+                    trim_cmd = [ffmpeg_path, "-y"]
+                    if trim_start is not None:
+                        trim_cmd.extend(["-ss", str(trim_start)])
+                    trim_cmd.extend(["-i", source_path])
+                    if trim_end is not None:
+                        duration = float(trim_end) - float(trim_start or 0)
+                        trim_cmd.extend(["-t", str(duration)])
+                    trim_cmd.extend(["-c", "copy", trimmed_path])
+                    subprocess.run(trim_cmd, check=True, capture_output=True, timeout=120)
+                    source_path = trimmed_path
                 probe = subprocess.run(
                     [
                         ffmpeg_path, "-v", "error", "-i", source_path,

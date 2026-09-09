@@ -1,10 +1,10 @@
 "use client";
 
-import { SelectField } from "@omnistudio/ui";
+import { Button, SelectField, TextField } from "@omnistudio/ui";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw } from "lucide-react";
+import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw, Scissors, Trash2 } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
@@ -179,6 +179,42 @@ export default function VideoAssembly() {
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to clear video selection:", error);
+        }
+    };
+
+    const handleSaveTrim = async (frame: any, selectedVideo: any) => {
+        if (!currentProject || !selectedVideo) return;
+        try {
+            const updated = await api.updateFrame(currentProject.id, frame.id, {
+                in_point: Number(frame.in_point ?? 0),
+                out_point: Number(frame.out_point ?? selectedVideo.duration),
+            });
+            updateProject(currentProject.id, updated);
+            toast.success(ta("trimSaved"));
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("trimSaveFailed")));
+        }
+    };
+
+    const handleSplit = async (frame: any, selectedVideo: any) => {
+        if (!currentProject || !selectedVideo) return;
+        const start = Number(frame.in_point ?? 0);
+        const end = Number(frame.out_point ?? selectedVideo.duration);
+        try {
+            const updated = await api.splitAssemblyFrame(currentProject.id, frame.id, start + (end - start) / 2);
+            updateProject(currentProject.id, updated);
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("splitFailed")));
+        }
+    };
+
+    const handleDeleteSegment = async (frameId: string) => {
+        if (!currentProject) return;
+        try {
+            const updated = await api.deleteFrame(currentProject.id, frameId);
+            updateProject(currentProject.id, updated);
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("deleteSegmentFailed")));
         }
     };
 
@@ -435,6 +471,13 @@ export default function VideoAssembly() {
                                                     <p className="text-xs text-text-secondary italic">"{frame.dialogue}"</p>
                                                 </div>
                                             )}
+                                            {selectedVideo && <div className="flex items-end gap-2" onClick={event => event.stopPropagation()}>
+                                                <TextField label={ta("trimIn")} type="number" value={String(frame.in_point ?? 0)} onChange={value => { frame.in_point = Number(value); updateProject(currentProject.id, { ...currentProject }); }} />
+                                                <TextField label={ta("trimOut")} type="number" value={String(frame.out_point ?? selectedVideo.duration)} onChange={value => { frame.out_point = Number(value); updateProject(currentProject.id, { ...currentProject }); }} />
+                                                <Button variant="secondary" onPress={() => void handleSaveTrim(frame, selectedVideo)}>{ta("saveTrim")}</Button>
+                                                <Button variant="quiet" aria-label={ta("splitSegment")} onPress={() => void handleSplit(frame, selectedVideo)}><Scissors size={14} />{ta("splitSegment")}</Button>
+                                                <Button variant="quiet" aria-label={ta("deleteSegment")} onPress={() => void handleDeleteSegment(frame.id)}><Trash2 size={14} /></Button>
+                                            </div>}
                                         </div>
 
                                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-border-subtle">

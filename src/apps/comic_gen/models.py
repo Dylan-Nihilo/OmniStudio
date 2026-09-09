@@ -412,6 +412,8 @@ class StoryboardFrame(BaseModel):
 
     # === Storyboard Schema v2: Rich frame fields ===
     duration: Optional[int] = Field(None, description="建议时长（秒）")
+    in_point: Optional[float] = Field(None, ge=0, description="Assembly trim in point in seconds")
+    out_point: Optional[float] = Field(None, gt=0, description="Assembly trim out point in seconds")
     visual_description: Optional[str] = Field(None, description="画面描述：环境氛围 + 角色表演 + 物理动作的综合自然语言描述")
     dialogue_structured: Optional[DialogueStructured] = Field(None, description="结构化对白（speaker + line + emotion + delivery）")
     camera_movement_structured: Optional[CameraMovementData] = Field(None, description="结构化运镜（primary + secondary + speed + description）")
