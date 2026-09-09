@@ -143,7 +143,7 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, taskBad
       <aside className={styles.rail} data-tauri-drag-region data-app-sidebar>
         {isTauri() && <div className="tauri-titlebar-inset" />}
         <button type="button" onClick={() => handleNav("workspace", "#/workspace")} aria-label={t("workspaceAria")} className={styles.brand}>
-          <Image src={brandMark} alt="" width={24} height={24} /><span>Omni Studio</span>
+          <Image src={brandMark} alt="" width={24} height={24} priority style={{ width: "auto" }} /><span>Omni Studio</span>
         </button>
         <div className={styles.navigationBody}><nav className={styles.railNav} aria-label={t("mainNavAria")}>
           <WorkspaceNavigation active={activeTab === "workspace"} section={workspaceSection} />
