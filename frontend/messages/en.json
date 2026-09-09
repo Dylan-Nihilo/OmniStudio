@@ -1266,7 +1266,17 @@
     "toastOverridePreviewingBody": "Changes not saved yet — click 'Apply' to commit.",
     "toastResetDone": "Reverted to series-inherited style",
     "toastResetFailed": "Failed to revert to series",
-    "styleLabel": "Style"
+    "styleLabel": "Style",
+    "visualHandbook": "Visual handbook",
+    "visualHandbookHint": "Maintain palette, camera, lighting, and material rules in Markdown.",
+    "visualHandbookPlaceholder": "# Visual handbook\n\n## Palette\n...",
+    "importMarkdown": "Import Markdown",
+    "exportMarkdown": "Export Markdown",
+    "saveHandbook": "Save handbook",
+    "handbookSaved": "Visual handbook saved",
+    "handbookSaveFailed": "Could not save visual handbook",
+    "saveHandbookTemplate": "Save as template",
+    "handbookTemplateName": "Template name"
   },
   "script": {
     "scriptEditor": "Script Editor",

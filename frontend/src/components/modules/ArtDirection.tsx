@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Palette, Wand2, Plus, Check, ChevronRight, Lock, RotateCcw, ArrowUp, AlertTriangle, X, Image as ImageIcon, Pencil } from "lucide-react";
+import { Sparkles, Palette, Wand2, Plus, Check, ChevronRight, Lock, RotateCcw, ArrowUp, AlertTriangle, X, Image as ImageIcon, Pencil, BookOpen, Download, Upload } from "lucide-react";
 import { useProjectStore, type StyleConfig, type StylePreset, type StylePresetCategory } from "@/store/projectStore";
 import { api } from "@/lib/api";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
@@ -27,6 +27,9 @@ export default function ArtDirection() {
     const [presets, setPresets] = useState<StylePreset[]>([]);
     const [categories, setCategories] = useState<StylePresetCategory[]>([]);
     const [activeCategory, setActiveCategory] = useState<string>("all");
+    const [handbook, setHandbook] = useState("");
+    const [handbookTemplates, setHandbookTemplates] = useState<Array<{ id: string; name: string; markdown: string }>>([]);
+    const [handbookBusy, setHandbookBusy] = useState(false);
 
     // Modal state
     const [modalPreset, setModalPreset] = useState<StylePreset | null>(null);
@@ -42,6 +45,48 @@ export default function ArtDirection() {
 
     // Track if current selection is modified from original preset
     const [isModified, setIsModified] = useState(false);
+
+    useEffect(() => {
+        if (!currentProject?.id) return;
+        Promise.all([api.getVisualHandbook(currentProject.id), api.listVisualHandbookTemplates()])
+            .then(([result, templates]) => {
+                setHandbook(result?.markdown || "");
+                setHandbookTemplates(templates?.templates || []);
+            })
+            .catch(() => undefined);
+    }, [currentProject?.id]);
+
+    const saveHandbook = async () => {
+        if (!currentProject || !handbook.trim()) return;
+        setHandbookBusy(true);
+        try {
+            const updated = await api.importVisualHandbook(currentProject.id, handbook);
+            updateProject(currentProject.id, updated);
+            toast.success(ta("handbookSaved"));
+        } catch {
+            toast.error(ta("handbookSaveFailed"));
+        } finally {
+            setHandbookBusy(false);
+        }
+    };
+
+    const exportHandbook = () => {
+        const blob = new Blob([handbook], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${currentProject?.title || "visual-handbook"}.md`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const saveHandbookTemplate = async () => {
+        if (!currentProject || !handbook.trim()) return;
+        const name = window.prompt(ta("handbookTemplateName"), currentProject.title);
+        if (!name?.trim()) return;
+        const item = await api.saveVisualHandbookTemplate(currentProject.id, name.trim(), handbook);
+        setHandbookTemplates(current => [...current, item]);
+    };
 
     // Editor state (kept for Apply logic)
     const [editingName, setEditingName] = useState("");
@@ -400,6 +445,19 @@ export default function ArtDirection() {
             {/* Scrollable content — full width */}
             <div className="flex-1 min-h-0 overflow-y-auto p-8 space-y-8 bg-surface">
                 {currentProject && <DirectorPlanEditor projectId={currentProject.id} />}
+                {currentProject && <section className="space-y-3 border-y border-glass-border py-5" aria-labelledby="visual-handbook-title">
+                    <div className="flex items-center justify-between gap-4">
+                        <div><h2 id="visual-handbook-title" className="flex items-center gap-2 text-base font-semibold"><BookOpen size={17} />{ta("visualHandbook")}</h2><p className="mt-1 text-xs text-text-secondary">{ta("visualHandbookHint")}</p></div>
+                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-primary"><Upload size={15} />{ta("importMarkdown")}<input className="sr-only" type="file" accept=".md,.markdown,text/markdown,text/plain" onChange={event => { const file = event.target.files?.[0]; if (file) void file.text().then(setHandbook); }} /></label>
+                    </div>
+                    <textarea aria-label={ta("visualHandbook")} className="min-h-48 w-full resize-y rounded-md border border-glass-border bg-input-bg p-3 font-mono text-sm leading-relaxed text-foreground" value={handbook} onChange={event => setHandbook(event.target.value)} placeholder={ta("visualHandbookPlaceholder")} />
+                    <div className="flex flex-wrap items-center gap-2">
+                        <WorkflowActionButton loading={handbookBusy} onClick={() => void saveHandbook()}>{ta("saveHandbook")}</WorkflowActionButton>
+                        <WorkflowActionButton variant="secondary" onClick={exportHandbook} disabled={!handbook}><Download />{ta("exportMarkdown")}</WorkflowActionButton>
+                        <WorkflowActionButton variant="ghost" onClick={() => void saveHandbookTemplate()} disabled={!handbook}>{ta("saveHandbookTemplate")}</WorkflowActionButton>
+                        {handbookTemplates.map(template => <button key={template.id} type="button" className="rounded border border-glass-border px-2 py-1 text-xs text-text-secondary hover:text-foreground" onClick={() => setHandbook(template.markdown)}>{template.name}</button>)}
+                    </div>
+                </section>}
                 {/* Series inherit/override banners */}
                 {inSeries && !seriesBaselineLoading && (
                     <>

@@ -1266,7 +1266,17 @@
     "toastOverridePreviewingBody": "改动尚未保存，点底部「应用并继续」生效。",
     "toastResetDone": "已恢复继承系列风格",
     "toastResetFailed": "恢复继承失败",
-    "styleLabel": "画风"
+    "styleLabel": "画风",
+    "visualHandbook": "视觉手册",
+    "visualHandbookHint": "用 Markdown 维护色板、镜头、光影和材质规则。",
+    "visualHandbookPlaceholder": "# 视觉手册\n\n## 色板\n...",
+    "importMarkdown": "导入 Markdown",
+    "exportMarkdown": "导出 Markdown",
+    "saveHandbook": "保存手册",
+    "handbookSaved": "视觉手册已保存",
+    "handbookSaveFailed": "视觉手册保存失败",
+    "saveHandbookTemplate": "存为模板",
+    "handbookTemplateName": "模板名称"
   },
   "script": {
     "scriptEditor": "剧本编辑器",
