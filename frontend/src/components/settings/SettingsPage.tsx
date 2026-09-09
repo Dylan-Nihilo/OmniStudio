@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
+import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
 import {
@@ -14,6 +15,7 @@ import {
   type FrontendModelSettings,
 } from "@/lib/modelCatalog";
 import { useSettingsStore, type Locale, type ThemePreset } from "@/store/settingsStore";
+import { useAuthStore } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
 import { Button, IconButton, LoadingState, SelectField, Tabs, TextAreaField, TextField } from "@omnistudio/ui";
 import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
@@ -174,11 +176,23 @@ interface SystemReport {
   status?: string;
 }
 
-export default function SettingsPage({ initialCategory = "general", onProviderConfigSaved, onSavingChange }: {
+type SettingsPageProps = {
   initialCategory?: SettingsCategory;
   onProviderConfigSaved?: () => void;
   onSavingChange?: (saving: boolean) => void;
-} = {}) {
+};
+
+export default function SettingsPage(props: SettingsPageProps = {}) {
+  const userId = useAuthStore(state => state.user?.id);
+  const workspace = useAuthStore(state => state.activeWorkspace);
+  const bootstrapping = useAuthStore(state => state.bootstrapping);
+  const canManageConfig = !bootstrapping && Boolean(userId) && workspace?.role === "owner";
+  // Remount all drafts and pending requests at the workspace/permission boundary.
+  return <SettingsPageContent key={JSON.stringify([userId, workspace?.id, canManageConfig])}
+    {...props} canManageConfig={canManageConfig} />;
+}
+
+function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
   const { locale, theme, animations, setLocale, setTheme, setAnimations } = useSettingsStore();
 
@@ -193,7 +207,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<"ownerConfigOnly" | "loadConfigFailed" | null>(null);
   const [saved, setSaved] = useState(false);
   const clearFeedback = () => { setSaveError(null); setSaved(false); };
 
@@ -223,6 +237,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
 
   const loadConfig = useCallback(async () => {
+    if (!canManageConfig) return;
     const request = ++configRequest.current;
     setLoading(true);
     setLoadError(null);
@@ -232,12 +247,14 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
       const loaded = normalizeEnvConfig(DEFAULT_CONFIG, data);
       savedConfigRef.current = loaded;
       setConfig(loaded);
-    } catch {
-      if (mounted.current && request === configRequest.current) setLoadError(t("loadConfigFailed"));
+    } catch (error) {
+      if (mounted.current && request === configRequest.current) {
+        setLoadError(axios.isAxiosError(error) && error.response?.status === 403 ? "ownerConfigOnly" : "loadConfigFailed");
+      }
     } finally {
       if (mounted.current && request === configRequest.current) setLoading(false);
     }
-  }, []);
+  }, [canManageConfig]);
 
   useEffect(() => {
     mounted.current = true;
@@ -304,6 +321,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
   }, []);
 
   const loadSystem = useCallback(async () => {
+    if (!canManageConfig) return;
     setSystemLoading(true);
     try {
       const r = await api.checkSystem();
@@ -318,7 +336,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
     } finally {
       if (mounted.current) setSystemLoading(false);
     }
-  }, []);
+  }, [canManageConfig]);
 
   // Self-healing lazy load: auto-run the system check when the About tab
   // becomes active and we don't yet have a successful result. Driven off a
@@ -334,7 +352,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
   }, [active, systemChecked, systemLoading, loadSystem]);
 
   const saveEnvScope = async (scope: 'apikeys' | 'storage') => {
-    if (saving || loading || loadError || !online) return;
+    if (!canManageConfig || saving || loading || loadError || !online) return;
     clearFeedback();
     if (scope === 'apikeys') {
       const errors = getValidationErrors(config);
@@ -437,7 +455,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
   useEffect(() => stopLogin, [stopLogin]);
 
   const startLogin = async () => {
-    if (loginPending || !online || saving) return;
+    if (!canManageConfig || loginPending || !online || saving) return;
     stopLogin();
     const run = loginRun.current;
     setLoginPending(true);
@@ -529,7 +547,8 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
     </FormRow>)}
   </Section>;
 
-  const configGuard = loading ? <LoadingState label={t("loadingConfig")} className="py-12" /> : loadError ? <div role="alert" className="flex flex-wrap items-center gap-4 py-8 text-sm text-status-failed-fg">{loadError}<Button variant="secondary" onPress={loadConfig}>{t("retryLoad")}</Button></div> : null;
+  const ownerNotice = <p role="status" className="py-8 text-sm text-text-secondary">{t("ownerConfigOnly")}</p>;
+  const configGuard = !canManageConfig ? ownerNotice : loading ? <LoadingState label={t("loadingConfig")} className="py-12" /> : loadError ? <div role="alert" className="flex flex-wrap items-center gap-4 py-8 text-sm text-status-failed-fg">{t(loadError)}<Button variant="secondary" onPress={loadConfig}>{t("retryLoad")}</Button></div> : null;
   const vendorOptions = [{id:"dashscope", label:"DashScope"}, {id:"vendor", label:t("vendorDirect")}];
   const renderApiKeys = () => <Section id="apikeys" title={t("secApiTitle")} desc={t("secApiDesc")}>
     {configGuard || <>
@@ -612,10 +631,10 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
     <FormRow label={t("aboutBackendApi")}><span className="break-all font-mono text-sm">{API_URL}</span></FormRow>
     <FormRow label={t("aboutDataDir")}>{pathField(t("aboutDataDir"), dataDir)}</FormRow>
     <FormRow label={t("aboutLogDir")}>{pathField(t("aboutLogDir"), logDir)}</FormRow>
-    <FormRow label="FFmpeg"><div className="flex flex-wrap items-center justify-between gap-3">
+    <FormRow label="FFmpeg">{!canManageConfig ? ownerNotice : <div className="flex flex-wrap items-center justify-between gap-3">
       <p role="status" className="text-sm text-text-secondary">{systemLoading ? t("ffmpegChecking") : system?.ffmpeg ? system.ffmpeg.available ? t("ffmpegAvailable") : t("ffmpegMissing") : t("ffmpegUnknown")}</p>
       <Button variant="secondary" onPress={loadSystem} isPending={systemLoading}><RefreshCw size={16} />{t("recheck")}</Button>
-    </div></FormRow>
+    </div>}</FormRow>
   </Section>;
 
   const tabs: { id: SettingsCategory; label: string }[] = [
@@ -624,7 +643,7 @@ export default function SettingsPage({ initialCategory = "general", onProviderCo
   ];
   const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), about:t("eyebrowAbout")};
   const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, about:renderAbout};
-  const saveAction = active === "models" ? handleSaveModelDefaults : active === "prompts" ? handleSavePromptDefaults : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
+  const saveAction = active === "models" ? handleSaveModelDefaults : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
   const remoteConfig = active === "apikeys" || active === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };
   return <div className="relative flex h-full min-w-0 flex-col bg-background text-foreground">
