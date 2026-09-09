@@ -1,8 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { ExportPhase } from './VideoAssembly';
+import { ExportPhase, countReadyFrames } from './VideoAssembly';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+
+it('counts only explicitly selected completed takes with a video URL', () => {
+  const frames = [
+    { id: 'ready', selected_video_id: 'task-ready' },
+    { id: 'failed', selected_video_id: 'task-failed' },
+    { id: 'missing', selected_video_id: 'task-missing' },
+    { id: 'unselected', selected_video_id: null },
+  ];
+  const tasks = [
+    { id: 'task-ready', status: 'completed', video_url: '/ready.mp4' },
+    { id: 'task-failed', status: 'failed', video_url: '/failed.mp4' },
+    { id: 'task-missing', status: 'completed', video_url: null },
+  ];
+
+  expect(countReadyFrames(frames, tasks)).toBe(1);
+});
 
 it('saves numeric export values and clears optional resolution and fps through the component picker', async () => {
   const save = vi.fn().mockResolvedValue(undefined);

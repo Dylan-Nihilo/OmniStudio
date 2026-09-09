@@ -91,6 +91,22 @@ interface MergeVerification {
     errors?: string[];
 }
 
+/** Count frames whose persisted Take selection still resolves to a usable task.
+ *
+ * A stale or failed selected_video_id must not make Assembly look ready. The
+ * backend applies the same explicit-selection rule during preflight/merge;
+ * keeping the badge aligned prevents a misleading enabled export state.
+ */
+export function countReadyFrames(frames: any[] | undefined, videoTasks: any[] | undefined): number {
+    const completedTaskIds = new Set(
+        (videoTasks ?? [])
+            .filter((task) => task?.status === "completed" && Boolean(task?.video_url))
+            .map((task) => task.id)
+            .filter(Boolean),
+    );
+    return (frames ?? []).filter((frame) => Boolean(frame?.selected_video_id) && completedTaskIds.has(frame.selected_video_id)).length;
+}
+
 const EXPORT_SETTINGS_DEFAULTS: ExportSettingsDraft = {
     resolution: "",
     fps: "",
@@ -355,7 +371,7 @@ export default function VideoAssembly() {
 
     const variants = selectedFrameId ? videosByFrame[selectedFrameId] || [] : [];
 
-    const framesReady = currentProject?.frames?.filter((f: any) => f.selected_video_id).length ?? 0;
+    const framesReady = countReadyFrames(currentProject?.frames as any[] | undefined, currentProject?.video_tasks as any[] | undefined);
     const framesTotal = currentProject?.frames?.length ?? 0;
 
     return (
