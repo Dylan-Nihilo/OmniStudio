@@ -3002,7 +3002,14 @@ class ComicGenPipeline:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
             if result.returncode != 0:
                 raise RuntimeError(f"FFmpeg error: {result.stderr}")
         except subprocess.TimeoutExpired:
