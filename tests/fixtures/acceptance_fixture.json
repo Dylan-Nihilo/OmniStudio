@@ -20,5 +20,44 @@
   "characters": [
     {"id": "character-01", "project_id": "project-acceptance", "name": "林夏"},
     {"id": "character-02", "project_id": "project-acceptance", "name": "周野"}
+  ],
+  "media": [
+    {
+      "id": "media-image-01",
+      "kind": "image",
+      "path": "frontend/public/e2e/acceptance-media/acceptance-image.svg",
+      "url": "/e2e/acceptance-media/acceptance-image.svg",
+      "mime_type": "image/svg+xml"
+    },
+    {
+      "id": "media-video-01",
+      "kind": "video",
+      "path": "frontend/public/e2e/acceptance-media/acceptance-video.mp4",
+      "url": "/e2e/acceptance-media/acceptance-video.mp4",
+      "mime_type": "video/mp4"
+    },
+    {
+      "id": "media-audio-01",
+      "kind": "audio",
+      "path": "frontend/public/e2e/acceptance-media/acceptance-audio.wav",
+      "url": "/e2e/acceptance-media/acceptance-audio.wav",
+      "mime_type": "audio/wav"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "job-succeeded-01",
+      "kind": "storyboard_render",
+      "status": "succeeded",
+      "project_id": "project-acceptance"
+    },
+    {
+      "id": "job-failed-01",
+      "kind": "video_generation",
+      "status": "failed",
+      "project_id": "project-acceptance",
+      "error_code": "FAKE_PROVIDER_FAILURE",
+      "error_message": "Deterministic acceptance failure"
+    }
   ]
 }
