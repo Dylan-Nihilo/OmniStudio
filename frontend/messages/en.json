@@ -35,7 +35,11 @@
     "new": "New",
     "actionMerge": "Merge into series",
     "actionCreateNew": "Create as new in series",
-    "actionSkip": "Keep local-only"
+    "actionSkip": "Keep local-only",
+    "differences": "Differences",
+    "difference_name": "Name",
+    "difference_description": "Description",
+    "emptyValue": "Empty"
   },
   "voiceClone": {
     "title": "Clone new voice",

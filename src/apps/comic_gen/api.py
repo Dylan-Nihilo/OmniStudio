@@ -2861,7 +2861,7 @@ def reconcile_suggestions(script_id: str):
     Returned shape:
     {
       "characters": [
-        { local_id, local_name, suggested_series_id|null, suggested_series_name|null, confidence }
+      { local_id, local_name, suggested_series_id|null, suggested_series_name|null, confidence, differences }
       ],
       "scenes": [...],
       "props": [...],
@@ -2891,12 +2891,25 @@ def reconcile_suggestions(script_id: str):
         result = []
         for local in local_pool:
             sid, sname, conf = best_match(local.name, series_pool)
+            matched = next((item for item in series_pool if getattr(item, "id", None) == sid), None)
+            differences = []
+            if matched is not None:
+                for field in ("name", "description"):
+                    local_value = str(getattr(local, field, "") or "")
+                    series_value = str(getattr(matched, field, "") or "")
+                    if local_value != series_value:
+                        differences.append({
+                            "field": field,
+                            "local_value": local_value,
+                            "series_value": series_value,
+                        })
             result.append({
                 "local_id": local.id,
                 "local_name": local.name,
                 "suggested_series_id": sid if conf > 0 else None,
                 "suggested_series_name": sname if conf > 0 else None,
                 "confidence": conf,
+                "differences": differences,
             })
         return result
 

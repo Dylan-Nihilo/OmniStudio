@@ -518,6 +518,13 @@ export interface ReconcileSuggestion {
     suggested_series_id: string | null;
     suggested_series_name: string | null;
     confidence: number;
+    differences?: ReconcileDifference[];
+}
+
+export interface ReconcileDifference {
+    field: "name" | "description";
+    local_value: string;
+    series_value: string;
 }
 
 export interface BgmPreset {

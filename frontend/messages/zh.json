@@ -35,7 +35,11 @@
     "new": "新角色",
     "actionMerge": "合并到系列",
     "actionCreateNew": "作为新角色加入系列",
-    "actionSkip": "本集本地保留"
+    "actionSkip": "本集本地保留",
+    "differences": "差异",
+    "difference_name": "名称",
+    "difference_description": "描述",
+    "emptyValue": "未填写"
   },
   "voiceClone": {
     "title": "复刻新音色",
