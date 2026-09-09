@@ -11,6 +11,8 @@ import subprocess
 import threading
 import platform
 import copy
+from io import BytesIO
+import zipfile
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
 from .llm import ScriptProcessor
@@ -38,6 +40,79 @@ logger = get_logger(__name__)
 
 class GenerationInProgressError(Exception):
     """A frame already has an active generation for this media type."""
+
+
+def _video_status_value(task: Any) -> str:
+    status = getattr(task, "status", "")
+    return getattr(status, "value", status)
+
+
+def _resolve_explicit_video_take(script: Any, frame: Any) -> Tuple[Optional[Any], Optional[str], str]:
+    """Resolve only the take explicitly selected on a frame.
+
+    ``selected_video_id`` is the persisted selection contract used by both
+    Storyboard and Assembly.  Deliberately do not inspect other completed
+    tasks: an unselected candidate must never silently enter an export.
+    """
+    selected_id = getattr(frame, "selected_video_id", None)
+    if not selected_id:
+        return None, None, "No explicit video take selected for this frame"
+    task = next((candidate for candidate in (getattr(script, "video_tasks", None) or [])
+                 if getattr(candidate, "id", None) == selected_id), None)
+    if task is None or getattr(task, "project_id", script.id) != script.id or getattr(task, "frame_id", None) != getattr(frame, "id", None):
+        return None, None, f"Selected video {selected_id} is unavailable and no completed fallback video exists"
+    if _video_status_value(task) != "completed" or not getattr(task, "video_url", None):
+        return None, None, f"Selected video {selected_id} is unavailable and no completed fallback video exists"
+    # A dubbed clip is an explicit transformation of the selected take, so it
+    # is safe to use only after the source take has passed the checks above.
+    dubbed_url = getattr(frame, "dubbed_video_url", None)
+    return task, dubbed_url or task.video_url, ""
+
+
+def build_video_download_archive(script: Any, task_ids: Optional[List[str]] = None) -> Tuple[bytes, Dict[str, Any]]:
+    """Build a deterministic zip of completed video takes and a Shot/Take manifest."""
+    wanted = set(task_ids or [])
+    frames = list(getattr(script, "frames", None) or [])
+    frame_indexes = {getattr(frame, "id", ""): index + 1 for index, frame in enumerate(frames)}
+    frame_take_counts: Dict[str, int] = {}
+    selected_tasks = []
+    for task in (getattr(script, "video_tasks", None) or []):
+        task_id = getattr(task, "id", None)
+        if wanted and task_id not in wanted:
+            continue
+        if _video_status_value(task) != "completed" or not getattr(task, "video_url", None):
+            continue
+        if getattr(task, "project_id", script.id) != script.id or getattr(task, "frame_id", None) not in frame_indexes:
+            continue
+        selected_tasks.append(task)
+    if not selected_tasks:
+        raise ValueError("No completed video takes matched the requested selection")
+
+    manifest_files: List[Dict[str, Any]] = []
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+        for task in sorted(selected_tasks, key=lambda item: (frame_indexes[item.frame_id], getattr(item, "created_at", 0), item.id)):
+            frame_id = task.frame_id
+            frame_take_counts[frame_id] = frame_take_counts.get(frame_id, 0) + 1
+            source_url = str(task.video_url)
+            source_path = _safe_resolve_path("output", source_url)
+            if not os.path.isfile(source_path):
+                raise ValueError(f"Video file not found for take {task.id}")
+            filename = os.path.basename(source_url) or f"{task.id}.mp4"
+            archive_path = f"shots/shot-{frame_indexes[frame_id]:03d}_{frame_id}/take-{frame_take_counts[frame_id]:03d}_{filename}"
+            zipped.write(source_path, archive_path)
+            manifest_files.append({
+                "shot_id": frame_id,
+                "shot_index": frame_indexes[frame_id],
+                "take_id": task.id,
+                "take_index": frame_take_counts[frame_id],
+                "filename": filename,
+                "archive_path": archive_path,
+                "video_url": source_url,
+            })
+        manifest = {"version": 1, "script_id": script.id, "files": manifest_files}
+        zipped.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    return archive.getvalue(), manifest
 
 
 def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
@@ -206,13 +281,160 @@ def _resolve_export_settings(export_settings: Optional[Dict[str, Any]]) -> Dict[
             "Invalid export setting 'audio_bitrate': expected a bitrate such as 128k"
         )
 
+    subtitles = settings.get("subtitles", "none")
+    if subtitles is None:
+        subtitles = "none"
+    if not isinstance(subtitles, str) or subtitles not in {"none", "soft"}:
+        raise ValueError("Invalid export setting 'subtitles': expected 'none' or 'soft'")
+
     return {
         "resolution": resolution,
         "fps": fps,
         "crf": crf,
         "preset": preset,
         "audio_bitrate": audio_bitrate,
+        "subtitles": subtitles,
     }
+
+
+def _format_srt_timestamp(seconds: float) -> str:
+    milliseconds = max(0, int(round(seconds * 1000)))
+    hours, remainder = divmod(milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d},{millis:03d}"
+
+
+def _write_soft_subtitles(script: Script, path: str) -> bool:
+    """Write deterministic SRT captions from frame dialogue and durations."""
+    elapsed = 0.0
+    entries: List[str] = []
+    for frame in script.frames:
+        structured = getattr(frame, "dialogue_structured", None)
+        text = (getattr(structured, "line", None) if structured else None) or getattr(frame, "dialogue", None) or ""
+        duration = getattr(frame, "duration", None) or 0.5
+        try:
+            duration = max(0.1, float(duration))
+        except (TypeError, ValueError):
+            duration = 0.5
+        start, end = elapsed, elapsed + duration
+        elapsed = end
+        if text.strip():
+            entries.append(f"{len(entries) + 1}\n{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}\n{text.strip()}\n")
+    if not entries:
+        return False
+    with open(path, "w", encoding="utf-8", newline="\n") as subtitles:
+        subtitles.write("\n".join(entries) + "\n")
+    return True
+
+
+_CUT_TRANSITION_HINTS = {"", "cut", "straight_cut", "straight-cut", "none"}
+_TRANSITION_FILTERS = {
+    "fade": "fade",
+    "dissolve": "fade",
+    "crossfade": "fade",
+    "match_cut": "fade",
+    "match-cut": "fade",
+    "fadeblack": "fadeblack",
+    "fade_black": "fadeblack",
+    "fadewhite": "fadewhite",
+    "fade_white": "fadewhite",
+    "wipeleft": "wipeleft",
+    "wiperight": "wiperight",
+    "wipeup": "wipeup",
+    "wipedown": "wipedown",
+}
+
+
+def _transition_filter_name(value: Any) -> Optional[str]:
+    normalized = str(value or "").strip().lower().replace(" ", "_")
+    if normalized in _CUT_TRANSITION_HINTS:
+        return None
+    return _TRANSITION_FILTERS.get(normalized, "fade")
+
+
+def _frame_duration_seconds(frame: Any) -> float:
+    try:
+        duration = float(getattr(frame, "duration", None) or 5.0)
+    except (TypeError, ValueError):
+        duration = 5.0
+    return max(0.5, duration)
+
+
+def _build_transition_merge_command(
+    ffmpeg_path: str,
+    video_paths: List[str],
+    frames: List[Any],
+    output_path: str,
+    export_settings: Dict[str, Any],
+) -> List[str]:
+    """Build an FFmpeg filter graph for cut and cross-faded shot transitions."""
+    if len(video_paths) < 2 or len(video_paths) != len(frames):
+        raise ValueError("Transition merge requires one frame for each input video")
+
+    resolution = export_settings["resolution"]
+    fps = export_settings["fps"] or 30
+    common_video = [f"fps={fps}"]
+    if resolution:
+        width, height = resolution.split("x")
+        common_video.append(f"scale={width}:{height}:force_original_aspect_ratio=decrease")
+        common_video.append(f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
+    common_video.extend(["format=yuv420p"])
+
+    filters: List[str] = []
+    for index in range(len(video_paths)):
+        filters.append(
+            f"[{index}:v]settb=AVTB,{','.join(common_video)}[v{index}]"
+        )
+        filters.append(f"[{index}:a]aresample=async=1:first_pts=0[a{index}]")
+
+    current_video = "v0"
+    current_audio = "a0"
+    current_duration = _frame_duration_seconds(frames[0])
+    for index in range(1, len(video_paths)):
+        transition = _transition_filter_name(getattr(frames[index - 1], "transition_hint", None))
+        next_duration = _frame_duration_seconds(frames[index])
+        if transition is None:
+            next_video = f"vc{index}"
+            next_audio = f"ac{index}"
+            filters.append(
+                f"[{current_video}][v{index}]concat=n=2:v=1:a=0[{next_video}]"
+            )
+            filters.append(
+                f"[{current_audio}][a{index}]concat=n=2:v=0:a=1[{next_audio}]"
+            )
+            current_duration += next_duration
+        else:
+            overlap = min(0.35, current_duration * 0.25, next_duration * 0.25)
+            overlap = max(0.05, overlap)
+            next_video = f"vx{index}"
+            next_audio = f"ax{index}"
+            offset = max(0.0, current_duration - overlap)
+            filters.append(
+                f"[{current_video}][v{index}]xfade=transition={transition}:duration={overlap:.3f}:offset={offset:.3f}[{next_video}]"
+            )
+            filters.append(
+                f"[{current_audio}][a{index}]acrossfade=d={overlap:.3f}:c1=tri:c2=tri[{next_audio}]"
+            )
+            current_duration += next_duration - overlap
+        current_video, current_audio = next_video, next_audio
+
+    command: List[str] = [ffmpeg_path, "-y"]
+    for path in video_paths:
+        command.extend(["-i", path])
+    command.extend([
+        "-filter_complex", ";".join(filters),
+        "-map", f"[{current_video}]",
+        "-map", f"[{current_audio}]",
+        "-c:v", "libx264",
+        "-crf", str(export_settings["crf"]),
+        "-preset", export_settings["preset"],
+        "-c:a", "aac",
+        "-b:a", export_settings["audio_bitrate"],
+        "-movflags", "+faststart",
+        output_path,
+    ])
+    return command
 
 
 class LibraryAssetInUseError(Exception):
@@ -244,7 +466,10 @@ class ComicGenPipeline:
         self.storyboard_generator = StoryboardGenerator(self.config.get('storyboard'))
         self.video_generator = VideoGenerator(self.config.get('video'))
         self.audio_generator = AudioGenerator(self.config.get('audio'))
-        self.export_manager = ExportManager(self.config.get('export'))
+        self.export_manager = ExportManager(
+            self.config.get('export'),
+            render_callback=self._render_legacy_export,
+        )
         
         storage_config = self.config.get("storage") or {}
         self.data_file = storage_config.get("legacy_projects_path") or "output/projects.json"
@@ -632,6 +857,26 @@ class ComicGenPipeline:
             
         export_url = self.export_manager.render_project(script, options)
         return export_url
+
+    def _render_legacy_export(self, script: Script, options: Dict[str, Any]) -> str:
+        """Adapt legacy resolution aliases to the durable FFmpeg merge path."""
+        resolution_aliases = {
+            "1080p": "1920x1080",
+            "720p": "1280x720",
+            "360p": "640x360",
+        }
+        settings = dict(getattr(script, "export_settings", None) or {})
+        requested_resolution = options.get("resolution")
+        if requested_resolution:
+            settings["resolution"] = resolution_aliases.get(
+                str(requested_resolution).lower(), requested_resolution
+            )
+        if "subtitles" in options:
+            settings["subtitles"] = options["subtitles"]
+        script.export_settings = settings
+        self._save_data()
+        merged = self.merge_videos(script.id)
+        return merged.merged_video_url
 
     def get_script(self, script_id: str) -> Optional[Script]:
         return self.scripts.get(script_id)
@@ -2901,6 +3146,23 @@ class ComicGenPipeline:
             self._save_data()
             return script
 
+    def clear_video_selection(self, script_id: str, frame_id: str) -> Script:
+        """Clear the explicit take so Assembly must be re-confirmed."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise ValueError("Script not found")
+            frame = next((f for f in script.frames if f.id == frame_id), None)
+            if not frame:
+                raise ValueError("Frame not found")
+            frame.selected_video_id = None
+            frame.video_url = None
+            frame.is_video_pinned = False
+            if hasattr(frame, "final_take_id"):
+                frame.final_take_id = None
+            self._save_data()
+            return script
+
     def _resolve_media_path(self, url: str, suffix: str = "") -> Optional[str]:
         """Resolve a media URL to a local file path.
 
@@ -3331,56 +3593,10 @@ class ComicGenPipeline:
 
         candidate_files: List[Tuple[Any, str, str]] = []
         for frame in script.frames:
-            candidate_url: Optional[str] = None
-
-            if frame.dubbed_video_url:
-                try:
-                    dubbed_path = _safe_resolve_path("output", frame.dubbed_video_url)
-                except ValueError as exc:
-                    error = f"Frame {frame.id}: {exc}"
-                    report["errors"].append(error)
-                    fatal_errors.append(error)
-                    continue
-                if os.path.isfile(dubbed_path):
-                    candidate_url = frame.dubbed_video_url
-
-            if not candidate_url and frame.selected_video_id:
-                selected_video = next(
-                    (
-                        video
-                        for video in script.video_tasks
-                        if video.id == frame.selected_video_id
-                        and video.status == "completed"
-                        and video.video_url
-                    ),
-                    None,
-                )
-                if selected_video:
-                    candidate_url = selected_video.video_url
-
+            _, candidate_url, selection_error = _resolve_explicit_video_take(script, frame)
             if not candidate_url:
-                default_video = next(
-                    (
-                        video
-                        for video in script.video_tasks
-                        if video.frame_id == frame.id
-                        and video.status == "completed"
-                        and video.video_url
-                    ),
-                    None,
-                )
-                if default_video:
-                    candidate_url = default_video.video_url
-
-            if not candidate_url:
-                reason = "No completed video task with a video URL is available"
-                if frame.selected_video_id:
-                    reason = (
-                        f"Selected video {frame.selected_video_id} is unavailable and "
-                        "no completed fallback video exists"
-                    )
                 report["no_video_available"].append(
-                    {"frame_id": frame.id, "reason": reason}
+                    {"frame_id": frame.id, "reason": selection_error}
                 )
                 continue
 
@@ -3569,35 +3785,24 @@ class ComicGenPipeline:
             
         # Collect video paths
         video_paths = []
+        selected_frames = []
+        selection_errors = []
         for i, frame in enumerate(script.frames):
             logger.info(f"[MERGE] Processing frame {i+1}/{len(script.frames)}: {frame.id}")
-
-            # Prefer dubbed version (TTS audio already overlaid with lip-sync offset)
-            if frame.dubbed_video_url:
-                dubbed_path = _safe_resolve_path("output", frame.dubbed_video_url)
-                if os.path.exists(dubbed_path):
-                    logger.debug(f"[MERGE]   -> Using dubbed video: {frame.dubbed_video_url}")
-                    video_paths.append(frame.dubbed_video_url)
-                    continue
-                else:
-                    logger.warning(f"[MERGE]   -> Dubbed video file missing: {dubbed_path}, falling back")
-
-            if not frame.selected_video_id:
-                # Try to find a default completed video
-                default_video = next((v for v in script.video_tasks if v.frame_id == frame.id and v.status == "completed"), None)
-                if default_video and default_video.video_url:
-                    logger.debug(f"[MERGE]   -> Using default video: {default_video.video_url}")
-                    video_paths.append(default_video.video_url)
-                else:
-                    logger.warning(f"[MERGE]   -> No video selected or available, skipping")
-                continue
-                
-            video = next((v for v in script.video_tasks if v.id == frame.selected_video_id), None)
-            if video and video.video_url:
-                logger.debug(f"[MERGE]   -> Selected video: {video.video_url}")
-                video_paths.append(video.video_url)
+            _, selected_url, selection_error = _resolve_explicit_video_take(script, frame)
+            if selected_url:
+                logger.debug(f"[MERGE]   -> Explicit take: {selected_url}")
+                video_paths.append(selected_url)
+                selected_frames.append(frame)
             else:
-                logger.warning(f"[MERGE]   -> Selected video {frame.selected_video_id} not found or has no URL")
+                logger.warning(f"[MERGE]   -> {selection_error}")
+                selection_errors.append(f"Frame {frame.id}: {selection_error}")
+
+        if selection_errors:
+            raise ValueError(
+                "Cannot merge until every frame has an explicit completed video take: "
+                + "; ".join(selection_errors)
+            )
                 
         if not video_paths:
             logger.error("[MERGE] No videos found to merge!")
@@ -3611,17 +3816,22 @@ class ComicGenPipeline:
         list_path = _safe_resolve_path("output", f"merge_list_{script.id}.txt")
         abs_video_paths = []
 
-        with open(list_path, "w") as f:
-            for path in video_paths:
-                # Resolve to absolute path
-                if not path.startswith("http"):
-                    abs_path = _safe_resolve_path("output", path)
-                    if os.path.exists(abs_path):
-                        f.write(f"file '{abs_path}'\n")
-                        abs_video_paths.append(abs_path)
-                        logger.debug(f"[MERGE] Added to list: {abs_path}")
-                    else:
-                        logger.warning(f"[MERGE] Video file not found: {abs_path}")
+        for index, path in enumerate(video_paths):
+            if path.startswith("http"):
+                raise ValueError(
+                    f"Frame {selected_frames[index].id}: remote video URLs are not available for merge"
+                )
+            abs_path = _safe_resolve_path("output", path)
+            if not os.path.exists(abs_path):
+                raise ValueError(
+                    f"Frame {selected_frames[index].id}: video file not found: {path}"
+                )
+            abs_video_paths.append(abs_path)
+            logger.debug(f"[MERGE] Added to list: {abs_path}")
+
+        with open(list_path, "w", encoding="utf-8") as f:
+            for abs_path in abs_video_paths:
+                f.write(f"file '{abs_path}'\n")
                         
         if not abs_video_paths:
             logger.error("[MERGE] No valid video files found on disk!")
@@ -3704,26 +3914,39 @@ class ComicGenPipeline:
         # Run ffmpeg
         # Use re-encoding for better compatibility (slower but more reliable)
         # -c:v libx264 -c:a aac ensures consistent output format
-        cmd = [
-            ffmpeg_path, "-y",  # Use the detected ffmpeg path
-            "-f", "concat",
-            "-safe", "0",
-            "-i", list_path,
-        ]
-        if export_settings["resolution"]:
-            width, height = export_settings["resolution"].split("x")
-            cmd.extend(["-vf", f"scale={width}:{height}"])
-        if export_settings["fps"] is not None:
-            cmd.extend(["-r", str(export_settings["fps"])])
-        cmd.extend([
-            "-c:v", "libx264",  # Re-encode video with H.264
-            "-crf", str(export_settings["crf"]),  # Quality (lower = better)
-            "-preset", export_settings["preset"],  # Encoding speed
-            "-c:a", "aac",      # Re-encode audio with AAC
-            "-b:a", export_settings["audio_bitrate"],
-            "-movflags", "+faststart",  # Web optimization
-            output_path
-        ])
+        transition_requested = any(
+            _transition_filter_name(getattr(frame, "transition_hint", None))
+            for frame in selected_frames[:-1]
+        )
+        if transition_requested:
+            cmd = _build_transition_merge_command(
+                ffmpeg_path,
+                abs_video_paths,
+                selected_frames,
+                output_path,
+                export_settings,
+            )
+        else:
+            cmd = [
+                ffmpeg_path, "-y",  # Use the detected ffmpeg path
+                "-f", "concat",
+                "-safe", "0",
+                "-i", list_path,
+            ]
+            if export_settings["resolution"]:
+                width, height = export_settings["resolution"].split("x")
+                cmd.extend(["-vf", f"scale={width}:{height}"])
+            if export_settings["fps"] is not None:
+                cmd.extend(["-r", str(export_settings["fps"])])
+            cmd.extend([
+                "-c:v", "libx264",  # Re-encode video with H.264
+                "-crf", str(export_settings["crf"]),  # Quality (lower = better)
+                "-preset", export_settings["preset"],  # Encoding speed
+                "-c:a", "aac",      # Re-encode audio with AAC
+                "-b:a", export_settings["audio_bitrate"],
+                "-movflags", "+faststart",  # Web optimization
+                output_path
+            ])
         
         logger.debug(f"[MERGE] Running FFmpeg command: {' '.join(cmd)}")
         logger.debug(f"[MERGE] Platform: {platform.system()} {platform.release()}")
@@ -3766,9 +3989,29 @@ class ComicGenPipeline:
                 # BGM is optional; log + carry on with the silent video
                 logger.warning(f"[MERGE] BGM mux skipped due to error: {bgm_err}")
 
+            if export_settings["subtitles"] == "soft":
+                subtitle_path = os.path.join(normalization_dir, "captions.srt")
+                if _write_soft_subtitles(script, subtitle_path):
+                    subtitled_path = f"{output_path}.subtitles.mp4"
+                    subtitle_cmd = [
+                        ffmpeg_path, "-y", "-i", output_path, "-i", subtitle_path,
+                        "-map", "0:v:0", "-map", "0:a?", "-map", "1:0",
+                        "-c:v", "copy", "-c:a", "copy", "-c:s", "mov_text",
+                        "-metadata:s:s:0", "language=und", "-movflags", "+faststart",
+                        subtitled_path,
+                    ]
+                    logger.debug(f"[MERGE] Adding soft subtitles: {' '.join(subtitle_cmd)}")
+                    subprocess.run(subtitle_cmd, check=True, capture_output=True, timeout=120)
+                    if not os.path.isfile(subtitled_path) or not os.path.getsize(subtitled_path):
+                        raise RuntimeError("FFmpeg subtitle mux completed without an output file")
+                    os.replace(subtitled_path, output_path)
+
             self._set_merge_progress(script, "mixing", "混音处理", 0.9)
             self._set_merge_progress(script, "verifying", "验收成片", 0.95)
-            script.merge_verification = self._verify_merged_video(output_path)
+            script.merge_verification = self._verify_merged_video(
+                output_path,
+                expected_subtitles=export_settings["subtitles"],
+            )
             if script.merge_verification["ok"]:
                 verification = script.merge_verification
                 logger.info(
@@ -3810,19 +4053,21 @@ class ComicGenPipeline:
             user_msg = self._extract_ffmpeg_error_message(stderr_msg, abs_video_paths)
             raise RuntimeError(user_msg)
     
-    def _verify_merged_video(self, output_path: str) -> Dict[str, Any]:
+    def _verify_merged_video(self, output_path: str, expected_subtitles: str = "none") -> Dict[str, Any]:
         """Probe a merged video and return a structured acceptance report."""
         report: Dict[str, Any] = {
             "ok": False,
             "path": output_path,
             "video": None,
             "audio": None,
+            "subtitles": None,
             "duration": 0.0,
             "checks": {
                 "has_video": False,
                 "has_audio": False,
                 "duration_valid": False,
                 "resolution_valid": False,
+                "has_subtitles": False,
             },
             "errors": [],
         }
@@ -3880,6 +4125,7 @@ class ComicGenPipeline:
         streams = probe_data.get("streams") or []
         video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
         audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+        subtitle_stream = next((stream for stream in streams if stream.get("codec_type") == "subtitle"), None)
 
         def _to_float(value: Any) -> Optional[float]:
             try:
@@ -3927,9 +4173,15 @@ class ComicGenPipeline:
                 "sample_rate": _to_int(audio_stream.get("sample_rate")),
                 "channels": _to_int(audio_stream.get("channels")),
             }
+        if subtitle_stream:
+            report["subtitles"] = {
+                "codec": subtitle_stream.get("codec_name"),
+                "language": (subtitle_stream.get("tags") or {}).get("language"),
+            }
 
         has_video = video_stream is not None
         has_audio = audio_stream is not None
+        has_subtitles = subtitle_stream is not None
         video_width = _to_int(video_stream.get("width")) if video_stream else None
         video_height = _to_int(video_stream.get("height")) if video_stream else None
         duration_valid = duration > 0.5
@@ -3940,6 +4192,7 @@ class ComicGenPipeline:
             "has_audio": has_audio,
             "duration_valid": duration_valid,
             "resolution_valid": resolution_valid,
+            "has_subtitles": has_subtitles,
         }
 
         if not has_video:
@@ -3948,8 +4201,15 @@ class ComicGenPipeline:
             errors.append(f"Merged video duration is invalid: {duration:.3f}s (must be > 0.5s)")
         if not resolution_valid:
             errors.append("Merged video resolution is invalid: width and height must be > 0")
+        if expected_subtitles == "soft" and not has_subtitles:
+            errors.append("Merged video is missing the requested soft subtitle stream")
 
-        report["ok"] = has_video and duration_valid and resolution_valid
+        report["ok"] = (
+            has_video
+            and duration_valid
+            and resolution_valid
+            and (expected_subtitles != "soft" or has_subtitles)
+        )
         return report
 
     def _maybe_apply_bgm_mux(
@@ -4552,6 +4812,72 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
+    def preview_sfx(self, script_id: str, frame_id: str) -> Script:
+        """Generate a preview SFX track without replacing the applied track."""
+        from .audio import _compute_sfx_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame = next((item for item in script.frames if item.id == frame_id), None)
+            if not frame:
+                raise LookupError("Frame not found")
+            if not (frame.action_description or frame.video_url):
+                raise ValueError("SFX requires an action description or video")
+            # Keep this path usable with lightweight test doubles as well as
+            # Pydantic frames loaded by the real pipeline.
+            try:
+                generated = frame.model_copy(deep=True)
+            except AttributeError:
+                import copy
+                generated = copy.deepcopy(frame)
+        self.audio_generator.generate_sfx_preview(generated)
+        if not generated.preview_sfx_url:
+            raise RuntimeError("SFX provider did not produce a preview")
+        with self._save_lock:
+            current = self.scripts.get(script_id)
+            target = next((item for item in current.frames if item.id == frame_id), None) if current else None
+            if not target:
+                raise LookupError("Frame not found")
+            target.preview_sfx_url = generated.preview_sfx_url
+            target.preview_sfx_fingerprint = generated.preview_sfx_fingerprint or _compute_sfx_fingerprint(target.action_description, target.video_url)
+            self._save_data()
+            return current
+
+    def apply_sfx(self, script_id: str, frame_id: str) -> Script:
+        from .audio import _compute_sfx_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame = next((item for item in script.frames if item.id == frame_id), None)
+            if not frame:
+                raise LookupError("Frame not found")
+            if not frame.preview_sfx_url:
+                raise ValueError("No SFX preview is available")
+            current_fingerprint = _compute_sfx_fingerprint(frame.action_description, frame.video_url)
+            if frame.preview_sfx_fingerprint and frame.preview_sfx_fingerprint != current_fingerprint:
+                raise ValueError("SFX preview is stale; generate a new preview first")
+            frame.sfx_url = frame.preview_sfx_url
+            frame.sfx_fingerprint = frame.preview_sfx_fingerprint
+            frame.preview_sfx_url = None
+            frame.preview_sfx_fingerprint = None
+            self._save_data()
+            return script
+
+    def revert_sfx(self, script_id: str, frame_id: str) -> Script:
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame = next((item for item in script.frames if item.id == frame_id), None)
+            if not frame:
+                raise LookupError("Frame not found")
+            frame.preview_sfx_url = None
+            frame.preview_sfx_fingerprint = None
+            self._save_data()
+            return script
+
     def generate_dialogue_line(
         self,
         script_id: str,
@@ -4614,7 +4940,7 @@ class ComicGenPipeline:
                     raise LookupError("Frame not found")
                 if target.audio_generation_id != generation_id:
                     return current
-                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_text_hash")
+                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "dialogue_text_hash")
                 previous_output = {name: getattr(target, name) for name in fields}
                 for name in fields:
                     setattr(target, name, getattr(frame, name))

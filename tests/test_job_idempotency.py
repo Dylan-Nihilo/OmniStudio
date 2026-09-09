@@ -5,7 +5,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.storage.db import create_engine, init_schema
 from src.storage.job_repository import JobRepository
-from src.storage.schema import JobItem, Workspace
+from src.storage.schema import Job, JobItem, JobItemEvent, Workspace
 
 
 def test_recovery_resumes_recoverable_items_and_fails_unknown_kind():
@@ -33,8 +33,36 @@ def test_recovery_resumes_recoverable_items_and_fails_unknown_kind():
     assert report == {"resumed": 1, "failed": 1}
     with engine.connect() as connection:
         states = dict(connection.execute(select(JobItem.id, JobItem.status)).all())
+        events = list(
+            connection.execute(
+                select(JobItemEvent.item_id, JobItemEvent.to_status)
+                .where(JobItemEvent.item_id == recoverable.id)
+                .order_by(JobItemEvent.created_at, JobItemEvent.id)
+            ).all()
+        )
     assert states[recoverable.id] == "processing"
     assert states[unknown.id] == "failed"
+    assert events[-1].to_status == "recovered"
+    engine.dispose()
+
+
+def test_recovery_failure_updates_parent_job_timestamp():
+    engine = create_engine(":memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    init_schema(engine)
+    with engine.begin() as connection:
+        connection.execute(Workspace.__table__.insert(), {"id": "workspace-1", "name": "Acceptance", "created_at": 1.0, "updated_at": 1.0})
+    repository = JobRepository(engine)
+    job = repository.create_job("workspace-1", "mixed")
+    item = repository.create_item(job.id, "provider_unknown", "unknown-key", {})
+    repository.transition_item(item.id, "processing", progress=0.2)
+    with engine.begin() as connection:
+        connection.execute(Job.__table__.update().where(Job.id == job.id).values(updated_at=1.0))
+
+    repository.recover_inflight("workspace-1", recoverable_kinds=set())
+
+    with engine.connect() as connection:
+        updated_at = connection.execute(select(Job.updated_at).where(Job.id == job.id)).scalar_one()
+    assert updated_at > 1.0
     engine.dispose()
 
 

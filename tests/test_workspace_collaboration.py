@@ -155,7 +155,7 @@ def test_existing_user_can_accept_invitation_to_another_workspace(tmp_path):
             second = owner.post("/auth/workspaces", json={"name": "第二团队"}).json()
             second_invite = owner.post(
                 f"/auth/workspaces/{second['id']}/invitations",
-                json={"email": "writer@example.com"},
+                json={"email": "writer@example.com", "access_role": "viewer"},
             )
             assert second_invite.status_code == 201, second_invite.text
 
@@ -170,6 +170,6 @@ def test_existing_user_can_accept_invitation_to_another_workspace(tmp_path):
             )
             assert accepted.status_code == 200, accepted.text
             assert accepted.json()["id"] == second["id"]
-            assert accepted.json()["role"] == "member"
+            assert accepted.json()["role"] == "viewer"
     finally:
         engine.dispose()

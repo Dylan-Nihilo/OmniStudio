@@ -344,11 +344,15 @@ function AddCastPlaceholderModal({
     const [imageUrl, setImageUrl] = useState<string>("");
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [preview, setPreview] = useState<any | null>(null);
+    const [batchSize, setBatchSize] = useState(1);
 
     // Reset state when modal closes / kind changes
     const reset = () => {
         setName(""); setPersona(""); setDescription(""); setVoiceId("");
         setImageUrl(""); setError(null); setTab("ai");
+        setPreview(null);
+        setBatchSize(1);
     };
 
     if (!kind) return null;
@@ -370,7 +374,7 @@ function AddCastPlaceholderModal({
         }
     };
 
-    const handleSubmit = async () => {
+    const handlePreview = async () => {
         if (!seriesId) {
             setError(t("seriesRequired"));
             return;
@@ -382,22 +386,44 @@ function AddCastPlaceholderModal({
         setSubmitting(true);
         setError(null);
         try {
-            const kindMap = { character: "characters", scene: "scenes", prop: "props" } as const;
-            await api.createSeriesAsset(seriesId, kindMap[kind], {
+            const result = await api.previewCastGeneration(seriesId, {
+                asset_type: kind,
                 name: name.trim(),
                 description: description.trim() || undefined,
                 persona: kind === "character" ? (persona.trim() || undefined) : undefined,
                 voice_id: kind === "character" ? (voiceId.trim() || undefined) : undefined,
-                image_url: imageUrl || undefined,
+                prompt: description.trim() || name.trim(),
+                batch_size: batchSize,
             });
+            setPreview(result);
+        } catch (err: any) {
+            setError(err?.response?.data?.detail || err?.message || t("aiPreviewError"));
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleConfirm = async () => {
+        if (!seriesId || !preview?.preview_id) return;
+        setSubmitting(true);
+        setError(null);
+        try {
+            await api.confirmCastGeneration(seriesId, preview.preview_id);
             onCreated();
             reset();
             onClose();
         } catch (err: any) {
-            setError(err?.response?.data?.detail || err?.message || "Create failed");
+            setError(err?.response?.data?.detail?.message || err?.response?.data?.detail || err?.message || "Confirm failed");
         } finally {
             setSubmitting(false);
         }
+    };
+
+    const handleReject = async () => {
+        if (seriesId && preview?.preview_id) {
+            try { await api.cancelCastGenerationPreview(seriesId, preview.preview_id); } catch { /* best effort */ }
+        }
+        setPreview(null);
     };
 
     return (
@@ -527,11 +553,26 @@ function AddCastPlaceholderModal({
 
                     {/* AI tab hint */}
                     {tab === "ai" && (
-                        <div className="rounded-lg bg-primary/[0.06] border border-primary/20 px-3 py-2.5">
-                            <p className="text-[0.71875rem] text-text-secondary leading-relaxed">
-                                {t("aiTabHint")}
-                            </p>
-                        </div>
+                        preview ? (
+                            <div className="rounded-lg bg-primary/[0.06] border border-primary/20 px-3 py-3">
+                                <p className="font-medium text-sm text-foreground">{t("aiPreviewTitle")}</p>
+                                <p className="mt-1 text-xs text-text-secondary leading-relaxed">
+                                    {t("aiPreviewSummary", { calls: preview.estimated_calls, cost: preview.estimated_cost })}
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="rounded-lg bg-primary/[0.06] border border-primary/20 px-3 py-2.5">
+                                <p className="text-[0.71875rem] text-text-secondary leading-relaxed">{t("aiTabHint")}</p>
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">Batch</span>
+                                    {[1, 2, 4].map((size) => (
+                                        <button key={size} type="button" onClick={() => setBatchSize(size)} className={`px-2 py-0.5 rounded border text-[0.6875rem] ${batchSize === size ? "border-primary/50 text-primary bg-primary/10" : "border-glass-border text-text-muted"}`}>
+                                            {size}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )
                     )}
 
                     {error && (
@@ -550,13 +591,34 @@ function AddCastPlaceholderModal({
                         variant="primary"
                         size="sm"
                         loading={submitting}
-                        onClick={handleSubmit}
+                        onClick={tab === "ai" ? (preview ? handleConfirm : handlePreview) : async () => {
+                            if (!seriesId || !name.trim()) return;
+                            setSubmitting(true); setError(null);
+                            try {
+                                const kindMap = { character: "characters", scene: "scenes", prop: "props" } as const;
+                                await api.createSeriesAsset(seriesId, kindMap[kind], {
+                                    name: name.trim(), description: description.trim() || undefined,
+                                    persona: kind === "character" ? (persona.trim() || undefined) : undefined,
+                                    voice_id: kind === "character" ? (voiceId.trim() || undefined) : undefined,
+                                    image_url: imageUrl || undefined,
+                                });
+                                onCreated(); reset(); onClose();
+                            } catch (err: any) {
+                                setError(err?.response?.data?.detail || err?.message || "Create failed");
+                            } finally { setSubmitting(false); }
+                        }}
                         disabled={!name.trim() || !seriesId}
                         className="flex-1"
                     >
-                        {tab === "ai" ? t("createAndGenerate") : t("create")}
+                        {tab === "ai" ? (preview ? t("aiPreviewConfirm") : t("createAndGenerate")) : t("create")}
                     </WorkflowActionButton>
                 </div>
+                {tab === "ai" && preview && (
+                    <div className="flex gap-2 mt-2">
+                        <WorkflowActionButton variant="ghost" size="sm" onClick={handleReject} className="flex-1">{t("aiPreviewReject")}</WorkflowActionButton>
+                        <WorkflowActionButton variant="ghost" size="sm" onClick={() => setPreview(null)} className="flex-1">{t("aiPreviewBack")}</WorkflowActionButton>
+                    </div>
+                )}
             </div>
         </div>
     );

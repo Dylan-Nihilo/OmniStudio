@@ -99,6 +99,78 @@ def _create_series(client, title: str = "系列项目") -> dict:
     return response.json()
 
 
+def test_sfx_preview_apply_and_revert_round_trip_over_http(api_client):
+    project = _create_project(api_client, "SFX confirmation")
+    route = f"/projects/{project['id']}"
+    frame = api_client.post(route + "/frames", json={"action_description": "Door slams"}).json()["frames"][0]
+    stored = api_module.pipeline.scripts[project["id"]].frames[0]
+    stored.sfx_url = "audio/sfx-old.wav"
+    stored.sfx_fingerprint = "old"
+
+    def generate_preview(target):
+        from src.apps.comic_gen.audio import _compute_sfx_fingerprint
+        target.preview_sfx_url = "audio/sfx-preview.wav"
+        target.preview_sfx_fingerprint = _compute_sfx_fingerprint(target.action_description, target.video_url)
+
+    api_module.pipeline.audio_generator.generate_sfx_preview.side_effect = generate_preview
+    api_module.pipeline._save_data()
+
+    preview = api_client.post(route + f"/frames/{frame['id']}/sfx/preview")
+    assert preview.status_code == 200, preview.text
+    preview_frame = preview.json()["frames"][0]
+    assert preview_frame["sfx_url"] == "audio/sfx-old.wav"
+    assert preview_frame["preview_sfx_url"] == "audio/sfx-preview.wav"
+
+    applied = api_client.post(route + f"/frames/{frame['id']}/sfx/apply")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["frames"][0]["sfx_url"] == "audio/sfx-preview.wav"
+    assert applied.json()["frames"][0]["preview_sfx_url"] is None
+
+    api_client.post(route + f"/frames/{frame['id']}/sfx/preview")
+    reverted = api_client.delete(route + f"/frames/{frame['id']}/sfx/preview")
+    assert reverted.status_code == 200, reverted.text
+    assert reverted.json()["frames"][0]["sfx_url"] == "audio/sfx-preview.wav"
+    assert reverted.json()["frames"][0]["preview_sfx_url"] is None
+
+
+def test_video_export_request_persists_real_merge_settings(api_client):
+    project = _create_project(api_client, "Export settings contract")
+    script = api_module.pipeline.scripts[project["id"]]
+    captured = {}
+
+    def fake_merge(script_id):
+        captured.update(api_module.pipeline.scripts[script_id].export_settings or {})
+        api_module.pipeline.scripts[script_id].merged_video_url = "video/merged.mp4"
+        return api_module.pipeline.scripts[script_id]
+
+    with patch.object(api_module, "_create_production_item", return_value=None), patch.object(api_module.pipeline, "merge_videos", side_effect=fake_merge):
+        response = api_client.post(f"/projects/{project['id']}/export", json={"resolution": "720p", "format": "mp4", "subtitles": "soft"})
+    assert response.status_code == 200, response.text
+    assert captured["resolution"] == "1280x720"
+    assert captured["subtitles"] == "soft"
+
+
+def test_merge_endpoint_rejects_failed_precheck_before_dispatch(api_client):
+    project = _create_project(api_client, "Merge precheck guard")
+    with patch.object(
+        api_module.pipeline,
+        "precheck_merge",
+        return_value={
+            "ok": False,
+            "errors": ["not enough disk space"],
+            "missing": [],
+            "unreadable": [],
+            "no_video_available": [],
+            "disk": {"sufficient": False},
+        },
+    ), patch.object(api_module, "_create_production_item", return_value=None), patch.object(api_module.pipeline, "merge_videos") as merge:
+        response = api_client.post(f"/projects/{project['id']}/merge")
+
+    assert response.status_code == 400, response.text
+    assert "precheck" in response.json()["detail"].lower()
+    merge.assert_not_called()
+
+
 @pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown"])
 def test_reordering_frames_rejects_incomplete_or_repeated_ids_without_losing_shots(api_client, invalid):
     project = _create_project(api_client, "Storyboard order")
@@ -1438,6 +1510,41 @@ def test_member_can_read_team_projects_but_cannot_create_top_level_project(api_c
 
     shared_after = api_client.get("/library/assets").json()["props"]
     assert next(item for item in shared_after if item["id"] == shared_prop["id"])["starred"] is False
+
+
+def test_editor_can_edit_project_but_cannot_delete_it(api_client):
+    team_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    project = _create_project(api_client, "Editor 可编辑项目")
+    invitation = api_client.post(
+        f"/auth/workspaces/{team_id}/invitations",
+        json={"email": "editor@example.com", "access_role": "editor"},
+    )
+    assert invitation.status_code == 201, invitation.text
+
+    with make_client(api_module.app) as editor:
+        registered = editor.post(
+            "/auth/invitations/register",
+            json={
+                "token": invitation.json()["token"],
+                "username": "editor",
+                "email": "editor@example.com",
+                "password": "editor password 123",
+            },
+        )
+        assert registered.status_code == 201, registered.text
+        workspace_headers = {"X-Workspace-ID": team_id}
+
+        updated = editor.patch(
+            f"/projects/{project['id']}/style",
+            headers=workspace_headers,
+            json={"style_preset": "anime"},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["style_preset"] == "anime"
+
+        deleted = editor.delete(f"/projects/{project['id']}", headers=workspace_headers)
+        assert deleted.status_code == 403, deleted.text
+        assert deleted.json()["error"]["code"] == "AUTH_OWNER_REQUIRED"
 
 
 def test_episode_edit_lease_blocks_second_editor_and_text_save_uses_cas(api_client):

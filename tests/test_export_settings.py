@@ -18,7 +18,7 @@ def merge_harness(tmp_path, monkeypatch):
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
     pipeline.scripts = {}
     pipeline._save_data = lambda: None
-    pipeline._verify_merged_video = lambda output_path: {"ok": True, "duration": 1.0, "checks": {"has_audio": True}, "video": {}}
+    pipeline._verify_merged_video = lambda output_path, **kwargs: {"ok": True, "duration": 1.0, "checks": {"has_audio": True}, "video": {}}
     pipeline._maybe_apply_bgm_mux = lambda script, output_path, ffmpeg_path, audio_bitrate="128k": None
 
     monkeypatch.setattr(pipeline_module, "get_ffmpeg_path", lambda: "ffmpeg")
@@ -38,7 +38,7 @@ def merge_harness(tmp_path, monkeypatch):
             return SimpleNamespace(returncode=0, stdout=b"ffmpeg version", stderr=b"")
         # The audio probe succeeds, so merge does not need the normalization
         # branch.  The final command creates the output expected by merge.
-        if "concat" in command and command[-1] != "NUL":
+        if command and str(command[-1]).lower().endswith(".mp4") and command[-1] != "NUL":
             Path(command[-1]).write_bytes(b"merged")
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
@@ -142,4 +142,64 @@ def test_merge_rejects_invalid_export_settings(merge_harness, setting, value):
         pipeline.merge_videos("script-1")
 
 
+def test_merge_soft_subtitles_muxes_a_real_mov_text_stream(merge_harness):
+    pipeline, install_script, commands = merge_harness
+    script = install_script({"subtitles": "soft"})
+    script.frames[0].dialogue = "Hello world"
+    script.frames[0].duration = 1
 
+    pipeline.merge_videos("script-1")
+
+    subtitle_command = next(command for command in commands if "mov_text" in command)
+    assert "-c:s" in subtitle_command
+    assert subtitle_command[subtitle_command.index("-c:s") + 1] == "mov_text"
+    assert any(str(value).endswith(".srt") for value in subtitle_command)
+
+
+def test_merge_applies_frame_transition_to_video_and_audio(merge_harness):
+    pipeline, install_script, commands = merge_harness
+    script = install_script()
+    script.frames[0].duration = 2
+    script.frames[0].transition_hint = "fade"
+    script.frames.append(
+        SimpleNamespace(
+            id="frame-2",
+            dubbed_video_url=None,
+            selected_video_id="video-2",
+            duration=3,
+            transition_hint=None,
+        )
+    )
+    script.video_tasks.append(
+        SimpleNamespace(
+            id="video-2",
+            video_url="video/source.mp4",
+            status="completed",
+            frame_id="frame-2",
+        )
+    )
+
+    pipeline.merge_videos("script-1")
+
+    transition_command = next(command for command in commands if "-filter_complex" in command)
+    filter_graph = transition_command[transition_command.index("-filter_complex") + 1]
+    assert "xfade=transition=fade:duration=0.350:offset=1.650" in filter_graph
+    assert "acrossfade=d=0.350" in filter_graph
+    assert transition_command.count("-i") == 2
+
+
+def test_merge_blocks_when_any_frame_lacks_an_explicit_take(merge_harness):
+    pipeline, install_script, _ = merge_harness
+    script = install_script()
+    script.frames.append(
+        SimpleNamespace(
+            id="frame-2",
+            dubbed_video_url=None,
+            selected_video_id=None,
+            duration=3,
+            transition_hint=None,
+        )
+    )
+
+    with pytest.raises(ValueError, match="frame-2"):
+        pipeline.merge_videos("script-1")

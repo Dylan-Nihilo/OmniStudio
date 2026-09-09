@@ -1182,6 +1182,16 @@ export const api = {
         return res.data;
     },
 
+    /** Download completed candidate takes as a zip with Shot/Take manifest. */
+    downloadVideoCandidates: async (scriptId: string, taskIds: string[] = []): Promise<Blob> => {
+        const res = await apiClient.post(
+            `${API_URL}/projects/${scriptId}/video_tasks/download`,
+            { task_ids: taskIds },
+            { responseType: "blob" },
+        );
+        return res.data;
+    },
+
     /** Mark a video task as failed-by-cancel. Provider-side render
      *  keeps going; this just unblocks the local UI. Already-completed
      *  tasks are a 404 no-op. */
@@ -1409,6 +1419,11 @@ export const api = {
         // Clear the pin; selected_video_id and video_url stay put until
         // the next auto-select picks a newer completed task.
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/unpin_video`);
+        return res.data;
+    },
+
+    clearVideoSelection: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/clear_video_selection`);
         return res.data;
     },
 
@@ -1750,6 +1765,21 @@ export const api = {
         return res.data;
     },
 
+    previewSfx: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/sfx/preview`);
+        return res.data;
+    },
+
+    applySfx: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/sfx/apply`);
+        return res.data;
+    },
+
+    revertSfx: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}/sfx/preview`);
+        return res.data;
+    },
+
     previewDub: async (scriptId: string, frameId: string, videoTaskId: string, offsetMs: number = 0) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/preview`, {
             video_task_id: videoTaskId,
@@ -2056,6 +2086,51 @@ export const api = {
         data: { name: string; description?: string; persona?: string; image_url?: string; voice_id?: string },
     ) => {
         const res = await apiClient.post(`${API_URL}/series/${seriesId}/${kind}`, data);
+        return res.data;
+    },
+
+    previewCastGeneration: async (seriesId: string, data: {
+        asset_type: "character" | "scene" | "prop";
+        name: string;
+        description?: string;
+        persona?: string;
+        voice_id?: string;
+        prompt?: string;
+        batch_size?: number;
+        model_name?: string;
+        apply_style?: boolean;
+        negative_prompt?: string;
+    }) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/generate/preview`, data);
+        return res.data;
+    },
+
+    cancelCastGenerationPreview: async (seriesId: string, previewId: string) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/generate/previews/${previewId}/cancel`);
+        return res.data;
+    },
+
+    confirmCastGeneration: async (seriesId: string, previewId: string) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/generate/confirm`, { preview_id: previewId });
+        return res.data;
+    },
+
+    toggleSeriesAssetLockBatch: async (seriesId: string, assetType: "character" | "scene" | "prop", assetIds: string[], locked: boolean) => {
+        const res = await apiClient.post(`${API_URL}/series/${seriesId}/assets/toggle_lock_batch`, {
+            asset_type: assetType,
+            asset_ids: assetIds,
+            locked,
+        });
+        return res.data;
+    },
+
+    getStoryboardReadiness: async (scriptId: string): Promise<{
+        ready: boolean;
+        storyboard_ready: boolean;
+        checked_frames: number;
+        blockers: Array<{ code: string; frame_id?: string; previous_frame_id?: string; message: string }>;
+    }> => {
+        const res = await apiClient.get(`${API_URL}/projects/${scriptId}/storyboard/readiness`);
         return res.data;
     },
 

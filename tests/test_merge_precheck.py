@@ -187,6 +187,25 @@ def test_precheck_merge_reports_frame_without_video(monkeypatch, pipeline):
     ]
 
 
+def test_precheck_merge_does_not_fallback_when_frame_has_no_explicit_take(monkeypatch, pipeline):
+    _install_common_mocks(monkeypatch)
+    pipeline.scripts["script-1"] = _script(
+        frames=[_frame(selected_video_id=None)],
+        video_tasks=[_video_task("video-available")],
+    )
+
+    report = pipeline.precheck_merge("script-1")
+
+    assert report["ok"] is False
+    assert report["frames_with_video"] == 0
+    assert report["no_video_available"] == [
+        {
+            "frame_id": "frame-1",
+            "reason": "No explicit video take selected for this frame",
+        }
+    ]
+
+
 def test_precheck_merge_reports_insufficient_disk_space(monkeypatch, pipeline):
     _install_common_mocks(monkeypatch, free_bytes=1)
     pipeline.scripts["script-1"] = _script()

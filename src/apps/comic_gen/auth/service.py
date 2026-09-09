@@ -240,10 +240,13 @@ class AuthService:
         context: AuthContext,
         workspace_id: str,
         email: str,
+        access_role: str = "member",
     ) -> tuple[object, str]:
         selected = self.resolve_workspace(context, workspace_id)
         if selected.membership.role != "owner":
             raise AuthError("AUTH_OWNER_REQUIRED", "只有 Workspace Owner 可以邀请成员", status_code=403)
+        if access_role not in {"member", "editor", "viewer"}:
+            raise AuthError("AUTH_INVALID_INPUT", "成员角色不合法", status_code=422)
         _, email_normalized = normalize_email(email)
         token = secrets.token_urlsafe(32)
         now = time.time()
@@ -254,6 +257,7 @@ class AuthService:
             invited_by_user_id=context.user.id,
             now=now,
             expires_at=now + 7 * 86400,
+            access_role=access_role,
         )
         return invitation, token
 

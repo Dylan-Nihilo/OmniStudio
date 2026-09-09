@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -142,6 +142,7 @@ class CreateWorkspaceRequest(BaseModel):
 class CreateInvitationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(min_length=3, max_length=254)
+    access_role: Literal["member", "editor", "viewer"] = "member"
 
 
 class InvitationResponse(BaseModel):
@@ -151,6 +152,7 @@ class InvitationResponse(BaseModel):
     email: str
     token: str
     expires_at: str
+    access_role: str = "member"
 
 
 class AcceptInvitationRequest(BaseModel):
@@ -171,6 +173,11 @@ class WorkspaceMemberResponse(BaseModel):
     display_name: str | None = None
     role: str
     joined_at: str
+
+
+class UpdateWorkspaceMemberRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    access_role: Literal["member", "editor", "viewer"]
 
 
 class SetupStatusResponse(BaseModel):
@@ -235,6 +242,7 @@ __all__ = [
     "ChangePasswordResponse",
     "CreateInvitationRequest",
     "CreateWorkspaceRequest",
+    "UpdateWorkspaceMemberRequest",
     "ErrorResponse",
     "InvitationRegistrationRequest",
     "InvitationResponse",

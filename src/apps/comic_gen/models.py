@@ -430,10 +430,16 @@ class StoryboardFrame(BaseModel):
     audio_generation_id: Optional[str] = None
     dialogue_snapshot_text: Optional[str] = Field(None, description="Dialogue actually used to generate the current audio")
     sfx_url: Optional[str] = Field(None, description="URL of the generated sound effect")
+    preview_sfx_url: Optional[str] = Field(None, description="Temporary SFX preview URL; not applied until confirmed")
+    sfx_fingerprint: Optional[str] = Field(None, description="Fingerprint of inputs used for the applied SFX")
+    preview_sfx_fingerprint: Optional[str] = Field(None, description="Fingerprint of the pending SFX preview")
     # PR-3j · Stale detection for dialogue audio. text_hash combines
     # dialogue text + voice_id + instructions; UI flags audio as STALE
     # when current state hashes differently than the snapshot.
     dialogue_text_hash: Optional[str] = Field(None, description="MD5 of (dialogue|voice_id|instructions) at audio generation time")
+    dialogue_snapshot_speed: float = Field(1.0, description="Speech rate used for the current dialogue snapshot")
+    dialogue_snapshot_pitch: float = Field(1.0, description="Pitch used for the current dialogue snapshot")
+    dialogue_snapshot_volume: int = Field(50, description="Volume used for the current dialogue snapshot")
     dialogue_voice_id: Optional[str] = Field(None, description="Voice id used to generate the current audio")
     dialogue_instructions: Optional[str] = Field(None, description="Emotion/style instructions used for the current audio")
     
@@ -581,6 +587,8 @@ class Script(BaseModel):
     video_tasks: List[VideoTask] = Field(default_factory=list)
     dialogue_audio_batch: Optional[DialogueAudioBatch] = None
     storyboard_generation: Optional[StoryboardGeneration] = None
+    storyboard_ready: bool = Field(False, description="Whether deterministic storyboard readiness checks pass")
+    storyboard_readiness: Optional[Dict[str, Any]] = Field(None, description="Latest storyboard readiness report")
     
     # Global style settings (legacy, will be replaced by art_direction)
     style_preset: str = Field("realistic", description="Global style preset for all image generations")
