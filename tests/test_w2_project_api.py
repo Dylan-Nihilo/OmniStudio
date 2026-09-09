@@ -99,6 +99,40 @@ def _create_series(client, title: str = "系列项目") -> dict:
     return response.json()
 
 
+def test_sfx_preview_apply_and_revert_round_trip_over_http(api_client):
+    project = _create_project(api_client, "SFX confirmation")
+    route = f"/projects/{project['id']}"
+    frame = api_client.post(route + "/frames", json={"action_description": "Door slams"}).json()["frames"][0]
+    stored = api_module.pipeline.scripts[project["id"]].frames[0]
+    stored.sfx_url = "audio/sfx-old.wav"
+    stored.sfx_fingerprint = "old"
+
+    def generate_preview(target):
+        from src.apps.comic_gen.audio import _compute_sfx_fingerprint
+        target.preview_sfx_url = "audio/sfx-preview.wav"
+        target.preview_sfx_fingerprint = _compute_sfx_fingerprint(target.action_description, target.video_url)
+
+    api_module.pipeline.audio_generator.generate_sfx_preview.side_effect = generate_preview
+    api_module.pipeline._save_data()
+
+    preview = api_client.post(route + f"/frames/{frame['id']}/sfx/preview")
+    assert preview.status_code == 200, preview.text
+    preview_frame = preview.json()["frames"][0]
+    assert preview_frame["sfx_url"] == "audio/sfx-old.wav"
+    assert preview_frame["preview_sfx_url"] == "audio/sfx-preview.wav"
+
+    applied = api_client.post(route + f"/frames/{frame['id']}/sfx/apply")
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["frames"][0]["sfx_url"] == "audio/sfx-preview.wav"
+    assert applied.json()["frames"][0]["preview_sfx_url"] is None
+
+    api_client.post(route + f"/frames/{frame['id']}/sfx/preview")
+    reverted = api_client.delete(route + f"/frames/{frame['id']}/sfx/preview")
+    assert reverted.status_code == 200, reverted.text
+    assert reverted.json()["frames"][0]["sfx_url"] == "audio/sfx-preview.wav"
+    assert reverted.json()["frames"][0]["preview_sfx_url"] is None
+
+
 @pytest.mark.parametrize("invalid", ["missing", "duplicate", "unknown"])
 def test_reordering_frames_rejects_incomplete_or_repeated_ids_without_losing_shots(api_client, invalid):
     project = _create_project(api_client, "Storyboard order")

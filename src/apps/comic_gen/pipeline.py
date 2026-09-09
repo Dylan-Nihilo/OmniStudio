@@ -4577,6 +4577,72 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
+    def preview_sfx(self, script_id: str, frame_id: str) -> Script:
+        """Generate a preview SFX track without replacing the applied track."""
+        from .audio import _compute_sfx_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame = next((item for item in script.frames if item.id == frame_id), None)
+            if not frame:
+                raise LookupError("Frame not found")
+            if not (frame.action_description or frame.video_url):
+                raise ValueError("SFX requires an action description or video")
+            # Keep this path usable with lightweight test doubles as well as
+            # Pydantic frames loaded by the real pipeline.
+            try:
+                generated = frame.model_copy(deep=True)
+            except AttributeError:
+                import copy
+                generated = copy.deepcopy(frame)
+        self.audio_generator.generate_sfx_preview(generated)
+        if not generated.preview_sfx_url:
+            raise RuntimeError("SFX provider did not produce a preview")
+        with self._save_lock:
+            current = self.scripts.get(script_id)
+            target = next((item for item in current.frames if item.id == frame_id), None) if current else None
+            if not target:
+                raise LookupError("Frame not found")
+            target.preview_sfx_url = generated.preview_sfx_url
+            target.preview_sfx_fingerprint = generated.preview_sfx_fingerprint or _compute_sfx_fingerprint(target.action_description, target.video_url)
+            self._save_data()
+            return current
+
+    def apply_sfx(self, script_id: str, frame_id: str) -> Script:
+        from .audio import _compute_sfx_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame = next((item for item in script.frames if item.id == frame_id), None)
+            if not frame:
+                raise LookupError("Frame not found")
+            if not frame.preview_sfx_url:
+                raise ValueError("No SFX preview is available")
+            current_fingerprint = _compute_sfx_fingerprint(frame.action_description, frame.video_url)
+            if frame.preview_sfx_fingerprint and frame.preview_sfx_fingerprint != current_fingerprint:
+                raise ValueError("SFX preview is stale; generate a new preview first")
+            frame.sfx_url = frame.preview_sfx_url
+            frame.sfx_fingerprint = frame.preview_sfx_fingerprint
+            frame.preview_sfx_url = None
+            frame.preview_sfx_fingerprint = None
+            self._save_data()
+            return script
+
+    def revert_sfx(self, script_id: str, frame_id: str) -> Script:
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            frame = next((item for item in script.frames if item.id == frame_id), None)
+            if not frame:
+                raise LookupError("Frame not found")
+            frame.preview_sfx_url = None
+            frame.preview_sfx_fingerprint = None
+            self._save_data()
+            return script
+
     def generate_dialogue_line(
         self,
         script_id: str,
@@ -4639,7 +4705,7 @@ class ComicGenPipeline:
                     raise LookupError("Frame not found")
                 if target.audio_generation_id != generation_id:
                     return current
-                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_text_hash")
+                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "dialogue_text_hash")
                 previous_output = {name: getattr(target, name) for name in fields}
                 for name in fields:
                     setattr(target, name, getattr(frame, name))

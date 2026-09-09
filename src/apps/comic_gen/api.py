@@ -5295,6 +5295,43 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/projects/{script_id}/frames/{frame_id}/sfx/preview", response_model=Script)
+def preview_frame_sfx(script_id: str, frame_id: str):
+    """Generate a temporary SFX preview without replacing the applied track."""
+    try:
+        return signed_response(pipeline.preview_sfx(script_id, frame_id))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post("/projects/{script_id}/frames/{frame_id}/sfx/apply", response_model=Script)
+def apply_frame_sfx(script_id: str, frame_id: str):
+    """Apply the previously generated SFX preview."""
+    try:
+        return signed_response(pipeline.apply_sfx(script_id, frame_id))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/projects/{script_id}/frames/{frame_id}/sfx/preview", response_model=Script)
+def revert_frame_sfx(script_id: str, frame_id: str):
+    """Discard a pending SFX preview and keep the applied track."""
+    try:
+        return signed_response(pipeline.revert_sfx(script_id, frame_id))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/projects/{script_id}/mix/generate_sfx", response_model=Script)
 def generate_mix_sfx(script_id: str):
     """Triggers Video-to-Audio SFX generation for all frames."""

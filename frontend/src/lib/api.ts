@@ -1765,6 +1765,21 @@ export const api = {
         return res.data;
     },
 
+    previewSfx: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/sfx/preview`);
+        return res.data;
+    },
+
+    applySfx: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/sfx/apply`);
+        return res.data;
+    },
+
+    revertSfx: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}/sfx/preview`);
+        return res.data;
+    },
+
     previewDub: async (scriptId: string, frameId: string, videoTaskId: string, offsetMs: number = 0) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/preview`, {
             video_task_id: videoTaskId,

@@ -10,11 +10,23 @@ from ...audio.tts import TTSProcessor
 logger = get_logger(__name__)
 
 
-def _compute_dialogue_hash(text: str, voice_id: Optional[str], instructions: Optional[str]) -> str:
+def _compute_dialogue_hash(
+    text: str,
+    voice_id: Optional[str],
+    instructions: Optional[str],
+    speed: float = 1.0,
+    pitch: float = 1.0,
+    volume: int = 50,
+) -> str:
     """PR-3j · Snapshot hash for stale detection. Frame is STALE when current
     (dialogue|voice_id|instructions) hash != stored snapshot."""
-    payload = f"{text or ''}|{voice_id or ''}|{instructions or ''}"
+    payload = f"{text or ''}|{voice_id or ''}|{instructions or ''}|{float(speed):.4f}|{float(pitch):.4f}|{int(volume)}"
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
+def _compute_sfx_fingerprint(description: Optional[str], video_url: Optional[str]) -> str:
+    payload = f"{description or ''}|{video_url or ''}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 # PR-3k · BGM preset catalog. Each entry maps a stable id → human label,
@@ -71,7 +83,14 @@ def dialogue_audio_is_stale(frame: StoryboardFrame, character: Optional[Characte
     voice_id = character.voice_id if character else frame.dialogue_voice_id
     text = _effective_dialogue_text(frame)
     instructions = _effective_instructions(frame)
-    current = _compute_dialogue_hash(text, voice_id, instructions)
+    current = _compute_dialogue_hash(
+        text,
+        voice_id,
+        instructions,
+        getattr(character, "voice_speed", getattr(frame, "dialogue_snapshot_speed", 1.0)) if character else getattr(frame, "dialogue_snapshot_speed", 1.0),
+        getattr(character, "voice_pitch", getattr(frame, "dialogue_snapshot_pitch", 1.0)) if character else getattr(frame, "dialogue_snapshot_pitch", 1.0),
+        getattr(character, "voice_volume", getattr(frame, "dialogue_snapshot_volume", 50)) if character else getattr(frame, "dialogue_snapshot_volume", 50),
+    )
     return current != frame.dialogue_text_hash
 
 class AudioGenerator:
@@ -201,7 +220,10 @@ class AudioGenerator:
             frame.dialogue_voice_id = voice
             frame.dialogue_snapshot_text = text
             frame.dialogue_instructions = instructions
-            frame.dialogue_text_hash = _compute_dialogue_hash(text, voice, instructions)
+            frame.dialogue_snapshot_speed = speed
+            frame.dialogue_snapshot_pitch = pitch
+            frame.dialogue_snapshot_volume = volume
+            frame.dialogue_text_hash = _compute_dialogue_hash(text, voice, instructions, speed, pitch, volume)
 
         except Exception as e:
             if output_path and os.path.exists(output_path):
@@ -227,20 +249,17 @@ class AudioGenerator:
         frame.status = GenerationStatus.PROCESSING
         
         try:
-            # TODO: Implement actual SFX call (e.g., MMAudio)
-            # For now, we mock it.
             logger.info(f"Generating SFX for: {frame.action_description}")
             
-            output_path = os.path.join(self.output_dir, 'sfx', f"{frame.id}.mp3")
+            output_path = os.path.join(self.output_dir, 'sfx', f"{frame.id}.wav")
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Create a dummy file
-            with open(output_path, 'wb') as f:
-                f.write(b'dummy sfx content')
+            self._write_test_sfx(output_path, frame.action_description, frame.video_url)
                 
             # Store relative path for frontend serving
             rel_path = os.path.relpath(output_path, "output")
             frame.sfx_url = rel_path
+            frame.sfx_fingerprint = _compute_sfx_fingerprint(frame.action_description, frame.video_url)
             frame.status = GenerationStatus.COMPLETED
             
         except Exception as e:
@@ -248,6 +267,33 @@ class AudioGenerator:
             frame.status = GenerationStatus.FAILED
             
         return frame
+
+    def generate_sfx_preview(self, frame: StoryboardFrame) -> StoryboardFrame:
+        """Generate a valid local-provider preview without replacing applied SFX."""
+        output_path = os.path.join(self.output_dir, "sfx", f"{frame.id}_preview.wav")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        self._write_test_sfx(output_path, frame.action_description, frame.video_url)
+        frame.preview_sfx_url = os.path.relpath(output_path, "output")
+        frame.preview_sfx_fingerprint = _compute_sfx_fingerprint(frame.action_description, frame.video_url)
+        return frame
+
+    @staticmethod
+    def _write_test_sfx(path: str, description: Optional[str], video_url: Optional[str]) -> None:
+        """Write a valid deterministic WAV used by the local test provider."""
+        import math
+        import wave
+        frequency = 330 + (sum(ord(char) for char in (description or "")) % 220)
+        sample_rate = 16_000
+        samples = int(sample_rate * 0.6)
+        with wave.open(path, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+            payload = bytearray()
+            for index in range(samples):
+                amplitude = int(8000 * math.sin(2 * math.pi * frequency * index / sample_rate) * (1 - index / samples))
+                payload.extend(amplitude.to_bytes(2, byteorder="little", signed=True))
+            wav.writeframes(bytes(payload))
 
     def generate_sfx_from_video(self, frame: StoryboardFrame) -> StoryboardFrame:
         """Generates SFX based on video content (Video-to-Audio)."""
@@ -258,13 +304,13 @@ class AudioGenerator:
         # Mock V2A Logic
         time.sleep(1)
         
-        output_path = os.path.join(self.output_dir, 'sfx', f"{frame.id}_v2a.mp3")
+        output_path = os.path.join(self.output_dir, 'sfx', f"{frame.id}_v2a.wav")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        self._write_test_sfx(output_path, frame.action_description, frame.video_url)
         
-        with open(output_path, 'wb') as f:
-            f.write(b'dummy v2a sfx content')
-            
         frame.sfx_url = os.path.relpath(output_path, "output")
+        frame.sfx_fingerprint = _compute_sfx_fingerprint(frame.action_description, frame.video_url)
         return frame
 
     def generate_bgm(self, frame: StoryboardFrame) -> StoryboardFrame:
