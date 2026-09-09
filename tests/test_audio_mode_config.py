@@ -64,4 +64,3 @@ def test_provider_rejects_unsupported_driven_mode():
             audio_url="https://example.test/dialogue.wav",
             legacy_generate_audio=False,
         )
-

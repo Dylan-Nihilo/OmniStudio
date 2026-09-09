@@ -83,4 +83,3 @@ def resolve_video_audio_options(
         "sound": "on" if enabled else "off",
         "vidu_audio": enabled,
     }
-
