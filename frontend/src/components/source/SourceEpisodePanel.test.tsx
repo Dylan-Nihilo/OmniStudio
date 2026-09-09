@@ -79,6 +79,23 @@ describe("SourceEpisodePanel", () => {
     await waitFor(() => expect(onUnlink).toHaveBeenCalledWith("episode-linked"));
   });
 
+  it("点击已关联 Episode 后打开对应剧本", () => {
+    const onOpenScript = vi.fn();
+    render(
+      <SourceEpisodePanel
+        linkedEpisodes={[linkedEpisode()]}
+        availableEpisodes={[]}
+        onLink={vi.fn()}
+        onUnlink={vi.fn()}
+        onOpenScript={onOpenScript}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "open scriptEditor" }));
+
+    expect(onOpenScript).toHaveBeenCalledWith("episode-linked");
+  });
+
   it("没有关系时显示空态并隐藏关联操作", () => {
     render(
       <SourceEpisodePanel

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Link2, Unlink } from "lucide-react";
+import { FileText, Link2, Unlink } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, EmptyState, SelectField } from "@omnistudio/ui";
 import type { SourceEpisode } from "@/lib/api";
@@ -16,6 +16,7 @@ export interface SourceEpisodePanelProps {
   busy?: boolean;
   onLink: (episodeId: string) => void | Promise<void>;
   onUnlink: (episodeId: string) => void | Promise<void>;
+  onOpenScript?: (episodeId: string) => void;
 }
 
 function episodeLabel(episode: SourceEpisode): string {
@@ -23,8 +24,10 @@ function episodeLabel(episode: SourceEpisode): string {
   return `EP.${String(episode.episode_number).padStart(2, "0")} · ${episode.title}`;
 }
 
-export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, busy = false, onLink, onUnlink }: SourceEpisodePanelProps) {
+export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, busy = false, onLink, onUnlink, onOpenScript }: SourceEpisodePanelProps) {
   const t = useTranslations("sourceWorkspace");
+  const tc = useTranslations("common");
+  const ts = useTranslations("script");
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>(availableEpisodes[0]?.id || "");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -96,6 +99,15 @@ export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, 
                     <strong>{episode.title}</strong>
                     <span>{episode.episode_number == null ? t("episodeNumberUnknown") : t("episodeNumber", { number: episode.episode_number })}</span>
                   </div>
+                  {onOpenScript && <Button
+                    variant="quiet"
+                    aria-label={`${tc("open")} ${ts("scriptEditor")}`}
+                    isDisabled={relationBusy}
+                    onPress={() => onOpenScript(episode.id)}
+                  >
+                    <FileText size={15} aria-hidden="true" />
+                    {tc("open")}
+                  </Button>}
                   <Button
                     variant="quiet"
                     aria-label={t("unlinkEpisode")}

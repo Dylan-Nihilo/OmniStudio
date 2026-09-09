@@ -430,7 +430,7 @@ export default function SourceWorkspace() {
             <SourceChapterPanel chapters={chapters} total={chapterTotal} page={chapterPage} pageSize={pageSize} query={chapterQuery} selectedChapter={selectedChapter} revisions={revisions} impacts={impacts} saving={saving} onQueryChange={value => { setChapterQuery(value); setChapterPage(1); }} onPageChange={value => setChapterPage(Math.max(1, value))} onSelect={chapter => void selectChapter(chapter)} onSave={saveChapter} onRestore={restoreRevision} onClose={() => setSelectedChapter(null)} />
             {!selectedChapter && <>
               <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisBusy} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
-              <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} onLink={linkEpisode} onUnlink={unlinkEpisode} />
+              <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
               <SourceEpisodeSplitPanel preview={splitPreview} busy={splitBusy} createdEpisodes={splitCreatedEpisodes} onPreview={previewEpisodeSplit} onChange={(proposals: SourceEpisodeSplitProposal[]) => setSplitPreview(current => current ? { ...current, proposals } : current)} onSave={() => void saveEpisodeSplitPreview()} onCancel={() => void cancelEpisodeSplitPreview()} onConfirm={payload => void confirmEpisodeSplit(payload)} />
             </>}
           </>}
