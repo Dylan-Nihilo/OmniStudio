@@ -580,6 +580,11 @@ class JobRepository:
                         created_at=now,
                     )
                 )
+                connection.execute(
+                    update(Job.__table__)
+                    .where(Job.__table__.c.id == row["job_id"])
+                    .values(updated_at=now)
+                )
         return {"resumed": resumed, "failed": failed}
 
     @staticmethod
