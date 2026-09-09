@@ -2206,6 +2206,11 @@
       "saveErrorFallback": "请检查服务是否正常运行",
       "saving": "保存中..."
     },
+    "source": {
+      "staleTitle": "上游来源已更新",
+      "staleBanner": "当前剧本依赖的来源章节已有新版本，请复核后再继续生产。",
+      "staleTargets": "待复核下游对象：{count}"
+    },
     "standalone": {
       "emptyTitle": "选择一个项目开始编辑",
       "emptyDescription": "打开已有项目继续写作，或新建一份剧本。",

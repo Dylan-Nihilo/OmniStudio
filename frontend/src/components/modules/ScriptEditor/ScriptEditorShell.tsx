@@ -5,11 +5,11 @@ import { ActionMenu, Button, Dialog, IconButton } from '@omnistudio/ui';
 import { useTranslations } from 'next-intl';
 import { EditorContent } from '@tiptap/react';
 import type { JSONContent } from '@tiptap/core';
-import { ArrowLeft, BookOpen, Loader2, Minimize2, PanelLeftOpen, PanelRightOpen, WifiOff, RotateCcw, X, MoreHorizontal, Upload, Download, History, Save, Keyboard } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpen, Loader2, Minimize2, PanelLeftOpen, PanelRightOpen, WifiOff, RotateCcw, X, MoreHorizontal, Upload, Download, History, Save, Keyboard } from 'lucide-react';
 import { useEditorStore } from '@/store/editorStore';
 import type { Project } from '@/store/projectStore';
 import { api } from '@/lib/api';
-import { scriptEditorApi } from '@/lib/scriptEditorApi';
+import { scriptEditorApi, type SourceDependency, type StaleTarget } from '@/lib/scriptEditorApi';
 import { documentFromOriginalText, shouldUseOriginalText } from './scriptEditorContent';
 import { useEditorSetup } from './hooks/useEditorSetup';
 import { useAutoSave } from './hooks/useAutoSave';
@@ -52,6 +52,9 @@ export default function ScriptEditorShell({
   const [wide, setWide] = useState(false);
   const [serverDocument, setServerDocument] = useState<object | null>(null);
   const [serverUpdatedAt, setServerUpdatedAt] = useState(0);
+  const [sourceDependencies, setSourceDependencies] = useState<SourceDependency[]>([]);
+  const [sourceStale, setSourceStale] = useState(false);
+  const [sourceStaleTargets, setSourceStaleTargets] = useState<StaleTarget[]>([]);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('scenes');
   const [mobilePanel, setMobilePanel] = useState<'left' | 'right' | null>(null);
   const [dialog, setDialog] = useState<'import' | 'export' | 'snapshots' | 'leave' | null>(null);
@@ -93,6 +96,9 @@ export default function ScriptEditorShell({
     setProjectData(null);
     setServerDocument(null);
     setServerUpdatedAt(0);
+    setSourceDependencies([]);
+    setSourceStale(false);
+    setSourceStaleTargets([]);
 
     if (!projectId) {
       setDocumentState('ready');
@@ -150,6 +156,9 @@ export default function ScriptEditorShell({
         editor.commands.setContent(content, { emitUpdate: false });
         setServerDocument(editor.getJSON());
         setServerUpdatedAt(Date.parse(String(rawResponse.updated_at || '')) || 0);
+        setSourceDependencies(Array.isArray(rawResponse.source_dependencies) ? rawResponse.source_dependencies as SourceDependency[] : []);
+        setSourceStale(rawResponse.stale === true);
+        setSourceStaleTargets(Array.isArray(rawResponse.stale_targets) ? rawResponse.stale_targets as StaleTarget[] : []);
         runDerivation();
         editor.setEditable(true, false);
         store.setDirty(false);
@@ -280,6 +289,14 @@ export default function ScriptEditorShell({
             <p role={saveError ? 'alert' : undefined} aria-live="polite" className={`min-w-0 flex-1 text-xs ${saveError || documentState === 'error' ? 'text-status-failed-fg' : 'text-text-muted'}`}>{statusText}</p>
             <IconButton aria-label={t('shell.inspector')} aria-pressed={wide ? showRight : mobilePanel === 'right'} onPress={() => wide ? toggleRight() : setMobilePanel('right')}><PanelRightOpen size={16} /></IconButton>
           </div>
+          {sourceStale && <div data-testid="script-source-stale" className="flex shrink-0 items-start gap-3 border-b border-status-warning-border bg-status-warning-bg px-4 py-3 text-sm text-status-warning-fg sm:px-6">
+            <AlertTriangle size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="font-medium">{t('source.staleTitle')}</p>
+              <p className="mt-1 leading-5">{t('source.staleBanner')} {sourceDependencies.map(item => `${item.source_title} · ${item.chapter_title} · v${item.revision_number}`).join('、')}</p>
+              {sourceStaleTargets.length > 0 && <p className="mt-1 text-xs opacity-80">{t('source.staleTargets', { count: sourceStaleTargets.length })}</p>}
+            </div>
+          </div>}
         </>
       ) : <div className="flex shrink-0 items-center justify-end gap-3 border-b border-border-subtle px-4 py-2"><span className="text-xs text-text-muted">{t('views.exitFocusHint')}</span><Button variant="quiet" onPress={() => setViewMode('edit')} aria-label={t('views.exitFocus')}><Minimize2 size={16} />{t('views.exitFocus')}</Button></div>}
 

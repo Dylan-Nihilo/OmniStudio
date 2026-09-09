@@ -154,6 +154,31 @@ describe("ScriptEditorShell layout", () => {
     expect(editor.setEditable).toHaveBeenCalledWith(true, false);
   });
 
+  it("shows the upstream Source stale state when a loaded document is out of date", async () => {
+    loadDocument.mockResolvedValue({
+      content: { type: "doc", content: [] },
+      revision: "script-revision-1",
+      dependency_fingerprint: "current-fingerprint",
+      source_dependencies: [{
+        source_id: "source-1",
+        source_title: "原始资料",
+        chapter_id: "chapter-1",
+        chapter_title: "第一章",
+        revision_id: "source-revision-2",
+        revision_number: 2,
+      }],
+      stale: true,
+      stale_targets: [{ target_type: "script", target_stage: "script", target_id: "project-1" }],
+      updated_at: "2026-09-09T00:00:00Z",
+    });
+
+    render(<ScriptEditorShell mode="full" projectId="project-1" />);
+
+    expect(await screen.findByTestId("script-source-stale")).toHaveTextContent("source.staleBanner");
+    expect(screen.getByTestId("script-source-stale")).toHaveTextContent("原始资料");
+    expect(screen.getByTestId("script-source-stale")).toHaveTextContent("第一章");
+  });
+
   it("loads the complete project so panels can show existing assets", async () => {
     render(<ScriptEditorShell mode="full" projectId="project-1" />);
 

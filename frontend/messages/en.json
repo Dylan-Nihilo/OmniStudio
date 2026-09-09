@@ -2206,6 +2206,11 @@
       "saveErrorFallback": "Check that the service is running",
       "saving": "Saving..."
     },
+    "source": {
+      "staleTitle": "Upstream source changed",
+      "staleBanner": "A source chapter used by this script has a newer revision. Review it before continuing production.",
+      "staleTargets": "Downstream items to review: {count}"
+    },
     "standalone": {
       "emptyTitle": "Choose a project to start editing",
       "emptyDescription": "Continue writing in an existing project, or start a new script.",
