@@ -36,6 +36,18 @@ def _probe_payload(include_audio=True):
     return {"streams": streams, "format": {"duration": "3.5"}}
 
 
+def _probe_payload_with_subtitles():
+    payload = _probe_payload(include_audio=True)
+    payload["streams"].append(
+        {
+            "codec_type": "subtitle",
+            "codec_name": "mov_text",
+            "tags": {"language": "und"},
+        }
+    )
+    return payload
+
+
 def _install_ffprobe_mock(monkeypatch, payload):
     monkeypatch.setattr(pipeline_module, "get_ffprobe_path", lambda: "ffprobe")
 
@@ -78,12 +90,14 @@ def test_verify_merged_video_passes_with_video_and_audio(tmp_path, monkeypatch, 
         "sample_rate": 48000,
         "channels": 2,
     }
+    assert report["subtitles"] is None
     assert report["duration"] == 3.5
     assert report["checks"] == {
         "has_video": True,
         "has_audio": True,
         "duration_valid": True,
         "resolution_valid": True,
+        "has_subtitles": False,
     }
     assert report["errors"] == []
 
@@ -97,7 +111,9 @@ def test_verify_merged_video_allows_missing_audio(tmp_path, monkeypatch, pipelin
 
     assert report["ok"] is True
     assert report["audio"] is None
+    assert report["subtitles"] is None
     assert report["checks"]["has_audio"] is False
+    assert report["checks"]["has_subtitles"] is False
     assert report["errors"] == []
 
 
@@ -121,3 +137,15 @@ def test_verify_merged_video_reports_missing_output(tmp_path, monkeypatch, pipel
 
     assert report["ok"] is False
     assert any("not found" in error.lower() for error in report["errors"])
+
+
+def test_verify_merged_video_reports_soft_subtitle_stream(tmp_path, monkeypatch, pipeline):
+    output_path = tmp_path / "subtitled.mp4"
+    output_path.write_bytes(b"not a real video; ffprobe is mocked")
+    _install_ffprobe_mock(monkeypatch, _probe_payload_with_subtitles())
+
+    report = pipeline._verify_merged_video(str(output_path), expected_subtitles="soft")
+
+    assert report["ok"] is True
+    assert report["subtitles"] == {"codec": "mov_text", "language": "und"}
+    assert report["checks"]["has_subtitles"] is True

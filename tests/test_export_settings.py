@@ -18,7 +18,7 @@ def merge_harness(tmp_path, monkeypatch):
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
     pipeline.scripts = {}
     pipeline._save_data = lambda: None
-    pipeline._verify_merged_video = lambda output_path: {"ok": True, "duration": 1.0, "checks": {"has_audio": True}, "video": {}}
+    pipeline._verify_merged_video = lambda output_path, **kwargs: {"ok": True, "duration": 1.0, "checks": {"has_audio": True}, "video": {}}
     pipeline._maybe_apply_bgm_mux = lambda script, output_path, ffmpeg_path, audio_bitrate="128k": None
 
     monkeypatch.setattr(pipeline_module, "get_ffmpeg_path", lambda: "ffmpeg")

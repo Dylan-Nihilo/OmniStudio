@@ -4008,7 +4008,10 @@ class ComicGenPipeline:
 
             self._set_merge_progress(script, "mixing", "混音处理", 0.9)
             self._set_merge_progress(script, "verifying", "验收成片", 0.95)
-            script.merge_verification = self._verify_merged_video(output_path)
+            script.merge_verification = self._verify_merged_video(
+                output_path,
+                expected_subtitles=export_settings["subtitles"],
+            )
             if script.merge_verification["ok"]:
                 verification = script.merge_verification
                 logger.info(
@@ -4050,19 +4053,21 @@ class ComicGenPipeline:
             user_msg = self._extract_ffmpeg_error_message(stderr_msg, abs_video_paths)
             raise RuntimeError(user_msg)
     
-    def _verify_merged_video(self, output_path: str) -> Dict[str, Any]:
+    def _verify_merged_video(self, output_path: str, expected_subtitles: str = "none") -> Dict[str, Any]:
         """Probe a merged video and return a structured acceptance report."""
         report: Dict[str, Any] = {
             "ok": False,
             "path": output_path,
             "video": None,
             "audio": None,
+            "subtitles": None,
             "duration": 0.0,
             "checks": {
                 "has_video": False,
                 "has_audio": False,
                 "duration_valid": False,
                 "resolution_valid": False,
+                "has_subtitles": False,
             },
             "errors": [],
         }
@@ -4120,6 +4125,7 @@ class ComicGenPipeline:
         streams = probe_data.get("streams") or []
         video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
         audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+        subtitle_stream = next((stream for stream in streams if stream.get("codec_type") == "subtitle"), None)
 
         def _to_float(value: Any) -> Optional[float]:
             try:
@@ -4167,9 +4173,15 @@ class ComicGenPipeline:
                 "sample_rate": _to_int(audio_stream.get("sample_rate")),
                 "channels": _to_int(audio_stream.get("channels")),
             }
+        if subtitle_stream:
+            report["subtitles"] = {
+                "codec": subtitle_stream.get("codec_name"),
+                "language": (subtitle_stream.get("tags") or {}).get("language"),
+            }
 
         has_video = video_stream is not None
         has_audio = audio_stream is not None
+        has_subtitles = subtitle_stream is not None
         video_width = _to_int(video_stream.get("width")) if video_stream else None
         video_height = _to_int(video_stream.get("height")) if video_stream else None
         duration_valid = duration > 0.5
@@ -4180,6 +4192,7 @@ class ComicGenPipeline:
             "has_audio": has_audio,
             "duration_valid": duration_valid,
             "resolution_valid": resolution_valid,
+            "has_subtitles": has_subtitles,
         }
 
         if not has_video:
@@ -4188,8 +4201,15 @@ class ComicGenPipeline:
             errors.append(f"Merged video duration is invalid: {duration:.3f}s (must be > 0.5s)")
         if not resolution_valid:
             errors.append("Merged video resolution is invalid: width and height must be > 0")
+        if expected_subtitles == "soft" and not has_subtitles:
+            errors.append("Merged video is missing the requested soft subtitle stream")
 
-        report["ok"] = has_video and duration_valid and resolution_valid
+        report["ok"] = (
+            has_video
+            and duration_valid
+            and resolution_valid
+            and (expected_subtitles != "soft" or has_subtitles)
+        )
         return report
 
     def _maybe_apply_bgm_mux(
