@@ -13,7 +13,7 @@ import pytest
 from unittest.mock import patch
 
 from src.apps.comic_gen.models import (
-    Script, Character, Scene, StoryboardFrame, GenerationStatus,
+    Script, Character, Scene, Prop, StoryboardFrame, GenerationStatus,
     GlobalAssetLibrary,
 )
 from src.apps.comic_gen.pipeline import ComicGenPipeline
@@ -93,6 +93,38 @@ class TestCreateProject:
         assert len(project.characters) == 2
         assert len(project.scenes) == 1
         assert len(project.frames) == 1
+
+
+class TestEntityExtractionSelection:
+    def test_reparse_persists_only_selected_cached_entities(self, pipeline, project):
+        parsed = Script(
+            id='new-id',
+            title=project.title,
+            original_text='Updated text',
+            created_at=time.time(),
+            updated_at=time.time(),
+            characters=[
+                Character(id='char-keep', name='Keep', description='kept'),
+                Character(id='char-drop', name='Drop', description='dropped'),
+            ],
+            scenes=[Scene(id='scene-keep', name='Keep Scene', description='kept')],
+            props=[Prop(id='prop-drop', name='Drop Prop', description='dropped')],
+        )
+        pipeline._extraction_cache[project.id] = (time.time(), parsed)
+
+        result = pipeline.reparse_project(
+            project.id,
+            'Updated text',
+            selected_entity_ids={
+                'characters': ['char-keep'],
+                'scenes': [],
+                'props': [],
+            },
+        )
+
+        assert [item.id for item in result.characters] == ['char-keep']
+        assert result.scenes == []
+        assert result.props == []
 
 
 # ---------------------------------------------------------------------------

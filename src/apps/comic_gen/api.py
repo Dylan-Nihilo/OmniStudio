@@ -1020,6 +1020,7 @@ async def create_project(request: CreateProjectRequest, http_request: Request, s
 
 class ReparseProjectRequest(BaseModel):
     text: str
+    selected_entity_ids: Optional[Dict[str, List[str]]] = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -1461,7 +1462,12 @@ async def reparse_project(script_id: str, request: ReparseProjectRequest):
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,  # Use default executor
-            _context_call(pipeline.reparse_project, script_id, request.text)
+            _context_call(
+                pipeline.reparse_project,
+                script_id,
+                request.text,
+                request.selected_entity_ids,
+            )
         )
         return signed_response(result)
     except ValueError as e:

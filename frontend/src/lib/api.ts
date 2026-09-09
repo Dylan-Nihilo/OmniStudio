@@ -903,8 +903,15 @@ export const api = {
         return res.data;
     },
 
-    reparseProject: async (scriptId: string, text: string) => {
-        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, { text });
+    reparseProject: async (
+        scriptId: string,
+        text: string,
+        selectedEntityIds?: { characters: string[]; scenes: string[]; props: string[] },
+    ) => {
+        const res = await apiClient.put(`${API_URL}/projects/${scriptId}/reparse`, {
+            text,
+            ...(selectedEntityIds ? { selected_entity_ids: selectedEntityIds } : {}),
+        });
         return { ...res.data, originalText: res.data.original_text };
     },
 

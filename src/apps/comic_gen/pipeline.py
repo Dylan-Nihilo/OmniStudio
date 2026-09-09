@@ -728,7 +728,12 @@ class ComicGenPipeline:
         self._extraction_cache[script_id] = (time.time(), new_script)
         return new_script
 
-    def reparse_project(self, script_id: str, text: str) -> Script:
+    def reparse_project(
+        self,
+        script_id: str,
+        text: str,
+        selected_entity_ids: Optional[Dict[str, List[str]]] = None,
+    ) -> Script:
         """Re-parse the text for an existing project, replacing all entities."""
         existing_script = self.scripts.get(script_id)
         if not existing_script:
@@ -741,6 +746,11 @@ class ComicGenPipeline:
         else:
             custom_extraction = getattr(getattr(existing_script, "prompt_config", None), "entity_extraction", "")
             new_script = self.script_processor.parse_novel(existing_script.title, text, custom_extraction)
+
+        if selected_entity_ids is not None:
+            for field in ("characters", "scenes", "props"):
+                selected = set(selected_entity_ids.get(field, []))
+                setattr(new_script, field, [item for item in getattr(new_script, field) if item.id in selected])
         
         # Preserve the original script ID and timestamps
         new_script.id = existing_script.id
