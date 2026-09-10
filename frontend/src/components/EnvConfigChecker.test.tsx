@@ -5,7 +5,14 @@ import { useAuthStore } from '@/store/authStore';
 import EnvConfigChecker from './EnvConfigChecker';
 import EnvConfigDialog from './project/EnvConfigDialog';
 
-const mocks = vi.hoisted(() => ({ getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getEnvConfig: vi.fn(),
+  saveEnvConfig: vi.fn(),
+  getGlobalModelSettings: vi.fn(),
+  saveGlobalModelSettings: vi.fn(),
+  fetchPromptDefaults: vi.fn(),
+  healthCheck: vi.fn(),
+}));
 const t = vi.hoisted(() => (key: string) => key);
 vi.mock('next-intl', () => ({ useTranslations: () => t }));
 vi.mock('@/lib/api', () => ({ api: mocks, API_URL: 'http://localhost:3021' }));
@@ -26,6 +33,8 @@ beforeEach(() => {
     bootstrapping: false,
   });
   mocks.getEnvConfig.mockRejectedValue(forbidden);
+  mocks.getGlobalModelSettings.mockResolvedValue({});
+  mocks.saveGlobalModelSettings.mockResolvedValue({});
   mocks.fetchPromptDefaults.mockResolvedValue({});
   mocks.healthCheck.mockResolvedValue({});
 });
