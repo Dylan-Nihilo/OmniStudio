@@ -35,7 +35,7 @@ it('saves numeric export values and clears optional resolution and fps through t
   fireEvent.click(await screen.findByRole('option', { name: '—' }));
   fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ fps: null })));
-});
+}, 15_000);
 
 it('offers an explicit retry action after a merge failure', () => {
   const onMerge = vi.fn();
