@@ -4,7 +4,7 @@
 
 - 飞书需求表：175 条。
 - 远端基线：`github/main` = `1b838ec`，即已合并的 PR #63（视频音频模式与后期混音）。PR #63 不等于 175 条需求全部完成。
-- 当前分支：`feature/sflynnn-development`，相对 `github/main` 包含 Source、连续性、Assembly 编辑、Cast 类型候选、视觉手册、FFmpeg 验证、生产 JobItem 接入等后续提交；本轮进一步补齐 Source 批量幂等、生产任务重启恢复及 Workspace → Series/Project → Episode → Shot 模型继承与恢复。
+- 当前分支：`feature/sflynnn-development`，相对 `github/main` 包含 Source、连续性、Assembly 编辑、Cast 类型候选、视觉手册、FFmpeg 验证、生产 JobItem 接入等后续提交；本轮进一步补齐 Source 批量幂等、生产任务重启恢复、Workspace → Series/Project → Episode → Shot 模型继承与恢复，以及 Script L3 AI 补充的逐项接受/拒绝持久化。
 
 ## 当前验证结果
 
@@ -24,6 +24,7 @@
 - 本轮新增 Cast 批量结果与取消语义：批次展示 pending/succeeded/failed/canceled，取消调用统一 Task API 并将未完成项计入 canceled；项目级资产生成响应补充 `_job_id`，保证真实取消链路可用。相关前后端测试通过。
 - 本轮补齐四级模型设置链：Workspace 默认持久化，Series/Project 稀疏覆盖，Episode 稀疏覆盖，Shot 稀疏覆盖；各层恢复继承均删除 override 而不是复制父级快照。Series 与 Episode 设置已在真实浏览器完成打开、修改、保存、重开和恢复继承操作；模型继承后端回归 `10 passed`，两个设置弹窗 UI 回归通过。
 - Source 批量分析现在使用 Workspace 级幂等键复用同一批次与 JobItem；所有受支持生产类型的 pending/processing JobItem 会在服务启动时通过统一 dispatcher 恢复，未知类型确定性失败并保留事件历史。
+- Script L3 AI 补充现在同时支持逐项接受和拒绝：接受角色会合并到派生角色并提交完整 derivation，角色/道具/节拍/地点建议统一写入 `l3_supplements`；接受失败会保留原建议。客户端兼容后端 `entities` 响应，并归一化 `scene_index`，对应 UI、API 和后端持久化回归已纳入本轮门禁。
 
 ## PR #64 复核纠偏
 

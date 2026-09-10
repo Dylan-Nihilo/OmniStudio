@@ -82,7 +82,7 @@ export function useL3Completion(editor: Editor | null, projectId: string | null)
       });
 
       // 请求成功
-      setL3Results(response.results ?? []);
+      setL3Results(response.entities ?? response.results ?? []);
       setL3Status('success');
       setL3LastFetchTime(Date.now());
     } catch (error: unknown) {

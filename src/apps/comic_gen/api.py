@@ -7909,6 +7909,7 @@ class SyncDerivationRequest(BaseModel):
     estimated_duration: float = 0
     word_count: int = 0
     confidence_score: float = 0
+    l3_supplements: Optional[List[Dict[str, Any]]] = None
 
 
 class DeriveGapEntity(BaseModel):
@@ -7944,6 +7945,13 @@ def sync_derivation(project_id: str, req: SyncDerivationRequest):
     project_dir = _get_project_dir(project_id)
     derivation_path = project_dir / "derivation.json"
 
+    previous = {}
+    if derivation_path.exists():
+        try:
+            previous = json.loads(derivation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+
     data = {
         "scenes": req.scenes,
         "characters": req.characters,
@@ -7951,6 +7959,11 @@ def sync_derivation(project_id: str, req: SyncDerivationRequest):
         "estimated_duration": req.estimated_duration,
         "word_count": req.word_count,
         "confidence_score": req.confidence_score,
+        "l3_supplements": (
+            req.l3_supplements
+            if req.l3_supplements is not None
+            else previous.get("l3_supplements", [])
+        ),
         "synced_at": datetime.now(timezone.utc).isoformat(),
     }
 

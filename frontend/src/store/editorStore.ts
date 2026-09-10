@@ -62,6 +62,7 @@ interface EditorState {
   // L3 LLM 补全状态
   l3Status: L3Status;
   l3Results: L3Result[] | null;
+  l3AcceptedResults: L3Result[];
   l3LastFetchTime: number | null;
 
   // Actions
@@ -90,6 +91,7 @@ interface EditorState {
   // L3 actions
   setL3Status: (status: L3Status) => void;
   setL3Results: (results: L3Result[] | null) => void;
+  setL3AcceptedResults: (results: L3Result[]) => void;
   setL3LastFetchTime: (time: number | null) => void;
 
   // 重置
@@ -120,6 +122,7 @@ const initialState = {
 
   l3Status: 'idle' as L3Status,
   l3Results: null as L3Result[] | null,
+  l3AcceptedResults: [] as L3Result[],
   l3LastFetchTime: null as number | null,
 };
 
@@ -152,6 +155,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   // L3 actions
   setL3Status: (status) => set({ l3Status: status }),
   setL3Results: (results) => set({ l3Results: results }),
+  setL3AcceptedResults: (results) => set({ l3AcceptedResults: results }),
   setL3LastFetchTime: (time) => set({ l3LastFetchTime: time }),
 
   reset: () => set(initialState),
