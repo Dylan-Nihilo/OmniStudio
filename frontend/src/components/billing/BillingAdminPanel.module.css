@@ -1,0 +1,38 @@
+.panel { display: flex; flex-direction: column; gap: 16px; }
+
+.tabs { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-default); }
+.tab { padding: 6px 12px; border: 1px solid transparent; border-radius: 8px; color: var(--color-text-secondary); font-size: 13px; }
+.tab:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.tabActive { background: var(--color-bg-surface); border-color: var(--color-border-default); color: var(--color-primary); }
+.spacer { flex: 1; }
+.dirty { padding: 3px 8px; border-radius: 6px; background: var(--color-bg-surface); color: var(--color-warning, #d97706); font-size: 12px; }
+
+.body { display: flex; flex-direction: column; gap: 16px; }
+.formula { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--color-bg-surface); color: var(--color-text-secondary); font-size: 13px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+.probe { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 16px; align-items: end; padding: 12px; border: 1px solid var(--color-border-default); border-radius: 8px; }
+.derived { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin: 0; }
+.derived div { display: flex; flex-direction: column; gap: 2px; }
+.derived dt { color: var(--color-text-secondary); font-size: 12px; }
+.derived dd { margin: 0; font-size: 18px; font-variant-numeric: tabular-nums; }
+
+.stageRow { display: flex; gap: 8px; }
+.chip { padding: 4px 12px; border: 1px solid var(--color-border-default); border-radius: 999px; color: var(--color-text-secondary); font-size: 12px; }
+.chipActive { background: var(--color-bg-surface); color: var(--color-primary); }
+
+.table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table th { padding: 8px 6px; border-bottom: 1px solid var(--color-border-default); color: var(--color-text-secondary); font-weight: 500; text-align: left; }
+.table td { padding: 6px; border-bottom: 1px solid var(--color-border-subtle, var(--color-border-default)); }
+.mono { font-family: var(--font-mono, ui-monospace, monospace); word-break: break-all; }
+.strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.belowTarget { background: color-mix(in srgb, var(--color-danger, #dc2626) 8%, transparent); }
+.disabled { opacity: 0.5; }
+.live { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--color-success, #16a34a); color: #fff; font-size: 10px; }
+
+.priceInput { width: 90px; padding: 3px 6px; border: 1px solid var(--color-border-default); border-radius: 6px; background: var(--color-bg-base); color: var(--color-text-primary); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.newItem { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 12px; align-items: end; padding-top: 12px; border-top: 1px solid var(--color-border-default); }
+
+.hint { padding: 24px 0; color: var(--color-text-secondary); font-size: 13px; text-align: center; }

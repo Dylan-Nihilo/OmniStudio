@@ -1,0 +1,16 @@
+.cost {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.insufficient { color: var(--color-danger, #dc2626); }
+
+.unpriced { opacity: 0.6; }

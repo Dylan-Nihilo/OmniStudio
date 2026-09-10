@@ -24,6 +24,8 @@ import { isTauri } from "@/lib/transport";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "@/store/toastStore";
 import ChangePasswordDialog from "@/components/auth/ChangePasswordDialog";
+import CreditBalance from "@/components/billing/CreditBalance";
+import CreditLedgerDialog from "@/components/billing/CreditLedgerDialog";
 import WorkspaceControls from "@/components/collaboration/WorkspaceControls";
 import WorkspaceNavigation, { type WorkspaceSection } from "@/components/workspace/WorkspaceNavigation";
 import SidebarSection from "./SidebarSection";
@@ -95,6 +97,7 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, taskBad
   const logout = useAuthStore((state) => state.logout);
   const [menuOpen, setMenuOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
 
   const handleNav = (id: GlobalTab, hash: string) => {
     onTabChange(id);
@@ -155,11 +158,13 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, taskBad
         </nav>
         </div>
         <div className={styles.railBottom}>
+          <CreditBalance onOpenLedger={() => setLedgerOpen(true)} />
           <NavButton active={activeTab === "settings"} label={t("settings")} icon={Settings} onClick={() => handleNav("settings", "#/settings")} />
           {account}
         </div>
       </aside>
       <ChangePasswordDialog isOpen={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
+      <CreditLedgerDialog isOpen={ledgerOpen} onClose={() => setLedgerOpen(false)} />
     </>
   );
 }
