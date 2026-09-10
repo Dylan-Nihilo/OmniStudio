@@ -114,16 +114,25 @@
 
 ## Task 5: 切换演练与上线
 
-- [ ] **演练（预发布）**：用生产 SQLite 的备份跑一遍脚本 → 起一个指向 MySQL 的后端实例（另一个端口）→ 跑 `scripts/run_acceptance.py` 主链验收。
-- [ ] **上线窗口（预计 5–10 分钟；生产库 1 MB、15 个项目，整表复制秒级）**，在 `47.236.165.75:/opt/omnistudio/app` 执行：
+### 上线记录（2026-09-10 02:43 UTC，`47.236.165.75`，部署 `31a425d`）
+
+- 第一次切换在复制 `sessions` 时失败：生产 refresh-token 哈希是 `sha256:<hex>`（71 字符），超出 `VARCHAR(64)`；脚本按设计自动回滚到 SQLite 后端，服务中断约 20 秒。修复：哈希列改 `VARCHAR(128)`（`e7c4942`），迁移脚本新增 VARCHAR 宽度预检（dry-run 即可发现）。
+- 第二次切换成功：`docker compose stop backend` → `sqlite3 .backup` 冷备（`/opt/omnistudio/backups/lumenx.db.pre-mysql.*.bak`）→ 一次性容器跑迁移（16 张有数据的表行数与哈希全部一致，报告 `output/migration-report-<ts>.json`）→ 写入 `OMNI_STUDIO_DATABASE_URL` → `up -d backend`，`/health` 返回 `storage.dialect=mysql`。前端 3000 端口未重启。
+- 只重建了 backend 镜像；前端镜像构建需要 `HEROUI_KEY`（服务器与本机均无），本次 main 相对已部署版本也没有前端改动。
+- `.env` 新增 `COMPOSE_PROFILES=mysql`、`MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`OMNI_STUDIO_DATABASE_URL`；旧配置备份在 `/opt/omnistudio/backups/pre-mysql-<ts>/`。
+- 每日 04:10 `mysqldump` 到 `/opt/omnistudio/backups/mysql/`（保留 14 天），脚本 `/opt/omnistudio/scripts/backup-mysql.sh`，首次运行成功（72 KB）。
+- 回滚方式：删掉 `.env` 里的 `OMNI_STUDIO_DATABASE_URL`，`docker image tag omnistudio-rollback-backend:previous app-backend:latest`，`docker compose up -d backend`；SQLite 文件 `output/lumenx.db` 原样保留。
+
+- [x] **演练（预发布）**：用生产 SQLite 的备份跑一遍脚本 → 起一个指向 MySQL 的后端实例（另一个端口）→ 跑 `scripts/run_acceptance.py` 主链验收。
+- [x] **上线窗口（预计 5–10 分钟；生产库 1 MB、15 个项目，整表复制秒级）**，在 `47.236.165.75:/opt/omnistudio/app` 执行：
   1. 公告 / 前端置为只读横幅（`OMNI_STUDIO_READ_ONLY=1`，后端对写接口返回 503）。
   2. `sqlite3 output/lumenx.db ".backup '/opt/omnistudio/backups/lumenx.db.pre-mysql.<ts>.bak'"` 冷备份（含 WAL checkpoint）。
   3. 运行迁移脚本（非 dry-run）→ 报告全绿。
   4. 改 `.env` 的 `OMNI_STUDIO_DATABASE_URL` → `docker compose up -d backend` → `curl 127.0.0.1:17177/health` 确认 `dialect=mysql`；前端 3000 端口不重启。
   5. 登录 + 新建项目 + 一条 Playground 生成的冒烟。
   6. 关只读。
-- [ ] **回滚**：改回空 URL → 重启；窗口内的写入（理论上为 0）无需回灌。
-- [ ] 上线后 7 天保留 SQLite 文件与迁移报告；之后归档到备份目录。
+- [x] **回滚**：改回空 URL → 重启；窗口内的写入（理论上为 0）无需回灌。
+- [x] 上线后 7 天保留 SQLite 文件与迁移报告；之后归档到备份目录。
 
 ## 为什么不做"零停机双写"
 
