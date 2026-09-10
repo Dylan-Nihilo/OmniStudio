@@ -2974,7 +2974,39 @@
       "grant": "授予",
       "revoke": "撤销",
       "grantFailed": "授予失败",
-      "revokeFailed": "撤销失败"
+      "revokeFailed": "撤销失败",
+      "actions": "操作",
+      "cancel": "取消",
+      "confirmDelete": "删除",
+      "notSelectable": "用户选不到",
+      "anySpec": "全部规格",
+      "unselectableHint": "标记“用户选不到”的模型不在模型目录里，生成界面无法选择，这些定价永远不会被用到，可以直接删除。",
+      "deleteUnselectable": "删除全部 {count} 个选不到的",
+      "deleteItemTitle": "删除计费项",
+      "deleteItemAria": "删除 {name} 的这条定价",
+      "deleteItemBody": "确定删除「{name}」的这条定价吗？",
+      "deleteItemNote": "只影响草稿，已发布的版本不变；发布新版本后该模型将无法生成（会提示未定价）。",
+      "itemDeleteFailed": "删除失败",
+      "capability": {
+        "i2v": "图生视频",
+        "r2v": "参考图生视频",
+        "t2v": "文生视频",
+        "v2v": "视频编辑",
+        "t2i": "文生图",
+        "i2i": "图生图",
+        "image": "图片",
+        "videoedit": "视频编辑"
+      },
+      "specKey": {
+        "resolution": "分辨率",
+        "mode": "模式",
+        "audio": "含音频",
+        "size_tier": "尺寸",
+        "quality": "质量",
+        "direction": "方向",
+        "variant": "档位"
+      },
+      "unpricedHint": "有 {count} 个用户能选的模型还没有定价。发布后用这些模型生成会直接失败（提示未定价）。点名称可把它填进下方的新增表单。"
     }
   }
 }

@@ -2974,7 +2974,39 @@
       "grant": "Grant",
       "revoke": "Revoke",
       "grantFailed": "Could not grant",
-      "revokeFailed": "Could not revoke"
+      "revokeFailed": "Could not revoke",
+      "actions": "Actions",
+      "cancel": "Cancel",
+      "confirmDelete": "Delete",
+      "notSelectable": "not selectable",
+      "anySpec": "any spec",
+      "unselectableHint": "Models flagged “not selectable” are missing from the model catalog, so nobody can pick them in the generation UI and these prices will never be used. Safe to delete.",
+      "deleteUnselectable": "Delete all {count} unselectable",
+      "deleteItemTitle": "Delete price item",
+      "deleteItemAria": "Delete the price for {name}",
+      "deleteItemBody": "Delete the price for “{name}”?",
+      "deleteItemNote": "Draft only — published versions are unchanged. After the next publish this model can no longer be generated (it reports as unpriced).",
+      "itemDeleteFailed": "Could not delete",
+      "capability": {
+        "i2v": "Image to video",
+        "r2v": "Reference to video",
+        "t2v": "Text to video",
+        "v2v": "Video edit",
+        "t2i": "Text to image",
+        "i2i": "Image to image",
+        "image": "Image",
+        "videoedit": "Video edit"
+      },
+      "specKey": {
+        "resolution": "Resolution",
+        "mode": "Mode",
+        "audio": "With audio",
+        "size_tier": "Size",
+        "quality": "Quality",
+        "direction": "Direction",
+        "variant": "Tier"
+      },
+      "unpricedHint": "{count} model(s) the picker offers have no price. After publishing, generating with them fails outright as unpriced. Click a name to prefill the form below."
     }
   }
 }

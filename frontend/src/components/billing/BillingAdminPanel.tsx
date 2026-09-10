@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import clsx from "clsx";
-import { Button, SelectField, TextField } from "@omnistudio/ui";
+import { Trash2 } from "lucide-react";
+import { Button, Dialog, IconButton, SelectField, TextField } from "@omnistudio/ui";
 
 import {
     billingAdminApi,
@@ -11,12 +12,13 @@ import {
     type PriceBookVersion,
     type PricingItemRow,
 } from "@/lib/billing";
+import { catalogModesForStage, describePriceItem, describeSpec, TRANSLATED_CAPABILITIES, TRANSLATED_SPEC_KEYS, type PriceItemKind } from "@/lib/billingCatalog";
 import { useBillingStore } from "@/store/billingStore";
 import { toast } from "@/store/toastStore";
 import styles from "./BillingAdminPanel.module.css";
 
-const STAGES = ["video", "image", "text", "tts"] as const;
-const UNITS: Record<string, string> = { video: "second", image: "image", text: "token_1m", tts: "chars_10k" };
+const STAGES: readonly PriceItemKind[] = ["video", "image", "text", "tts"];
+const UNITS: Record<PriceItemKind, string> = { video: "second", image: "image", text: "token_1m", tts: "chars_10k" };
 
 type Tab = "rule" | "items" | "versions" | "roles";
 
@@ -179,10 +181,16 @@ function RuleTab({ rule, isRoot, onSaved }: { rule: CreditRule; isRoot: boolean;
 function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoot: boolean; onChanged: () => Promise<void> }) {
     const t = useTranslations("billing.admin");
     const [edits, setEdits] = useState<Record<string, string>>({});
-    const [stage, setStage] = useState<string>("video");
+    const [stage, setStage] = useState<PriceItemKind>("video");
     const [draft, setDraft] = useState({ model_id: "", match: "", price: "" });
+    const [pendingDelete, setPendingDelete] = useState<PricingItemRow | null>(null);
 
     const shown = items.filter((item) => item.stage === stage);
+    const unselectable = shown.filter((item) => !describePriceItem(item).selectable);
+    // The opposite and more dangerous gap: the picker offers it, the price book does not
+    // cover it, so generating with it fails as soon as billing is switched on.
+    const pricedIds = new Set(shown.map((item) => item.model_id));
+    const unpriced = catalogModesForStage(stage).filter((mode) => !pricedIds.has(mode.id));
 
     const save = async (item: PricingItemRow, price: number) => {
         try {
@@ -198,6 +206,27 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
         }
     };
 
+    const remove = async (item: PricingItemRow) => {
+        try {
+            await billingAdminApi.deleteItem(item.item_id);
+            setPendingDelete(null);
+            await onChanged();
+        } catch {
+            toast.warning(t("itemDeleteFailed"));
+        }
+    };
+
+    const removeAllUnselectable = async () => {
+        try {
+            for (const item of unselectable) {
+                await billingAdminApi.deleteItem(item.item_id);
+            }
+            await onChanged();
+        } catch {
+            toast.warning(t("itemDeleteFailed"));
+        }
+    };
+
     return (
         <div className={styles.body}>
             <div className={styles.stageRow}>
@@ -207,26 +236,71 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                         {t(`stage.${id}`)}
                     </button>
                 ))}
+                <span className={styles.spacer} />
+                {isRoot && unselectable.length > 0 && (
+                    <Button variant="quiet" size="sm" onPress={() => void removeAllUnselectable()}>
+                        {t("deleteUnselectable", { count: unselectable.length })}
+                    </Button>
+                )}
             </div>
+
+            {unselectable.length > 0 && <p className={styles.notice}>{t("unselectableHint")}</p>}
+
+            {unpriced.length > 0 && (
+                <div className={styles.danger}>
+                    <p>{t("unpricedHint", { count: unpriced.length })}</p>
+                    <ul>
+                        {unpriced.map((mode) => (
+                            <li key={mode.id}>
+                                <button type="button" className={styles.linkButton}
+                                        onClick={() => setDraft({ model_id: mode.id, match: "", price: "" })}>
+                                    {mode.name}
+                                </button>
+                                <span className={styles.modelId}>{mode.id}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             <table className={styles.table}>
                 <thead>
                     <tr>
                         <th>{t("model")}</th><th>{t("spec")}</th><th>{t("purchasePrice")}</th>
                         <th>{t("credits")}</th><th>{t("listPrice")}</th><th>{t("l1Price")}</th><th>{t("margin")}</th>
-                        {isRoot && <th />}
+                        {isRoot && <th className={styles.actionsHead}>{t("actions")}</th>}
                     </tr>
                 </thead>
                 <tbody>
                     {shown.map((item) => {
                         const edited = edits[item.item_id];
+                        const described = describePriceItem(item);
+                        const specs = describeSpec(item.match as Record<string, unknown>);
                         return (
                             <tr key={item.item_id} className={clsx(!item.meets_target && styles.belowTarget, !item.enabled && styles.disabled)}>
-                                <td className={styles.mono}>{item.model_id}</td>
-                                <td className={styles.mono}>{Object.entries(item.match).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}</td>
+                                <td>
+                                    <span className={styles.modelName}>{described.name}</span>
+                                    {described.capability && (
+                                        <span className={styles.capability}>
+                                            {TRANSLATED_CAPABILITIES.has(described.capability) ? t(`capability.${described.capability}`) : described.capability}
+                                        </span>
+                                    )}
+                                    {!described.selectable && <span className={styles.warnBadge}>{t("notSelectable")}</span>}
+                                    <span className={styles.modelId}>{item.model_id}</span>
+                                </td>
+                                <td>
+                                    {specs.length === 0
+                                        ? <span className={styles.anySpec}>{t("anySpec")}</span>
+                                        : specs.map(({ key, value }) => (
+                                            <span key={key} className={styles.specChip}>
+                                                {TRANSLATED_SPEC_KEYS.has(key) ? t(`specKey.${key}`) : key}{value && ` ${value}`}
+                                            </span>
+                                        ))}
+                                </td>
                                 <td>
                                     {isRoot
-                                        ? <input className={styles.priceInput} value={edited ?? String(item.purchase_price_cny)}
+                                        ? <input className={styles.priceInput} aria-label={`${described.name} ${t("purchasePrice")}`}
+                                                 value={edited ?? String(item.purchase_price_cny)}
                                                  onChange={(event) => setEdits((prev) => ({ ...prev, [item.item_id]: event.target.value }))} />
                                         : item.purchase_price_cny}
                                 </td>
@@ -235,10 +309,14 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                                 <td>¥{item.l1_price_cny.toFixed(2)}</td>
                                 <td>{(item.markup_vs_purchase * 100).toFixed(0)}%</td>
                                 {isRoot && (
-                                    <td>
+                                    <td className={styles.actions}>
                                         {edited !== undefined && Number(edited) !== item.purchase_price_cny && (
                                             <Button size="sm" onPress={() => void save(item, Number(edited))}>{t("save")}</Button>
                                         )}
+                                        <IconButton variant="quiet" aria-label={t("deleteItemAria", { name: described.name })}
+                                                    onPress={() => setPendingDelete(item)}>
+                                            <Trash2 size={14} />
+                                        </IconButton>
                                     </td>
                                 )}
                             </tr>
@@ -271,6 +349,22 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                         }
                     }}>{t("addItem")}</Button>
                 </div>
+            )}
+
+            {pendingDelete && (
+                <Dialog
+                    isOpen
+                    onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+                    title={t("deleteItemTitle")}
+                    closeLabel={t("cancel")}
+                    footer={<>
+                        <Button variant="quiet" onPress={() => setPendingDelete(null)}>{t("cancel")}</Button>
+                        <Button onPress={() => void remove(pendingDelete)}>{t("confirmDelete")}</Button>
+                    </>}
+                >
+                    <p>{t("deleteItemBody", { name: describePriceItem(pendingDelete).name })}</p>
+                    <p className={styles.hintInline}>{t("deleteItemNote")}</p>
+                </Dialog>
             )}
         </div>
     );
