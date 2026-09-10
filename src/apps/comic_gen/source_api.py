@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from .source_models import (
@@ -855,16 +856,30 @@ def analyze_source_batch(
     repository = _repository(request)
     workspace_id = _workspace_id(request)
     options = payload or SourceAnalysisBatchRequest()
+    from ...storage.job_repository import JobRepository
+    from .api import _production_adapter
+
+    job_repository = JobRepository(request.app.state.storage_engine)
+    request_key = (request.headers.get("Idempotency-Key") or "").strip()
+    idempotency_key = f"source-analysis:{source_id}:{request_key}" if request_key else None
+    if idempotency_key:
+        existing_item = job_repository.find_item_by_idempotency(workspace_id, idempotency_key)
+        if existing_item is not None:
+            existing_batch = repository.get_analysis_batch(workspace_id, str(existing_item.payload["batch_id"]))
+            return JSONResponse(
+                status_code=200,
+                content={
+                    **existing_batch,
+                    "job_id": existing_item.job_id,
+                    "job_item_id": existing_item.id,
+                },
+            )
     batch = repository.create_analysis_batch(
         workspace_id=workspace_id,
         source_id=source_id,
         chapter_ids=options.chapter_ids,
         user_id=_user_id(request),
     )
-    from ...storage.job_repository import JobRepository
-    from .api import _production_adapter
-
-    job_repository = JobRepository(request.app.state.storage_engine)
     job = job_repository.create_job(
         workspace_id,
         "production.source_analysis",
@@ -873,7 +888,7 @@ def analyze_source_batch(
     item = job_repository.create_item(
         job.id,
         "source_analysis",
-        f"source-analysis:{batch['id']}",
+        idempotency_key or f"source-analysis:{batch['id']}",
         {
             "source_document_id": source_id,
             "batch_id": batch["id"],
