@@ -25,6 +25,9 @@ export interface VideoConfig {
     resolution: string;
     promptExtend: boolean;
     negativePrompt: string;
+    /** Unified audio intent. `post` keeps provider output silent for later mixing. */
+    audioMode?: "silent" | "native" | "driven" | "post";
+    audioUrl?: string;
     // Kling
     mode?: string;
     cfgScale?: number;
@@ -63,6 +66,7 @@ export const DEFAULT_VIDEO_CONFIG: VideoConfig = {
     resolution: "720p",
     promptExtend: true,
     negativePrompt: "",
+    audioMode: "post",
     mode: "std",
     cfgScale: 0.5,
     sound: false,

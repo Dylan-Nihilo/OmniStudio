@@ -573,6 +573,7 @@ export interface BgmPreset {
     label: string;
     mood: string;
     url: string;
+    available?: boolean;
 }
 
 export interface ReconcileAction {
@@ -593,6 +594,7 @@ export interface VideoTask {
     resolution: string;
     generate_audio: boolean;
     audio_url?: string;
+    audio_mode?: "silent" | "native" | "driven" | "post" | null;
     prompt_extend: boolean;
     negative_prompt?: string;
     created_at: number;
@@ -1034,7 +1036,8 @@ export const api = {
         // Watermark toggle — supported across wan / kling / vidu / pixverse /
         // happyhorse video. undefined = leave to provider default (typically
         // off); explicit boolean is user's Advanced-section choice.
-        watermark?: boolean
+        watermark?: boolean,
+        audioMode?: "silent" | "native" | "driven" | "post"
     ) => {
         const res = await apiClient.post(`${API_URL}/projects/${id}/video_tasks`, {
             image_url,
@@ -1043,7 +1046,10 @@ export const api = {
             seed,
             resolution,
             generate_audio: generateAudio,
-            audio_url: audioUrl,
+            // Preserve legacy audio_url callers when no unified mode is set;
+            // explicit non-driven modes intentionally ignore stale URLs.
+            audio_url: audioMode == null || audioMode === "driven" ? audioUrl : undefined,
+            audio_mode: audioMode,
             prompt_extend: promptExtend,
             negative_prompt: negativePrompt,
             batch_size: batchSize,

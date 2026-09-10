@@ -15,6 +15,7 @@ from io import BytesIO
 import zipfile
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
+from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
 from .storyboard import StoryboardGenerator
@@ -2728,7 +2729,7 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None) -> Tuple[Script, str]:
+    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None) -> Tuple[Script, str]:
         """Creates a new video generation task."""
         script = self.get_script(script_id)
         if not script:
@@ -2736,6 +2737,17 @@ class ComicGenPipeline:
 
         if frame_id and not any(frame.id == frame_id for frame in script.frames):
             raise ValueError(f"Frame not found: {frame_id}")
+
+        # Validate the unified mode at task creation time so unsupported
+        # provider combinations return a clean 400 before queuing work.
+        resolve_video_audio_options(
+            model=model,
+            audio_mode=audio_mode,
+            audio_url=audio_url,
+            legacy_generate_audio=generate_audio,
+            legacy_sound=sound,
+            legacy_vidu_audio=vidu_audio,
+        )
         
         task_id = str(uuid.uuid4())
         
@@ -2844,6 +2856,7 @@ class ComicGenPipeline:
             resolution=resolution,
             generate_audio=generate_audio,
             audio_url=audio_url,
+            audio_mode=audio_mode,
             prompt_extend=prompt_extend,
             negative_prompt=negative_prompt,
             model=model,
@@ -3992,6 +4005,7 @@ class ComicGenPipeline:
                 mixed_path = self._maybe_apply_bgm_mux(
                     script, output_path, ffmpeg_path,
                     audio_bitrate=export_settings["audio_bitrate"],
+                    frames=selected_frames,
                 )
                 if mixed_path:
                     # Replace the concat output with the mixed one (same filename)
@@ -4230,39 +4244,78 @@ class ComicGenPipeline:
         video_path: str,
         ffmpeg_path: str,
         audio_bitrate: str = "192k",
+        frames: Optional[List[StoryboardFrame]] = None,
     ) -> Optional[str]:
-        """PR-3l · Overlay BGM at the configured mix level on top of the
-        already-merged video. Returns the path of the new file, or None
-        when no BGM is configured / the file is missing.
+        """Overlay optional BGM and per-frame SFX on the merged video.
 
-        Strategy: 2-input filter — amix the existing video audio (volume =
-        dialogue_level/100) with the looped BGM (volume = bgm_level/100).
-        SFX track will be added in a later pass when SFX files exist.
+        SFX inputs are delayed to the cumulative start time of their frame so
+        the same effect remains aligned after the selected takes are merged.
+        Missing optional files are skipped; a configured track must never make
+        an otherwise valid export fail.
         """
         bgm_rel = (script.bgm_url or "").strip()
-        if not bgm_rel:
-            return None
-        bgm_abs = _safe_resolve_path("output", bgm_rel)
-        if not os.path.exists(bgm_abs):
-            logger.info(f"[MERGE/BGM] preset file missing — {bgm_abs}; skipping mux")
-            return None
+        bgm_abs = None
+        if bgm_rel:
+            candidate = _safe_resolve_path("output", bgm_rel)
+            if os.path.exists(candidate):
+                bgm_abs = candidate
+            else:
+                logger.info(f"[MERGE/BGM] preset file missing — {candidate}; skipping BGM")
 
         mix = script.mix_settings or {"dialogue": 100, "bgm": 35, "sfx": 60}
         dial = max(0, min(100, int(mix.get("dialogue", 100)))) / 100.0
         bgm_lvl = max(0, min(100, int(mix.get("bgm", 35)))) / 100.0
+        sfx_lvl = max(0, min(100, int(mix.get("sfx", 60)))) / 100.0
+
+        sfx_inputs: List[tuple[str, float, str]] = []
+        elapsed = 0.0
+        for frame in frames or []:
+            sfx_rel = (getattr(frame, "sfx_url", None) or "").strip()
+            if sfx_rel:
+                sfx_abs = _safe_resolve_path("output", sfx_rel)
+                if os.path.exists(sfx_abs):
+                    sfx_inputs.append((sfx_abs, elapsed, getattr(frame, "id", "unknown")))
+                else:
+                    logger.info(f"[MERGE/SFX] file missing — {sfx_abs}; skipping frame {frame.id}")
+            elapsed += _frame_duration_seconds(frame)
+
+        if bgm_abs is None and not sfx_inputs:
+            return None
 
         mixed_path = video_path.replace(".mp4", "_mixed.mp4")
-        # -stream_loop -1 loops BGM until shortest (the video) ends.
-        # apad on the dialogue side avoids amix cutting early on silence.
-        filter_complex = (
-            f"[0:a]volume={dial:.3f},apad[a0];"
-            f"[1:a]volume={bgm_lvl:.3f},aloop=loop=-1:size=2e9[a1];"
-            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+        # Input 0 is the merged video. Optional BGM is input 1; SFX inputs
+        # follow it. All tracks are padded and mixed for the video's duration.
+        filter_parts = [f"[0:a]volume={dial:.3f},apad[a0]"]
+        mix_labels = ["[a0]"]
+        input_count = 1
+        input_args: List[str] = []
+        if bgm_abs is not None:
+            input_args.extend(["-stream_loop", "-1", "-i", bgm_abs])
+            filter_parts.append(
+                f"[1:a]volume={bgm_lvl:.3f},aloop=loop=-1:size=2e9[abgm]"
+            )
+            mix_labels.append("[abgm]")
+            input_count += 1
+
+        for sfx_index, (sfx_abs, offset, frame_id) in enumerate(sfx_inputs):
+            input_index = input_count
+            input_args.extend(["-i", sfx_abs])
+            label = f"[asfx{sfx_index}]"
+            delay = max(0, int(round(offset * 1000)))
+            filter_parts.append(
+                f"[{input_index}:a]volume={sfx_lvl:.3f},adelay={delay}|{delay},apad{label}"
+            )
+            mix_labels.append(label)
+            input_count += 1
+
+        filter_parts.append(
+            f"{''.join(mix_labels)}amix=inputs={input_count}:duration=first:dropout_transition=0[aout]"
         )
+        filter_complex = ";".join(filter_parts)
         cmd = [
             ffmpeg_path, "-y",
             "-i", video_path,
-            "-stream_loop", "-1", "-i", bgm_abs,
+            *input_args,
             "-filter_complex", filter_complex,
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy",
@@ -4271,7 +4324,10 @@ class ComicGenPipeline:
             "-movflags", "+faststart",
             mixed_path,
         ]
-        logger.info(f"[MERGE/BGM] muxing BGM dial={dial:.2f} bgm={bgm_lvl:.2f} — {os.path.basename(bgm_abs)}")
+        logger.info(
+            f"[MERGE/AUDIO] muxing tracks={input_count} dial={dial:.2f} "
+            f"bgm={bgm_lvl:.2f} sfx={sfx_lvl:.2f}"
+        )
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=300)
         except subprocess.CalledProcessError as e:
@@ -4465,26 +4521,16 @@ class ComicGenPipeline:
             output_path = os.path.join("output", "video", output_filename)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Handle Audio Logic
-            # 1. Silent: audio_url=None, audio=False
-            # 2. AI Sound: audio_url=None, audio=True
-            # 3. Sound Driven: audio_url=URL (audio param ignored)
-            
-            final_audio_url = None
-            final_generate_audio = False
-            
-            if task.audio_url:
-                # Sound Driven Mode
-                final_audio_url = task.audio_url
-                final_generate_audio = False # API says audio param ignored if url present, but let's be explicit
-            elif task.generate_audio:
-                # AI Sound Mode
-                final_audio_url = None
-                final_generate_audio = True
-            else:
-                # Silent Mode
-                final_audio_url = None
-                final_generate_audio = False
+            audio_options = resolve_video_audio_options(
+                model=task.model,
+                audio_mode=getattr(task.audio_mode, "value", task.audio_mode),
+                audio_url=task.audio_url,
+                legacy_generate_audio=task.generate_audio,
+                legacy_sound=task.sound,
+                legacy_vidu_audio=task.vidu_audio,
+            )
+            final_audio_url = audio_options["audio_url"]
+            final_generate_audio = audio_options["audio"]
 
             # Ensure img_url is passed correctly for OSS
             img_url = task.image_url
@@ -4554,7 +4600,7 @@ class ComicGenPipeline:
                     negative_prompt=task.negative_prompt,
                     aspect_ratio="16:9",
                     mode=task.mode or "std",
-                    sound=task.sound or "off",
+                    sound=audio_options["sound"],
                     cfg_scale=task.cfg_scale,
                 )
             elif use_vendor_vidu:
@@ -4572,7 +4618,7 @@ class ComicGenPipeline:
                     resolution=task.resolution,
                     aspect_ratio="16:9",
                     seed=task.seed or 0,
-                    audio=task.vidu_audio if task.vidu_audio is not None else True,
+                    audio=audio_options["vidu_audio"],
                     movement_amplitude=task.movement_amplitude or "auto",
                 )
             else:
@@ -4816,10 +4862,14 @@ class ComicGenPipeline:
             # Generate SFX (Video-to-Audio) - if video exists
             if frame.video_url:
                 self.audio_generator.generate_sfx_from_video(frame)
-                
-            # Generate BGM
-            # Simple logic: generate BGM for every frame (or scene start)
-            self.audio_generator.generate_bgm(frame)
+
+            # BGM generation is optional and currently requires an external
+            # music provider. Keep the legacy hook callable, but do not let
+            # its unavailable-provider error block dialogue/SFX generation.
+            try:
+                self.audio_generator.generate_bgm(frame)
+            except RuntimeError as exc:
+                logger.info(f"Skipping BGM generation for frame {frame.id}: {exc}")
                 
         self._save_data()
         return script
