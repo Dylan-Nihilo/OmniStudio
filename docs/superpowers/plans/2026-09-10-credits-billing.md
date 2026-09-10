@@ -39,7 +39,7 @@
 - [x] `config/pricing/price_book.seed.json` + `scripts/seed_price_book.py`（73 个规格，2026-09 官方市场价）。
 - [x] 测试 `tests/test_billing_api.py`（真实 setup → root；成员 403；发布校验 422）。
 
-## Task 3: 生成任务接钱包
+## Task 3: 生成任务接钱包 ✅（`48fbf2c`）
 
 **Files:**
 - Create: `src/billing/metering.py`（kind/payload → `Quote` 的解析器；实际用量提取）
@@ -49,18 +49,26 @@
 - Modify: `src/apps/comic_gen/llm_adapter.py`、`src/audio/tts.py`（token / 字符计量）
 - Test: `tests/test_billing_metering.py`
 
-- [ ] 计费项解析：按 kind 从 payload / legacy task / 项目设置取 `model_id`（legacy id → canonical mode id）、规格参数、数量；无价格 → 抛 `BillingError`。
-- [ ] `create_item`：报价 → `wallets.hold`（余额不足 402，不建 item）→ 把 `price_book_version` 与 quote 写进 `payload_json.billing`。
-- [ ] `transition_item`：`succeeded` → 按实际用量（视频秒数 / 图片张数）结算；`failed/canceled/skipped` → 退还。
-- [ ] 文本：`with billing.text_meter(workspace_id, model_id, est_tokens)`，进入冻结预估 × 1.3，退出按 `usage` 结算。
-- [ ] 关闭 `_create_production_item` 返回 `None` 绕过账本的路径。
-- [ ] 计费开关 `OMNI_STUDIO_BILLING_ENABLED`（默认 off，桌面版 / 未发布价格簿的部署不受影响）。
+- [x] 计费项解析：按 kind 从 payload / legacy task / 项目设置取 `model_id`（legacy id → canonical mode id）、规格参数、数量；无价格 → 抛 `BillingError`。
+- [x] `create_item`：报价 → `wallets.hold`（余额不足 402，不建 item）→ 把 `price_book_version` 与 quote 写进 `payload_json.billing`。
+- [x] `transition_item`：`succeeded` → 按实际用量（视频秒数 / 图片张数）结算；`failed/canceled/skipped` → 退还。
+- [x] 文本：改为后付费——`_chat_once` 拿到 `response.usage` 后按实际 token 扣，`tts.synthesize` 按字符扣，扣款上限为可用余额。预冻结对 token 类调用价值不大（额度未知且任务已完成），改为"余额为空时拒绝下一次调用"。
+- [x] 关闭 `_create_production_item` 返回 `None` 绕过账本的路径。
+- [x] 计费开关 `OMNI_STUDIO_BILLING_ENABLED`（默认 off，桌面版 / 未发布价格簿的部署不受影响）。
 
-## Task 4: 前端
+## Task 4: 前端 ✅（`5d7c1a1`）
 
-- [ ] 顶栏余额（`GET /billing/wallet`）与低余额提示；402 统一弹窗。
-- [ ] 模型选择器显示各档积分（`GET /billing/pricing-table`）；生成按钮旁"消耗 N 积分"（`POST /billing/quote`）。
-- [ ] root 后台页：参数与试算、模型价格表（含批量导入）、发布与版本、角色、钱包调账。
+- [x] 顶栏余额（`GET /billing/wallet`）与低余额提示；402 统一弹窗。
+- [x] 模型选择器显示各档积分（`GET /billing/pricing-table`）；生成按钮旁"消耗 N 积分"（`POST /billing/quote`）。
+- [x] root 后台页：参数与试算、模型价格表（含批量导入）、发布与版本、角色、钱包调账。
+
+### 落地记录
+
+- 计费挂在 `JobRepository.create_item / create_retry / transition_item`，pipeline 与 playground 共用同一条路径；`payload["billing"]` 保存报价与价格簿版本，结算按该版本重新报价。
+- 视频按 ffprobe 实际秒数结算，图片按交付的 media_refs 张数结算，均以冻结额为上限。
+- `_create_production_item` 在计费开启时解析不到 Workspace 直接 409，不再回落到无账本执行。
+- 前端在 `/billing/wallet` 返回非 2xx 时整体隐藏，桌面版与自托管零影响。
+- 测试：后端 723 passed（新增 27 个计费用例），前端 199 passed（新增 7 个）。
 
 ## Task 5: 上线
 
