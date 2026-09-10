@@ -591,6 +591,22 @@ class ComicGenPipeline:
         die naturally with the process and don't need recovery.
         """
         STUCK = ("pending", "processing")
+        durable_video_projects: set[str] = set()
+        durable_video_tasks: set[str] = set()
+        if self.storage_engine is not None:
+            try:
+                from ...storage.job_repository import JobRepository
+
+                for item in JobRepository(self.storage_engine).list_inflight():
+                    if item.kind != "video":
+                        continue
+                    if item.project_id:
+                        durable_video_projects.add(item.project_id)
+                    legacy_task_id = item.payload.get("legacy_task_id")
+                    if legacy_task_id:
+                        durable_video_tasks.add(str(legacy_task_id))
+            except Exception:
+                logger.warning("Orphan task recovery: unable to inspect durable video jobs", exc_info=True)
         recovered = 0
 
         for script in self.scripts.values():
@@ -617,6 +633,8 @@ class ComicGenPipeline:
                     recovered += 1
             tasks = getattr(script, "video_tasks", None) or []
             for task in tasks:
+                if script.id in durable_video_projects or str(getattr(task, "id", "")) in durable_video_tasks:
+                    continue
                 if getattr(task, "status", None) in STUCK:
                     task.status = "failed"
                     if not getattr(task, "error", None):
@@ -4590,7 +4608,7 @@ class ComicGenPipeline:
             with self._save_lock:
                 script = self.get_script(script_id)
                 task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
-                if not task or task.status != "pending":
+                if not task or task.status not in ("pending", "processing"):
                     return
                 task.status = "processing"
                 self._save_data()

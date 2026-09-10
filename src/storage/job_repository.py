@@ -277,11 +277,14 @@ class JobRepository:
         return self._item_record(row) if row is not None else None
 
     def list_inflight(self, workspace_id: str | None = None) -> list[JobItemRecord]:
-        """Return processing items that need adapter recovery after restart."""
+        """Return pending/processing items that need adapter recovery after restart."""
         with self.engine.connect() as connection:
             rows = connection.execute(
                 select(JobItem.__table__).where(
-                    JobItem.__table__.c.status == JobStatus.PROCESSING.value,
+                    JobItem.__table__.c.status.in_((
+                        JobStatus.PENDING.value,
+                        JobStatus.PROCESSING.value,
+                    )),
                     *([JobItem.__table__.c.workspace_id == workspace_id] if workspace_id else []),
                 ).order_by(JobItem.__table__.c.created_at)
             ).mappings().all()

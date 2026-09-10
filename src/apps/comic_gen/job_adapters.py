@@ -108,6 +108,8 @@ class ProductionJobAdapter:
 
     def recover(self, item_id: str, *, workspace_id: str | None = None) -> JobItemRecord:
         item = self._owned_item(item_id, workspace_id)
+        if item.status == "pending":
+            return self.start(item.id, workspace_id=workspace_id)
         if item.status != "processing":
             return item
         self.repository.record_item_event(item.id, "recovered")
