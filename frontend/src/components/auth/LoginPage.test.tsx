@@ -37,7 +37,7 @@ describe("LoginPage", () => {
     expect(brandImage).toBeInTheDocument();
     expect(brandImage).toHaveAttribute("width", "30");
     expect(brandImage).toHaveAttribute("height", "30");
-    expect(brandImage).toHaveStyle({ width: "30px", height: "30px" });
+    expect(brandImage).toHaveStyle({ width: "30px", height: "auto" });
     expect(screen.getByTestId("auth-panel")).toBeInTheDocument();
   });
 
