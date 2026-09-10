@@ -30,6 +30,7 @@ KEY = String(64)       # uuid / short enum used as PK, FK, unique or indexed col
 HASH = String(128)     # token/content hashes; production refresh-token hashes carry a scheme prefix (71 chars)
 NAME = String(255)     # human-readable identifiers used in keys (titles, slugs, normalized emails)
 LABEL = String(64)     # short status/role/mode values that carry a server default
+NOTE = String(500)     # short free text that carries a default (MySQL rejects TEXT ... DEFAULT 'x')
 BIG = Text().with_variant(LONGTEXT(), "mysql")   # JSON blobs and free text without a 64 KB ceiling
 
 
@@ -1227,7 +1228,7 @@ class PricingItem(Base):
     purchase_price_cny: Mapped[float] = mapped_column(REAL, nullable=False)
     multiplier: Mapped[float] = mapped_column(REAL, nullable=False, server_default="1")
     credits_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    display_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    display_name: Mapped[str] = mapped_column(NAME, nullable=False, server_default="")
     enabled: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     updated_by_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
     updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -1249,7 +1250,7 @@ class PriceBookVersion(Base):
     version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     rule_json: Mapped[str] = mapped_column(BIG, nullable=False)
     items_json: Mapped[str] = mapped_column(BIG, nullable=False)
-    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    note: Mapped[str] = mapped_column(NOTE, nullable=False, server_default="")
     published_by_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
     published_at: Mapped[float] = mapped_column(REAL, nullable=False)
     effective_at: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -1299,7 +1300,7 @@ class CreditLedger(Base):
     unit_credits: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quantity: Mapped[float | None] = mapped_column(REAL, nullable=True)
     actor_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
-    reason: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    reason: Mapped[str] = mapped_column(NOTE, nullable=False, server_default="")
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
 
     __table_args__ = (
