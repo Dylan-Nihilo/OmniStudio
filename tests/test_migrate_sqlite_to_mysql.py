@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, insert, select, func
+from sqlalchemy import create_engine, insert, select, func, text
 from sqlalchemy.exc import IntegrityError
 
 from src.storage.db import init_schema
@@ -89,3 +89,14 @@ def test_round_trip_into_mysql(tmp_path: Path) -> None:
     _seed(source)
     report = migrate.run(source, os.environ["OMNI_STUDIO_TEST_MYSQL_URL"], dry_run=False, truncate=True, batch_size=100)
     assert report["ok"], report
+
+
+def test_width_check_refuses_values_wider_than_target_columns(tmp_path: Path) -> None:
+    source = f"sqlite:///{tmp_path / 'source.db'}"
+    _seed(source)
+    engine = create_engine(source, future=True)
+    with engine.begin() as conn:  # SQLite happily stores 200 chars in a VARCHAR(128) column
+        conn.execute(text("INSERT INTO sessions (id, user_id, refresh_token_hash, rotation_counter, expires_at, created_at) "
+                          "SELECT 's1', id, :h, 0, 2.0, 1.0 FROM users LIMIT 1"), {"h": "x" * 200})
+    with pytest.raises(SystemExit, match="sessions.refresh_token_hash max 200 > 128"):
+        migrate.run(source, f"sqlite:///{tmp_path / 'target.db'}", dry_run=True, truncate=False, batch_size=100)
