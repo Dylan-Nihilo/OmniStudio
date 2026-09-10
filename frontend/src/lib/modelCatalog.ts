@@ -398,6 +398,7 @@ export const GLOBAL_IMAGE_MODELS = getVisibleModels('image', 'global_settings').
 export const PROJECT_I2V_MODELS = getVisibleModels('i2v', 'project_settings').map(toI2VModel);
 export const SERIES_I2V_MODELS = getVisibleModels('i2v', 'series_settings').map(toI2VModel);
 export const GLOBAL_I2V_MODELS = getVisibleModels('i2v', 'global_settings').map(toI2VModel);
+export const SERIES_R2V_MODELS = getVisibleModels('r2v', 'series_settings').map(toI2VModel);
 export const GLOBAL_R2V_MODELS = getVisibleModels('r2v', 'global_settings').map(toI2VModel);
 export const VIDEO_I2V_MODELS = getVisibleModels('i2v', 'video_sidebar').map(toI2VModel);
 

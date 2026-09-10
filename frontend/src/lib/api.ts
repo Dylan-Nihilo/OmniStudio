@@ -2384,11 +2384,16 @@ export const api = {
         const response = await apiClient.get(`${API_URL}/series/${seriesId}/model_settings`);
         return response.data;
     },
+    getEffectiveSeriesModelSettings: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/model_settings/effective`);
+        return response.data as { settings: FrontendModelSettings; sources: Record<string, string> };
+    },
     updateSeriesModelSettings: async (seriesId: string, settings: {
         t2i_model?: string;
         i2i_model?: string;
         image_model?: string;
         i2v_model?: string;
+        r2v_model?: string;
         character_aspect_ratio?: string;
         scene_aspect_ratio?: string;
         prop_aspect_ratio?: string;

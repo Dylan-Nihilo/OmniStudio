@@ -2436,6 +2436,16 @@ def get_series_model_settings(series_id: str):
     return pipeline.resolve_series_model_settings(series_id).settings.model_dump()
 
 
+@app.get("/series/{series_id}/model_settings/effective")
+def get_effective_series_model_settings(series_id: str):
+    """Return the effective Series settings and the source layer per field."""
+    try:
+        resolved = pipeline.resolve_series_model_settings(series_id)
+        return signed_response({"settings": resolved.settings.model_dump(), "sources": resolved.sources})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/config/model-settings")
 def get_global_model_settings(request: Request):
     """Return Workspace-level model defaults shared by new and existing work."""

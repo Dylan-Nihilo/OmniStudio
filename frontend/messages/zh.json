@@ -1355,6 +1355,7 @@
     "loadingSettings": "加载设置中...",
     "loadSettingsFailed": "加载设置失败。后端是否正在运行？",
     "saveSettingsFailed": "保存设置失败",
+    "resetModelInheritance": "恢复继承模型",
     "assetsT2I": "资产（文本转图像）",
     "model": "模型",
     "character": "角色",

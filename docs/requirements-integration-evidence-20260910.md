@@ -4,15 +4,15 @@
 
 - 飞书需求表：175 条。
 - 远端基线：`github/main` = `1b838ec`，即已合并的 PR #63（视频音频模式与后期混音）。PR #63 不等于 175 条需求全部完成。
-- 当前分支：`feature/sflynnn-development`，相对 `github/main` 包含 Source、连续性、Assembly 编辑、Cast 类型候选、视觉手册、FFmpeg 验证、生产 JobItem 接入等后续提交；本轮新增 Take 就绪状态校验和导出延迟清理防护。
+- 当前分支：`feature/sflynnn-development`，相对 `github/main` 包含 Source、连续性、Assembly 编辑、Cast 类型候选、视觉手册、FFmpeg 验证、生产 JobItem 接入等后续提交；本轮进一步补齐 Source 批量幂等、生产任务重启恢复及 Workspace → Series/Project → Episode → Shot 模型继承与恢复。
 
 ## 当前验证结果
 
-- 后端：`720 passed`。
+- 后端：`734 passed`。
 - 前端 build：通过（Next.js 静态导出成功）。
 - 前端 typecheck：通过。
-- 前端普通测试：46 个文件，294 条通过。
-- 前端 UI 测试：58 个文件，225 条通过。
+- 前端普通测试：47 个文件，300 条通过。
+- 前端 UI 测试：60 个文件，228 条通过。
 - 真实 FFmpeg/ffprobe：裁切、分辨率、帧率、H.264、AAC、软字幕、转场、merge 校验通过。
 - 只读主链浏览器 smoke：8/8 步骤通过。
 - 真实可写浏览器验收：登录、旧数据承接、视觉手册保存/刷新/模板/Markdown 下载、Source 导入预览、章节 revision/恢复、章节关联两个 Episode 后解绑、章节分析历史、影响事件确认、Script API 持久化通过。
@@ -22,6 +22,8 @@
 - 本轮新增 Provider 连通性测试：设置页真实 Chromium 点击“测试当前 Provider”后可看到“仅连通性探测 · 预计费用 0”风险提示；后端覆盖未配置凭证、成功探测、错误分类和敏感信息脱敏。证据截图：`.artifacts/acceptance/provider-cast/provider-test.png`。
 - 本轮新增 AI 音色推荐：后端返回可解释 `reasons` 且明确 `selection_requires_confirmation`，Voice Picker 保留试听与 Apply 确认，不自动写入角色；相关前后端测试通过。
 - 本轮新增 Cast 批量结果与取消语义：批次展示 pending/succeeded/failed/canceled，取消调用统一 Task API 并将未完成项计入 canceled；项目级资产生成响应补充 `_job_id`，保证真实取消链路可用。相关前后端测试通过。
+- 本轮补齐四级模型设置链：Workspace 默认持久化，Series/Project 稀疏覆盖，Episode 稀疏覆盖，Shot 稀疏覆盖；各层恢复继承均删除 override 而不是复制父级快照。Series 与 Episode 设置已在真实浏览器完成打开、修改、保存、重开和恢复继承操作；模型继承后端回归 `10 passed`，两个设置弹窗 UI 回归通过。
+- Source 批量分析现在使用 Workspace 级幂等键复用同一批次与 JobItem；所有受支持生产类型的 pending/processing JobItem 会在服务启动时通过统一 dispatcher 恢复，未知类型确定性失败并保留事件历史。
 
 ## PR #64 复核纠偏
 
@@ -32,7 +34,8 @@
 - `CAST-07/08/10/13`：类型化候选、批量质检与锁定、生成预览费用提示、当前候选和工作台操作。
 - `SHOT-09/10/14`、`VIDEO-10/11`：连续性账本、生成前 readiness、显式 Take 门控和下载 manifest。
 - `ASM-01/02/03/04/05/07/08/09/10/12`：显式 Take 预检、非破坏性裁切/分段编辑、真实 FFmpeg 混音/转场/编码、磁盘预检与失败上下文。
-- `TASK-08/09/10/11/12/13`：生产入口 Job/JobItem、Playground 纳入统一任务账本、恢复派发、取消/重试和 retry lineage。
+- `TASK-08/09/10/11/12/13`：生产入口 Job/JobItem、Playground 纳入统一任务账本、跨类型启动恢复、取消/重试、retry lineage 与付费入口幂等复用。
+- `MODEL-04`：Workspace → Series/Project → Episode → Shot 稀疏覆盖、来源解析和逐层恢复已落地，兼容旧 `image_model` 覆盖清理。
 
 这些条目均有后端/前端自动化覆盖，且本轮全量门禁通过；仍需补的是 owner/editor/viewer、跨 Workspace 媒体、真实外部 Provider 以及登录过期等环境矩阵，不应把 fixture 或本地 deterministic provider 误报成线上 Provider 验收。
 
@@ -56,6 +59,6 @@
 - `ASM-15`：完整 NLE（多轨、关键帧、滤镜）。
 - `MODEL-06`：动态 Provider 代码/URL/TypeScript 注入。
 
-后续集成测试仍应覆盖：owner/editor/viewer 完整浏览器矩阵、跨 Workspace 媒体访问、登录过期、Task Center 真实取消/对象跳转、真实外部 Provider 生成、导出磁盘不足与失败中间结果保留。专业格式导出的结构和内容验收已完成；真实 Provider 仍受外部凭据/配额约束，不能用 fixture 结果冒充线上 provider 通过。
+后续集成测试仍应覆盖：owner/editor/viewer 完整浏览器矩阵、跨 Workspace 媒体访问、登录过期、真实外部 Provider 生成、导出磁盘不足与失败中间结果保留。Task Center 真实取消/对象跳转已验收；专业格式导出的结构和内容验收已完成。真实 Provider 仍受外部凭据/配额约束，不能用 fixture 结果冒充线上 provider 通过。
 
 因此当前代码已达到“可以进入下一步集成测试”的门槛，但不能据此声称 175 条（扣除三项延期）已经完成全部环境验收；外部 Provider 凭证/配额、owner/editor/viewer 矩阵、跨 Workspace 媒体和登录过期仍需在集成环境继续执行。

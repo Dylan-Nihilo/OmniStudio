@@ -1355,6 +1355,7 @@
     "loadingSettings": "Loading settings...",
     "loadSettingsFailed": "Failed to load settings. Is the backend running?",
     "saveSettingsFailed": "Failed to save settings",
+    "resetModelInheritance": "Use inherited models",
     "assetsT2I": "Assets (Text-to-Image)",
     "model": "Model",
     "character": "Character",

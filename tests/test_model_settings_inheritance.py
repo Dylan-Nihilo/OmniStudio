@@ -97,6 +97,27 @@ def test_series_model_settings_reset_only_request_restores_default_and_validates
     assert invalid.status_code == 422
 
 
+def test_effective_series_model_settings_reports_workspace_and_project_sources(api_client):
+    workspace = api_client.put("/config/model-settings", json={"i2v_model": "workspace-i2v"})
+    assert workspace.status_code == 200, workspace.text
+    series = _create_series(api_client, "Effective series settings")
+
+    inherited = api_client.get(f"/series/{series['id']}/model_settings/effective")
+    assert inherited.status_code == 200, inherited.text
+    assert inherited.json()["settings"]["i2v_model"] == "workspace-i2v"
+    assert inherited.json()["sources"]["i2v_model"] == "global"
+
+    overridden = api_client.put(
+        f"/series/{series['id']}/model_settings",
+        json={"i2v_model": "project-i2v"},
+    )
+    assert overridden.status_code == 200, overridden.text
+    effective = api_client.get(f"/series/{series['id']}/model_settings/effective")
+    assert effective.status_code == 200, effective.text
+    assert effective.json()["settings"]["i2v_model"] == "project-i2v"
+    assert effective.json()["sources"]["i2v_model"] == "project"
+
+
 def test_effective_model_settings_api_reports_shot_override_sources(api_client):
     project = api_client.post(
         "/projects?skip_analysis=true",
