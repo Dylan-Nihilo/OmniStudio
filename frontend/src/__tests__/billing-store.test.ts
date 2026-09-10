@@ -79,6 +79,14 @@ describe("billing store", () => {
         expect(useBillingStore.getState().role()).toBe("root");
     });
 
+    it("treats an HTML body as billing unavailable", async () => {
+        // A proxy that does not forward /billing answers 200 with the SPA shell.
+        vi.mocked(billingApi.wallet).mockResolvedValue("<!DOCTYPE html><html></html>" as never);
+        await useBillingStore.getState().refresh();
+        expect(useBillingStore.getState().enabled).toBe(false);
+        expect(useBillingStore.getState().wallet).toBeNull();
+    });
+
     it("keeps the previous verdict while the user is signed out", async () => {
         useBillingStore.setState({ enabled: true });
         vi.mocked(billingApi.wallet).mockRejectedValue({ response: { status: 401 } });

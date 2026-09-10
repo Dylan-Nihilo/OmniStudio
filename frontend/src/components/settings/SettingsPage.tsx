@@ -197,6 +197,10 @@ export default function SettingsPage(props: SettingsPageProps = {}) {
 function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
   const billingRole = useBillingStore((state) => state.wallet?.role ?? null);
+  const refreshBilling = useBillingStore((state) => state.refresh);
+  // Load the wallet here rather than relying on the sidebar badge having mounted first:
+  // the Billing tab is gated on the platform role and must not depend on render order.
+  useEffect(() => { void refreshBilling(); }, [refreshBilling]);
   const { locale, theme, animations, setLocale, setTheme, setAnimations } = useSettingsStore();
 
   const [active, setActive] = useState<SettingsCategory>(initialCategory);

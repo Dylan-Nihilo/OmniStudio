@@ -33,6 +33,12 @@ export const useBillingStore = create<BillingState>((set, get) => ({
         set({ loading: true });
         try {
             const wallet = await billingApi.wallet();
+            // A proxy that does not forward /billing returns the SPA's index.html with a 200,
+            // so check the shape before trusting it.
+            if (typeof wallet !== "object" || wallet === null || typeof wallet.enabled !== "boolean") {
+                set({ wallet: null, enabled: false, loading: false });
+                return;
+            }
             // Root/admin get a wallet even while billing is off so they can set prices up first;
             // the badge only appears once the deployment actually bills.
             set({ wallet, enabled: wallet.enabled, loading: false });
