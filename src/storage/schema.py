@@ -26,7 +26,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 # Column type vocabulary shared by SQLite (desktop/local) and MySQL 8 (hosted).
 # SQLite ignores VARCHAR lengths, so these only constrain MySQL, where TEXT columns
 # cannot carry an index, a plain DEFAULT, or a foreign key.
-KEY = String(64)       # uuid / sha256 / short enum used as PK, FK, unique or indexed column
+KEY = String(64)       # uuid / short enum used as PK, FK, unique or indexed column
+HASH = String(128)     # token/content hashes; production refresh-token hashes carry a scheme prefix (71 chars)
 NAME = String(255)     # human-readable identifiers used in keys (titles, slugs, normalized emails)
 LABEL = String(64)     # short status/role/mode values that carry a server default
 BIG = Text().with_variant(LONGTEXT(), "mysql")   # JSON blobs and free text without a 64 KB ceiling
@@ -57,7 +58,7 @@ class MigrationRun(Base):
     migration_name: Mapped[str] = mapped_column(NAME, nullable=False)
     source_name: Mapped[str] = mapped_column(NAME, nullable=False)
     source_path: Mapped[str] = mapped_column(BIG, nullable=False)
-    source_sha256: Mapped[str] = mapped_column(KEY, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(HASH, nullable=False)
     mode: Mapped[str] = mapped_column(
         KEY,
         nullable=False,
@@ -102,7 +103,7 @@ class LegacyClaimBatch(Base):
         ForeignKey("workspaces.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    source_sha256: Mapped[str] = mapped_column(KEY, nullable=False)
+    source_sha256: Mapped[str] = mapped_column(HASH, nullable=False)
     source_manifest_json: Mapped[str] = mapped_column(BIG, nullable=False)
     mapping_json: Mapped[str] = mapped_column(BIG, nullable=False)
     project_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -245,7 +246,7 @@ class WorkspaceInvitation(Base):
         nullable=False,
     )
     email_normalized: Mapped[str] = mapped_column(NAME, nullable=False)
-    token_hash: Mapped[str] = mapped_column(KEY, nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(HASH, nullable=False, unique=True)
     invited_by_user_id: Mapped[str] = mapped_column(
         KEY,
         ForeignKey("users.id", ondelete="RESTRICT"),
@@ -299,7 +300,7 @@ class Session(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    refresh_token_hash: Mapped[str] = mapped_column(KEY, nullable=False)
+    refresh_token_hash: Mapped[str] = mapped_column(HASH, nullable=False)
     rotation_counter: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     expires_at: Mapped[float] = mapped_column(REAL, nullable=False)
     created_at: Mapped[float] = mapped_column(REAL, nullable=False)
@@ -991,7 +992,7 @@ class ScriptEditLease(Base):
         nullable=False,
     )
     client_instance_id: Mapped[str] = mapped_column(Text, nullable=False)
-    token_hash: Mapped[str] = mapped_column(KEY, nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(HASH, nullable=False, unique=True)
     acquired_at: Mapped[float] = mapped_column(REAL, nullable=False)
     heartbeat_at: Mapped[float] = mapped_column(REAL, nullable=False)
     expires_at: Mapped[float] = mapped_column(REAL, nullable=False)

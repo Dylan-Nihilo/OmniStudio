@@ -26,7 +26,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, func, insert, inspect, select, text
+from sqlalchemy import String, create_engine, func, insert, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SAWarning
 from sqlalchemy.schema import Table
@@ -60,6 +60,19 @@ def table_fingerprint(engine: Engine, table: Table, batch_size: int) -> tuple[in
                     acc[i] ^= digest[i]
                 count += 1
     return count, bytes(acc).hex()
+
+
+def check_column_widths(conn: Any, tables: list[Table]) -> list[dict[str, Any]]:
+    """SQLite ignores VARCHAR lengths, MySQL enforces them; refuse to start if any value would be truncated."""
+    overflow = []
+    for table in tables:
+        for column in table.columns:
+            if type(column.type) is String and column.type.length:
+                longest = conn.scalar(select(func.max(func.length(column)))) or 0
+                if longest > column.type.length:
+                    overflow.append({"column": f"{table.name}.{column.name}", "max_length": int(longest),
+                                     "limit": column.type.length})
+    return overflow
 
 
 def copy_table(source: Engine, target: Engine, table: Table, batch_size: int) -> int:
@@ -105,6 +118,11 @@ def run(source_url: str, target_url: str, *, dry_run: bool, truncate: bool, batc
             raise SystemExit(f"source database lacks tables {missing}; run init_schema / the app once before migrating")
         for table in tables:
             report["tables"][table.name] = {"source_rows": conn.scalar(select(func.count()).select_from(table))}
+        overflow = check_column_widths(conn, tables)
+        report["width_check"] = overflow
+        if overflow:
+            raise SystemExit("source values exceed the target VARCHAR width; widen the schema first: "
+                             + ", ".join(f"{o['column']} max {o['max_length']} > {o['limit']}" for o in overflow))
     with target.connect() as conn:
         conn.execute(text("SELECT 1"))
 
