@@ -8,17 +8,20 @@
 
 ## 当前验证结果
 
-- 后端：`714 passed, 106 warnings`。
+- 后端：`720 passed`。
 - 前端 build：通过（Next.js 静态导出成功）。
 - 前端 typecheck：通过。
 - 前端普通测试：46 个文件，294 条通过。
-- 前端 UI 测试：58 个文件，222 条通过，且无未处理异常。
+- 前端 UI 测试：58 个文件，225 条通过。
 - 真实 FFmpeg/ffprobe：裁切、分辨率、帧率、H.264、AAC、软字幕、转场、merge 校验通过。
 - 只读主链浏览器 smoke：8/8 步骤通过。
 - 真实可写浏览器验收：登录、旧数据承接、视觉手册保存/刷新/模板/Markdown 下载、Source 导入预览、章节 revision/恢复、章节关联两个 Episode 后解绑、章节分析历史、影响事件确认、Script API 持久化通过。
 - 真实 Task Center 浏览器验收：使用 acceptance Workspace 登录，读取跨项目任务列表、状态筛选/分页空态、打开失败任务详情和状态事件历史；点击重试后服务端返回幂等 `409` 并在 UI 显示可恢复错误，不产生重复 provider 调用；另以真实 pending 生产任务验证取消确认、状态变为“已取消”和关联项目跳转。证据截图：`.artifacts/acceptance/task-center-real.png`、`.artifacts/acceptance/task-detail-real.png`、`.artifacts/acceptance/task-retry-real.png`、`.artifacts/acceptance/task-cancel-object-jump-real.png`。
 - 本轮浏览器复验：登录、Workspace/Source/Tasks/Playground/Projects 路由、视觉手册保存/刷新/模板/下载、Source 可写导入预览/修订恢复/章节级 Episode 关联与解绑/分析历史/影响确认均通过；证据脚本为 `docs/agents/tools/acceptance_browser_check.py` 和 `docs/agents/tools/live_writable_source_acceptance.py`，输出见 `.artifacts/acceptance/live-source/`。
 - Cast 工作台已补齐素材多选、质检就绪统计以及系列素材批量锁定/解锁；前端集成测试覆盖选择两项并断言批量 API 请求。使用 acceptance 账号真实浏览器进入专用 `workflow_mode=r2v` 项目后，检测到 `11` 个素材复选框、`4/11` 质检就绪，勾选两项后选择计数与批量锁定/解锁控件均出现；截图见 `.artifacts/acceptance/cast-browser/cast-workbench.png`。
+- 本轮新增 Provider 连通性测试：设置页真实 Chromium 点击“测试当前 Provider”后可看到“仅连通性探测 · 预计费用 0”风险提示；后端覆盖未配置凭证、成功探测、错误分类和敏感信息脱敏。证据截图：`.artifacts/acceptance/provider-cast/provider-test.png`。
+- 本轮新增 AI 音色推荐：后端返回可解释 `reasons` 且明确 `selection_requires_confirmation`，Voice Picker 保留试听与 Apply 确认，不自动写入角色；相关前后端测试通过。
+- 本轮新增 Cast 批量结果与取消语义：批次展示 pending/succeeded/failed/canceled，取消调用统一 Task API 并将未完成项计入 canceled；项目级资产生成响应补充 `_job_id`，保证真实取消链路可用。相关前后端测试通过。
 
 ## PR #64 复核纠偏
 
@@ -55,4 +58,4 @@
 
 后续集成测试仍应覆盖：owner/editor/viewer 完整浏览器矩阵、跨 Workspace 媒体访问、登录过期、Task Center 真实取消/对象跳转、真实外部 Provider 生成、导出磁盘不足与失败中间结果保留。专业格式导出的结构和内容验收已完成；真实 Provider 仍受外部凭据/配额约束，不能用 fixture 结果冒充线上 provider 通过。
 
-因此当前代码已达到“可以进入下一步集成测试”的门槛，但不能据此声称 175 条（扣除三项延期）已经全部完成验收。
+因此当前代码已达到“可以进入下一步集成测试”的门槛，但不能据此声称 175 条（扣除三项延期）已经完成全部环境验收；外部 Provider 凭证/配额、owner/editor/viewer 矩阵、跨 Workspace 媒体和登录过期仍需在集成环境继续执行。
