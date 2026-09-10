@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 
 from .db import begin_immediate
+from .dialect import is_sqlite
 from .errors import LegacyDataError, MigrationError
 from .migration import preview as preview_legacy
 from .schema import LegacyClaimBatch, Project
@@ -114,6 +115,16 @@ class LegacyClaimService:
         self.projects_path = Path(projects_path)
         self.series_path = Path(series_path) if series_path is not None else None
 
+    def _require_sqlite(self) -> None:
+        # The claim flow diffs the legacy JSON against the SQLite file directly; on a
+        # hosted MySQL deployment that file is stale, so claims must happen before the move.
+        if not is_sqlite(self.engine):
+            raise LegacyClaimError(
+                "LEGACY_CLAIM_UNSUPPORTED",
+                "旧数据认领只支持 SQLite 存储，请在切换到 MySQL 之前完成认领",
+                status_code=409,
+            )
+
     def _latest_batch(self, user_id: str, workspace_id: str):
         with self.engine.connect() as connection:
             return connection.execute(
@@ -126,6 +137,7 @@ class LegacyClaimService:
             ).mappings().first()
 
     def preview(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
+        self._require_sqlite()
         latest = self._latest_batch(user_id, workspace_id)
         try:
             report = preview_legacy(
@@ -319,6 +331,7 @@ class LegacyClaimService:
         }
 
     def rollback(self, *, user_id: str, workspace_id: str) -> dict[str, Any]:
+        self._require_sqlite()
         report = self.preview(user_id=user_id, workspace_id=workspace_id)
         with self.engine.connect() as connection:
             with begin_immediate(connection):
