@@ -274,7 +274,19 @@
     "toastVariantDoneBody": "Generated {count} variants",
     "toastPollErr": "Polling error",
     "toastPollErrBody": "Refresh the page to see the result",
-    "toastEntityGone": "This asset no longer exists (may have been deleted). Please refresh and retry."
+    "toastEntityGone": "This asset no longer exists (may have been deleted). Please refresh and retry.",
+    "cancelGeneration": "Cancel generation",
+    "canceling": "Canceling…",
+    "batchPending": "Pending",
+    "batchSucceeded": "Succeeded",
+    "batchFailed": "Failed",
+    "batchCanceled": "Canceled",
+    "recommendationReasons": {
+      "gender_match": "Gender match",
+      "emotion_instruction": "Supports emotion instructions",
+      "preview_ready": "Fits the preview text",
+      "natural_dialogue": "Natural dialogue"
+    }
   },
   "voiceDesign": {
     "title": "Design a new voice",
@@ -777,6 +789,12 @@
     "openaiModelLabel": "OpenAI-compatible model",
     "dashscopeKeyLabel": "DashScope key",
     "dashscopeKeyHint": "Aliyun Bailian / Tongyi service credentials (required).",
+    "providerTestLabel": "Connectivity test",
+    "providerTestHint": "Probes reachability only. No generation is invoked and no cost is incurred.",
+    "testProvider": "Test current provider",
+    "providerTesting": "Testing…",
+    "providerTestRisk": "Connectivity only · estimated cost 0",
+    "providerTestFailed": "Provider test failed",
     "filled": "Filled in",
     "notConfiguredUnavailable": "Not configured · models unavailable",
     "klingLabel": "Kling",

@@ -40,6 +40,7 @@ import uuid
 import logging
 import traceback
 import mimetypes
+import requests
 from io import BytesIO
 from dataclasses import asdict
 from pathlib import Path
@@ -2613,6 +2614,7 @@ def generate_series_asset(series_id: str, request: GenerateAssetRequest, backgro
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
+            response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -3119,6 +3121,105 @@ class EnvConfig(ProviderRoutingConfig):
     MULEROUTER_API_KEY: Optional[str] = None
     MOMA_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
+
+
+class ProviderConnectionTestRequest(BaseModel):
+    provider: str = Field(..., min_length=1)
+    model: Optional[str] = None
+    modality: Literal["text", "image", "video", "audio"] = "text"
+    timeout_seconds: float = Field(8.0, ge=1.0, le=15.0)
+
+
+_PROVIDER_TEST_CREDENTIALS = {
+    "dashscope": ("DASHSCOPE_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "kling": ("DASHSCOPE_API_KEY", "KLING_ACCESS_KEY", "KLING_SECRET_KEY"),
+    "vidu": ("DASHSCOPE_API_KEY", "VIDU_API_KEY"),
+    "pixverse": ("DASHSCOPE_API_KEY",),
+    "mulerouter": ("MULEROUTER_API_KEY",),
+    "moma": ("MOMA_API_KEY",),
+}
+
+
+def _provider_test_secret(provider: str, modality: str) -> tuple[str | None, bool]:
+    keys = _PROVIDER_TEST_CREDENTIALS.get(provider, ())
+    if provider == "openai" and modality == "image":
+        keys = ("OPENAI_IMAGE_API_KEY",)
+    values = [(key, (workspace_getenv(key, "") or "").strip()) for key in keys]
+    if provider == "kling" and (workspace_getenv("KLING_PROVIDER_MODE", "") or "").strip().lower() == "vendor":
+        values = [(key, (workspace_getenv(key, "") or "").strip()) for key in ("KLING_ACCESS_KEY", "KLING_SECRET_KEY")]
+    elif provider == "kling":
+        values = [("DASHSCOPE_API_KEY", (workspace_getenv("DASHSCOPE_API_KEY", "") or "").strip())]
+    if provider == "vidu" and (workspace_getenv("VIDU_PROVIDER_MODE", "") or "").strip().lower() == "vendor":
+        values = [("VIDU_API_KEY", (workspace_getenv("VIDU_API_KEY", "") or "").strip())]
+    configured = all(value for _, value in values) if provider == "kling" and len(values) > 1 else any(value for _, value in values)
+    return next((value, True) for _, value in values if value) if configured else (None, False)
+
+
+def _provider_test_url(provider: str, modality: str) -> str:
+    from ...utils.endpoints import get_provider_base_url
+
+    if provider == "openai":
+        base = workspace_getenv("OPENAI_IMAGE_BASE_URL" if modality == "image" else "OPENAI_BASE_URL", "")
+        base = (base or "https://api.openai.com/v1").rstrip("/")
+    else:
+        base = get_provider_base_url(provider.upper())
+    if base.endswith("/models"):
+        return base
+    if base.endswith("/v1") or "/v1/" in base:
+        return f"{base.rstrip('/')}/models"
+    if provider == "dashscope" and "dashscope.aliyuncs.com" in base:
+        return f"{base.rstrip('/')}/compatible-mode/v1/models"
+    return base.rstrip("/")
+
+
+def _redact_provider_message(message: str) -> str:
+    redacted = str(message or "")
+    for field in SECRET_FIELDS:
+        value = (workspace_getenv(field, "") or "").strip()
+        if value:
+            redacted = redacted.replace(value, "[redacted]")
+    return redacted[:500] or "Provider connection test failed"
+
+
+@app.post("/config/provider-test")
+def test_provider_connection(request: ProviderConnectionTestRequest, http_request: Request):
+    """Probe provider connectivity without invoking a billable generation."""
+    provider = request.provider.strip().lower()
+    if provider not in _PROVIDER_TEST_CREDENTIALS:
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+    secret, configured = _provider_test_secret(provider, request.modality)
+    base_payload = {
+        "provider": provider,
+        "model": request.model,
+        "modality": request.modality,
+        "host": _provider_test_url(provider, request.modality),
+        "risk": "connectivity_only",
+        "estimated_cost": 0,
+        "credential_configured": configured,
+        "latency_ms": None,
+        "success": False,
+        "category": "auth" if not configured else None,
+        "message": "Provider credential is not configured" if not configured else "",
+    }
+    if not configured:
+        record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": False, "category": "auth"})
+        return base_payload
+
+    started = time.perf_counter()
+    try:
+        response = requests.get(
+            base_payload["host"],
+            headers={"Authorization": f"Bearer {secret}"},
+            timeout=request.timeout_seconds,
+        )
+        response.raise_for_status()
+        base_payload.update(success=True, category=None, message="Provider is reachable", latency_ms=max(0, int((time.perf_counter() - started) * 1000)))
+    except Exception as exc:
+        classified = __import__("src.utils.provider_errors", fromlist=["classify_provider_error"]).classify_provider_error(exc, provider=provider)
+        base_payload.update(success=False, category=classified.category.value, message=_redact_provider_message(classified.detail), latency_ms=max(0, int((time.perf_counter() - started) * 1000)))
+    record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": base_payload["success"], "category": base_payload["category"], "latency_ms": base_payload["latency_ms"]})
+    return base_payload
 
 
 def _normalize_provider_mode(value: Optional[str]) -> str:
@@ -4077,6 +4178,7 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
+            response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
 
     except ValueError as e:
@@ -4577,6 +4679,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
+            response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
 
     except ValueError as e:
@@ -5166,6 +5269,45 @@ def update_voice_params(script_id: str, char_id: str, request: UpdateVoiceParams
 def get_voices():
     """Returns list of available voices."""
     return pipeline.audio_generator.get_available_voices()
+
+
+class VoiceRecommendationRequest(BaseModel):
+    character_gender: Optional[str] = None
+    character_description: str = ""
+    preview_text: str = ""
+    limit: int = Field(8, ge=1, le=20)
+
+
+@app.post("/voices/recommend")
+def recommend_voices(request: VoiceRecommendationRequest):
+    """Rank catalog voices with explainable, non-binding recommendations."""
+    normalized_gender = (request.character_gender or "").strip().lower()
+    gender_aliases = {"female": {"female", "女"}, "male": {"male", "男"}, "neutral": {"neutral", "中性"}}
+    voices = [voice for voice in pipeline.audio_generator.get_available_voices() if voice.get("origin", "system") == "system"]
+    ranked = []
+    for voice in voices:
+        score = 0
+        reasons: list[str] = []
+        voice_gender = str(voice.get("gender") or "").lower()
+        if normalized_gender and any(normalized_gender in aliases and voice_gender in aliases for aliases in gender_aliases.values()):
+            target = next((key for key, aliases in gender_aliases.items() if normalized_gender in aliases), None)
+            if target and voice_gender == target:
+                score += 60
+                reasons.append("gender_match")
+        elif not normalized_gender:
+            reasons.append("gender_neutral")
+        if voice.get("supports_instruction"):
+            score += 20
+            reasons.append("emotion_instruction")
+        if request.preview_text and len(request.preview_text.strip()) >= 4:
+            score += 10
+            reasons.append("preview_ready")
+        if voice.get("family") == "cosyvoice":
+            score += 5
+            reasons.append("natural_dialogue")
+        ranked.append({"voice_id": voice.get("id"), "name": voice.get("name"), "score": score, "reasons": reasons})
+    ranked.sort(key=lambda item: (-item["score"], str(item["voice_id"])))
+    return {"recommendations": ranked[: request.limit], "selection_requires_confirmation": True}
 
 
 class VoicePreviewRequest(BaseModel):

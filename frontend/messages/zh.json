@@ -274,7 +274,19 @@
     "toastVariantDoneBody": "已生成 {count} 张变体",
     "toastPollErr": "轮询异常",
     "toastPollErrBody": "请刷新页面查看结果",
-    "toastEntityGone": "该资产已不存在（可能已被删除），请刷新页面后重试"
+    "toastEntityGone": "该资产已不存在（可能已被删除），请刷新页面后重试",
+    "cancelGeneration": "取消生成",
+    "canceling": "取消中…",
+    "batchPending": "等待中",
+    "batchSucceeded": "已成功",
+    "batchFailed": "失败",
+    "batchCanceled": "已取消",
+    "recommendationReasons": {
+      "gender_match": "性别匹配",
+      "emotion_instruction": "支持情绪指令",
+      "preview_ready": "适合当前试听文本",
+      "natural_dialogue": "自然对白表现"
+    }
   },
   "voiceDesign": {
     "title": "设计新音色",
@@ -777,6 +789,12 @@
     "openaiModelLabel": "OpenAI 兼容模型",
     "dashscopeKeyLabel": "DashScope 密钥",
     "dashscopeKeyHint": "阿里云百炼 / 通义系列服务凭证（必填）。",
+    "providerTestLabel": "连接性测试",
+    "providerTestHint": "只探测服务可达性，不执行生成，不产生费用。",
+    "testProvider": "测试当前 Provider",
+    "providerTesting": "测试中…",
+    "providerTestRisk": "仅连通性探测 · 预计费用 0",
+    "providerTestFailed": "Provider 测试失败",
     "filled": "已填写",
     "notConfiguredUnavailable": "未配置 · 模型不可用",
     "klingLabel": "可灵 Kling",

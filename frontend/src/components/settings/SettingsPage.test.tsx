@@ -5,7 +5,7 @@ import SettingsPage from './SettingsPage';
 import { useAuthStore } from '@/store/authStore';
 
 const mocks = vi.hoisted(() => ({
-  getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
+  getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), testProviderConnection: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
 }));
 const t = vi.hoisted(() => (key: string) => key);
 const translations = vi.hoisted(() => ({current: (key: string) => key}));
@@ -45,6 +45,16 @@ describe('settings persistence', () => {
     fireEvent.click(screen.getByRole('button',{name:'saveConfig'}));
     await waitFor(() => expect(mocks.saveEnvConfig).toHaveBeenCalledWith({OPENAI_IMAGE_API_KEY:'test-image-replacement', OPENAI_IMAGE_MODEL:'test-image-model', MOMA_API_KEY:'test-moma-replacement'}));
     expect(onSaved).toHaveBeenCalledOnce();
+  });
+
+  it('tests the active text provider and presents latency plus the zero-cost risk', async () => {
+    mocks.testProviderConnection.mockResolvedValue({ success: true, provider: 'dashscope', modality: 'text', latency_ms: 42, estimated_cost: 0, risk: 'connectivity_only', message: 'Provider is reachable' });
+    render(<SettingsPage initialCategory="apikeys" />);
+    const testButton = await screen.findByRole('button', { name: 'testProvider' });
+    fireEvent.click(testButton);
+    await waitFor(() => expect(mocks.testProviderConnection).toHaveBeenCalledWith({ provider: 'dashscope', model: 'qwen-plus', modality: 'text' }));
+    expect(await screen.findByText(/42 ms/)).toBeInTheDocument();
+    expect(screen.getByText('providerTestRisk')).toBeInTheDocument();
   });
   it('saves only edited storage fields and retains the draft after a failed save', async () => {
     mocks.saveEnvConfig.mockRejectedValueOnce(new Error('Offline')).mockResolvedValueOnce({status:'success'});

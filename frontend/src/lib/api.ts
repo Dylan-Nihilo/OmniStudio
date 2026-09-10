@@ -45,6 +45,13 @@ export interface VoiceMeta {
     origin: "system" | "clone" | "design";
 }
 
+export interface VoiceRecommendation {
+    voice_id: string;
+    name?: string | null;
+    score: number;
+    reasons: string[];
+}
+
 /**
  * PR-3h · Custom voice entry from series.custom_voices[].
  * Returned by GET /series/{id}/custom_voices and POST /voice/clone (single).
@@ -89,6 +96,27 @@ export interface EnvConfigPayload {
     // which credential fields are actually configured on the backend.
     secrets_configured?: Record<string, boolean>;
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
+}
+
+export interface ProviderConnectionTestRequest {
+    provider: string;
+    model?: string;
+    modality: "text" | "image" | "video" | "audio";
+    timeout_seconds?: number;
+}
+
+export interface ProviderConnectionTestResult {
+    provider: string;
+    model?: string | null;
+    modality: ProviderConnectionTestRequest["modality"];
+    host?: string;
+    risk: "connectivity_only";
+    estimated_cost: number;
+    credential_configured: boolean;
+    latency_ms: number | null;
+    success: boolean;
+    category: string | null;
+    message: string;
 }
 
 export interface LegacyClaimSummary {
@@ -1932,10 +1960,20 @@ export const api = {
         return res.data;
     },
 
+    recommendVoices: async (request: { character_gender?: string; character_description?: string; preview_text?: string; limit?: number }): Promise<{ recommendations: VoiceRecommendation[]; selection_requires_confirmation: boolean }> => {
+        const res = await apiClient.post(`${API_URL}/voices/recommend`, request);
+        return res.data;
+    },
+
     saveEnvConfig: async (config: EnvConfigPayload) => {
         const res = await apiClient.post(`${API_URL}/config/env`, config, {
             timeout: 60000, // 60 seconds timeout
         });
+        return res.data;
+    },
+
+    testProviderConnection: async (request: ProviderConnectionTestRequest): Promise<ProviderConnectionTestResult> => {
+        const res = await apiClient.post<ProviderConnectionTestResult>(`${API_URL}/config/provider-test`, request, { timeout: 20000 });
         return res.data;
     },
 

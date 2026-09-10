@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import axios from "axios";
-import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
+import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
 import {
   DEFAULT_MODEL_SETTINGS,
@@ -205,6 +205,8 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const configRequest = useRef(0);
   const mounted = useRef(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [providerTest, setProviderTest] = useState<ProviderConnectionTestResult | null>(null);
+  const [providerTesting, setProviderTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
   const [loadError, setLoadError] = useState<"ownerConfigOnly" | "loadConfigFailed" | null>(null);
@@ -389,6 +391,35 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const handleSaveApiConfig = () => saveEnvScope('apikeys');
   const handleSaveStorage = () => saveEnvScope('storage');
 
+  const testActiveProvider = async () => {
+    if (!canManageConfig || providerTesting || loading || loadError || !online) return;
+    setProviderTesting(true);
+    setProviderTest(null);
+    try {
+      const result = await api.testProviderConnection({
+        provider: config.LLM_PROVIDER,
+        model: config.LLM_PROVIDER === "openai" ? (config.OPENAI_MODEL || "gpt-4o") : "qwen-plus",
+        modality: "text",
+      });
+      if (mounted.current) setProviderTest(result);
+    } catch (error: any) {
+      if (mounted.current) setProviderTest({
+        provider: config.LLM_PROVIDER,
+        model: config.LLM_PROVIDER === "openai" ? config.OPENAI_MODEL : "qwen-plus",
+        modality: "text",
+        risk: "connectivity_only",
+        estimated_cost: 0,
+        credential_configured: false,
+        latency_ms: null,
+        success: false,
+        category: "network",
+        message: error?.response?.data?.detail || error?.message || t("providerTestFailed"),
+      });
+    } finally {
+      if (mounted.current) setProviderTesting(false);
+    }
+  };
+
   const handleChange = (key: keyof EnvConfig, value: string) => {
     clearFeedback();
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -562,6 +593,17 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
         </div>
       </FormRow> : <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>{keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}</FormRow>}
+      <FormRow label={t("providerTestLabel")} hint={t("providerTestHint")}>
+        <div className="space-y-2">
+          <Button variant="secondary" onPress={testActiveProvider} isPending={providerTesting} isDisabled={providerTesting || loading || Boolean(loadError) || !online}>
+            {providerTesting ? t("providerTesting") : t("testProvider")}
+          </Button>
+          {providerTest && <p role="status" className={providerTest.success ? "text-sm text-status-completed-fg" : "text-sm text-status-failed-fg"}>
+            {providerTest.success ? `${providerTest.message} · ${providerTest.latency_ms ?? "-"} ms` : `${providerTest.category ?? "unknown"}: ${providerTest.message}`}
+            <span className="ml-2 text-text-muted">{t("providerTestRisk")}</span>
+          </p>}
+        </div>
+      </FormRow>
       <FormRow label={t("imageProviderLabel")} hint={t("imageProviderHint")}>
         <div className="space-y-4">
           <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
