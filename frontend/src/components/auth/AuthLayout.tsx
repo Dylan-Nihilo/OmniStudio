@@ -20,7 +20,7 @@ export default function AuthLayout({ children, title, subtitle, titleId }: {
     <main data-testid="auth-surface" className={styles.page}>
       <header className={styles.header}>
         <div data-testid="auth-brand" className={styles.brand}>
-          <Image src={brandMark} alt="Omni Studio" width={30} height={30} style={{ width: "auto" }} />
+          <Image src={brandMark} alt="Omni Studio" width={30} height={30} style={{ width: 30, height: 30 }} />
           <span>OMNI STUDIO</span>
         </div>
         <span className={styles.headerNote}>{t("panelEyebrow")}</span>
