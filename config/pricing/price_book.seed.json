@@ -1,5 +1,5 @@
 {
-  "note": "2026-09 厂商官方市场价（美元项按 7.15 折算为人民币参考价）。root 上线后按实际进货价覆盖。",
+  "note": "2026-09 厂商官方市场价（美元项按 7.15 折算为人民币参考价）。root 上线后按实际进货价覆盖。 match 键与 src/billing/metering.normalize_params 一致：图片 size_tier/quality、视频 resolution|mode/audio、文本 direction、配音空。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -132,9 +132,7 @@
       "model_id": "wan/wan2.7-image#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "size": "≤2K"
-      },
+      "match": {},
       "purchase_price_cny": 0.2,
       "display_name": "万相"
     },
@@ -142,9 +140,7 @@
       "model_id": "wan/wan2.7-image-pro#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "size": "≤2K"
-      },
+      "match": {},
       "purchase_price_cny": 0.5,
       "display_name": "万相Pro"
     },
@@ -152,9 +148,7 @@
       "model_id": "qwen/qwen-image-2.0#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "size": "≤2K"
-      },
+      "match": {},
       "purchase_price_cny": 0.2,
       "display_name": "千问"
     },
@@ -162,9 +156,7 @@
       "model_id": "qwen/qwen-image-2.0-pro#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "size": "≤2K"
-      },
+      "match": {},
       "purchase_price_cny": 0.5,
       "display_name": "千问Pro"
     },
@@ -172,9 +164,7 @@
       "model_id": "seedream/seedream-5.0-pro#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "size": "≤2K"
-      },
+      "match": {},
       "purchase_price_cny": 0.3,
       "display_name": "Seedream"
     },
@@ -183,7 +173,7 @@
       "stage": "image",
       "billing_unit": "image",
       "match": {
-        "size": "4K"
+        "size_tier": "4K"
       },
       "purchase_price_cny": 0.6,
       "display_name": "Seedream"
@@ -192,9 +182,7 @@
       "model_id": "gemini/nano-banana#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "size": "1K"
-      },
+      "match": {},
       "purchase_price_cny": 0.279,
       "display_name": "Gemini"
     },
@@ -202,10 +190,7 @@
       "model_id": "gemini/nano-banana-pro#image",
       "stage": "image",
       "billing_unit": "image",
-      "match": {
-        "quality": "1K",
-        "size": "2K"
-      },
+      "match": {},
       "purchase_price_cny": 0.958,
       "display_name": "Gemini Pro"
     },
@@ -214,7 +199,7 @@
       "stage": "image",
       "billing_unit": "image",
       "match": {
-        "size": "4K"
+        "size_tier": "4K"
       },
       "purchase_price_cny": 1.716,
       "display_name": "Gemini Pro"
@@ -224,8 +209,7 @@
       "stage": "image",
       "billing_unit": "image",
       "match": {
-        "quality": "low",
-        "size": "1K"
+        "quality": "low"
       },
       "purchase_price_cny": 0.043,
       "display_name": "GPT"
@@ -235,8 +219,7 @@
       "stage": "image",
       "billing_unit": "image",
       "match": {
-        "quality": "medium",
-        "size": "1K"
+        "quality": "medium"
       },
       "purchase_price_cny": 0.379,
       "display_name": "GPT"
@@ -246,8 +229,7 @@
       "stage": "image",
       "billing_unit": "image",
       "match": {
-        "quality": "high",
-        "size": "1K"
+        "quality": "high"
       },
       "purchase_price_cny": 1.509,
       "display_name": "GPT"
@@ -258,7 +240,7 @@
       "billing_unit": "image",
       "match": {
         "quality": "high",
-        "size": "2K"
+        "size_tier": "2K"
       },
       "purchase_price_cny": 3.003,
       "display_name": "GPT"
@@ -269,7 +251,7 @@
       "billing_unit": "image",
       "match": {
         "quality": "high",
-        "size": "4K"
+        "size_tier": "4K"
       },
       "purchase_price_cny": 6.006,
       "display_name": "GPT"
@@ -702,9 +684,7 @@
       "model_id": "tts/cosyvoice-v2",
       "stage": "tts",
       "billing_unit": "chars_10k",
-      "match": {
-        "variant": "标准"
-      },
+      "match": {},
       "purchase_price_cny": 2.0,
       "display_name": "CosyVoice"
     },
@@ -712,9 +692,7 @@
       "model_id": "tts/cosyvoice-v3-flash",
       "stage": "tts",
       "billing_unit": "chars_10k",
-      "match": {
-        "variant": "快速"
-      },
+      "match": {},
       "purchase_price_cny": 1.0,
       "display_name": "CosyVoice"
     },
@@ -722,9 +700,7 @@
       "model_id": "tts/cosyvoice-v3-plus",
       "stage": "tts",
       "billing_unit": "chars_10k",
-      "match": {
-        "variant": "高清"
-      },
+      "match": {},
       "purchase_price_cny": 2.0,
       "display_name": "CosyVoice"
     },
@@ -732,9 +708,7 @@
       "model_id": "tts/cosyvoice-v3.5-plus",
       "stage": "tts",
       "billing_unit": "chars_10k",
-      "match": {
-        "variant": "克隆音色"
-      },
+      "match": {},
       "purchase_price_cny": 1.5,
       "display_name": "CosyVoice"
     },
@@ -742,9 +716,7 @@
       "model_id": "tts/qwen3-tts-flash",
       "stage": "tts",
       "billing_unit": "chars_10k",
-      "match": {
-        "variant": "标准"
-      },
+      "match": {},
       "purchase_price_cny": 0.8,
       "display_name": "Qwen TTS"
     }
