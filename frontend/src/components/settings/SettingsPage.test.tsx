@@ -5,7 +5,7 @@ import SettingsPage from './SettingsPage';
 import { useAuthStore } from '@/store/authStore';
 
 const mocks = vi.hoisted(() => ({
-  getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), testProviderConnection: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
+  getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), getGlobalModelSettings: vi.fn(), saveGlobalModelSettings: vi.fn(), testProviderConnection: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
 }));
 const t = vi.hoisted(() => (key: string) => key);
 const translations = vi.hoisted(() => ({current: (key: string) => key}));
@@ -28,6 +28,8 @@ beforeEach(() => {
   });
   mocks.getEnvConfig.mockResolvedValue(config);
   mocks.saveEnvConfig.mockResolvedValue({status:'success'});
+  mocks.getGlobalModelSettings.mockResolvedValue({t2i_model:'wan2.7-image-pro',i2i_model:'wan2.7-image-pro',image_model:'wan2.7-image-pro',i2v_model:'happyhorse-1.1-i2v',r2v_model:'wan2.7-r2v',character_aspect_ratio:'9:16',scene_aspect_ratio:'16:9',prop_aspect_ratio:'1:1',storyboard_aspect_ratio:'16:9'});
+  mocks.saveGlobalModelSettings.mockResolvedValue({});
   mocks.fetchPromptDefaults.mockResolvedValue({});
   mocks.healthCheck.mockResolvedValue({log_dir:'/demo/logs',log_file:'/demo/logs/app.log'});
   mocks.checkSystem.mockResolvedValue({status:'ok',dependencies:{ffmpeg:{available:true,message:'available'}}});
@@ -86,6 +88,13 @@ describe('settings persistence', () => {
 
 
 describe('settings controls and recovery', () => {
+  it('loads and saves Workspace model defaults through the backend', async () => {
+    render(<SettingsPage initialCategory="models" />);
+    await waitFor(() => expect(mocks.getGlobalModelSettings).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button', {name:'saveDefaults'}));
+    await waitFor(() => expect(mocks.saveGlobalModelSettings).toHaveBeenCalledOnce());
+  });
+
   it('never copies a masked key and writes only the replacement provider key', async () => {
     render(<SettingsPage />);
     choose('tabApikeys');
@@ -194,9 +203,10 @@ describe('workspace configuration boundaries', () => {
     expect(mocks.getEnvConfig).toHaveBeenCalledOnce();
   });
 
-  it('keeps member preferences usable without requesting owner-only config or diagnostics', async () => {
+  it('lets members read Workspace model defaults without editing owner-managed settings', async () => {
     useAuthStore.setState({activeWorkspace:{id:'member-workspace', name:'Member workspace', slug:null, role:'member'}});
     await act(async () => { render(<SettingsPage initialCategory="apikeys" />); });
+    await waitFor(() => expect(mocks.getGlobalModelSettings).toHaveBeenCalledOnce());
     expect(screen.getByRole('status')).toHaveTextContent('ownerConfigOnly');
     expect(screen.queryByRole('button', {name:'saveConfig'})).not.toBeInTheDocument();
     choose('tabStorage');
@@ -204,11 +214,16 @@ describe('workspace configuration boundaries', () => {
     choose('tabAbout');
     expect(screen.queryByRole('button', {name:'recheck'})).not.toBeInTheDocument();
     choose('tabModels');
-    fireEvent.click(screen.getByRole('button', {name:'saveDefaults'}));
-    expect(localStorage.getItem('omni_studio_default_model_settings')).not.toBeNull();
+    expect(screen.queryByRole('button', {name:'saveDefaults'})).not.toBeInTheDocument();
+    for (const groupName of ['imageModelLabel', 'assetAspectLabel', 'storyboardAspectLabel', 'i2vModelLabel', 'r2vModelLabel']) {
+      for (const control of within(screen.getByRole('group', {name:groupName})).getAllByRole('button')) {
+        expect(control).toBeDisabled();
+      }
+    }
     expect(mocks.getEnvConfig).not.toHaveBeenCalled();
     expect(mocks.checkSystem).not.toHaveBeenCalled();
     expect(mocks.saveEnvConfig).not.toHaveBeenCalled();
+    expect(mocks.saveGlobalModelSettings).not.toHaveBeenCalled();
   });
 
   it('discards old workspace loads and drafts before saving configuration in another workspace', async () => {

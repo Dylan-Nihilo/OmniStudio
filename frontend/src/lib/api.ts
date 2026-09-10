@@ -1975,6 +1975,16 @@ export const api = {
         return res.data;
     },
 
+    getGlobalModelSettings: async (): Promise<FrontendModelSettings> => {
+        const res = await apiClient.get(`${API_URL}/config/model-settings`);
+        return res.data as FrontendModelSettings;
+    },
+
+    saveGlobalModelSettings: async (settings: Partial<FrontendModelSettings> & { reset_fields?: string[] }) => {
+        const res = await apiClient.put(`${API_URL}/config/model-settings`, settings);
+        return res.data as FrontendModelSettings;
+    },
+
     recommendVoices: async (request: { character_gender?: string; character_description?: string; preview_text?: string; limit?: number }): Promise<{ recommendations: VoiceRecommendation[]; selection_requires_confirmation: boolean }> => {
         const res = await apiClient.post(`${API_URL}/voices/recommend`, request);
         return res.data;

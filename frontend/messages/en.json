@@ -1741,6 +1741,7 @@
     "unknownError": "Unknown error",
     "saving": "Saving…",
     "generationSettings": "Generation settings",
+    "resetShotModel": "Use inherited model",
     "referenceImage": "Reference image {number}",
     "promptLabel": "Action prompt",
     "shotActions": "Shot actions",

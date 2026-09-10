@@ -19,7 +19,7 @@
  */
 import { useCallback, useMemo } from "react";
 import { SelectField } from "@omnistudio/ui";
-import { Dices, X, ChevronRight } from "lucide-react";
+import { Dices, X, ChevronRight, RotateCcw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { I2VModelConfig, DurationConfig, ModelParamSupport } from "@/lib/modelCatalog";
 import { usePanelSectionState } from "./usePanelSectionState";
@@ -73,6 +73,9 @@ interface ParamsSectionProps {
      *  generateDisabledReason) removed: generation triggered from
      *  ShotCard's inline row. */
     errorMessage?: string | null;
+    hasModelOverride?: boolean;
+    modelOverrideSaving?: boolean;
+    onResetModel?: () => void;
 }
 
 // COUNT_OPTIONS removed in PR-3c — count selector relocated to ShotCard's
@@ -86,6 +89,9 @@ export default function ParamsSection({
     onChange,
     inFlightCount = 0,
     errorMessage,
+    hasModelOverride = false,
+    modelOverrideSaving = false,
+    onResetModel,
 }: ParamsSectionProps) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = usePanelSectionState(shotId, "params", true);
@@ -163,7 +169,23 @@ export default function ParamsSection({
             ) : undefined}
         >
             <div className="space-y-3">
-                <SelectField label={t("modelSelection")} value={params.model} onChange={key => handleModelChange(String(key))} options={modelList.map(model => ({ id: model.id, label: model.name }))} />
+                <div className="flex min-w-0 items-end gap-2">
+                    <div className="min-w-0 flex-1">
+                        <SelectField label={t("modelSelection")} value={params.model} onChange={key => handleModelChange(String(key))} isDisabled={modelOverrideSaving} options={modelList.map(model => ({ id: model.id, label: model.name }))} />
+                    </div>
+                    {hasModelOverride && onResetModel ? (
+                        <button
+                            type="button"
+                            onClick={onResetModel}
+                            disabled={modelOverrideSaving}
+                            aria-label={t("resetShotModel")}
+                            title={t("resetShotModel")}
+                            className="grid h-8 w-8 shrink-0 place-items-center rounded text-text-muted transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                        >
+                            <RotateCcw size={15} aria-hidden="true" className={modelOverrideSaving ? "animate-spin" : ""} />
+                        </button>
+                    ) : null}
+                </div>
 
                 {/* Duration */}
                 <ParamRow label={t("durationLabel")}>

@@ -1473,6 +1473,16 @@ def test_member_can_read_team_projects_but_cannot_create_top_level_project(api_c
         assert visible.status_code == 200, visible.text
         assert [item["id"] for item in visible.json()] == [project["id"]]
 
+        model_defaults = writer.get("/config/model-settings", headers=workspace_headers)
+        assert model_defaults.status_code == 200, model_defaults.text
+        forbidden_model_update = writer.put(
+            "/config/model-settings",
+            headers=workspace_headers,
+            json={"i2v_model": "member-must-not-write"},
+        )
+        assert forbidden_model_update.status_code == 403
+        assert forbidden_model_update.json()["error"]["code"] == "AUTH_OWNER_REQUIRED"
+
         forbidden = writer.post(
             "/projects?skip_analysis=true",
             headers=workspace_headers,

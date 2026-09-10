@@ -22,7 +22,13 @@ from .storyboard import StoryboardGenerator
 from .video import VideoGenerator
 from .audio import AudioGenerator
 from .export import ExportManager
-from .model_settings import MODEL_SETTING_FIELDS, ResolvedModelSettings, resolve_model_settings as merge_model_settings
+from .model_settings import (
+    MODEL_SETTING_FIELDS,
+    ResolvedModelSettings,
+    load_workspace_model_settings,
+    resolve_model_settings as merge_model_settings,
+    sparse_model_settings,
+)
 from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
 from ...utils.model_catalog import load_generated_model_catalog
@@ -1025,6 +1031,7 @@ class ComicGenPipeline:
         # Preserve project-level settings
         new_script.art_direction = existing_script.art_direction
         new_script.model_settings = existing_script.model_settings
+        new_script.model_settings_overrides = copy.deepcopy(existing_script.model_settings_overrides)
         new_script.style_preset = existing_script.style_preset
         new_script.style_prompt = existing_script.style_prompt
         new_script.merged_video_url = existing_script.merged_video_url
@@ -5435,19 +5442,42 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
         series = self.series_store.get(script.series_id) if getattr(script, "series_id", None) else None
-        project_settings = series.model_settings if series else None
-        episode_overrides = dict(getattr(script, "model_settings_overrides", {}) or {})
+        raw_project_overrides = getattr(series, "model_settings_overrides", None) if series else None
+        project_settings = (
+            sparse_model_settings(series.model_settings)
+            if series is not None and raw_project_overrides is None
+            else dict(raw_project_overrides or {}) if series is not None else None
+        )
+        raw_episode_overrides = getattr(script, "model_settings_overrides", None)
+        episode_overrides = dict(raw_episode_overrides or {})
         # Standalone projects predate sparse overrides; preserve their complete
         # project snapshot as the local layer for backward compatibility.
-        if series is None and not episode_overrides:
-            episode_overrides = script.model_settings.model_dump()
+        if series is None and raw_episode_overrides is None:
+            episode_overrides = sparse_model_settings(script.model_settings)
         shot_overrides: dict[str, Any] = {}
         if frame_id:
             frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
             if frame is None:
                 raise ValueError(f"Frame not found: {frame_id}")
             shot_overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})
-        return merge_model_settings(ModelSettings(), project_settings, episode_overrides, shot_overrides)
+        global_settings = self._global_model_settings_for_script(script_id)
+        return merge_model_settings(global_settings, project_settings, episode_overrides, shot_overrides)
+
+    def _global_model_settings_for_script(self, script_id: str) -> ModelSettings:
+        """Load Workspace-level model defaults for a script when SQLite is active."""
+        if self.storage_engine is None or self.repository is None:
+            return ModelSettings()
+        workspace_id = self.repository.workspace_for_script(script_id)
+        if workspace_id is None:
+            return ModelSettings()
+        try:
+            from ...storage.auth_repository import AuthRepository
+
+            raw = AuthRepository(self.storage_engine).get_workspace_provider_config(workspace_id)
+            return load_workspace_model_settings(raw)
+        except Exception:
+            logger.warning("Failed to load Workspace model defaults for %s", workspace_id, exc_info=True)
+            return ModelSettings()
 
     def update_model_settings(
         self,
@@ -5479,18 +5509,13 @@ class ComicGenPipeline:
             "storyboard_aspect_ratio": storyboard_aspect_ratio,
             "image_model": image_model,
         }
-        overrides = dict(getattr(script, "model_settings_overrides", {}) or {})
-        if getattr(self, "series_store", {}).get(getattr(script, "series_id", None)) is None and not overrides:
+        raw_overrides = getattr(script, "model_settings_overrides", None)
+        overrides = dict(raw_overrides or {})
+        if getattr(self, "series_store", {}).get(getattr(script, "series_id", None)) is None and raw_overrides is None:
             # Migrate a legacy standalone project's complete snapshot into
             # sparse overrides before applying the first edit. This preserves
             # old custom values while allowing reset_fields to reveal globals.
-            defaults = ModelSettings().model_dump()
-            legacy_values = script.model_settings.model_dump()
-            overrides = {
-                field: value
-                for field, value in legacy_values.items()
-                if value != defaults.get(field)
-            }
+            overrides = sparse_model_settings(script.model_settings)
         for field, value in updates.items():
             if value is not None:
                 overrides[field] = value
@@ -5532,6 +5557,53 @@ class ComicGenPipeline:
         frame.model_settings_overrides = overrides
         self._save_data()
         return script
+
+    def resolve_series_model_settings(self, series_id: str) -> ResolvedModelSettings:
+        series = self.series_store.get(series_id)
+        if not series:
+            raise ValueError("Series not found")
+        global_settings = ModelSettings()
+        if self.storage_engine is not None and self.repository is not None:
+            workspace_id = self.repository.workspace_for_series(series_id)
+            if workspace_id:
+                from ...storage.auth_repository import AuthRepository
+
+                raw = AuthRepository(self.storage_engine).get_workspace_provider_config(workspace_id)
+                global_settings = load_workspace_model_settings(raw)
+        raw_overrides = getattr(series, "model_settings_overrides", None)
+        overrides = dict(raw_overrides or {})
+        if raw_overrides is None:
+            overrides = sparse_model_settings(series.model_settings)
+        return merge_model_settings(global_settings, overrides)
+
+    def update_series_model_settings(
+        self,
+        series_id: str,
+        *,
+        reset_fields: list[str] | None = None,
+        **updates: Any,
+    ) -> Series:
+        series = self.series_store.get(series_id)
+        if not series:
+            raise ValueError("Series not found")
+        raw_overrides = getattr(series, "model_settings_overrides", None)
+        overrides = dict(raw_overrides or {})
+        if raw_overrides is None:
+            overrides = sparse_model_settings(series.model_settings)
+        for field, value in updates.items():
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            if value is not None:
+                overrides[field] = value
+        for field in reset_fields or []:
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            overrides.pop(field, None)
+        series.model_settings_overrides = overrides
+        series.model_settings = self.resolve_series_model_settings(series_id).settings
+        series.updated_at = time.time()
+        self._save_series_data()
+        return series
 
     def _set_variant_favorite(self, image_asset: Any, variant_id: str, is_favorited: bool) -> bool:
         """Helper to set favorite status of a variant. Returns True if found."""
@@ -6012,6 +6084,7 @@ class ComicGenPipeline:
                 art_direction=copy.deepcopy(script.art_direction),
                 prompt_config=copy.deepcopy(script.prompt_config),
                 model_settings=copy.deepcopy(script.model_settings),
+                model_settings_overrides=dict(getattr(script, "model_settings_overrides", {}) or sparse_model_settings(script.model_settings)),
                 workflow_mode=script.workflow_mode,
                 default_generation_mode=script.default_generation_mode,
                 content_mode="scripted",
@@ -6924,17 +6997,18 @@ class ComicGenPipeline:
         if not series:
             raise ValueError("Series not found")
 
-        t2i_model = model_name or series.model_settings.t2i_model
+        effective_settings = self.resolve_series_model_settings(series_id).settings
+        t2i_model = model_name or effective_settings.t2i_model
 
         from .assets import ASPECT_RATIO_TO_SIZE
         if asset_type == "character":
-            aspect_ratio = series.model_settings.character_aspect_ratio
+            aspect_ratio = effective_settings.character_aspect_ratio
             default_size = "576*1024"
         elif asset_type == "scene":
-            aspect_ratio = series.model_settings.scene_aspect_ratio
+            aspect_ratio = effective_settings.scene_aspect_ratio
             default_size = "1024*576"
         elif asset_type == "prop":
-            aspect_ratio = series.model_settings.prop_aspect_ratio
+            aspect_ratio = effective_settings.prop_aspect_ratio
             default_size = "1024*1024"
         else:
             aspect_ratio = "9:16"

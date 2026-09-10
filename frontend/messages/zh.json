@@ -1741,6 +1741,7 @@
     "unknownError": "未知错误",
     "saving": "保存中…",
     "generationSettings": "生成设置",
+    "resetShotModel": "恢复继承模型",
     "referenceImage": "参考图 {number}",
     "promptLabel": "动作提示词",
     "shotActions": "镜头操作",

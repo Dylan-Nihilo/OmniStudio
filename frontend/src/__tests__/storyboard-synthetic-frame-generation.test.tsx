@@ -11,7 +11,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
 
-const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, refineBatchFrames, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, refineBatchFrames, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, updateShotModelSettings, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     retryVideoTask: vi.fn(),
@@ -28,6 +28,7 @@ const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFram
     copyFrame: vi.fn(),
     updateFrame: vi.fn(),
     updateFrameWorkbench: vi.fn(),
+    updateShotModelSettings: vi.fn(),
     refineSingleFrame: vi.fn(),
     cancelVideoTask: vi.fn(),
     annotateVideoTask: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("@/lib/api", () => ({
         getTaskStatus,
         updateFrameWorkbench,
         updateFrame,
+        updateShotModelSettings,
         refineSingleFrame,
         cancelVideoTask,
         annotateVideoTask,
@@ -136,7 +138,19 @@ vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", async importOrig
 }));
 vi.mock("@/components/modules/storyboard-r2v/StoryboardGenerateDialog", () => ({ default: ({ isOpen, onConfirm }: { isOpen: boolean; onConfirm: () => void }) => isOpen ? <button onClick={onConfirm}>confirm storyboard</button> : null }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
-vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({ default: () => null }));
+vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({
+    default: ({ params, onChange, hasModelOverride, onResetModel }: {
+        params: { model: string };
+        onChange: (next: Record<string, unknown>) => void;
+        hasModelOverride?: boolean;
+        onResetModel?: () => void;
+    }) => <>
+        <output aria-label="shot model">{params.model}</output>
+        <button onClick={() => onChange({ ...params, model: "happyhorse-1.1-r2v" })}>set shot model</button>
+        <button onClick={() => onChange({ ...params, model: "wan2.6-i2v" })}>set i2v shot model</button>
+        {hasModelOverride ? <button onClick={onResetModel}>reset shot model</button> : null}
+    </>,
+}));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/T2ISubsection", () => ({ default: ({ onUpload, onRemove }: { onUpload: (file: File) => Promise<unknown>; onRemove: (index: number) => void }) => <><button onClick={() => { void onUpload(new File(['image'], 'first-frame.png', { type: 'image/png' })); }}>upload first frame</button><button onClick={() => onRemove(0)}>remove first frame</button></> }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/CandidatesSection", () => ({
     default: ({ tasks, onToggleStar, onSetActive, onRetry, retryingTaskIds, isSelecting }: { tasks: VideoTask[]; onToggleStar: (task: VideoTask, next: boolean) => Promise<void>; onSetActive: (task: VideoTask) => Promise<void>; onRetry: (task: VideoTask) => Promise<void>; retryingTaskIds?: ReadonlySet<string>; isSelecting?: boolean }) => <div><output aria-label="candidate selection state">{isSelecting ? "saving" : "idle"}</output>{tasks.map(task =>
@@ -751,6 +765,7 @@ describe("StoryboardR2V synthetic frame generation", () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        localStorage.clear();
         copyFrame.mockReset();
         deleteFrame.mockReset();
         reorderFrames.mockReset();
@@ -765,6 +780,7 @@ describe("StoryboardR2V synthetic frame generation", () => {
         useShotDraftStore.setState({ drafts: {}, errors: {}, saving: {}, storageUnavailable: false, materializedIds: {}, refining: {}, batchRefining: {}, refinedVersions: {} });
         updateFrame.mockResolvedValue({});
         updateFrameWorkbench.mockResolvedValue({});
+        updateShotModelSettings.mockResolvedValue({});
         createFrame.mockResolvedValue({
             frames: [{
                 id: "frame-real-1",
@@ -890,6 +906,73 @@ describe("StoryboardR2V synthetic frame generation", () => {
         await waitFor(() => expect(createVideoTask).toHaveBeenCalledTimes(1));
         expect(createFrame).toHaveBeenCalledTimes(1);
         expect(createVideoTask.mock.calls[0][12]).toBe("frame-real-1");
+    });
+
+    it("materializes a synthetic shot before persisting its R2V model override", async () => {
+        render(<StoryboardR2V />);
+
+        fireEvent.click(screen.getByRole("button", { name: "set shot model" }));
+
+        await waitFor(() => expect(updateShotModelSettings).toHaveBeenCalledWith(
+            "project-1",
+            "frame-real-1",
+            { r2v_model: "happyhorse-1.1-r2v" },
+        ));
+        expect(createFrame).toHaveBeenCalledOnce();
+        expect(createFrame.mock.invocationCallOrder[0]).toBeLessThan(updateShotModelSettings.mock.invocationCallOrder[0]);
+    });
+
+    it("uses the backend-resolved project model instead of a stale browser model", () => {
+        localStorage.setItem("storyboard-r2v-r2v-model", "happyhorse-1.1-r2v");
+
+        render(<StoryboardR2V />);
+
+        expect(screen.getByLabelText("shot model")).toHaveTextContent("wan2.7-r2v");
+    });
+
+    it("reads a persisted Shot model override and can reset it to its parent", async () => {
+        const project = {
+            ...useProjectStore.getState().currentProject!,
+            frames: [{
+                id: "frame-override",
+                action_description: "A saved shot",
+                workbench_tab_mode: "direct_r2v",
+                model_settings_overrides: { r2v_model: "happyhorse-1.1-r2v" },
+            }],
+        };
+        useProjectStore.setState({ currentProject: project });
+        render(<StoryboardR2V />);
+
+        expect(screen.getByLabelText("shot model")).toHaveTextContent("happyhorse-1.1-r2v");
+        fireEvent.click(screen.getByRole("button", { name: "reset shot model" }));
+
+        await waitFor(() => expect(updateShotModelSettings).toHaveBeenCalledWith(
+            "project-1",
+            "frame-override",
+            { reset_fields: ["r2v_model"] },
+        ));
+        expect(screen.getByLabelText("shot model")).toHaveTextContent("wan2.7-r2v");
+    });
+
+    it("persists an I2V Shot model under the I2V override field", async () => {
+        const project = {
+            ...useProjectStore.getState().currentProject!,
+            frames: [{
+                id: "frame-i2v",
+                action_description: "An I2V shot",
+                workbench_tab_mode: "t2i_i2v",
+            }],
+        };
+        useProjectStore.setState({ currentProject: project });
+        render(<StoryboardR2V />);
+
+        fireEvent.click(screen.getByRole("button", { name: "set i2v shot model" }));
+
+        await waitFor(() => expect(updateShotModelSettings).toHaveBeenCalledWith(
+            "project-1",
+            "frame-i2v",
+            { i2v_model: "wan2.6-i2v" },
+        ));
     });
 
     it("retains the selected video on failed adoption and merges only confirmed selection fields on retry", async () => {

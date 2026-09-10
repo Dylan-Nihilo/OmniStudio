@@ -37,6 +37,7 @@ export interface ShotNode {
     id: string;
     prompt: string;
     tabMode: "t2i_i2v" | "direct_r2v";
+    modelSettingsOverrides?: Record<string, unknown>;
 
     // T2I stage (only for t2i_i2v mode). Single-task fields stay here
     // for backward compat with existing shot drafts and the legacy

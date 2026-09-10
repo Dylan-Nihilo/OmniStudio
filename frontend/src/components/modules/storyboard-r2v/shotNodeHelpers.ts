@@ -223,6 +223,7 @@ export function frameToShotNode(
         id: frame.id,
         prompt: frame.visual_description ?? frame.action_description ?? "",
         tabMode: (frame.workbench_tab_mode as "t2i_i2v" | "direct_r2v" | undefined) ?? defaultTabMode,
+        modelSettingsOverrides: frame.model_settings_overrides ?? {},
         videoUrl,
         videoStatus,
         videoTaskId,

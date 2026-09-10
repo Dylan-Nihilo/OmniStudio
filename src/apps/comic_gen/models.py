@@ -623,7 +623,10 @@ class Script(BaseModel):
     model_settings: ModelSettings = Field(default_factory=ModelSettings, description="Model selection for T2I/I2I/I2V")
     # Sparse Episode overrides preserve inheritance instead of freezing a
     # copied parent snapshot in every generated project.
-    model_settings_overrides: Dict[str, Any] = Field(default_factory=dict)
+    model_settings_overrides: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sparse Episode overrides; None marks a legacy full snapshot",
+    )
 
     # Custom prompt configuration for polish stages
     prompt_config: PromptConfig = Field(default_factory=PromptConfig, description="Custom system prompts for polish stages")
@@ -726,6 +729,10 @@ class Series(BaseModel):
 
     # Model settings
     model_settings: ModelSettings = Field(default_factory=ModelSettings, description="Series-level model settings")
+    model_settings_overrides: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sparse Project overrides; None marks a legacy full snapshot",
+    )
 
     # Workflow mode for all episodes in this series
     workflow_mode: str = Field("i2v_legacy", description="Workflow mode: 'r2v' or 'i2v_legacy'")

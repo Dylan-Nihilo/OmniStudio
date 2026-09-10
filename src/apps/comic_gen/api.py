@@ -64,7 +64,7 @@ from .models import (
     AudioMode,
     ModelSettings,
 )
-from .model_settings import MODEL_SETTING_FIELDS
+from .model_settings import MODEL_SETTING_FIELDS, WORKSPACE_MODEL_SETTINGS_KEY, load_workspace_model_settings
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
@@ -868,6 +868,10 @@ def _is_workspace_viewer(context) -> bool:
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
+        # Workspace model defaults are readable by every member; writes stay
+        # owner-only through the mutating-method guard below.
+        if parts == ["config", "model-settings"] and method == "GET":
+            return False
         return True
     if method not in _MUTATING_METHODS:
         return False
@@ -1123,6 +1127,9 @@ def debug_config():
 def _project_payload(script: Script) -> dict:
     """Present shared assets consistently without persisting inherited copies."""
     payload = script.model_dump()
+    resolved_model_settings = pipeline.resolve_model_settings(script.id)
+    payload["model_settings"] = resolved_model_settings.settings.model_dump()
+    payload["model_settings_sources"] = resolved_model_settings.sources
     series = pipeline.get_series(script.series_id) if script.series_id else None
     workspace_id = pipeline.repository.workspace_for_script(script.id)
     library = pipeline.list_library_assets(workspace_id) if workspace_id else None
@@ -2426,7 +2433,47 @@ def get_series_model_settings(series_id: str):
     series = pipeline.get_series(series_id)
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
-    return series.model_settings.model_dump()
+    return pipeline.resolve_series_model_settings(series_id).settings.model_dump()
+
+
+@app.get("/config/model-settings")
+def get_global_model_settings(request: Request):
+    """Return Workspace-level model defaults shared by new and existing work."""
+    context = request.state.auth_context
+    raw = request.app.state.auth_service.repository.get_workspace_provider_config(context.workspace.id)
+    return load_workspace_model_settings(raw).model_dump()
+
+
+@app.put("/config/model-settings")
+def update_global_model_settings(request: Request, settings: UpdateModelSettingsRequest):
+    """Persist Workspace-level model defaults without mixing them with provider keys."""
+    context = request.state.auth_context
+    repository = request.app.state.auth_service.repository
+    raw = repository.get_workspace_provider_config(context.workspace.id)
+    current = load_workspace_model_settings(raw)
+    updates = {key: value for key, value in settings.model_dump().items() if key != "reset_fields" and value is not None}
+    unknown_fields = sorted(set(settings.reset_fields) - set(MODEL_SETTING_FIELDS))
+    if unknown_fields:
+        raise HTTPException(status_code=422, detail=f"Unknown model setting: {unknown_fields[0]}")
+    updated = current.model_copy(update=updates)
+    if settings.reset_fields:
+        defaults = ModelSettings()
+        updated = updated.model_copy(update={field: getattr(defaults, field) for field in settings.reset_fields})
+    repository.update_workspace_provider_config(
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        values={WORKSPACE_MODEL_SETTINGS_KEY: json.dumps(updated.model_dump(), ensure_ascii=False, sort_keys=True)},
+        removed_keys=[],
+        now=time.time(),
+    )
+    record_request_event(
+        request,
+        action="model.settings.update",
+        object_type="workspace",
+        object_id=str(context.workspace.id),
+        metadata={"fields": sorted(set(updates) | set(settings.reset_fields))},
+    )
+    return updated.model_dump()
 
 
 @app.put("/series/{series_id}/model_settings")
@@ -2442,14 +2489,11 @@ def update_series_model_settings(series_id: str, settings: UpdateModelSettingsRe
             raise HTTPException(status_code=404, detail="Series not found")
         return signed_response(series)
     try:
-        current_series = pipeline.get_series(series_id)
-        if not current_series:
-            raise HTTPException(status_code=404, detail="Series not found")
-        ms = current_series.model_settings.model_copy(update=updates)
-        if settings.reset_fields:
-            defaults = ModelSettings()
-            ms = ms.model_copy(update={field: getattr(defaults, field) for field in settings.reset_fields if hasattr(defaults, field)})
-        series = pipeline.update_series(series_id, {"model_settings": ms})
+        series = pipeline.update_series_model_settings(
+            series_id,
+            reset_fields=settings.reset_fields,
+            **updates,
+        )
         return signed_response(series)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

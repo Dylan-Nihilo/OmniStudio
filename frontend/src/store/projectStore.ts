@@ -178,6 +178,7 @@ export interface StoryboardFrame {
     rendered_image_asset?: ImageAsset;
     status?: string;
     locked?: boolean;
+    model_settings_overrides?: Partial<ModelSettings>;
     // ... other fields
 }
 
@@ -310,6 +311,7 @@ export interface Project {
     style_preset?: string;
     art_direction?: ArtDirection;
     model_settings?: ModelSettings;
+    model_settings_sources?: Record<string, string>;
     prompt_config?: PromptConfig;
     workflow_mode?: "i2v_legacy" | "r2v";
     /** PR-3e — Inherited from series; used by StoryboardR2V addShot to
@@ -388,10 +390,8 @@ interface ProjectStore {
     setCurrentSeries: (series: Series | null) => void;
 }
 
-// localStorage keys mirrored from SettingsPage. These hold the user's
-// global default model settings / prompt config. Kept here so newly
-// created projects can be backfilled with those defaults.
-const LS_KEY_DEFAULT_MODEL = 'omni_studio_default_model_settings';
+// Prompt defaults remain a local compatibility cache; model defaults are
+// Workspace-owned and resolved by the backend inheritance chain.
 const LS_KEY_DEFAULT_PROMPT = 'omni_studio_default_prompt_config';
 
 function readLS<T>(key: string): T | null {
@@ -407,7 +407,6 @@ function readLS<T>(key: string): T | null {
 // Backfill the SettingsPage defaults onto a freshly created project.
 // Returns the re-fetched project when any default was applied, else null.
 async function injectDefaultsIntoProject(projectId: string): Promise<Project | null> {
-    const ms = readLS<Partial<FrontendModelSettings>>(LS_KEY_DEFAULT_MODEL);
     const pc = readLS<{
         storyboard_polish?: string;
         video_polish?: string;
@@ -418,22 +417,6 @@ async function injectDefaultsIntoProject(projectId: string): Promise<Project | n
     }>(LS_KEY_DEFAULT_PROMPT);
 
     let applied = false;
-
-    if (ms) {
-        await api.updateModelSettings(
-            projectId,
-            ms.t2i_model,
-            ms.i2i_model,
-            ms.i2v_model,
-            ms.character_aspect_ratio,
-            ms.scene_aspect_ratio,
-            ms.prop_aspect_ratio,
-            ms.storyboard_aspect_ratio,
-            ms.image_model,
-            ms.r2v_model,
-        );
-        applied = true;
-    }
 
     if (pc) {
         const hasAny = Object.values(pc).some((v) => typeof v === 'string' && v.trim());

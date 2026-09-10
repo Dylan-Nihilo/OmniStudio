@@ -126,3 +126,103 @@ def test_effective_model_settings_api_reports_shot_override_sources(api_client):
     assert payload["settings"]["r2v_model"] == "shot-r2v"
     assert payload["sources"]["i2v_model"] == "episode"
     assert payload["sources"]["r2v_model"] == "shot"
+
+
+def test_workspace_global_model_settings_are_persisted_and_used_by_effective_resolution(api_client):
+    current = api_client.get("/config/model-settings")
+    assert current.status_code == 200, current.text
+
+    saved = api_client.put("/config/model-settings", json={"i2v_model": "workspace-i2v"})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["i2v_model"] == "workspace-i2v"
+
+    project = api_client.post(
+        "/projects?skip_analysis=true",
+        json={"title": "Workspace global settings", "text": "正文"},
+    ).json()
+    effective = api_client.get(f"/projects/{project['id']}/model_settings/effective")
+    assert effective.status_code == 200, effective.text
+    assert effective.json()["settings"]["i2v_model"] == "workspace-i2v"
+    assert effective.json()["sources"]["i2v_model"] == "global"
+
+    series = _create_series(api_client, "Workspace inherited series")
+    episode = api_client.post(
+        "/projects?skip_analysis=true",
+        json={"title": "Inherited episode", "text": "正文", "series_id": series["id"]},
+    ).json()
+    inherited = api_client.get(f"/projects/{episode['id']}/model_settings/effective")
+    assert inherited.json()["settings"]["i2v_model"] == "workspace-i2v"
+    assert inherited.json()["sources"]["i2v_model"] == "global"
+
+    overridden = api_client.put(
+        f"/series/{series['id']}/model_settings",
+        json={"i2v_model": "project-i2v"},
+    )
+    assert overridden.status_code == 200, overridden.text
+    project_effective = api_client.get(f"/projects/{episode['id']}/model_settings/effective").json()
+    assert project_effective["settings"]["i2v_model"] == "project-i2v"
+    assert project_effective["sources"]["i2v_model"] == "project"
+
+    reset = api_client.put(
+        f"/series/{series['id']}/model_settings",
+        json={"reset_fields": ["i2v_model"]},
+    )
+    assert reset.status_code == 200, reset.text
+    reset_effective = api_client.get(f"/projects/{episode['id']}/model_settings/effective").json()
+    assert reset_effective["settings"]["i2v_model"] == "workspace-i2v"
+    assert reset_effective["sources"]["i2v_model"] == "global"
+
+
+def test_project_payload_tracks_workspace_default_changes(api_client):
+    api_client.put("/config/model-settings", json={"i2v_model": "workspace-before"})
+    project = api_client.post(
+        "/projects?skip_analysis=true",
+        json={"title": "Live inherited settings", "text": "正文"},
+    ).json()
+
+    saved = api_client.put("/config/model-settings", json={"i2v_model": "workspace-after"})
+    assert saved.status_code == 200, saved.text
+
+    refreshed = api_client.get(f"/projects/{project['id']}")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["model_settings"]["i2v_model"] == "workspace-after"
+    assert refreshed.json()["model_settings_sources"]["i2v_model"] == "global"
+
+
+def test_new_project_response_includes_effective_workspace_model_settings(api_client):
+    saved = api_client.put("/config/model-settings", json={"r2v_model": "workspace-r2v"})
+    assert saved.status_code == 200, saved.text
+
+    created = api_client.post(
+        "/projects?skip_analysis=true",
+        json={"title": "Immediately inherited settings", "text": "正文"},
+    )
+
+    assert created.status_code == 200, created.text
+    assert created.json()["model_settings"]["r2v_model"] == "workspace-r2v"
+    assert created.json()["model_settings_sources"]["r2v_model"] == "global"
+
+
+def test_reparse_preserves_sparse_episode_model_overrides(pipeline):
+    now = time.time()
+    existing = Script(
+        id=str(uuid.uuid4()),
+        title="需要重解析的剧集",
+        original_text="旧正文",
+        created_at=now,
+        updated_at=now,
+        model_settings_overrides={"i2v_model": "episode-i2v"},
+    )
+    pipeline.scripts[existing.id] = existing
+    pipeline.script_processor.parse_novel.return_value = Script(
+        id=str(uuid.uuid4()),
+        title=existing.title,
+        original_text="新正文",
+        created_at=now,
+        updated_at=now,
+    )
+
+    reparsed = pipeline.reparse_project(existing.id, "新正文")
+
+    assert reparsed.model_settings_overrides == {"i2v_model": "episode-i2v"}
+    assert pipeline.resolve_model_settings(existing.id).settings.i2v_model == "episode-i2v"
