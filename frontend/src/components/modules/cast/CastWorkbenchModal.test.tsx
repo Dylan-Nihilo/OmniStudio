@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
     getTaskStatus: vi.fn(),
     selectAssetVariant: vi.fn(),
     favoriteAssetVariant: vi.fn(),
+    cancelTask: vi.fn(),
 }));
 
 vi.mock("next-intl", () => ({
@@ -59,6 +60,25 @@ describe("CastWorkbenchModal asset generation", () => {
         api.getProject.mockResolvedValue(project);
         api.generateAsset.mockResolvedValue({ _task_id: "task-1" });
         api.getTaskStatus.mockResolvedValue({ status: "processing" });
+    });
+
+    it("shows batch accounting and cancels without counting pending work as failed", async () => {
+        api.generateAsset.mockResolvedValue({ _task_id: "task-1", _job_id: "job-1" });
+        api.cancelTask.mockResolvedValue({ status: "canceled" });
+        render(
+            <CastWorkbenchModal isOpen kind="character" entityId="character-1" onClose={vi.fn()} />,
+        );
+        await act(async () => {});
+        fireEvent.click(screen.getByRole("button", { name: "generateFirst" }));
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(screen.getByRole("button", { name: "cancelGeneration" })).toBeEnabled();
+        expect(screen.getByText(/batchPending: 2/)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "cancelGeneration" }));
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(api.cancelTask).toHaveBeenCalledWith("job-1");
+        expect(screen.getByText(/batchCanceled: 2/)).toBeInTheDocument();
+        expect(screen.queryByText(/batchFailed: 2/)).not.toBeInTheDocument();
+        expect(useToastStore.getState().toasts.some((toast) => toast.kind === "progress")).toBe(false);
     });
 
     afterEach(() => {

@@ -19,6 +19,28 @@ def _job_for_response(api_client, response):
     return item
 
 
+def test_generate_asset_returns_job_id_for_cancelable_cast_batch(api_client):
+    project = _create_project(api_client, "Cancelable cast batch")
+    route = f"/projects/{project['id']}"
+    character = api_client.post(route + "/characters", json={"name": "阿岚"}).json()["characters"][0]
+    response = api_client.post(
+        route + "/assets/generate",
+        json={
+            "asset_id": character["id"],
+            "asset_type": "character",
+            "generation_type": "reference_sheet",
+            "model_name": "wan2.7-image-pro",
+            "prompt": "Night watch",
+            "batch_size": 2,
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    item = JobRepository(api_client.app.state.storage_engine).get_item(payload["_job_item_id"])
+    assert item is not None
+    assert payload["_job_id"] == item.job_id
+
+
 def test_generate_storyboard_routes_through_unified_production_job(api_client):
     project = _create_project(api_client, "Storyboard job entrypoint")
     route = f"/projects/{project['id']}"
