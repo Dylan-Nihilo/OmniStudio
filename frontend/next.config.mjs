@@ -13,6 +13,9 @@ const DEV_DIST_DIR = process.env.NEXT_DEV_DIST_DIR || '.next';
 const nextConfig = {
     devIndicators: false,
     transpilePackages: ["@omnistudio/ui"],
+    experimental: {
+        proxyTimeout: 120_000,
+    },
     output: isProd ? 'export' : undefined,
     // Keep the long-running dev compiler isolated from production builds.
     // Next dev and next build otherwise share .next, so running verification while
