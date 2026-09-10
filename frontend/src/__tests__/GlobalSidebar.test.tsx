@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   getLogoutButtonClasses,
+  getSidebarBrandImageStyle,
   getUserMenuLayerClasses,
   getUserMenuPopoverClasses,
 } from "@/components/layout/GlobalSidebar";
 import { getWarningToastClasses } from "@/components/shared/ToastContainer";
 
 describe("GlobalSidebar user menu layering", () => {
+  it("keeps the sidebar brand mark proportional at a bounded width", () => {
+    expect(getSidebarBrandImageStyle()).toEqual({ width: 24, height: "auto" });
+  });
+
   it("keeps the account popover above the app content layer", () => {
     expect(getUserMenuLayerClasses()).toContain("z-30");
   });
