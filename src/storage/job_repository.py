@@ -277,11 +277,14 @@ class JobRepository:
         return self._item_record(row) if row is not None else None
 
     def list_inflight(self, workspace_id: str | None = None) -> list[JobItemRecord]:
-        """Return processing items that need adapter recovery after restart."""
+        """Return pending/processing items that need adapter recovery after restart."""
         with self.engine.connect() as connection:
             rows = connection.execute(
                 select(JobItem.__table__).where(
-                    JobItem.__table__.c.status == JobStatus.PROCESSING.value,
+                    JobItem.__table__.c.status.in_((
+                        JobStatus.PENDING.value,
+                        JobStatus.PROCESSING.value,
+                    )),
                     *([JobItem.__table__.c.workspace_id == workspace_id] if workspace_id else []),
                 ).order_by(JobItem.__table__.c.created_at)
             ).mappings().all()
@@ -415,7 +418,8 @@ class JobRepository:
             if target_status not in self._ALLOWED_TRANSITIONS[current]:
                 raise StorageError(f"invalid transition: {current} -> {target_status}")
             refs = [item.model_dump() if isinstance(item, MediaRef) else dict(item) for item in (media_refs or [])]
-            if target_status == JobStatus.SUCCEEDED.value and not refs:
+            payload = json.loads(row["payload_json"] or "{}")
+            if target_status == JobStatus.SUCCEEDED.value and not refs and not payload.get("allow_empty_result"):
                 raise StorageError("succeeded job item requires a media reference")
             now = time.time()
             next_progress = 1.0 if target_status == JobStatus.SUCCEEDED.value else (progress if progress is not None else row["progress"])

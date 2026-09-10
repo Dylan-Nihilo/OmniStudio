@@ -32,10 +32,13 @@ import EnvConfigChecker from "@/components/EnvConfigChecker";
 import { isWorkspaceRoute } from "@/lib/workspaceSync";
 import { withChunkLoadRecovery } from "@/lib/chunkLoadRecovery";
 import { isAuthenticationRecoveryError } from "@/lib/apiClient";
-import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
+import {
+  loadWorkspaceNavigationContext,
+  saveWorkspaceNavigationContext,
+} from "@/lib/workspaceNavigationContext";
 import ActionDialog, { type ActionDialogProps } from "@/components/shared/ActionDialog";
 import TaskCenter from "@/components/tasks/TaskCenter";
-import type { TaskObjectRef } from "@/components/tasks/taskCenterModel";
+import { taskObjectHash, type TaskObjectRef } from "@/components/tasks/taskCenterModel";
 
 const ProjectClient = dynamic(() => withChunkLoadRecovery(() => import("@/components/project/ProjectClient")), { ssr: false });
 const SeriesDetailPage = dynamic(() => withChunkLoadRecovery(() => import("@/components/series/SeriesDetailPage")), { ssr: false });
@@ -183,11 +186,7 @@ function EpisodeBreadcrumbWrapper({ seriesId, episodeId }: { seriesId: string; e
     { label: episodeNumber != null ? t("episodeNum", { number: episodeNumber }) : t("episodeLabel") },
   ];
 
-  return (
-    <EpisodeEditLeaseGuard scriptId={episodeId}>
-      <ProjectClient id={episodeId} breadcrumbSegments={segments} />
-    </EpisodeEditLeaseGuard>
-  );
+  return <ProjectClient id={episodeId} breadcrumbSegments={segments} />;
 }
 
 // ── Main Component ──
@@ -200,6 +199,7 @@ function AuthenticatedHome() {
   const [syncError, setSyncError] = useState(false);
   const syncRequest = useRef(0);
   const activeWorkspaceId = useAuthStore((state) => state.activeWorkspace?.id);
+  const authUserId = useAuthStore((state) => state.user?.id);
   const [currentView, setCurrentView] = useState<'home' | 'project' | 'series' | 'series-episode' | 'library' | 'settings' | 'playground' | 'tasks' | 'sources' | 'studio/editor' | 'project-editor'>('home');
   const [activeTab, setActiveTab] = useState<GlobalTab>("workspace");
   const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection>("overview");
@@ -220,6 +220,25 @@ function AuthenticatedHome() {
   const t = useTranslations("workspace");
   const tc = useTranslations("common");
   const activeWorkspace = useAuthStore((state) => state.activeWorkspace);
+
+  // Restore the last project/episode/pipeline step for this user and
+  // Workspace when landing on the workspace root after login or a switch.
+  useEffect(() => {
+    if (!activeWorkspaceId || !authUserId) return;
+    const currentHash = window.location.hash || "#/";
+    if (currentHash !== "#/" && currentHash !== "") return;
+    const savedHash = loadWorkspaceNavigationContext(authUserId, activeWorkspaceId);
+    if (savedHash && savedHash !== currentHash) window.location.hash = savedHash;
+  }, [activeWorkspaceId, authUserId]);
+
+  // Keep navigation context scoped to the current identity and Workspace.
+  useEffect(() => {
+    if (!activeWorkspaceId || !authUserId) return;
+    const persist = () => saveWorkspaceNavigationContext(authUserId, activeWorkspaceId, window.location.hash || "#/");
+    persist();
+    window.addEventListener("hashchange", persist);
+    return () => window.removeEventListener("hashchange", persist);
+  }, [activeWorkspaceId, authUserId]);
 
   const tp = useTranslations("project");
   const [projectAction, setProjectAction] = useState<ActionDialogProps | null>(null);
@@ -443,11 +462,7 @@ function AuthenticatedHome() {
 
   // 项目详情页 — 全屏，无 GlobalSidebar
   if (currentView === 'project' && projectId) {
-    return (
-      <EpisodeEditLeaseGuard scriptId={projectId}>
-        <ProjectClient id={projectId} />
-      </EpisodeEditLeaseGuard>
-    );
+    return <ProjectClient id={projectId} />;
   }
 
   // 系列集数编辑 — 全屏，BreadcrumbBar 内嵌在 ProjectClient
@@ -489,8 +504,8 @@ function AuthenticatedHome() {
     }
     if (currentView === 'tasks') {
       const openTaskObject = (ref: TaskObjectRef) => {
-        const target = ref.episodeId || ref.projectId;
-        if (target) window.location.hash = `#/project/${target}`;
+        const target = taskObjectHash(ref);
+        if (target) window.location.hash = target;
       };
       return <TaskCenter key={activeWorkspace?.id} workspaceId={activeWorkspace?.id ?? "default"} onOpenObject={openTaskObject} onClose={() => { window.location.hash = "#/"; }} />;
     }

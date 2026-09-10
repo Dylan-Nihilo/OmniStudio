@@ -765,6 +765,103 @@ def test_source_analysis_batch_is_workspace_scoped(source_client, monkeypatch):
     assert isolated.json()["error"]["code"] == "AUTH_RESOURCE_NOT_FOUND"
 
 
+def test_source_analysis_batch_is_tracked_and_retryable_from_task_center(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "任务中心分析来源"}).json()
+    chapters = [
+        client.post(
+            f"/sources/{source['id']}/chapters",
+            json={"chapter_number": number, "title": title, "content": f"正文-{number}"},
+        ).json()
+        for number, title in ((1, "成功章"), (2, "失败章"))
+    ]
+
+    def analyze(title, content):
+        if title == "失败章":
+            raise RuntimeError("temporary provider failure")
+        return [{"event_type": "action", "description": f"处理 {title}"}]
+
+    monkeypatch.setattr(pipeline, "analyze_source_chapter_events", analyze)
+    batch_response = client.post(f"/sources/{source['id']}/analysis/batch")
+    assert batch_response.status_code == 201, batch_response.text
+    batch = batch_response.json()
+    assert batch["job_id"]
+    assert batch["job_item_id"]
+    task = client.get(f"/tasks/{batch['job_id']}")
+    assert task.status_code == 200, task.text
+    assert task.json()["job"]["items"][0]["kind"] == "source_analysis"
+    assert task.json()["job"]["status"] == "failed"
+
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: [{"event_type": "action", "description": "重试成功"}],
+    )
+    retry = client.post(f"/tasks/{batch['job_id']}/retry")
+    assert retry.status_code == 200, retry.text
+    refreshed = client.get(f"/tasks/{batch['job_id']}")
+    assert refreshed.status_code == 200, refreshed.text
+    items = refreshed.json()["job"]["items"]
+    assert any(item["retry_of"] == batch["job_item_id"] and item["status"] == "succeeded" for item in items)
+    assert client.get(f"/sources/{source['id']}/analysis/batches/{batch['id']}").json()["status"] == "succeeded"
+
+
+def test_source_analysis_batch_force_reanalyzes_current_revision(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "强制分析来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "正文"},
+    ).json()
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: [{"event_type": "action", "description": "首次分析"}],
+    )
+    first = client.post(f"/sources/{source['id']}/chapters/{chapter['id']}/analysis").json()
+
+    forced = client.post(f"/sources/{source['id']}/analysis/batch", json={"force": True})
+    assert forced.status_code == 201, forced.text
+    item = forced.json()["items"][0]
+    assert item["status"] == "succeeded"
+    assert item["analysis_id"] != first["id"]
+    assert item["attempt"] == 2
+
+
+def test_source_analysis_batch_retry_can_target_one_failed_chapter(source_client, monkeypatch):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "单章重试来源"}).json()
+    chapters = [
+        client.post(
+            f"/sources/{source['id']}/chapters",
+            json={"chapter_number": number, "title": title, "content": f"正文-{number}"},
+        ).json()
+        for number, title in ((1, "失败一"), (2, "失败二"))
+    ]
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: (_ for _ in ()).throw(RuntimeError("provider down")),
+    )
+    batch = client.post(f"/sources/{source['id']}/analysis/batch").json()
+    assert batch["failed"] == 2
+
+    monkeypatch.setattr(
+        pipeline,
+        "analyze_source_chapter_events",
+        lambda title, content: [{"event_type": "action", "description": title}],
+    )
+    retried = client.post(
+        f"/sources/{source['id']}/analysis/batches/{batch['id']}/retry",
+        json={"chapter_ids": [chapters[0]["id"]]},
+    )
+    assert retried.status_code == 200, retried.text
+    result = retried.json()
+    assert result["succeeded"] == 1
+    assert result["failed"] == 1
+    assert next(item for item in result["items"] if item["chapter_id"] == chapters[1]["id"])["status"] == "failed"
+
+
 def test_source_revision_emits_queryable_downstream_impact_markers(source_client):
     client, pipeline = source_client
     source = client.post("/sources", json={"title": "影响追踪来源"}).json()
@@ -893,3 +990,51 @@ def test_source_impact_ack_resolves_targets_and_event(source_client):
     refreshed = client.get(f"/sources/{source['id']}/impact-events").json()["items"][0]
     assert refreshed["status"] == "resolved"
     assert all(target["status"] == "resolved" for target in refreshed["targets"])
+
+
+def test_source_chapter_episode_links_are_idempotent_and_workspace_scoped(source_client):
+    client, pipeline = source_client
+    source = client.post("/sources", json={"title": "章节关联来源"}).json()
+    chapter = client.post(
+        f"/sources/{source['id']}/chapters",
+        json={"chapter_number": 1, "title": "第一章", "content": "正文"},
+    ).json()
+    first = pipeline.create_project("第一集", "正文", skip_analysis=True)
+    second = pipeline.create_project("第二集", "正文", skip_analysis=True)
+    user = client.app.state.auth_service.repository.find_user_by_username("owner")
+    workspace_id = client.app.state.auth_service.repository.get_default_workspace(user.id).id
+    pipeline.repository.assign_workspace_for_script(first.id, workspace_id)
+    pipeline.repository.assign_workspace_for_script(second.id, workspace_id)
+
+    linked = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{first.id}"
+    )
+    assert linked.status_code == 201, linked.text
+    assert linked.json()["created"] is True
+    duplicate = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{first.id}"
+    )
+    assert duplicate.status_code == 201, duplicate.text
+    assert duplicate.json()["created"] is False
+    assert client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{second.id}"
+    ).status_code == 201
+
+    refreshed = client.get(f"/sources/{source['id']}/chapters/{chapter['id']}")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["linked_episode_ids"] == [first.id, second.id]
+
+    unlinked = client.delete(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{first.id}"
+    )
+    assert unlinked.status_code == 200, unlinked.text
+    assert unlinked.json()["linked"] is False
+    assert client.get(f"/sources/{source['id']}/chapters/{chapter['id']}").json()["linked_episode_ids"] == [second.id]
+
+    other_workspace = client.post("/auth/workspaces", json={"name": "Other chapter links"}).json()["id"]
+    other = pipeline.create_project("隔离集", "正文", skip_analysis=True)
+    pipeline.repository.assign_workspace_for_script(other.id, other_workspace)
+    denied = client.post(
+        f"/sources/{source['id']}/chapters/{chapter['id']}/episodes/{other.id}"
+    )
+    assert denied.status_code == 404

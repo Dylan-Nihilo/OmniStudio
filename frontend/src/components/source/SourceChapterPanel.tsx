@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, ChevronLeft, ChevronRight, FileText, History, RotateCcw, Save } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FileText, History, Link2, RotateCcw, Save } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { Button, TextAreaField, TextField } from "@omnistudio/ui";
-import type { SourceChapter, SourceRevision, SourceRevisionImpact } from "@/lib/api";
+import { Button, SelectField, TextAreaField, TextField } from "@omnistudio/ui";
+import type { SourceChapter, SourceEpisode, SourceRevision, SourceRevisionImpact } from "@/lib/api";
 import styles from "./SourceWorkspace.module.css";
 import * as React from "react";
 
@@ -23,11 +23,15 @@ interface Props {
   onSave: (payload: { title: string; content: string }) => void;
   onRestore: (revision: SourceRevision) => void;
   onClose: () => void;
-  onAcknowledgeImpact?: (impactId: string) => void;
+  onAcknowledgeImpact?: (impactId: string, targetIds?: string[]) => void;
   onOpenScript?: (episodeId: string) => void;
+  onLinkEpisode?: (chapterId: string) => void;
+  episodes?: readonly SourceEpisode[];
+  onLinkChapterEpisode?: (chapterId: string, episodeId: string) => void | Promise<void>;
+  onUnlinkChapterEpisode?: (chapterId: string, episodeId: string) => void | Promise<void>;
 }
 
-export default function SourceChapterPanel({ chapters, total, page, pageSize, query, selectedChapter, revisions, impacts, saving = false, onQueryChange, onPageChange, onSelect, onSave, onRestore, onClose, onOpenScript, onAcknowledgeImpact }: Props) {
+export default function SourceChapterPanel({ chapters, total, page, pageSize, query, selectedChapter, revisions, impacts, saving = false, onQueryChange, onPageChange, onSelect, onSave, onRestore, onClose, onOpenScript, onAcknowledgeImpact, onLinkEpisode, episodes = [], onLinkChapterEpisode, onUnlinkChapterEpisode }: Props) {
   const t = useTranslations("sourceWorkspace");
   const tc = useTranslations("common");
   const ts = useTranslations("script");
@@ -35,11 +39,20 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
   const [title, setTitle] = React.useState(selectedChapter?.title || "");
   const [content, setContent] = React.useState(selectedChapter?.current_revision?.content || "");
   const [showHistory, setShowHistory] = React.useState(false);
+  const [episodeToLink, setEpisodeToLink] = React.useState("");
+  const linkedIds = selectedChapter?.linked_episode_ids ?? [];
+  const linkedEpisodes = episodes.filter(episode => linkedIds.includes(episode.id));
+  const availableEpisodes = episodes.filter(episode => !linkedIds.includes(episode.id));
+  const episodeOptions = availableEpisodes.map(episode => ({ id: episode.id, label: episode.episode_number == null ? episode.title : `EP.${String(episode.episode_number).padStart(2, "0")} · ${episode.title}` }));
 
   React.useEffect(() => {
     setTitle(selectedChapter?.title || "");
     setContent(selectedChapter?.current_revision?.content || "");
   }, [selectedChapter]);
+
+  React.useEffect(() => {
+    if (!availableEpisodes.some(episode => episode.id === episodeToLink)) setEpisodeToLink(availableEpisodes[0]?.id || "");
+  }, [episodes, selectedChapter, episodeToLink]);
 
   if (selectedChapter) {
     return (
@@ -49,6 +62,7 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
             <p className={styles.eyebrow}>{t("chapterDetailEyebrow")}</p>
             <h2 id="source-chapter-title">{t("chapterDetailTitle", { title: selectedChapter.title })}</h2>
             <p className={styles.muted}>{t("revisionCount", { count: selectedChapter.revision_count })}</p>
+            {linkedIds.length > 0 && <p className={styles.muted}>{t("chapterLinkedEpisodes", { count: linkedIds.length })}</p>}
           </div>
           <div className={styles.actionRow}><Button variant="quiet" onPress={() => setShowHistory(value => !value)}><History size={15} />{t("revisionHistory")}</Button><Button variant="quiet" onPress={onClose}><ChevronLeft size={16} />{t("backToChapters")}</Button></div>
         </div>
@@ -72,13 +86,22 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
               {impacts.length === 0 ? <p className={styles.muted}>{t("noImpactEvents")}</p> : impacts.map(impact => (
                 <article key={impact.id} className={styles.impactEvent}>
                   <p>{t("impactSummary", { revision: impact.revision_number, count: impact.target_count })}</p>
-                  {onAcknowledgeImpact && impact.status === "open" && <Button variant="quiet" onPress={() => onAcknowledgeImpact(impact.id)} isDisabled={saving}><Check size={14} />确认已处理</Button>}
+                  {onAcknowledgeImpact && impact.status === "open" && <Button variant="quiet" onPress={() => onAcknowledgeImpact(impact.id)} isDisabled={saving}><Check size={14} />{t("ackImpact")}</Button>}
                   {impact.targets.length > 0 && (
                     <ul className={styles.impactTargets} aria-label={t("impactTargets")}>
                       {impact.targets.map(target => (
                         <li key={target.id}>
                           <strong>{target.target_type}</strong>
                           <span>{t("impactTarget", { stage: target.target_stage, status: target.status, id: target.target_id })}</span>
+                          {onAcknowledgeImpact && target.status === "needs_review" && <Button
+                            variant="quiet"
+                            aria-label={t("ackImpactTarget", { id: target.target_id })}
+                            isDisabled={saving}
+                            onPress={() => onAcknowledgeImpact(impact.id, [target.id])}
+                          >
+                            <Check size={14} aria-hidden="true" />
+                            {t("ackTarget")}
+                          </Button>}
                           {onOpenScript && target.episode_id && <Button
                             variant="quiet"
                             aria-label={`${tc("open")} ${ts("scriptEditor")}`}
@@ -97,6 +120,11 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
             </div>
           </aside>
         </div>
+        {onLinkChapterEpisode && <div className={styles.impactBlock} aria-label={t("chapterEpisodeRelations")}>
+          <div className={styles.subsectionHeader}><h3>{t("chapterEpisodeRelations")}</h3><Link2 size={16} /></div>
+          {linkedEpisodes.length > 0 && <ul className={styles.impactTargets}>{linkedEpisodes.map(episode => <li key={episode.id}><strong>{episode.title}</strong><Button variant="quiet" aria-label={`${t("unlinkChapterEpisode")} ${episode.title}`} isDisabled={saving} onPress={() => void onUnlinkChapterEpisode?.(selectedChapter.id, episode.id)}><RotateCcw size={14} />{t("unlinkChapterEpisode")}</Button></li>)}</ul>}
+          {episodeOptions.length > 0 ? <div className={styles.actionRow}><SelectField label={t("chapterEpisodeToLink")} value={episodeToLink || null} onChange={value => setEpisodeToLink(String(value || ""))} options={episodeOptions} isDisabled={saving} /><Button onPress={() => episodeToLink && void onLinkChapterEpisode(selectedChapter.id, episodeToLink)} isDisabled={!episodeToLink || saving}><Link2 size={14} />{t("linkChapterEpisode")}</Button></div> : <p className={styles.muted}>{t("noAvailableChapterEpisodes")}</p>}
+        </div>}
       </section>
     );
   }
@@ -108,12 +136,15 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
         <TextField label={t("searchChapters")} value={query} onChange={onQueryChange} placeholder={t("searchChaptersPlaceholder")} />
       </div>
       {chapters.length === 0 ? <p className={styles.emptyInline}>{t("noChapters")}</p> : <div className={styles.chapterList}>
-        {chapters.map(chapter => <button type="button" key={chapter.id} aria-label={chapter.title} className={styles.chapterRow} onClick={() => onSelect(chapter)}>
-          <span className={styles.chapterNumber}>{t("chapterShort", { number: chapter.chapter_number })}</span>
-          <span className={styles.chapterRowTitle}>{chapter.title}</span>
-          <span className={styles.revisionBadge}>{t("revisionCount", { count: chapter.revision_count })}</span>
-          <ChevronRight size={16} />
-        </button>)}
+        {chapters.map(chapter => <div key={chapter.id} className={styles.chapterRow}>
+          <button type="button" aria-label={chapter.title} className={styles.chapterRow} onClick={() => onSelect(chapter)}>
+            <span className={styles.chapterNumber}>{t("chapterShort", { number: chapter.chapter_number })}</span>
+            <span className={styles.chapterRowTitle}>{chapter.title}</span>
+            <span className={styles.revisionBadge}>{t("revisionCount", { count: chapter.revision_count })}</span>
+            <ChevronRight size={16} />
+          </button>
+          {onLinkEpisode && <Button variant="quiet" aria-label={`link ${chapter.title}`} onPress={() => onLinkEpisode(chapter.id)}><Link2 size={14} /></Button>}
+        </div>)}
       </div>}
       <div className={styles.pagination}>
         <span>{t("pageOf", { page, count: pageCount })}</span>

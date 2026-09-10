@@ -23,7 +23,22 @@ Dispatcher = Callable[[JobItemRecord], DispatchResult]
 class ProductionJobAdapter:
     """Coordinate durable JobItems with provider dispatch callbacks."""
 
-    SUPPORTED_KINDS = frozenset({"asset", "storyboard", "video", "audio", "tts", "export"})
+    SUPPORTED_KINDS = frozenset({
+        "asset",
+        "asset_batch",
+        "storyboard",
+        "video",
+        "audio",
+        "tts",
+        "export",
+        "t2i",
+        "i2i",
+        "t2v",
+        "i2v",
+        "r2v",
+        "v2v",
+        "source_analysis",
+    })
 
     def __init__(self, repository: JobRepository, *, dispatchers: Mapping[str, Dispatcher] | None = None):
         self.repository = repository
@@ -93,6 +108,8 @@ class ProductionJobAdapter:
 
     def recover(self, item_id: str, *, workspace_id: str | None = None) -> JobItemRecord:
         item = self._owned_item(item_id, workspace_id)
+        if item.status == "pending":
+            return self.start(item.id, workspace_id=workspace_id)
         if item.status != "processing":
             return item
         self.repository.record_item_event(item.id, "recovered")
@@ -123,7 +140,7 @@ class ProductionJobAdapter:
             return self._fail_if_active(item, workspace_id, "JOB_DISPATCH_UNAVAILABLE", "没有注册生产任务调度器")
         try:
             media_refs = list(dispatcher(item))
-            if not media_refs:
+            if not media_refs and not item.payload.get("allow_empty_result"):
                 return self._fail_if_active(item, workspace_id, "PROVIDER_EMPTY_RESULT", "provider 未返回媒体结果")
             current = self._owned_item(item.id, workspace_id)
             if current.status == "canceled":

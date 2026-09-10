@@ -14,7 +14,7 @@ import copy
 from io import BytesIO
 import zipfile
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
+from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
@@ -22,6 +22,13 @@ from .storyboard import StoryboardGenerator
 from .video import VideoGenerator
 from .audio import AudioGenerator
 from .export import ExportManager
+from .model_settings import (
+    MODEL_SETTING_FIELDS,
+    ResolvedModelSettings,
+    load_workspace_model_settings,
+    resolve_model_settings as merge_model_settings,
+    sparse_model_settings,
+)
 from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
 from ...utils.model_catalog import load_generated_model_catalog
@@ -598,6 +605,22 @@ class ComicGenPipeline:
         die naturally with the process and don't need recovery.
         """
         STUCK = ("pending", "processing")
+        durable_video_projects: set[str] = set()
+        durable_video_tasks: set[str] = set()
+        if self.storage_engine is not None:
+            try:
+                from ...storage.job_repository import JobRepository
+
+                for item in JobRepository(self.storage_engine).list_inflight():
+                    if item.kind != "video":
+                        continue
+                    if item.project_id:
+                        durable_video_projects.add(item.project_id)
+                    legacy_task_id = item.payload.get("legacy_task_id")
+                    if legacy_task_id:
+                        durable_video_tasks.add(str(legacy_task_id))
+            except Exception:
+                logger.warning("Orphan task recovery: unable to inspect durable video jobs", exc_info=True)
         recovered = 0
 
         for script in self.scripts.values():
@@ -624,6 +647,8 @@ class ComicGenPipeline:
                     recovered += 1
             tasks = getattr(script, "video_tasks", None) or []
             for task in tasks:
+                if script.id in durable_video_projects or str(getattr(task, "id", "")) in durable_video_tasks:
+                    continue
                 if getattr(task, "status", None) in STUCK:
                     task.status = "failed"
                     if not getattr(task, "error", None):
@@ -1014,6 +1039,7 @@ class ComicGenPipeline:
         # Preserve project-level settings
         new_script.art_direction = existing_script.art_direction
         new_script.model_settings = existing_script.model_settings
+        new_script.model_settings_overrides = copy.deepcopy(existing_script.model_settings_overrides)
         new_script.style_preset = existing_script.style_preset
         new_script.style_prompt = existing_script.style_prompt
         new_script.merged_video_url = existing_script.merged_video_url
@@ -1062,27 +1088,29 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None) -> Script:
+    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None, candidate_type: str = None) -> Script:
         """Step 2: Generate a specific asset (character/scene/prop).
         If style_preset is None, uses the project's global style."""
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
         
-        # Get effective model names from project settings if not overridden
-        t2i_model = model_name or script.model_settings.t2i_model
-        i2i_model = script.model_settings.i2i_model
+        # Resolve the current inheritance chain instead of using a frozen
+        # Episode snapshot.
+        effective_settings = self.resolve_model_settings(script_id).settings
+        t2i_model = model_name or effective_settings.t2i_model
+        i2i_model = effective_settings.i2i_model
         
         # Get effective size based on asset type (aspect_ratio param overrides model_settings)
         from .assets import ASPECT_RATIO_TO_SIZE
         if aspect_ratio:
             effective_aspect = aspect_ratio
         elif asset_type == "character":
-            effective_aspect = script.model_settings.character_aspect_ratio
+            effective_aspect = effective_settings.character_aspect_ratio
         elif asset_type == "scene":
-            effective_aspect = script.model_settings.scene_aspect_ratio
+            effective_aspect = effective_settings.scene_aspect_ratio
         elif asset_type == "prop":
-            effective_aspect = script.model_settings.prop_aspect_ratio
+            effective_aspect = effective_settings.prop_aspect_ratio
         else:
             effective_aspect = "9:16"
 
@@ -1180,7 +1208,8 @@ class ComicGenPipeline:
                     batch_size=batch_size,
                     model_name=t2i_model,
                     i2i_model_name=i2i_model,
-                    size=effective_size
+                    size=effective_size,
+                    candidate_type=candidate_type,
                 )
             elif asset_type == "scene":
                 self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size)
@@ -1207,7 +1236,8 @@ class ComicGenPipeline:
                                       style_prompt: str = None, generation_type: str = "all",
                                       prompt: str = None, apply_style: bool = True,
                                       negative_prompt: str = None, batch_size: int = 1,
-                                      model_name: str = None, aspect_ratio: str = None) -> Tuple[Script, str]:
+                                      model_name: str = None, aspect_ratio: str = None,
+                                      candidate_type: str = None) -> Tuple[Script, str]:
         """Creates an async asset generation task and returns (script, task_id) immediately."""
         script = self.scripts.get(script_id)
         if not script:
@@ -1268,6 +1298,7 @@ class ComicGenPipeline:
                 "batch_size": batch_size,
                 "model_name": model_name,
                 "aspect_ratio": aspect_ratio,
+                "candidate_type": candidate_type,
             }
         }
         
@@ -1304,6 +1335,7 @@ class ComicGenPipeline:
                     params["batch_size"],
                     params["model_name"],
                     params.get("aspect_ratio"),
+                    params.get("candidate_type"),
                 )
             task["status"] = "completed"
             task["progress"] = 100
@@ -2315,6 +2347,16 @@ class ComicGenPipeline:
             frame.character_ids = kwargs['character_ids']
         if kwargs.get('duration') is not None:
             frame.duration = kwargs['duration']
+        if 'in_point' in kwargs and kwargs.get('in_point') is not None:
+            frame.in_point = max(0.0, float(kwargs['in_point']))
+        if 'out_point' in kwargs and kwargs.get('out_point') is not None:
+            frame.out_point = float(kwargs['out_point'])
+        if frame.in_point is not None and frame.out_point is not None:
+            if frame.out_point <= frame.in_point:
+                raise ValueError("out_point must be greater than in_point")
+            selected_task = next((task for task in (script.video_tasks or []) if task.id == frame.selected_video_id), None)
+            if selected_task and selected_task.duration and frame.out_point > float(selected_task.duration):
+                raise ValueError("out_point exceeds the selected video's duration")
         if kwargs.get('shot_size') is not None:
             frame.shot_size = kwargs['shot_size']
         if kwargs.get('camera_movement_description') is not None:
@@ -2355,6 +2397,33 @@ class ComicGenPipeline:
             )
             frames = list(script.frames)
             frames.insert(len(frames) if insert_at is None else insert_at, new_frame)
+            self._save_fields(script, frames=frames)
+            return script
+
+    def split_assembly_frame(self, script_id: str, frame_id: str, split_point: float) -> Script:
+        """Split one selected take into two ordered edit-list segments."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Script not found")
+            index = next((i for i, frame in enumerate(script.frames) if frame.id == frame_id), None)
+            if index is None:
+                raise LookupError(f"Frame {frame_id} not found")
+            frame = script.frames[index]
+            task = next((item for item in (script.video_tasks or []) if item.id == frame.selected_video_id), None)
+            start = float(frame.in_point or 0)
+            end = float(frame.out_point or (task.duration if task else 0))
+            point = float(split_point)
+            if not start < point < end:
+                raise ValueError("split_point must be inside the selected segment")
+            second = frame.model_copy(deep=True)
+            second.id = f"frame_{uuid.uuid4().hex[:8]}"
+            frame.in_point = start
+            frame.out_point = point
+            second.in_point = point
+            second.out_point = end
+            frames = list(script.frames)
+            frames.insert(index + 1, second)
             self._save_fields(script, frames=frames)
             return script
 
@@ -2654,11 +2723,12 @@ class ComicGenPipeline:
 
             # Get effective size from storyboard_aspect_ratio
             from .assets import ASPECT_RATIO_TO_SIZE
-            storyboard_aspect_ratio = script.model_settings.storyboard_aspect_ratio
+            effective_settings = self.resolve_model_settings(script_id, frame_id).settings
+            storyboard_aspect_ratio = effective_settings.storyboard_aspect_ratio
             effective_size = ASPECT_RATIO_TO_SIZE.get(storyboard_aspect_ratio, "1024*576")  # Default to landscape
             
             # Use model from settings
-            i2i_model = script.model_settings.i2i_model
+            i2i_model = effective_settings.i2i_model
             logger.info(f"Rendering frame {frame_id} using model {i2i_model} with {len(ref_image_paths)} reference images")
             if len(ref_image_urls) > 0:
                 logger.debug(f"Original reference URLs from frontend: {ref_image_urls}")
@@ -2969,7 +3039,14 @@ class ComicGenPipeline:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
             if result.returncode != 0:
                 raise RuntimeError(f"FFmpeg error: {result.stderr}")
         except subprocess.TimeoutExpired:
@@ -3765,11 +3842,26 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
 
+        script.merge_failure = None
         self._set_merge_progress(script, "preparing", "准备导出", 0.05)
         try:
             return self._merge_videos_impl(script_id, script)
         except Exception as err:
+            progress = dict(script.merge_progress or {})
+            failure = dict(script.merge_failure or {})
+            failure.update(
+                {
+                    "stage": progress.get("stage", "failed"),
+                    "message": str(err),
+                    "failed_at": time.time(),
+                }
+            )
+            script.merge_failure = failure
             self._set_merge_progress(script, "failed", str(err), 0)
+            try:
+                self._save_data()
+            except Exception:
+                logger.exception("[MERGE] Could not persist export failure context")
             raise
 
     def _merge_videos_impl(self, script_id: str, script: Script) -> Script:
@@ -3797,6 +3889,8 @@ class ComicGenPipeline:
                 [ffmpeg_path, "-version"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=5
             )
             if version_result.returncode == 0:
@@ -3839,6 +3933,11 @@ class ComicGenPipeline:
         # Create file list for ffmpeg
         # script.id comes from the store (== script_id), keeping ffmpeg args taint-free.
         list_path = _safe_resolve_path("output", f"merge_list_{script.id}.txt")
+        script.merge_failure = {
+            "stage": "collecting",
+            "merge_list_path": list_path,
+            "intermediate_dir": None,
+        }
         abs_video_paths = []
 
         for index, path in enumerate(video_paths):
@@ -3870,9 +3969,26 @@ class ComicGenPipeline:
         import tempfile
         import shutil
         normalization_dir = tempfile.mkdtemp(prefix=f"omni_studio_merge_{script.id}_")
+        script.merge_failure["intermediate_dir"] = normalization_dir
+        self._save_data()
         normalized_paths = []
         try:
             for index, source_path in enumerate(abs_video_paths):
+                frame = selected_frames[index]
+                trim_start = getattr(frame, "in_point", None)
+                trim_end = getattr(frame, "out_point", None)
+                if trim_start is not None or trim_end is not None:
+                    trimmed_path = os.path.join(normalization_dir, f"trimmed_{index + 1:03d}.mp4")
+                    trim_cmd = [ffmpeg_path, "-y"]
+                    if trim_start is not None:
+                        trim_cmd.extend(["-ss", str(trim_start)])
+                    trim_cmd.extend(["-i", source_path])
+                    if trim_end is not None:
+                        duration = float(trim_end) - float(trim_start or 0)
+                        trim_cmd.extend(["-t", str(duration)])
+                    trim_cmd.extend(["-c", "copy", trimmed_path])
+                    subprocess.run(trim_cmd, check=True, capture_output=True, timeout=120)
+                    source_path = trimmed_path
                 probe = subprocess.run(
                     [
                         ffmpeg_path, "-v", "error", "-i", source_path,
@@ -3915,7 +4031,7 @@ class ComicGenPipeline:
                 for path in abs_video_paths:
                     merge_list.write(f"file '{path}'\n")
         except Exception:
-            shutil.rmtree(normalization_dir, ignore_errors=True)
+            logger.exception("[MERGE] Normalization failed; retaining intermediate directory %s", normalization_dir)
             raise
 
         self._set_merge_progress(script, "normalizing", "统一音轨", 0.3)
@@ -4053,6 +4169,7 @@ class ComicGenPipeline:
                 )
 
             self._set_merge_progress(script, "done", "导出完成", 1.0)
+            script.merge_failure = None
             self._save_data()
 
             # Cleanup list file
@@ -4470,7 +4587,7 @@ class ComicGenPipeline:
             prompt=prompt or f"Cinematic shot of {target_asset.name}",
             status="pending",
             duration=duration,
-            model=script.model_settings.r2v_model if hasattr(script.model_settings, 'r2v_model') and script.model_settings.r2v_model else "wan2.7-r2v",
+            model=self.resolve_model_settings(script_id).settings.r2v_model or "wan2.7-r2v",
             generation_mode="r2v",
             created_at=time.time()
         )
@@ -4506,7 +4623,7 @@ class ComicGenPipeline:
             with self._save_lock:
                 script = self.get_script(script_id)
                 task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
-                if not task or task.status != "pending":
+                if not task or task.status not in ("pending", "processing"):
                     return
                 task.status = "processing"
                 self._save_data()
@@ -5327,33 +5444,174 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def update_model_settings(self, script_id: str, t2i_model: str = None, i2i_model: str = None, i2v_model: str = None, r2v_model: str = None, character_aspect_ratio: str = None, scene_aspect_ratio: str = None, prop_aspect_ratio: str = None, storyboard_aspect_ratio: str = None, image_model: str = None) -> Script:
-        """Updates the model settings for a script."""
+    def resolve_model_settings(self, script_id: str, frame_id: str | None = None) -> ResolvedModelSettings:
+        """Return effective global -> Project -> Episode -> Shot settings."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        series = self.series_store.get(script.series_id) if getattr(script, "series_id", None) else None
+        raw_project_overrides = getattr(series, "model_settings_overrides", None) if series else None
+        project_settings = (
+            sparse_model_settings(series.model_settings)
+            if series is not None and raw_project_overrides is None
+            else dict(raw_project_overrides or {}) if series is not None else None
+        )
+        raw_episode_overrides = getattr(script, "model_settings_overrides", None)
+        episode_overrides = dict(raw_episode_overrides or {})
+        # Standalone projects predate sparse overrides; preserve their complete
+        # project snapshot as the local layer for backward compatibility.
+        if series is None and raw_episode_overrides is None:
+            episode_overrides = sparse_model_settings(script.model_settings)
+        shot_overrides: dict[str, Any] = {}
+        if frame_id:
+            frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
+            if frame is None:
+                raise ValueError(f"Frame not found: {frame_id}")
+            shot_overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})
+        global_settings = self._global_model_settings_for_script(script_id)
+        return merge_model_settings(global_settings, project_settings, episode_overrides, shot_overrides)
+
+    def _global_model_settings_for_script(self, script_id: str) -> ModelSettings:
+        """Load Workspace-level model defaults for a script when SQLite is active."""
+        if self.storage_engine is None or self.repository is None:
+            return ModelSettings()
+        workspace_id = self.repository.workspace_for_script(script_id)
+        if workspace_id is None:
+            return ModelSettings()
+        try:
+            from ...storage.auth_repository import AuthRepository
+
+            raw = AuthRepository(self.storage_engine).get_workspace_provider_config(workspace_id)
+            return load_workspace_model_settings(raw)
+        except Exception:
+            logger.warning("Failed to load Workspace model defaults for %s", workspace_id, exc_info=True)
+            return ModelSettings()
+
+    def update_model_settings(
+        self,
+        script_id: str,
+        t2i_model: str = None,
+        i2i_model: str = None,
+        i2v_model: str = None,
+        r2v_model: str = None,
+        character_aspect_ratio: str = None,
+        scene_aspect_ratio: str = None,
+        prop_aspect_ratio: str = None,
+        storyboard_aspect_ratio: str = None,
+        image_model: str = None,
+        reset_fields: list[str] | None = None,
+    ) -> Script:
+        """Update sparse Episode settings and refresh the effective snapshot."""
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
 
-        if t2i_model:
-            script.model_settings.t2i_model = t2i_model
-        if i2i_model:
-            script.model_settings.i2i_model = i2i_model
-        if i2v_model:
-            script.model_settings.i2v_model = i2v_model
-        if r2v_model:
-            script.model_settings.r2v_model = r2v_model
-        if image_model:
-            script.model_settings.image_model = image_model
-        if character_aspect_ratio:
-            script.model_settings.character_aspect_ratio = character_aspect_ratio
-        if scene_aspect_ratio:
-            script.model_settings.scene_aspect_ratio = scene_aspect_ratio
-        if prop_aspect_ratio:
-            script.model_settings.prop_aspect_ratio = prop_aspect_ratio
-        if storyboard_aspect_ratio:
-            script.model_settings.storyboard_aspect_ratio = storyboard_aspect_ratio
+        updates = {
+            "t2i_model": t2i_model,
+            "i2i_model": i2i_model,
+            "i2v_model": i2v_model,
+            "r2v_model": r2v_model,
+            "character_aspect_ratio": character_aspect_ratio,
+            "scene_aspect_ratio": scene_aspect_ratio,
+            "prop_aspect_ratio": prop_aspect_ratio,
+            "storyboard_aspect_ratio": storyboard_aspect_ratio,
+            "image_model": image_model,
+        }
+        raw_overrides = getattr(script, "model_settings_overrides", None)
+        overrides = dict(raw_overrides or {})
+        if getattr(self, "series_store", {}).get(getattr(script, "series_id", None)) is None and raw_overrides is None:
+            # Migrate a legacy standalone project's complete snapshot into
+            # sparse overrides before applying the first edit. This preserves
+            # old custom values while allowing reset_fields to reveal globals.
+            overrides = sparse_model_settings(script.model_settings)
+        for field, value in updates.items():
+            if value is not None:
+                overrides[field] = value
+        for field in reset_fields or []:
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            overrides.pop(field, None)
+        script.model_settings_overrides = overrides
+        script.model_settings = self.resolve_model_settings(script_id).settings
 
         self._save_data()
         return script
+
+    def update_shot_model_settings(
+        self,
+        script_id: str,
+        frame_id: str,
+        *,
+        reset_fields: list[str] | None = None,
+        **updates: Any,
+    ) -> Script:
+        """Persist sparse model overrides for one Shot and keep the chain live."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
+        if frame is None:
+            raise ValueError(f"Frame not found: {frame_id}")
+        overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})
+        for field, value in updates.items():
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            if value is not None:
+                overrides[field] = value
+        for field in reset_fields or []:
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            overrides.pop(field, None)
+        frame.model_settings_overrides = overrides
+        self._save_data()
+        return script
+
+    def resolve_series_model_settings(self, series_id: str) -> ResolvedModelSettings:
+        series = self.series_store.get(series_id)
+        if not series:
+            raise ValueError("Series not found")
+        global_settings = ModelSettings()
+        if self.storage_engine is not None and self.repository is not None:
+            workspace_id = self.repository.workspace_for_series(series_id)
+            if workspace_id:
+                from ...storage.auth_repository import AuthRepository
+
+                raw = AuthRepository(self.storage_engine).get_workspace_provider_config(workspace_id)
+                global_settings = load_workspace_model_settings(raw)
+        raw_overrides = getattr(series, "model_settings_overrides", None)
+        overrides = dict(raw_overrides or {})
+        if raw_overrides is None:
+            overrides = sparse_model_settings(series.model_settings)
+        return merge_model_settings(global_settings, overrides)
+
+    def update_series_model_settings(
+        self,
+        series_id: str,
+        *,
+        reset_fields: list[str] | None = None,
+        **updates: Any,
+    ) -> Series:
+        series = self.series_store.get(series_id)
+        if not series:
+            raise ValueError("Series not found")
+        raw_overrides = getattr(series, "model_settings_overrides", None)
+        overrides = dict(raw_overrides or {})
+        if raw_overrides is None:
+            overrides = sparse_model_settings(series.model_settings)
+        for field, value in updates.items():
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            if value is not None:
+                overrides[field] = value
+        for field in reset_fields or []:
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            overrides.pop(field, None)
+        series.model_settings_overrides = overrides
+        series.model_settings = self.resolve_series_model_settings(series_id).settings
+        series.updated_at = time.time()
+        self._save_series_data()
+        return series
 
     def _set_variant_favorite(self, image_asset: Any, variant_id: str, is_favorited: bool) -> bool:
         """Helper to set favorite status of a variant. Returns True if found."""
@@ -5834,6 +6092,7 @@ class ComicGenPipeline:
                 art_direction=copy.deepcopy(script.art_direction),
                 prompt_config=copy.deepcopy(script.prompt_config),
                 model_settings=copy.deepcopy(script.model_settings),
+                model_settings_overrides=dict(getattr(script, "model_settings_overrides", {}) or sparse_model_settings(script.model_settings)),
                 workflow_mode=script.workflow_mode,
                 default_generation_mode=script.default_generation_mode,
                 content_mode="scripted",
@@ -6746,17 +7005,18 @@ class ComicGenPipeline:
         if not series:
             raise ValueError("Series not found")
 
-        t2i_model = model_name or series.model_settings.t2i_model
+        effective_settings = self.resolve_series_model_settings(series_id).settings
+        t2i_model = model_name or effective_settings.t2i_model
 
         from .assets import ASPECT_RATIO_TO_SIZE
         if asset_type == "character":
-            aspect_ratio = series.model_settings.character_aspect_ratio
+            aspect_ratio = effective_settings.character_aspect_ratio
             default_size = "576*1024"
         elif asset_type == "scene":
-            aspect_ratio = series.model_settings.scene_aspect_ratio
+            aspect_ratio = effective_settings.scene_aspect_ratio
             default_size = "1024*576"
         elif asset_type == "prop":
-            aspect_ratio = series.model_settings.prop_aspect_ratio
+            aspect_ratio = effective_settings.prop_aspect_ratio
             default_size = "1024*1024"
         else:
             aspect_ratio = "9:16"

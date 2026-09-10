@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import time
 import uuid
+from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -106,6 +108,31 @@ def _make_script_with_video_task(video_url: str) -> Script:
 
 
 class TestExtractLastFramePathContainment:
+    def test_frame_extraction_decodes_ffmpeg_output_as_utf8(self, pipeline, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        os.makedirs("output/video", exist_ok=True)
+        os.makedirs("output/storyboard", exist_ok=True)
+        video_path = tmp_path / "output" / "video" / "tiny.mp4"
+        video_path.write_bytes(b"video")
+        script = _make_script_with_video_task("video/tiny.mp4")
+        pipeline.scripts[script.id] = script
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(kwargs)
+            Path(cmd[-1]).write_bytes(b"jpg")
+            return SimpleNamespace(returncode=0, stderr="")
+
+        monkeypatch.setattr("src.apps.comic_gen.pipeline.get_ffmpeg_path", lambda: "ffmpeg")
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("src.utils.oss_utils.OSSImageUploader.upload_image", lambda self, path: None)
+
+        pipeline.extract_last_frame(script.id, script.frames[0].id, script.video_tasks[0].id)
+
+        assert calls[0]["text"] is True
+        assert calls[0]["encoding"] == "utf-8"
+        assert calls[0]["errors"] == "replace"
+
     def test_absolute_path_outside_output_is_rejected(self, pipeline, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         os.makedirs("output", exist_ok=True)

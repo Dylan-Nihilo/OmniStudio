@@ -170,3 +170,22 @@ def test_merge_videos_sets_failed_progress_on_ffmpeg_error(
     assert script.merge_progress["stage"] == "failed"
     assert script.merge_progress["progress"] == 0.0
     assert script.merge_progress["message"]
+
+
+def test_merge_videos_persists_failure_context_and_keeps_intermediates(
+    monkeypatch, tmp_path, pipeline
+):
+    script = _script()
+    pipeline.scripts[script.id] = script
+    _install_merge_mocks(monkeypatch, tmp_path, fail_concat=True)
+
+    with pytest.raises(RuntimeError):
+        pipeline.merge_videos(script.id)
+
+    failure = script.merge_failure
+    assert failure["stage"] == "transcoding"
+    assert failure["message"]
+    assert failure["merge_list_path"]
+    assert failure["intermediate_dir"]
+    assert (tmp_path / "normalization").exists()
+    assert (tmp_path / "merge_list_script-1.txt").exists()

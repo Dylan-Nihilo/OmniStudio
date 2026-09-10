@@ -68,6 +68,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_chapters",
         "source_revisions",
         "source_episode_links",
+        "source_chapter_episode_links",
         "source_import_previews",
         "source_episode_split_previews",
         "source_chapter_analyses",
@@ -133,6 +134,10 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
             "ix_source_episode_links_episode",
             "ix_source_episode_links_source",
         },
+        "source_chapter_episode_links": {
+            "ix_source_chapter_episode_links_episode",
+            "ix_source_chapter_episode_links_chapter",
+        },
         "source_import_previews": {
             "ix_source_import_previews_workspace_updated",
             "ix_source_import_previews_status",
@@ -193,6 +198,7 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_chapters",
         "source_revisions",
         "source_episode_links",
+        "source_chapter_episode_links",
         "source_import_previews",
         "source_episode_split_previews",
         "source_chapter_analyses",

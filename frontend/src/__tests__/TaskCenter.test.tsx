@@ -3,7 +3,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TaskCenter from "@/components/tasks/TaskCenter";
-import { toTaskViewModel } from "@/components/tasks/taskCenterModel";
+import { taskObjectHash, toTaskViewModel } from "@/components/tasks/taskCenterModel";
 
 const mocks = vi.hoisted(() => ({
   listTasks: vi.fn(),
@@ -65,6 +65,35 @@ describe("taskCenterModel", () => {
       progress: 50,
       objectRef: { projectId: "project-1", episodeId: "episode-1", frameId: "frame-1" },
     });
+  });
+
+  it("maps Playground jobs to the Playground object target", () => {
+    const playgroundJob = {
+      ...failedJob,
+      id: "job-playground",
+      project_id: null,
+      episode_id: null,
+      kind: "playground.t2i",
+      items: [{ ...failedJob.items[0], kind: "t2i", payload: { generation_id: "generation-1" } }],
+    };
+    expect(toTaskViewModel(playgroundJob as never).objectRef).toEqual({
+      view: "playground",
+      generationId: "generation-1",
+    });
+    expect(taskObjectHash({ view: "playground", generationId: "generation-1" })).toBe("#/playground");
+  });
+
+  it("maps source analysis jobs back to the Source workspace", () => {
+    const sourceJob = {
+      ...failedJob,
+      id: "job-source-analysis",
+      project_id: null,
+      episode_id: null,
+      kind: "production.source_analysis",
+      items: [{ ...failedJob.items[0], kind: "source_analysis", payload: { source_document_id: "source-1", batch_id: "batch-1" } }],
+    };
+    expect(toTaskViewModel(sourceJob as never).objectRef).toEqual({ view: "sources", sourceId: "source-1", batchId: "batch-1" });
+    expect(taskObjectHash({ view: "sources", sourceId: "source-1", batchId: "batch-1" })).toBe("#/sources");
   });
 });
 

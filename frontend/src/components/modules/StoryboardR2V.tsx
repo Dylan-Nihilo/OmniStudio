@@ -111,14 +111,15 @@ function StoryboardWorkbench() {
     structurePendingRef.current = structurePending || draftSave.materializing;
     const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
 
-    // Global video config (with localStorage persistence for model selection)
+    // Effective Episode defaults come from the backend. localStorage is only
+    // a legacy fallback when an older payload has no model_settings field.
     const [videoConfig, setVideoConfig] = useState<VideoConfig>(() => {
         const ls = typeof window !== 'undefined' ? window.localStorage : null;
         const savedI2v = ls?.getItem('storyboard-r2v-model') ?? null;
         const savedR2v = ls?.getItem('storyboard-r2v-r2v-model') ?? null;
         const savedAudioMode = ls?.getItem('storyboard-r2v-audio-mode') ?? null;
         const savedAudioUrl = ls?.getItem('storyboard-r2v-audio-url') ?? null;
-        const projectI2v = currentProject?.model_settings?.i2v_model || DEFAULT_I2V_MODEL_ID;
+        const projectI2v = currentProject?.model_settings?.i2v_model;
 
         // I2V — defensive: a cached localStorage model id may have been
         // hidden or removed from the I2V list since it was last
@@ -126,7 +127,7 @@ function StoryboardWorkbench() {
         // visible, the catalog later marked it hidden, and now the ID
         // lingers in their browser). Falling back to the default avoids
         // silently shipping the wrong model into the I2V flow.
-        const i2vCandidate = savedI2v || projectI2v;
+        const i2vCandidate = projectI2v || savedI2v || DEFAULT_I2V_MODEL_ID;
         const i2vOk = VIDEO_I2V_MODELS.find(m => m.id === i2vCandidate);
         const i2vModelId = i2vOk ? i2vCandidate : DEFAULT_I2V_MODEL_ID;
         if (!i2vOk && ls && savedI2v) {
@@ -139,16 +140,16 @@ function StoryboardWorkbench() {
         }
 
         // R2V preference order:
-        //   1. localStorage (user's last explicit pick — survives reloads)
-        //   2. project.model_settings.r2v_model (project-level default,
-        //      set in 生成设置 — Plan B "specialize" hierarchy)
+        //   1. project.model_settings.r2v_model (the backend-resolved
+        //      Workspace -> Project -> Episode effective value)
+        //   2. localStorage recovery cache for legacy payloads
         //   3. derived from i2v family (initial coherence on first mount)
         //   4. catalog DEFAULT_R2V_MODEL_ID
         // Each candidate is validated against VIDEO_R2V_MODELS so a
         // hidden id from any layer falls through cleanly.
         const projectR2v = currentProject?.model_settings?.r2v_model;
         const r2vDerived = getR2vRouteModelId(i2vModelId);
-        const r2vCandidate = savedR2v || projectR2v || r2vDerived || DEFAULT_R2V_MODEL_ID;
+        const r2vCandidate = projectR2v || savedR2v || r2vDerived || DEFAULT_R2V_MODEL_ID;
         const r2vOk = VIDEO_R2V_MODELS.find(m => m.id === r2vCandidate);
         const r2vModelId = r2vOk ? r2vCandidate : (VIDEO_R2V_MODELS[0]?.id ?? DEFAULT_R2V_MODEL_ID);
         if (!r2vOk && ls && savedR2v) {
@@ -172,9 +173,8 @@ function StoryboardWorkbench() {
 
     // Modal & drawer state (configModalOpen retired with the gear; the
     // old VideoConfigModal mount is gone, replaced by per-shot
-    // ParamsSection panels under each ShotCard. handleConfigChange is
-    // also gone — model writes now flow through handleShotParamsChange
-    // below, which mirrors them to localStorage.)
+    // ParamsSection panels under each ShotCard. Model writes now flow
+    // through the durable Shot override handler below.)
     const [drawerState, setDrawerState] = useState<{ isOpen: boolean; targetShotIndex: number | null }>({
         isOpen: false,
         targetShotIndex: null,
@@ -209,6 +209,7 @@ function StoryboardWorkbench() {
     // backend, so the user gets immediate feedback instead of a
     // task that queues, fails, and shows up only in the diagnose log.
     const [shotErrors, setShotErrors] = useState<Record<string, string>>({});
+    const [savingShotModels, setSavingShotModels] = useState<Set<string>>(() => new Set());
     const missingRefsMessage = useCallback(
         (modelLabel: string) =>
             t("missingRefs", { model: modelLabel }),
@@ -1671,7 +1672,61 @@ function StoryboardWorkbench() {
         });
     }, [allVideoTasks]);
 
-    // Build a ParamsState from videoConfig + per-shot overrides.
+    type ShotModelField = "i2v_model" | "r2v_model";
+
+    const persistShotModel = useCallback((shot: ShotNode, field: ShotModelField, value: string | null) => {
+        const projectId = currentProject?.id;
+        if (!projectId) return;
+        const shotIndex = shotsRef.current.findIndex(candidate => candidate.id === shot.id);
+        if (shotIndex < 0) return;
+        const previousOverrides = { ...(shot.modelSettingsOverrides ?? {}) };
+        const nextOverrides = { ...previousOverrides };
+        if (value === null) delete nextOverrides[field];
+        else nextOverrides[field] = value;
+
+        setShots(previous => previous.map(candidate => candidate.id === shot.id
+            ? { ...candidate, modelSettingsOverrides: nextOverrides }
+            : candidate));
+        setSavingShotModels(previous => new Set(previous).add(shot.id));
+
+        void (async () => {
+            try {
+                const frameId = await materializeShot(shot, shotIndex);
+                if (!isCurrentProject()) return;
+                const payload = value === null ? { reset_fields: [field] } : { [field]: value };
+                const updated = await api.updateShotModelSettings(projectId, frameId, payload);
+                if (!isCurrentProject()) return;
+                const confirmed = updated?.frames?.find((frame: any) => frame.id === frameId)?.model_settings_overrides ?? nextOverrides;
+                const project = useProjectStore.getState().currentProject;
+                if (project?.id === projectId) {
+                    updateProject(projectId, {
+                        frames: project.frames.map(frame => frame.id === frameId
+                            ? { ...frame, model_settings_overrides: confirmed }
+                            : frame),
+                    });
+                }
+                setShots(previous => previous.map(candidate => candidate.id === frameId || candidate.id === shot.id
+                    ? { ...candidate, modelSettingsOverrides: confirmed }
+                    : candidate));
+            } catch (error) {
+                if (isCurrentProject()) {
+                    setShots(previous => previous.map(candidate => candidate.id === shot.id || candidate.id === resolveId(shot.id)
+                        ? { ...candidate, modelSettingsOverrides: previousOverrides }
+                        : candidate));
+                    toast.error(t("saveFailed"), { body: error instanceof Error ? error.message : t("unknownError") });
+                }
+            } finally {
+                setSavingShotModels(previous => {
+                    const next = new Set(previous);
+                    next.delete(shot.id);
+                    next.delete(resolveId(shot.id));
+                    return next;
+                });
+            }
+        })();
+    }, [currentProject?.id, isCurrentProject, materializeShot, resolveId, t, updateProject]);
+
+    // Build a ParamsState from inherited videoConfig + per-shot overrides.
     // Single source of truth strategy:
     //  - Per-shot overrides (shotCounts, shotSeeds) for params whose
     //    "right value" naturally differs by shot.
@@ -1679,7 +1734,11 @@ function StoryboardWorkbench() {
     //    and uses across all shots in a project.
     const paramsStateForShot = useCallback((shot: ShotNode): ParamsState => {
         const isR2v = shot.tabMode === "direct_r2v";
-        const modelId = isR2v ? videoConfig.r2vModel : videoConfig.model;
+        const modelField: ShotModelField = isR2v ? "r2v_model" : "i2v_model";
+        const inheritedModel = isR2v ? videoConfig.r2vModel : videoConfig.model;
+        const modelId = typeof shot.modelSettingsOverrides?.[modelField] === "string"
+            ? String(shot.modelSettingsOverrides[modelField])
+            : inheritedModel;
         return {
             model: modelId,
             duration: shot.duration ?? videoConfig.duration,
@@ -1702,13 +1761,12 @@ function StoryboardWorkbench() {
         };
     }, [videoConfig, shotCounts, shotSeeds]);
 
-    // ParamsSection.onChange handler: per-shot overrides (count, seed)
+    // ParamsSection.onChange handler: per-shot overrides (model, count, seed)
     // go into their dedicated maps; everything else writes back to
     // the shared videoConfig (so the user's most-recent picks become
     // the new default for siblings). videoConfig is mirrored to
-    // localStorage as a recovery cache only — the authoritative model
-    // selection lives in project.model_settings, written via the
-    // 生成设置 modal.
+    // localStorage as a recovery cache only. Model selection is a durable
+    // sparse Shot override and can be reset to the inherited parent value.
     const handleShotParamsChange = useCallback((shot: ShotNode, next: ParamsState) => {
         if ((shotCounts[shot.id] ?? 1) !== next.count) {
             persistWorkbench(shot.id, { workbench_generate_count: next.count });
@@ -1734,6 +1792,12 @@ function StoryboardWorkbench() {
             return { ...prev, [shot.id]: next.seed };
         });
         const isR2v = shot.tabMode === "direct_r2v";
+        const modelField: ShotModelField = isR2v ? "r2v_model" : "i2v_model";
+        const inheritedModel = isR2v ? videoConfig.r2vModel : videoConfig.model;
+        const currentModel = typeof shot.modelSettingsOverrides?.[modelField] === "string"
+            ? String(shot.modelSettingsOverrides[modelField])
+            : inheritedModel;
+        if (next.model !== currentModel) persistShotModel(shot, modelField, next.model);
         const ls = typeof window !== "undefined" ? window.localStorage : null;
         setVideoConfig(prev => {
             const updated: VideoConfig = {
@@ -1753,19 +1817,12 @@ function StoryboardWorkbench() {
                 // it") so swapping to a non-watermark-supporting model clears it.
                 watermark: next.watermark,
             };
-            if (isR2v) {
-                updated.r2vModel = next.model;
-                ls?.setItem("storyboard-r2v-r2v-model", next.model);
-            } else {
-                updated.model = next.model;
-                ls?.setItem("storyboard-r2v-model", next.model);
-            }
             if (updated.audioMode) ls?.setItem("storyboard-r2v-audio-mode", updated.audioMode);
             if (updated.audioUrl) ls?.setItem("storyboard-r2v-audio-url", updated.audioUrl);
             else ls?.removeItem("storyboard-r2v-audio-url");
             return updated;
         });
-    }, [persistWorkbench, shotCounts, shots, videoConfig.duration, handleUpdateField]);
+    }, [persistWorkbench, persistShotModel, shotCounts, shots, videoConfig, handleUpdateField]);
 
     const annotationRequests = useRef(new Map<string, Promise<void>>());
     const annotateCandidate = useCallback((task: VideoTask, payload: Parameters<typeof api.annotateVideoTask>[2]): Promise<void> => {
@@ -1984,6 +2041,9 @@ function StoryboardWorkbench() {
                     const paramsState = paramsStateForShot(shot);
                     const isI2vTab = shot.tabMode === "t2i_i2v";
                     const modelList = isI2vTab ? VIDEO_I2V_MODELS : VIDEO_R2V_MODELS;
+                    const shotModelField: ShotModelField = isI2vTab ? "i2v_model" : "r2v_model";
+                    const hasModelOverride = Object.prototype.hasOwnProperty.call(shot.modelSettingsOverrides ?? {}, shotModelField);
+                    const modelOverrideSaving = savingShotModels.has(shot.id) || savingShotModels.has(resolveId(shot.id));
                     return <div key="selected-shot" className={styles.selectedShot} ref={el => { shotWrapperRefs.current.set(shot.id, el); }}>
                         <DirectorPlanEditor projectId={currentProject!.id} episodeId={currentProject!.id} shotId={shot.id} />
                         <ShotCard
@@ -2016,8 +2076,8 @@ function StoryboardWorkbench() {
                             generateCount={paramsState.count}
                             genSummary={`${
                                 shot.tabMode === "direct_r2v"
-                                    ? (VIDEO_R2V_MODELS.find(m => m.id === videoConfig.r2vModel)?.name ?? videoConfig.r2vModel ?? "")
-                                    : (VIDEO_I2V_MODELS.find(m => m.id === videoConfig.model)?.name ?? videoConfig.model ?? "")
+                                    ? (VIDEO_R2V_MODELS.find(m => m.id === paramsState.model)?.name ?? paramsState.model ?? "")
+                                    : (VIDEO_I2V_MODELS.find(m => m.id === paramsState.model)?.name ?? paramsState.model ?? "")
                             } · ${paramsState.duration}s`}
                             canGenerate={
                                 shot.prompt.trim().length > 0
@@ -2183,6 +2243,9 @@ function StoryboardWorkbench() {
                                     title={t("generationSettings")}
                                     params={paramsState}
                                     onChange={(next) => handleShotParamsChange(shot, next)}
+                                    hasModelOverride={hasModelOverride}
+                                    modelOverrideSaving={modelOverrideSaving}
+                                    onResetModel={() => persistShotModel(shot, shotModelField, null)}
                                     inFlightCount={shotInFlight}
                                     errorMessage={shotErrors[shot.id] ?? null}
                                 />

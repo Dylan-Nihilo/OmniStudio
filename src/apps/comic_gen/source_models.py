@@ -140,6 +140,7 @@ class SourceChapterRead(BaseModel):
     title: str
     current_revision_id: str | None
     revision_count: int = Field(ge=0)
+    linked_episode_ids: list[str] = Field(default_factory=list)
     current_revision: SourceRevisionRead | None = None
     created_at: float
     updated_at: float
@@ -201,6 +202,7 @@ class SourceEpisodeList(BaseModel):
 
 class SourceLinkResponse(BaseModel):
     source_document_id: str
+    chapter_id: str | None = None
     episode_id: str
     created: bool
     linked: bool = True
@@ -409,6 +411,8 @@ class SourceAnalysisBatchRead(BaseModel):
     success_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
     failed_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
     skipped_items: list[SourceAnalysisBatchItemRead] = Field(default_factory=list)
+    job_id: str | None = None
+    job_item_id: str | None = None
     created_at: float
     updated_at: float
 

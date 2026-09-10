@@ -18,6 +18,7 @@ from .schema import (
     Script,
     Series,
     SourceChapter,
+    SourceChapterEpisodeLink,
     SourceChapterAnalysis,
     SourceDocument,
     SourceImpactTarget,
@@ -289,6 +290,11 @@ class SourceRepository:
                 SourceRevision.chapter_id == row["id"]
             )
         ).scalar_one()
+        linked_episode_ids = connection.execute(
+            select(SourceChapterEpisodeLink.episode_id)
+            .where(SourceChapterEpisodeLink.chapter_id == row["id"])
+            .order_by(SourceChapterEpisodeLink.created_at, SourceChapterEpisodeLink.episode_id)
+        ).scalars().all()
         return {
             "id": str(row["id"]),
             "source_document_id": str(row["source_document_id"]),
@@ -296,6 +302,7 @@ class SourceRepository:
             "title": str(row["title"]),
             "current_revision_id": row["current_revision_id"],
             "revision_count": int(count),
+            "linked_episode_ids": [str(episode_id) for episode_id in linked_episode_ids],
             "current_revision": self._revision(connection, row["current_revision_id"]),
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
@@ -1968,6 +1975,63 @@ class SourceRepository:
                     delete(SourceEpisodeLink).where(
                         SourceEpisodeLink.source_document_id == source_id,
                         SourceEpisodeLink.episode_id == episode_id,
+                    )
+                )
+                if result.rowcount:
+                    connection.execute(
+                        update(SourceDocument)
+                        .where(SourceDocument.id == source_id)
+                        .values(updated_at=time.time())
+                    )
+        return result.rowcount == 1
+
+    def link_chapter_episode(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        chapter_id: str,
+        episode_id: str,
+        user_id: str | None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        timestamp = time.time() if now is None else float(now)
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                self._episode_row(connection, episode_id, workspace_id)
+                result = connection.execute(
+                    insert(SourceChapterEpisodeLink)
+                    .values(
+                        chapter_id=chapter_id,
+                        episode_id=episode_id,
+                        created_by_user_id=user_id,
+                        created_at=timestamp,
+                    )
+                    .prefix_with("OR IGNORE")
+                )
+                connection.execute(
+                    update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)
+                )
+        return {
+            "source_document_id": source_id,
+            "chapter_id": chapter_id,
+            "episode_id": episode_id,
+            "created": result.rowcount == 1,
+            "linked": True,
+        }
+
+    def unlink_chapter_episode(
+        self, *, workspace_id: str, source_id: str, chapter_id: str, episode_id: str
+    ) -> bool:
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                self._chapter_row(connection, source_id, chapter_id, workspace_id)
+                self._episode_row(connection, episode_id, workspace_id)
+                result = connection.execute(
+                    delete(SourceChapterEpisodeLink).where(
+                        SourceChapterEpisodeLink.chapter_id == chapter_id,
+                        SourceChapterEpisodeLink.episode_id == episode_id,
                     )
                 )
                 if result.rowcount:

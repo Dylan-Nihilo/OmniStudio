@@ -34,6 +34,7 @@ export type CastKind = "character" | "scene" | "prop";
 // Module-level poll registry — survives modal close/reopen.
 export const activePolls = new Map<string, ReturnType<typeof setInterval>>();
 const ASSET_POLL_TIMEOUT_MS = 45_000;
+type BatchSummary = { requested: number; pending: number; succeeded: number; failed: number; canceled: number };
 
 export const getCastPromptTextareaClasses = () =>
     "w-full min-h-[260px] max-h-[400px] rounded-md border border-glass-border bg-input-bg px-3.5 py-2.5 text-[0.875rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 disabled:cursor-wait disabled:bg-surface-inset disabled:text-text-secondary disabled:opacity-100 resize-y leading-relaxed";
@@ -50,6 +51,8 @@ function startAssetPoll(
         removeGeneratingTask: (assetId: string, generationType: string) => void;
     },
     progressToastId?: string,
+    onBatchUpdate?: (summary: BatchSummary) => void,
+    requestedCount = 1,
 ) {
     if (activePolls.has(entityId)) return;
     let timeout: ReturnType<typeof setTimeout>;
@@ -77,6 +80,7 @@ function startAssetPoll(
 
         if (status?.status === "completed") {
             stopPolling(interval);
+            onBatchUpdate?.({ requested: requestedCount, pending: 0, succeeded: requestedCount, failed: 0, canceled: 0 });
             try {
                 const fresh = await api.getProject(projectId);
                 const { updateProject } = getStore();
@@ -90,6 +94,7 @@ function startAssetPoll(
             }
         } else if (status?.status === "failed") {
             stopPolling(interval);
+            onBatchUpdate?.({ requested: requestedCount, pending: 0, succeeded: 0, failed: requestedCount, canceled: 0 });
             toast.error(t("toastGenErr"), { body: status?.error || t("toastGenErrUnknown") });
         }
     }, 2500);
@@ -97,6 +102,7 @@ function startAssetPoll(
     timeout = setTimeout(() => {
         if (activePolls.get(entityId) !== interval) return;
         stopPolling(interval);
+        onBatchUpdate?.({ requested: requestedCount, pending: 0, succeeded: 0, failed: requestedCount, canceled: 0 });
         toast.error(t("toastGenErr"), { body: t("toastGenTimeout") });
     }, ASSET_POLL_TIMEOUT_MS);
 }
@@ -112,6 +118,7 @@ interface ImageVariant {
     id: string;
     url: string;
     is_favorited?: boolean;
+    candidate_type?: CharacterTemplate;
 }
 
 type CharacterTemplate = "simple" | "detailed" | "design_sheet";
@@ -181,7 +188,7 @@ function readVariants(entity: any, kind: CastKind): ImageVariant[] {
     if (kind === "character") {
         const sheet = entity?.reference_sheet?.image_variants ?? [];
         if (sheet.length > 0) {
-            return sheet.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited }));
+            return sheet.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited, candidate_type: v.candidate_type }));
         }
         const legacy = entity?.full_body_asset?.variants ?? [];
         return legacy.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited }));
@@ -235,6 +242,10 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     const [applyStyle, setApplyStyle] = useState(true);
     const [galleryFilter, setGalleryFilter] = useState<"all" | "favorited">("all");
     const generating = generatingTasks.some((t) => t.assetId === entityId);
+    const [batchSummary, setBatchSummary] = useState<BatchSummary | null>(null);
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
+    const [activeProgressToastId, setActiveProgressToastId] = useState<string | null>(null);
+    const [canceling, setCanceling] = useState(false);
     // Effective t2i model — drives the "design_sheet" template gating: that
     // template only works with gpt-image-2, so it stays locked unless the
     // user has selected gpt-image-2 (override or project default).
@@ -347,6 +358,8 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
             // if the entity truly is stale and the poll surfaces the error.
         }
         const effectiveBatchSize = Math.max(1, Math.min(4, batchSize));
+        setBatchSummary({ requested: effectiveBatchSize, pending: effectiveBatchSize, succeeded: 0, failed: 0, canceled: 0 });
+        setActiveJobId(null);
         addGeneratingTask(entity.id, kind === "character" ? "reference_sheet" : "all", effectiveBatchSize);
 
         const progressId = toast.progress(t("toastGenStart", { kind: t(`kind.${kind}`) }), {
@@ -354,6 +367,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
             projectTitle: currentProject.title,
             body: t("toastGenStartBody"),
         });
+        setActiveProgressToastId(progressId);
 
         try {
             const resp = await api.generateAsset(
@@ -369,28 +383,52 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 effectiveBatchSize,
                 modelOverride || currentProject.model_settings?.t2i_model,
                 aspectRatioOverride || undefined,
+                kind === "character" ? selectedTemplate : undefined,
             );
 
             const taskId = (resp as any)?._task_id;
             if (taskId) {
+                setActiveJobId((resp as any)?._job_id ?? null);
                 const capturedEntityId = entity.id;
                 const capturedKind = kind;
                 const capturedProjectId = currentProject.id;
                 startAssetPoll(capturedEntityId, taskId, capturedProjectId, capturedKind, kind === "character" ? "reference_sheet" : "all", t, () => ({
                     updateProject: useProjectStore.getState().updateProject,
                     removeGeneratingTask: useProjectStore.getState().removeGeneratingTask,
-                }), progressId);
+                }), progressId, setBatchSummary, effectiveBatchSize);
             } else if (resp) {
                 toast.dismiss(progressId);
+                setActiveProgressToastId(null);
                 updateProject(currentProject.id, resp);
                 removeGeneratingTask(entity.id, kind === "character" ? "reference_sheet" : "all");
                 toast.success(t("toastGenDone", { kind: t(`kind.${kind}`) }));
             }
         } catch (err: any) {
             toast.dismiss(progressId);
+            setActiveProgressToastId(null);
             removeGeneratingTask(entity.id, kind === "character" ? "reference_sheet" : "all");
             const detail = err?.response?.data?.detail || err?.message || t("toastGenErrUnknown");
             toast.error(t("toastGenErr"), { body: String(detail) });
+        }
+    };
+
+    const handleCancelGeneration = async () => {
+        if (!activeJobId || !entityId || canceling) return;
+        setCanceling(true);
+        try {
+            await api.cancelTask(activeJobId);
+            if (activeProgressToastId) toast.dismiss(activeProgressToastId);
+            const poll = activePolls.get(entityId);
+            if (poll) clearInterval(poll);
+            activePolls.delete(entityId);
+            removeGeneratingTask(entityId, kind === "character" ? "reference_sheet" : "all");
+            setBatchSummary((current) => current ? { ...current, pending: 0, canceled: current.pending + current.canceled } : current);
+            setActiveJobId(null);
+            setActiveProgressToastId(null);
+        } catch (err: any) {
+            toast.error(t("toastGenErr"), { body: err?.response?.data?.detail || err?.message || t("toastGenErrUnknown") });
+        } finally {
+            setCanceling(false);
         }
     };
 
@@ -807,6 +845,13 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                             </div>
 
                             {/* Generate CTA */}
+                            {batchSummary && <div className="mt-4 flex flex-wrap items-center gap-2 text-[0.6875rem] font-mono text-text-muted" aria-live="polite">
+                                <span>{t("batchPending")}: {batchSummary.pending}</span>
+                                <span>{t("batchSucceeded")}: {batchSummary.succeeded}</span>
+                                <span>{t("batchFailed")}: {batchSummary.failed}</span>
+                                <span>{t("batchCanceled")}: {batchSummary.canceled}</span>
+                                {generating && activeJobId && <button type="button" aria-label={t("cancelGeneration")} onClick={handleCancelGeneration} disabled={canceling} className="ml-auto inline-flex items-center rounded border border-status-failed-border px-2 py-1 text-status-failed-fg disabled:opacity-50">{canceling ? t("canceling") : t("cancelGeneration")}</button>}
+                            </div>}
                             <button
                                 onClick={handleGenerate}
                                 disabled={generating || !prompt.trim()}
@@ -890,6 +935,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                                         clickToLightbox
                                                     />
                                                 </div>
+                                                {v.candidate_type && <span className="absolute bottom-1.5 left-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[0.625rem] text-white">{t(`candidateType.${v.candidate_type}`)}</span>}
                                                 {/* Favorite star */}
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); handleToggleFavorite(v.id, !!v.is_favorited); }}

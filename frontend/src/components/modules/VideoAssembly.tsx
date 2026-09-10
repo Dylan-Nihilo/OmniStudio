@@ -1,10 +1,10 @@
 "use client";
 
-import { SelectField } from "@omnistudio/ui";
+import { Button, SelectField, TextField } from "@omnistudio/ui";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw } from "lucide-react";
+import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw, Scissors, Trash2 } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
@@ -46,6 +46,13 @@ interface MergeProgress {
     progress: number;
 }
 
+interface MergeFailure {
+    stage?: string;
+    message?: string;
+    intermediate_dir?: string | null;
+    merge_list_path?: string | null;
+}
+
 interface MergePrecheckItem {
     frame_id?: string;
     expected?: string;
@@ -82,6 +89,22 @@ interface MergeVerification {
     } | null;
     duration?: number;
     errors?: string[];
+}
+
+/** Count frames whose persisted Take selection still resolves to a usable task.
+ *
+ * A stale or failed selected_video_id must not make Assembly look ready. The
+ * backend applies the same explicit-selection rule during preflight/merge;
+ * keeping the badge aligned prevents a misleading enabled export state.
+ */
+export function countReadyFrames(frames: any[] | undefined, videoTasks: any[] | undefined): number {
+    const completedTaskIds = new Set(
+        (videoTasks ?? [])
+            .filter((task) => task?.status === "completed" && Boolean(task?.video_url))
+            .map((task) => task.id)
+            .filter(Boolean),
+    );
+    return (frames ?? []).filter((frame) => Boolean(frame?.selected_video_id) && completedTaskIds.has(frame.selected_video_id)).length;
 }
 
 const EXPORT_SETTINGS_DEFAULTS: ExportSettingsDraft = {
@@ -179,6 +202,42 @@ export default function VideoAssembly() {
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to clear video selection:", error);
+        }
+    };
+
+    const handleSaveTrim = async (frame: any, selectedVideo: any) => {
+        if (!currentProject || !selectedVideo) return;
+        try {
+            const updated = await api.updateFrame(currentProject.id, frame.id, {
+                in_point: Number(frame.in_point ?? 0),
+                out_point: Number(frame.out_point ?? selectedVideo.duration),
+            });
+            updateProject(currentProject.id, updated);
+            toast.success(ta("trimSaved"));
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("trimSaveFailed")));
+        }
+    };
+
+    const handleSplit = async (frame: any, selectedVideo: any) => {
+        if (!currentProject || !selectedVideo) return;
+        const start = Number(frame.in_point ?? 0);
+        const end = Number(frame.out_point ?? selectedVideo.duration);
+        try {
+            const updated = await api.splitAssemblyFrame(currentProject.id, frame.id, start + (end - start) / 2);
+            updateProject(currentProject.id, updated);
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("splitFailed")));
+        }
+    };
+
+    const handleDeleteSegment = async (frameId: string) => {
+        if (!currentProject) return;
+        try {
+            const updated = await api.deleteFrame(currentProject.id, frameId);
+            updateProject(currentProject.id, updated);
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("deleteSegmentFailed")));
         }
     };
 
@@ -312,7 +371,7 @@ export default function VideoAssembly() {
 
     const variants = selectedFrameId ? videosByFrame[selectedFrameId] || [] : [];
 
-    const framesReady = currentProject?.frames?.filter((f: any) => f.selected_video_id).length ?? 0;
+    const framesReady = countReadyFrames(currentProject?.frames as any[] | undefined, currentProject?.video_tasks as any[] | undefined);
     const framesTotal = currentProject?.frames?.length ?? 0;
 
     return (
@@ -435,6 +494,13 @@ export default function VideoAssembly() {
                                                     <p className="text-xs text-text-secondary italic">"{frame.dialogue}"</p>
                                                 </div>
                                             )}
+                                            {selectedVideo && <div className="flex items-end gap-2" onClick={event => event.stopPropagation()}>
+                                                <TextField label={ta("trimIn")} type="number" value={String(frame.in_point ?? 0)} onChange={value => { frame.in_point = Number(value); updateProject(currentProject.id, { ...currentProject }); }} />
+                                                <TextField label={ta("trimOut")} type="number" value={String(frame.out_point ?? selectedVideo.duration)} onChange={value => { frame.out_point = Number(value); updateProject(currentProject.id, { ...currentProject }); }} />
+                                                <Button variant="secondary" onPress={() => void handleSaveTrim(frame, selectedVideo)}>{ta("saveTrim")}</Button>
+                                                <Button variant="quiet" aria-label={ta("splitSegment")} onPress={() => void handleSplit(frame, selectedVideo)}><Scissors size={14} />{ta("splitSegment")}</Button>
+                                                <Button variant="quiet" aria-label={ta("deleteSegment")} onPress={() => void handleDeleteSegment(frame.id)}><Trash2 size={14} /></Button>
+                                            </div>}
                                         </div>
 
                                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-border-subtle">
@@ -477,6 +543,7 @@ export default function VideoAssembly() {
                             isMerging={isMerging}
                             isDownloading={isDownloading}
                             mergeError={mergeError}
+                            mergeFailure={(currentProject as any)?.merge_failure as MergeFailure | null | undefined}
                             framesReady={framesReady}
                             framesTotal={framesTotal}
                             exportSettings={exportSettings}
@@ -740,6 +807,7 @@ export function ExportPhase({
     isMerging,
     isDownloading,
     mergeError,
+    mergeFailure,
     framesReady,
     framesTotal,
     exportSettings,
@@ -756,6 +824,7 @@ export function ExportPhase({
     isMerging: boolean;
     isDownloading: boolean;
     mergeError: string | null;
+    mergeFailure?: MergeFailure | null;
     framesReady: number;
     framesTotal: number;
     exportSettings: ExportSettings;
@@ -982,6 +1051,13 @@ export function ExportPhase({
                                 <a href="https://ffmpeg.org/download.html" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300 underline mt-2 inline-block">
                                     Download FFmpeg →
                                 </a>
+                            )}
+                            {mergeFailure && (mergeFailure.intermediate_dir || mergeFailure.merge_list_path) && (
+                                <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-100/85">
+                                    <p className="font-medium">{ta("retainedIntermediate")}</p>
+                                    {mergeFailure.intermediate_dir && <p className="mt-1 break-all font-mono">{mergeFailure.intermediate_dir}</p>}
+                                    {mergeFailure.merge_list_path && <p className="mt-1 break-all font-mono">{mergeFailure.merge_list_path}</p>}
+                                </div>
                             )}
                             <button onClick={onDismissError} className="mt-3 text-xs text-text-secondary hover:text-foreground underline">
                                 {ta("dismiss")}

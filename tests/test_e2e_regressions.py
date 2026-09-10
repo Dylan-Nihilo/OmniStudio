@@ -1,12 +1,15 @@
 """Short API chains covering the desktop Web acceptance findings."""
 import pytest
 import io
+import time
 import zipfile
 import xml.etree.ElementTree as ET
 
 from tests.test_w2_project_api import api_client, _create_project
 from tests.test_w2_project_api import _create_series, _add_episode
 import src.apps.comic_gen.api as api_module
+import src.apps.playground.api as playground_api
+from src.apps.playground.models import GenerateRequest, PlaygroundMode
 from src.apps.comic_gen.models import VideoTask
 from src.apps.comic_gen.models import AssetUnit, ImageVariant
 from src.storage.job_repository import JobRepository
@@ -151,6 +154,102 @@ def test_task_center_video_retry_creates_a_new_take_from_saved_inputs_and_adopts
     assert calls[0]["prompt"] == "Saved original prompt"
     assert calls[0]["resolution"] == "720p"
     assert adapter.repository.get_item(item.id).status == "failed"
+
+
+def test_task_center_playground_retry_replays_saved_generation_once(api_client, monkeypatch):
+    calls = []
+
+    def generate_image(gen, output_path, idx):
+        calls.append((gen.id, gen.prompt, output_path, idx))
+        if len(calls) == 1:
+            raise TimeoutError("temporary playground provider failure")
+        Path(output_path).write_bytes(b"image-fixture")
+
+    monkeypatch.setattr(playground_api._service, "_generate_image_wanx", generate_image)
+    started = api_client.post(
+        "/playground/generate",
+        json={
+            "mode": "t2i",
+            "model_id": "wan2.7-image-pro",
+            "prompt": "retry me",
+            "batch_size": 1,
+            "idempotency_key": "playground-retry-once",
+        },
+    )
+    assert started.status_code == 200, started.text
+    generation = started.json()
+    for _ in range(50):
+        generation = api_client.get(f"/playground/history/{generation['id']}").json()
+        if generation["status"] != "pending":
+            break
+        time.sleep(0.01)
+    assert generation["status"] == "failed"
+    repository = JobRepository(api_client.app.state.storage_engine)
+    original = repository.get_item(generation["job_item_id"])
+    assert original is not None and original.status == "failed"
+
+    retry = api_client.post(
+        f"/tasks/{original.job_id}/retry",
+        json={"item_ids": [original.id], "idempotency_key": "playground-retry-once-2"},
+    )
+    assert retry.status_code == 200, retry.text
+    job = api_client.get(f"/tasks/{original.job_id}").json()["job"]
+    child = next(item for item in job["items"] if item["retry_of"] == original.id)
+    assert child["status"] == "succeeded", child
+    assert child["media_refs"][0]["kind"] == "image"
+    assert child["payload"]["generation_id"] != original.payload["generation_id"]
+    assert len(calls) == 2
+
+
+def test_playground_processing_generation_recovers_after_restart(api_client, monkeypatch):
+    calls = []
+
+    def generate_image(gen, output_path, idx):
+        calls.append(gen.id)
+        Path(output_path).write_bytes(b"recovered-image")
+
+    monkeypatch.setattr(playground_api._service, "_generate_image_wanx", generate_image)
+    generation = playground_api._service.create_generation(
+        GenerateRequest(mode=PlaygroundMode.T2I, model_id="wan2.7-image-pro", prompt="recover me"),
+        api_client.get("/auth/me").json()["workspace"]["id"],
+    )
+    playground_api._storage.start_generation(generation)
+    repository = JobRepository(api_client.app.state.storage_engine)
+    job = repository.create_job(generation.workspace_id, "playground.t2i")
+    item = repository.create_item(
+        job.id,
+        "t2i",
+        "playground-recovery",
+        payload={"generation_id": generation.id, "model_id": generation.model_id},
+    )
+    repository.transition_item(item.id, "processing")
+
+    report = api_module._production_adapter().recover_inflight()
+    recovered = repository.get_item(item.id)
+    assert report["recovered"] == 1
+    assert recovered is not None and recovered.status == "succeeded"
+    assert calls == [generation.id]
+
+
+def test_task_center_cancel_marks_playground_generation_canceled(api_client):
+    workspace_id = api_client.get("/auth/me").json()["workspace"]["id"]
+    generation = playground_api._service.create_generation(
+        GenerateRequest(mode=PlaygroundMode.T2I, model_id="wan2.7-image-pro", prompt="cancel me"),
+        workspace_id,
+    )
+    repository = JobRepository(api_client.app.state.storage_engine)
+    job = repository.create_job(workspace_id, "playground.t2i")
+    item = repository.create_item(
+        job.id,
+        "t2i",
+        "playground-cancel",
+        payload={"generation_id": generation.id, "model_id": generation.model_id},
+    )
+
+    canceled = api_client.post(f"/tasks/{job.id}/cancel")
+    assert canceled.status_code == 200, canceled.text
+    assert repository.get_item(item.id).status == "canceled"
+    assert playground_api._storage.get_generation(generation.id, workspace_id).status == "canceled"
 
 
 @pytest.mark.parametrize("format", ["pdf", "docx"])

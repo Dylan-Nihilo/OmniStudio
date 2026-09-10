@@ -114,8 +114,13 @@ class PlaygroundService:
         if gen.status in ("completed", "failed"):
             return
 
-        # Mark processing only if cancellation has not won the race.
-        if not self.storage.start_generation(gen):
+        # A restart can leave the durable generation in ``processing`` after
+        # the provider worker disappeared.  Resume that state directly;
+        # normal requests still transition atomically from ``pending``.
+        if gen.status == "pending":
+            if not self.storage.start_generation(gen):
+                return
+        elif gen.status != "processing":
             return
 
         if gen.job_item_id and job_repository:

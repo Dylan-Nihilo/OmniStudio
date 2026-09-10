@@ -68,3 +68,34 @@ it('keeps series generation behind preview and explicit confirmation', async () 
     expect(await screen.findByText('夜班员')).toBeInTheDocument();
   } finally { view.unmount(); }
 });
+
+it('supports multi-select quality review and batch locking for series assets', async () => {
+  const project: any = {
+    id: 'series-project',
+    series_id: 'series-1',
+    title: '系列项目',
+    characters: [
+      { id: 'character-1', name: '甲', image_url: '/a.png', locked: false },
+      { id: 'character-2', name: '乙', image_url: '/b.png', locked: false },
+    ],
+    scenes: [],
+    props: [],
+    frames: [],
+  };
+  useProjectStore.setState({ ...useProjectStore.getInitialState(), currentProject: project, projects: [project] }, true);
+  const writes: Array<{ url?: string; body?: any }> = [];
+  apiClient.defaults.adapter = async config => {
+    if (config.method === 'post') writes.push({ url: config.url, body: config.data ? JSON.parse(config.data) : undefined });
+    return { config, status: 200, statusText: 'OK', headers: {}, data: structuredClone(project) };
+  };
+  const view = renderWithIntl(<LightboxProvider><Cast /></LightboxProvider>);
+  try {
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择甲' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择乙' }));
+    expect(screen.getByText('已选择 2 项')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '批量锁定' }));
+    await waitFor(() => expect(writes.find(write => write.url?.endsWith('/series/series-1/assets/toggle_lock_batch'))?.body).toEqual({
+      asset_type: 'character', asset_ids: ['character-1', 'character-2'], locked: true,
+    }));
+  } finally { view.unmount(); }
+});

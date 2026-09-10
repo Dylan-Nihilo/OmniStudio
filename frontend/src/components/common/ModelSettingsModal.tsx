@@ -2,23 +2,30 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, X, Image, Video, Film, Check, Layout, User, Building, Box } from 'lucide-react';
+import { Settings, X, Image, Video, Film, Check, Layout, User, Building, Box, RotateCcw } from 'lucide-react';
 import { useProjectStore, IMAGE_MODELS, I2V_MODELS, ASPECT_RATIOS } from '@/store/projectStore';
 import { resolveModelSettings, VIDEO_R2V_MODELS, DEFAULT_R2V_MODEL_ID } from '@/lib/modelCatalog';
 import { api } from '@/lib/api';
 import { useTranslations } from "next-intl";
 import GroupedModelGrid from '@/components/common/GroupedModelGrid';
+import type { FrontendModelSettings } from '@/lib/modelCatalog';
 
 interface ModelSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
+const MODEL_FIELDS = [
+    't2i_model', 'i2i_model', 'image_model', 'i2v_model', 'r2v_model',
+    'character_aspect_ratio', 'scene_aspect_ratio', 'prop_aspect_ratio', 'storyboard_aspect_ratio',
+] as const satisfies readonly (keyof FrontendModelSettings)[];
+
 export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsModalProps) {
     const currentProject = useProjectStore((state) => state.currentProject);
     const t = useTranslations("models");
     const tc = useTranslations("common");
     const updateProject = useProjectStore((state) => state.updateProject);
+    const isEpisode = Boolean(currentProject?.series_id);
     const resolvedSettings = resolveModelSettings(currentProject?.model_settings, 'project_settings');
 
     const [t2iModel, setT2iModel] = useState(resolvedSettings.t2i_model);
@@ -34,6 +41,8 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
     const [propAspectRatio, setPropAspectRatio] = useState(resolvedSettings.prop_aspect_ratio);
     const [storyboardAspectRatio, setStoryboardAspectRatio] = useState(resolvedSettings.storyboard_aspect_ratio);
     const [isSaving, setIsSaving] = useState(false);
+    const [changedFields, setChangedFields] = useState<Partial<Record<keyof FrontendModelSettings, boolean>>>({});
+    const [resetFields, setResetFields] = useState<string[]>([]);
 
     // Sync state when project changes
     useEffect(() => {
@@ -46,23 +55,55 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
         setSceneAspectRatio(normalizedSettings.scene_aspect_ratio);
         setPropAspectRatio(normalizedSettings.prop_aspect_ratio);
         setStoryboardAspectRatio(normalizedSettings.storyboard_aspect_ratio);
+        setChangedFields({});
+        setResetFields([]);
     }, [currentProject?.model_settings]);
+
+    const updateField = <K extends keyof FrontendModelSettings>(
+        field: K,
+        setter: (value: FrontendModelSettings[K]) => void,
+        value: FrontendModelSettings[K],
+    ) => {
+        setter(value);
+        if (isEpisode) {
+            setChangedFields(current => ({ ...current, [field]: true }));
+            setResetFields(current => current.filter(item => item !== field));
+        }
+    };
+
+    const restoreEpisodeInheritance = () => {
+        if (!isEpisode) return;
+        setResetFields([...MODEL_FIELDS]);
+        setChangedFields({});
+    };
 
     const handleSave = async () => {
         if (!currentProject) return;
         setIsSaving(true);
         try {
+            const values: Partial<Record<keyof FrontendModelSettings, string>> = {
+                t2i_model: t2iModel,
+                i2i_model: i2iModel,
+                i2v_model: i2vModel,
+                r2v_model: r2vModel,
+                character_aspect_ratio: characterAspectRatio,
+                scene_aspect_ratio: sceneAspectRatio,
+                prop_aspect_ratio: propAspectRatio,
+                storyboard_aspect_ratio: storyboardAspectRatio,
+            };
+            const valueFor = (field: keyof FrontendModelSettings) => isEpisode && !changedFields[field] ? undefined : values[field];
             const updated = await api.updateModelSettings(
                 currentProject.id,
-                t2iModel,
-                i2iModel,
-                i2vModel,
-                characterAspectRatio,
-                sceneAspectRatio,
-                propAspectRatio,
-                storyboardAspectRatio,
+                valueFor('t2i_model'),
+                valueFor('i2i_model'),
+                valueFor('i2v_model'),
+                valueFor('character_aspect_ratio'),
+                valueFor('scene_aspect_ratio'),
+                valueFor('prop_aspect_ratio'),
+                valueFor('storyboard_aspect_ratio'),
                 undefined, // imageModel — managed via t2i/i2i for now
-                r2vModel,
+                valueFor('r2v_model'),
+                isEpisode ? resetFields : undefined,
             );
             updateProject(currentProject.id, updated);
             onClose();
@@ -103,6 +144,17 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <p className="text-xs text-text-muted">{t("genSettingsDesc")}</p>
                             </div>
                         </div>
+                        {isEpisode && (
+                            <button
+                                type="button"
+                                onClick={restoreEpisodeInheritance}
+                                aria-label={t("resetModelInheritance")}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-glass-border px-2.5 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-hover-bg"
+                            >
+                                <RotateCcw size={13} />
+                                {t("resetModelInheritance")}
+                            </button>
+                        )}
                         <button
                             onClick={onClose}
                             className="p-2 hover:bg-hover-bg rounded-lg transition-colors"
@@ -126,7 +178,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <GroupedModelGrid
                                     models={IMAGE_MODELS}
                                     selectedId={t2iModel}
-                                    onSelect={(id) => setT2iModel(id)}
+                                    onSelect={(id) => updateField('t2i_model', setT2iModel, id)}
                                 />
                             </div>
 
@@ -142,7 +194,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                         {ASPECT_RATIOS.map((ratio) => (
                                             <button
                                                 key={ratio.id}
-                                                onClick={() => setCharacterAspectRatio(ratio.id)}
+                                                onClick={() => updateField('character_aspect_ratio', setCharacterAspectRatio, ratio.id)}
                                                 className={`w-full flex flex-col items-center py-1.5 px-2 rounded border transition-all ${characterAspectRatio === ratio.id
                                                         ? 'border-green-500/50 bg-green-500/10'
                                                         : 'border-glass-border hover:border-glass-border bg-glass'
@@ -164,7 +216,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                         {ASPECT_RATIOS.map((ratio) => (
                                             <button
                                                 key={ratio.id}
-                                                onClick={() => setSceneAspectRatio(ratio.id)}
+                                                onClick={() => updateField('scene_aspect_ratio', setSceneAspectRatio, ratio.id)}
                                                 className={`w-full flex flex-col items-center py-1.5 px-2 rounded border transition-all ${sceneAspectRatio === ratio.id
                                                         ? 'border-green-500/50 bg-green-500/10'
                                                         : 'border-glass-border hover:border-glass-border bg-glass'
@@ -186,7 +238,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                         {ASPECT_RATIOS.map((ratio) => (
                                             <button
                                                 key={ratio.id}
-                                                onClick={() => setPropAspectRatio(ratio.id)}
+                                                onClick={() => updateField('prop_aspect_ratio', setPropAspectRatio, ratio.id)}
                                                 className={`w-full flex flex-col items-center py-1.5 px-2 rounded border transition-all ${propAspectRatio === ratio.id
                                                         ? 'border-green-500/50 bg-green-500/10'
                                                         : 'border-glass-border hover:border-glass-border bg-glass'
@@ -215,7 +267,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <GroupedModelGrid
                                     models={IMAGE_MODELS}
                                     selectedId={i2iModel}
-                                    onSelect={(id) => setI2iModel(id)}
+                                    onSelect={(id) => updateField('i2i_model', setI2iModel, id)}
                                 />
                             </div>
 
@@ -226,7 +278,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                     {ASPECT_RATIOS.map((ratio) => (
                                         <button
                                             key={ratio.id}
-                                            onClick={() => setStoryboardAspectRatio(ratio.id)}
+                                            onClick={() => updateField('storyboard_aspect_ratio', setStoryboardAspectRatio, ratio.id)}
                                             className={`flex flex-col items-center p-3 rounded-lg border transition-all ${storyboardAspectRatio === ratio.id
                                                     ? 'border-blue-500/50 bg-blue-500/10'
                                                     : 'border-glass-border hover:border-glass-border bg-glass'
@@ -256,7 +308,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <GroupedModelGrid
                                     models={I2V_MODELS}
                                     selectedId={i2vModel}
-                                    onSelect={(id) => setI2vModel(id)}
+                                    onSelect={(id) => updateField('i2v_model', setI2vModel, id)}
                                 />
                             </div>
                         </div>
@@ -280,7 +332,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <GroupedModelGrid
                                     models={VIDEO_R2V_MODELS}
                                     selectedId={r2vModel}
-                                    onSelect={(id) => setR2vModel(id)}
+                                    onSelect={(id) => updateField('r2v_model', value => setR2vModel(value ?? DEFAULT_R2V_MODEL_ID), id)}
                                 />
                             </div>
                         </div>

@@ -22,6 +22,11 @@ from tests.auth_test_helpers import make_client
 def api_client(tmp_path, monkeypatch):
     """Run the real API against an isolated SQLite repository and auth service."""
     monkeypatch.chdir(tmp_path)
+    # The application loads the repository .env at import time. Keep this
+    # isolated Workspace from inheriting a developer's real provider secrets;
+    # tests that need provider configuration must persist it explicitly.
+    for key in api_module._WORKSPACE_PROVIDER_CONFIG_KEYS:
+        monkeypatch.delenv(key, raising=False)
     with (
         patch("src.apps.comic_gen.pipeline.AssetGenerator"),
         patch("src.apps.comic_gen.pipeline.StoryboardGenerator"),
@@ -1467,6 +1472,16 @@ def test_member_can_read_team_projects_but_cannot_create_top_level_project(api_c
         visible = writer.get("/projects", headers=workspace_headers)
         assert visible.status_code == 200, visible.text
         assert [item["id"] for item in visible.json()] == [project["id"]]
+
+        model_defaults = writer.get("/config/model-settings", headers=workspace_headers)
+        assert model_defaults.status_code == 200, model_defaults.text
+        forbidden_model_update = writer.put(
+            "/config/model-settings",
+            headers=workspace_headers,
+            json={"i2v_model": "member-must-not-write"},
+        )
+        assert forbidden_model_update.status_code == 403
+        assert forbidden_model_update.json()["error"]["code"] == "AUTH_OWNER_REQUIRED"
 
         forbidden = writer.post(
             "/projects?skip_analysis=true",

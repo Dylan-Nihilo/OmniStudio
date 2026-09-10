@@ -19,7 +19,7 @@ def merge_harness(tmp_path, monkeypatch):
     pipeline.scripts = {}
     pipeline._save_data = lambda: None
     pipeline._verify_merged_video = lambda output_path, **kwargs: {"ok": True, "duration": 1.0, "checks": {"has_audio": True}, "video": {}}
-    pipeline._maybe_apply_bgm_mux = lambda script, output_path, ffmpeg_path, audio_bitrate="128k": None
+    pipeline._maybe_apply_bgm_mux = lambda script, output_path, ffmpeg_path, audio_bitrate="128k", **kwargs: None
 
     monkeypatch.setattr(pipeline_module, "get_ffmpeg_path", lambda: "ffmpeg")
 
@@ -30,12 +30,16 @@ def merge_harness(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pipeline_module, "_safe_resolve_path", resolve_path)
 
-    commands = []
+    class CommandLog(list):
+        version_options = None
+
+    commands = CommandLog()
 
     def fake_run(command, **kwargs):
         commands.append(command)
         if command[1:2] == ["-version"]:
-            return SimpleNamespace(returncode=0, stdout=b"ffmpeg version", stderr=b"")
+            commands.version_options = kwargs
+            return SimpleNamespace(returncode=0, stdout="ffmpeg version", stderr="")
         # The audio probe succeeds, so merge does not need the normalization
         # branch.  The final command creates the output expected by merge.
         if command and str(command[-1]).lower().endswith(".mp4") and command[-1] != "NUL":
@@ -72,6 +76,17 @@ def merge_harness(tmp_path, monkeypatch):
 
 def _final_ffmpeg_command(commands):
     return next(command for command in commands if "concat" in command)
+
+
+def test_ffmpeg_version_probe_decodes_output_portably(merge_harness):
+    pipeline, install_script, commands = merge_harness
+    install_script()
+
+    pipeline.merge_videos("script-1")
+
+    assert commands.version_options["text"] is True
+    assert commands.version_options["encoding"] == "utf-8"
+    assert commands.version_options["errors"] == "replace"
 
 
 def test_merge_uses_all_export_settings(merge_harness):

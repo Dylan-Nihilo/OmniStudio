@@ -1,11 +1,12 @@
 'use client';
 
 import { Button, IconButton } from '@omnistudio/ui';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Check, X, RefreshCw, Loader2 } from 'lucide-react';
 import { useEditorStore, type L3Result } from '@/store/editorStore';
+import { scriptEditorApi } from '@/lib/scriptEditorApi';
 
 type ResultGroup = {
   type: L3Result['type'];
@@ -32,14 +33,20 @@ function ConfidenceBadge({ value, label }: { value: number; label: string }) {
 
 function ResultCard({
   item,
+  onAccept,
   onReject,
+  isAccepting,
   confidenceLabel,
+  acceptLabel,
   rejectLabel,
   sceneLabel,
 }: {
   item: L3Result;
+  onAccept: () => void;
   onReject: () => void;
+  isAccepting: boolean;
   confidenceLabel: string;
+  acceptLabel: string;
   rejectLabel: string;
   sceneLabel: string;
 }) {
@@ -69,9 +76,18 @@ function ResultCard({
         <div className="flex items-center gap-1 shrink-0">
           <IconButton
             type="button"
+            onPress={onAccept}
+            aria-label={`${acceptLabel}: ${item.name}`}
+            isPending={isAccepting}
+            isDisabled={isAccepting}
+          >
+            {!isAccepting && <Check size={12} />}
+          </IconButton>
+          <IconButton
+            type="button"
             onPress={onReject}
-            aria-label={rejectLabel}
-
+            aria-label={`${rejectLabel}: ${item.name}`}
+            isDisabled={isAccepting}
           >
             <X size={12} />
           </IconButton>
@@ -83,9 +99,19 @@ function ResultCard({
 
 export default function L3CompletionPanel() {
   const t = useTranslations('scriptEditor');
+  const [acceptingKey, setAcceptingKey] = useState<string | null>(null);
+  const projectId = useEditorStore((s) => s.projectId);
   const l3Status = useEditorStore((s) => s.l3Status);
   const l3Results = useEditorStore((s) => s.l3Results);
+  const l3AcceptedResults = useEditorStore((s) => s.l3AcceptedResults);
+  const derivedScenes = useEditorStore((s) => s.derivedScenes);
+  const derivedCharacters = useEditorStore((s) => s.derivedCharacters);
+  const estimatedDuration = useEditorStore((s) => s.estimatedDuration);
+  const wordCount = useEditorStore((s) => s.wordCount);
+  const confidenceScore = useEditorStore((s) => s.confidenceScore);
   const setL3Results = useEditorStore((s) => s.setL3Results);
+  const setL3AcceptedResults = useEditorStore((s) => s.setL3AcceptedResults);
+  const updateDerivation = useEditorStore((s) => s.updateDerivation);
   const setL3Status = useEditorStore((s) => s.setL3Status);
   const setL3LastFetchTime = useEditorStore((s) => s.setL3LastFetchTime);
 
@@ -128,6 +154,84 @@ export default function L3CompletionPanel() {
       setL3Results(updated.length > 0 ? updated : null);
     },
     [l3Results, setL3Results]
+  );
+
+  const handleAccept = useCallback(
+    async (item: L3Result) => {
+      if (!l3Results) return;
+
+      const resultKey = `${item.type}:${item.name}`;
+      if (acceptingKey === resultKey) return;
+      setAcceptingKey(resultKey);
+
+      const accepted = l3AcceptedResults.some(
+        (result) => result.type === item.type && result.name.toLowerCase() === item.name.toLowerCase()
+      )
+        ? l3AcceptedResults
+        : [...l3AcceptedResults, item];
+
+      const nextCharacters =
+        item.type === 'character' &&
+        !derivedCharacters.some((character) => character.name.toLowerCase() === item.name.toLowerCase())
+          ? [
+              ...derivedCharacters,
+              {
+                id: item.name.trim().toLowerCase().replace(/\s+/g, '-'),
+                name: item.name.trim(),
+                occurrences: 1,
+                firstAppearance: (item.sceneIndex ?? 0) + 1,
+              },
+            ]
+          : derivedCharacters;
+
+      const l3Supplements = accepted.map(({ sceneIndex, ...result }) => ({
+        ...result,
+        ...(sceneIndex !== undefined ? { scene_index: sceneIndex } : {}),
+      }));
+
+      try {
+        if (projectId) {
+          await scriptEditorApi.syncDerivation(projectId, {
+            scenes: derivedScenes,
+            characters: nextCharacters,
+            locations: derivedScenes
+              .map((scene) => scene.location)
+              .filter((location): location is string => Boolean(location)),
+            estimated_duration: estimatedDuration,
+            word_count: wordCount,
+            confidence_score: confidenceScore,
+            l3_supplements: l3Supplements,
+          });
+        }
+
+        if (nextCharacters !== derivedCharacters) {
+          updateDerivation({ characters: nextCharacters });
+        }
+        setL3AcceptedResults(accepted);
+        const updated = l3Results.filter(
+          (result) => !(result.type === item.type && result.name === item.name)
+        );
+        setL3Results(updated.length > 0 ? updated : null);
+      } catch (error) {
+        console.warn('[L3Completion] accepting supplement failed:', error);
+      } finally {
+        setAcceptingKey(null);
+      }
+    },
+    [
+      acceptingKey,
+      confidenceScore,
+      derivedCharacters,
+      derivedScenes,
+      estimatedDuration,
+      l3AcceptedResults,
+      l3Results,
+      projectId,
+      setL3AcceptedResults,
+      setL3Results,
+      updateDerivation,
+      wordCount,
+    ]
   );
 
   const handleRetry = useCallback(() => {
@@ -214,8 +318,11 @@ export default function L3CompletionPanel() {
                   <ResultCard
                     key={`${item.type}-${item.name}`}
                     item={item}
+                    onAccept={() => void handleAccept(item)}
                     onReject={() => handleReject(item)}
+                    isAccepting={acceptingKey === `${item.type}:${item.name}`}
                     confidenceLabel={t('panels.aiConfidence')}
+                    acceptLabel={t('panels.aiAccept')}
                     rejectLabel={t('panels.aiReject')}
                     sceneLabel={t('panels.sceneLabel', { number: '' }).trim()}
                   />

@@ -1,5 +1,6 @@
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
+import type { FrontendModelSettings } from "@/lib/modelCatalog";
 
 export interface StoryboardGeneration {
     id: string;
@@ -43,6 +44,13 @@ export interface VoiceMeta {
     dialect?: string | null;                                  // 'shanghai' | 'beijing' | 'sichuan' | 'cantonese' | etc.
     lang_primary?: string | null;                             // 'es' | 'ru' | 'it' | 'ko' | 'ja' | 'de' | 'fr' for international
     origin: "system" | "clone" | "design";
+}
+
+export interface VoiceRecommendation {
+    voice_id: string;
+    name?: string | null;
+    score: number;
+    reasons: string[];
 }
 
 /**
@@ -89,6 +97,27 @@ export interface EnvConfigPayload {
     // which credential fields are actually configured on the backend.
     secrets_configured?: Record<string, boolean>;
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
+}
+
+export interface ProviderConnectionTestRequest {
+    provider: string;
+    model?: string;
+    modality: "text" | "image" | "video" | "audio";
+    timeout_seconds?: number;
+}
+
+export interface ProviderConnectionTestResult {
+    provider: string;
+    model?: string | null;
+    modality: ProviderConnectionTestRequest["modality"];
+    host?: string;
+    risk: "connectivity_only";
+    estimated_cost: number;
+    credential_configured: boolean;
+    latency_ms: number | null;
+    success: boolean;
+    category: string | null;
+    message: string;
 }
 
 export interface LegacyClaimSummary {
@@ -221,6 +250,7 @@ export interface SourceChapter {
     title: string;
     current_revision_id: string | null;
     revision_count: number;
+    linked_episode_ids?: string[];
     current_revision: SourceRevision | null;
     created_at: number;
     updated_at: number;
@@ -379,6 +409,8 @@ export interface SourceAnalysisBatch {
     success_items: SourceAnalysisBatchItem[];
     failed_items: SourceAnalysisBatchItem[];
     skipped_items: SourceAnalysisBatchItem[];
+    job_id?: string | null;
+    job_item_id?: string | null;
     created_at: number;
     updated_at: number;
 }
@@ -408,6 +440,7 @@ export interface SourceList<T> {
 
 export interface SourceLinkResponse {
     source_document_id: string;
+    chapter_id?: string | null;
     episode_id: string;
     created: boolean;
     linked: boolean;
@@ -465,6 +498,8 @@ export const sourceApi = {
     createChapter: (sourceId: string, payload: SourceChapterCreate) => apiClient.post<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters`, payload).then((response) => response.data),
     listChaptersPage: (sourceId: string, params?: { q?: string; search?: string; page?: number; page_size?: number }) => apiClient.get<SourceChapterPage>(`${API_URL}/sources/${sourceId}/chapters`, { params }).then((response) => response.data),
     updateChapter: (sourceId: string, chapterId: string, payload: SourceChapterUpdate) => apiClient.patch<SourceChapter>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}`, payload).then((response) => response.data),
+    linkChapterEpisode: (sourceId: string, chapterId: string, episodeId: string) => apiClient.post<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/episodes/${episodeId}`).then((response) => response.data),
+    unlinkChapterEpisode: (sourceId: string, chapterId: string, episodeId: string) => apiClient.delete<SourceLinkResponse>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/episodes/${episodeId}`).then((response) => response.data),
     listRevisions: (sourceId: string, chapterId: string) => apiClient.get<SourceList<SourceRevision>>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`).then((response) => response.data),
     createRevision: (sourceId: string, chapterId: string, payload: SourceRevisionCreate) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions`, payload).then((response) => response.data),
     restoreRevision: (sourceId: string, chapterId: string, revisionId: string) => apiClient.post<SourceRevision>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/revisions/${revisionId}/restore`).then((response) => response.data),
@@ -1236,7 +1271,7 @@ export const api = {
         return res.data;
     },
 
-    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string) => {
+    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string, candidateType?: "simple" | "detailed" | "design_sheet") => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/generate`, {
             asset_id: assetId,
             asset_type: assetType,
@@ -1249,6 +1284,7 @@ export const api = {
             batch_size: batchSize,
             model_name: modelName,
             aspect_ratio: aspectRatio,
+            candidate_type: candidateType,
         });
         return res.data;
     },
@@ -1373,6 +1409,7 @@ export const api = {
         storyboardAspectRatio?: string,
         imageModel?: string,
         r2vModel?: string,
+        resetFields?: string[],
     ) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/model_settings`, {
             t2i_model: t2iModel,
@@ -1383,9 +1420,22 @@ export const api = {
             character_aspect_ratio: characterAspectRatio,
             scene_aspect_ratio: sceneAspectRatio,
             prop_aspect_ratio: propAspectRatio,
-            storyboard_aspect_ratio: storyboardAspectRatio
+            storyboard_aspect_ratio: storyboardAspectRatio,
+            reset_fields: resetFields,
         });
         return res.data;
+    },
+
+    getEffectiveModelSettings: async (scriptId: string, frameId?: string) => {
+        const response = await apiClient.get(`${API_URL}/projects/${scriptId}/model_settings/effective`, {
+            params: frameId ? { frame_id: frameId } : undefined,
+        });
+        return response.data as { settings: FrontendModelSettings; sources: Record<string, string> };
+    },
+
+    updateShotModelSettings: async (scriptId: string, frameId: string, settings: Partial<FrontendModelSettings> & { reset_fields?: string[] }) => {
+        const response = await apiClient.put(`${API_URL}/projects/${scriptId}/frames/${frameId}/model_settings`, settings);
+        return response.data;
     },
 
     getPromptConfig: async (scriptId: string) => {
@@ -1434,6 +1484,11 @@ export const api = {
         return res.data;
     },
 
+    deleteFrame: async (scriptId: string, frameId: string) => {
+        const res = await apiClient.delete(`${API_URL}/projects/${scriptId}/frames/${frameId}`);
+        return res.data;
+    },
+
     mergeVideos: async (scriptId: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/merge`);
         return res.data;
@@ -1466,6 +1521,10 @@ export const api = {
         });
         return res.data;
     },
+    getVisualHandbook: async (scriptId: string) => (await apiClient.get(`${API_URL}/projects/${scriptId}/art_direction/handbook`)).data,
+    importVisualHandbook: async (scriptId: string, markdown: string, title?: string) => (await apiClient.put(`${API_URL}/projects/${scriptId}/art_direction/handbook`, { markdown, title })).data,
+    listVisualHandbookTemplates: async () => (await apiClient.get(`${API_URL}/art_direction/handbook/templates`)).data,
+    saveVisualHandbookTemplate: async (scriptId: string, name: string, markdown?: string) => (await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/handbook/templates`, { name, markdown })).data,
 
     getStylePresets: async () => {
         const res = await apiClient.get(`${API_URL}/art_direction/presets`);
@@ -1562,11 +1621,18 @@ export const api = {
         shot_size?: string;
         camera_movement_description?: string;
         transition_hint?: string;
+        in_point?: number;
+        out_point?: number;
     }) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/update`, {
             frame_id: frameId,
             ...data
         });
+        return res.data;
+    },
+
+    splitAssemblyFrame: async (scriptId: string, frameId: string, splitPoint: number) => {
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/split`, { split_point: splitPoint });
         return res.data;
     },
 
@@ -1909,10 +1975,30 @@ export const api = {
         return res.data;
     },
 
+    getGlobalModelSettings: async (): Promise<FrontendModelSettings> => {
+        const res = await apiClient.get(`${API_URL}/config/model-settings`);
+        return res.data as FrontendModelSettings;
+    },
+
+    saveGlobalModelSettings: async (settings: Partial<FrontendModelSettings> & { reset_fields?: string[] }) => {
+        const res = await apiClient.put(`${API_URL}/config/model-settings`, settings);
+        return res.data as FrontendModelSettings;
+    },
+
+    recommendVoices: async (request: { character_gender?: string; character_description?: string; preview_text?: string; limit?: number }): Promise<{ recommendations: VoiceRecommendation[]; selection_requires_confirmation: boolean }> => {
+        const res = await apiClient.post(`${API_URL}/voices/recommend`, request);
+        return res.data;
+    },
+
     saveEnvConfig: async (config: EnvConfigPayload) => {
         const res = await apiClient.post(`${API_URL}/config/env`, config, {
             timeout: 60000, // 60 seconds timeout
         });
+        return res.data;
+    },
+
+    testProviderConnection: async (request: ProviderConnectionTestRequest): Promise<ProviderConnectionTestResult> => {
+        const res = await apiClient.post<ProviderConnectionTestResult>(`${API_URL}/config/provider-test`, request, { timeout: 20000 });
         return res.data;
     },
 
@@ -2298,15 +2384,21 @@ export const api = {
         const response = await apiClient.get(`${API_URL}/series/${seriesId}/model_settings`);
         return response.data;
     },
+    getEffectiveSeriesModelSettings: async (seriesId: string) => {
+        const response = await apiClient.get(`${API_URL}/series/${seriesId}/model_settings/effective`);
+        return response.data as { settings: FrontendModelSettings; sources: Record<string, string> };
+    },
     updateSeriesModelSettings: async (seriesId: string, settings: {
         t2i_model?: string;
         i2i_model?: string;
         image_model?: string;
         i2v_model?: string;
+        r2v_model?: string;
         character_aspect_ratio?: string;
         scene_aspect_ratio?: string;
         prop_aspect_ratio?: string;
         storyboard_aspect_ratio?: string;
+        reset_fields?: string[];
     }) => {
         const response = await apiClient.put(`${API_URL}/series/${seriesId}/model_settings`, settings);
         return response.data;

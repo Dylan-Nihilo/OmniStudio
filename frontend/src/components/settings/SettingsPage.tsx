@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import axios from "axios";
-import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL } from "@/lib/api";
+import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
 import {
   DEFAULT_MODEL_SETTINGS,
@@ -205,6 +205,8 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const configRequest = useRef(0);
   const mounted = useRef(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [providerTest, setProviderTest] = useState<ProviderConnectionTestResult | null>(null);
+  const [providerTesting, setProviderTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
   const [loadError, setLoadError] = useState<"ownerConfigOnly" | "loadConfigFailed" | null>(null);
@@ -215,6 +217,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const [modelSettings, setModelSettings] = useState<FrontendModelSettings>(() =>
     normalizeModelSettings(loadFromLS(LS_KEY_MODEL, DEFAULT_MODEL_SETTINGS), "global_settings")
   );
+  const [modelSettingsLoading, setModelSettingsLoading] = useState(false);
 
   // ── Default Prompt Config ──
   // `promptConfig` is the displayed/editable text. localStorage (LS_KEY_PROMPT)
@@ -261,6 +264,20 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     loadConfig();
     return () => { mounted.current = false; configRequest.current += 1; };
   }, [loadConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModelSettingsLoading(true);
+    api.getGlobalModelSettings().then((remote) => {
+      if (cancelled || !remote) return;
+      const normalized = normalizeModelSettings(remote, "global_settings");
+      setModelSettings(normalized);
+      try { localStorage.setItem(LS_KEY_MODEL, JSON.stringify(normalized)); } catch { /* offline storage is optional */ }
+    }).catch(() => {
+      // Keep the local cached defaults when the Workspace endpoint is offline.
+    }).finally(() => { if (!cancelled) setModelSettingsLoading(false); });
+    return () => { cancelled = true; };
+  }, [canManageConfig]);
 
   // Pre-fill the prompt fields with the real built-in defaults so users can see
   // and edit from them. We remember the fetched defaults for the delta-save
@@ -389,6 +406,35 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const handleSaveApiConfig = () => saveEnvScope('apikeys');
   const handleSaveStorage = () => saveEnvScope('storage');
 
+  const testActiveProvider = async () => {
+    if (!canManageConfig || providerTesting || loading || loadError || !online) return;
+    setProviderTesting(true);
+    setProviderTest(null);
+    try {
+      const result = await api.testProviderConnection({
+        provider: config.LLM_PROVIDER,
+        model: config.LLM_PROVIDER === "openai" ? (config.OPENAI_MODEL || "gpt-4o") : "qwen-plus",
+        modality: "text",
+      });
+      if (mounted.current) setProviderTest(result);
+    } catch (error: any) {
+      if (mounted.current) setProviderTest({
+        provider: config.LLM_PROVIDER,
+        model: config.LLM_PROVIDER === "openai" ? config.OPENAI_MODEL : "qwen-plus",
+        modality: "text",
+        risk: "connectivity_only",
+        estimated_cost: 0,
+        credential_configured: false,
+        latency_ms: null,
+        success: false,
+        category: "network",
+        message: error?.response?.data?.detail || error?.message || t("providerTestFailed"),
+      });
+    } finally {
+      if (mounted.current) setProviderTesting(false);
+    }
+  };
+
   const handleChange = (key: keyof EnvConfig, value: string) => {
     clearFeedback();
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -402,7 +448,8 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     }));
   };
 
-  const handleSaveModelDefaults = () => {
+  const handleSaveModelDefaults = async () => {
+    if (!canManageConfig || modelSettingsLoading) return;
     const normalized = normalizeModelSettings(modelSettings, "global_settings");
     // T2I and I2I share one image model in the UI; persist both backend
     // fields plus image_model so per-project backfill stays consistent.
@@ -412,11 +459,15 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
       image_model: normalized.t2i_model,
     };
     clearFeedback();
+    setModelSettingsLoading(true);
     try {
-      localStorage.setItem(LS_KEY_MODEL, JSON.stringify(merged));
-      setModelSettings(merged);
+      const savedRemote = await api.saveGlobalModelSettings(merged);
+      const persisted = normalizeModelSettings(savedRemote || merged, "global_settings");
+      localStorage.setItem(LS_KEY_MODEL, JSON.stringify(persisted));
+      setModelSettings(persisted);
       setSaved(true);
-    } catch { setSaveError(t("saveLocalFailed")); }
+    } catch { setSaveError(t("saveConfigFailed")); }
+    finally { setModelSettingsLoading(false); }
   };
 
   const handleSavePromptDefaults = () => {
@@ -499,7 +550,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     clearFeedback();
     setModelSettings(s => key === "t2i_model" ? {...s, t2i_model:value, i2i_model:value, image_model:value} : {...s, [key]:value});
   };
-  const ratioField = (key: keyof FrontendModelSettings, label: string) => <SelectField label={label} value={String(modelSettings[key])} onChange={value => updateModel(key, String(value))} options={ASPECT_RATIOS.map(r => ({id:r.id, label:r.name}))} />;
+  const ratioField = (key: keyof FrontendModelSettings, label: string) => <SelectField label={label} value={String(modelSettings[key])} onChange={value => updateModel(key, String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={ASPECT_RATIOS.map(r => ({id:r.id, label:r.name}))} />;
 
   const renderGeneral = () => <Section id="general" title={t("secGeneralTitle")}>
     <FormRow label={t("language")} hint={t("languageDesc")}>
@@ -515,7 +566,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const renderModels = () => <Section id="models" title={t("secModelsTitle")} desc={t("secModelsDesc")}>
     <FormRow label={t("imageModelLabel")} hint={t("imageModelHint")}>
-      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
     </FormRow>
     <FormRow label={t("assetAspectLabel")} hint={t("assetAspectHint")}>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -526,10 +577,10 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     </FormRow>
     <FormRow label={t("storyboardAspectLabel")} hint={t("storyboardAspectHint")}>{ratioField("storyboard_aspect_ratio", t("storyboardAspectLabel"))}</FormRow>
     <FormRow label={t("i2vModelLabel")} hint={t("i2vModelHint")}>
-      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
     </FormRow>
     <FormRow label={t("r2vModelLabel")} hint={t("r2vModelHint")}>
-      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
     </FormRow>
   </Section>;
 
@@ -562,6 +613,17 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
         </div>
       </FormRow> : <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>{keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}</FormRow>}
+      <FormRow label={t("providerTestLabel")} hint={t("providerTestHint")}>
+        <div className="space-y-2">
+          <Button variant="secondary" onPress={testActiveProvider} isPending={providerTesting} isDisabled={providerTesting || loading || Boolean(loadError) || !online}>
+            {providerTesting ? t("providerTesting") : t("testProvider")}
+          </Button>
+          {providerTest && <p role="status" className={providerTest.success ? "text-sm text-status-completed-fg" : "text-sm text-status-failed-fg"}>
+            {providerTest.success ? `${providerTest.message} · ${providerTest.latency_ms ?? "-"} ms` : `${providerTest.category ?? "unknown"}: ${providerTest.message}`}
+            <span className="ml-2 text-text-muted">{t("providerTestRisk")}</span>
+          </p>}
+        </div>
+      </FormRow>
       <FormRow label={t("imageProviderLabel")} hint={t("imageProviderHint")}>
         <div className="space-y-4">
           <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
@@ -643,13 +705,13 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   ];
   const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), about:t("eyebrowAbout")};
   const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, about:renderAbout};
-  const saveAction = active === "models" ? handleSaveModelDefaults : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
+  const saveAction = active === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
   const remoteConfig = active === "apikeys" || active === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };
   return <div className="relative flex h-full min-w-0 flex-col bg-background text-foreground">
     <header className="flex min-h-24 shrink-0 items-center justify-between gap-4 border-b border-glass-border px-4 py-4 md:px-8">
       <div className="min-w-0"><p className="text-xs text-text-muted">{t("title")}</p><h1 className="mt-1 text-xl font-semibold tracking-tight">{titles[active]}</h1></div>
-      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
+      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving || (active === "models" && modelSettingsLoading)} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
     </header>
     {saveError && <p role="alert" className="shrink-0 bg-status-failed-bg px-4 py-3 text-sm text-status-failed-fg md:px-8">{saveError}</p>}
     {saved && <p role="status" className="flex shrink-0 items-center gap-2 px-4 py-3 text-sm text-status-completed-fg md:px-8"><Check size={16} />{t("saved")}</p>}

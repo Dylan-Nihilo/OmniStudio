@@ -40,6 +40,7 @@ import uuid
 import logging
 import traceback
 import mimetypes
+import requests
 from io import BytesIO
 from dataclasses import asdict
 from pathlib import Path
@@ -61,7 +62,9 @@ from .models import (
     StoryboardFrame,
     VideoTask,
     AudioMode,
+    ModelSettings,
 )
+from .model_settings import MODEL_SETTING_FIELDS, WORKSPACE_MODEL_SETTINGS_KEY, load_workspace_model_settings
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
@@ -351,16 +354,86 @@ def _asset_output_refs(item):
     return [_production_media_ref(url, kind="asset", item_id=item.id) for url in urls]
 
 
+def _script_asset_output_refs(script, item_id: str):
+    """Collect generated asset media for a bulk asset production item."""
+    refs = []
+    for asset_type, assets in (("character", script.characters), ("scene", script.scenes), ("prop", script.props)):
+        for asset in assets:
+            urls = []
+            for field in ("image_url", "full_body_image_url", "three_view_image_url", "headshot_image_url"):
+                value = getattr(asset, field, None)
+                if value and value not in urls:
+                    urls.append(value)
+            if urls:
+                refs.extend(_production_media_ref(url, kind=f"asset:{asset_type}", item_id=item_id) for url in urls)
+    return refs
+
+
 def _dispatch_production_item(item):
     """Dispatch legacy production work while keeping JobItem authoritative."""
     payload = item.payload
     kind = item.kind
+    if kind == "source_analysis":
+        from .source_api import process_analysis_batch_job
+
+        source_repository = SourceRepository(_production_adapter().repository.engine)
+        batch = process_analysis_batch_job(
+            source_repository,
+            pipeline,
+            workspace_id=item.workspace_id,
+            source_id=str(payload["source_document_id"]),
+            batch_id=str(payload["batch_id"]),
+            retry=bool(item.retry_of),
+            force=bool(payload.get("force")),
+            retry_chapter_ids=payload.get("retry_chapter_ids"),
+        )
+        if batch["status"] in {"failed", "partially_succeeded"}:
+            raise RuntimeError(
+                f"source analysis batch {batch['id']} finished with {batch['failed']} failed chapter(s)"
+            )
+        return []
+    if kind in {"t2i", "i2i", "t2v", "i2v", "r2v", "v2v"}:
+        # Playground stores its provider result in a JSON history record, but
+        # retries must still run through the same durable JobItem.  A failed
+        # generation is terminal, so replay it as a fresh generation while
+        # retaining the JobItem retry lineage.
+        from ..playground.api import _service as playground_service, _storage as playground_storage
+        from ..playground.models import GenerateRequest, PlaygroundMode
+
+        generation_id = payload.get("generation_id")
+        generation = playground_storage.get_generation(generation_id, item.workspace_id) if generation_id else None
+        if generation is None:
+            raise RuntimeError("Playground generation disappeared")
+        if item.retry_of:
+            replay = playground_service.create_generation(
+                GenerateRequest(
+                    mode=PlaygroundMode(kind),
+                    model_id=generation.model_id,
+                    prompt=generation.prompt,
+                    negative_prompt=generation.negative_prompt,
+                    input_media=generation.input_media,
+                    parameters=generation.parameters,
+                    batch_size=generation.batch_size,
+                ),
+                item.workspace_id,
+            )
+            generation_id = replay.id
+            payload = {**payload, "generation_id": generation_id}
+            _production_adapter().repository.update_item_payload(item.id, payload)
+        playground_service.process_generation(generation_id)
+        generation = playground_storage.get_generation(generation_id, item.workspace_id)
+        if generation is None or generation.status != "completed":
+            raise RuntimeError((generation.error if generation else None) or "Playground generation did not complete")
+        return [
+            _production_media_ref(output.media_path, kind=output.media_type, item_id=output.id)
+            for output in generation.outputs
+        ]
     if kind == "asset":
         legacy_id = payload["legacy_task_id"]
         saved_task = payload.get("legacy_task") or pipeline.asset_generation_tasks.get(legacy_id)
         if saved_task is None:
             raise RuntimeError("原始任务参数已不可用，请重新生成素材")
-        if item.retry_of:
+        if item.retry_of and payload.get("operation") != "retry_precreated":
             legacy_id = item.id
         if legacy_id not in pipeline.asset_generation_tasks:
             pipeline.asset_generation_tasks[legacy_id] = {**deepcopy(saved_task), "task_id": legacy_id, "status": "pending", "error": None, "progress": 0}
@@ -369,7 +442,50 @@ def _dispatch_production_item(item):
             payload = item.payload
         pipeline.process_asset_generation_task(legacy_id)
         return _asset_output_refs(item)
+    if kind == "asset_batch":
+        script = pipeline.generate_assets(item.project_id)
+        refs = _script_asset_output_refs(script, item.id)
+        if not refs:
+            raise RuntimeError("asset generation did not produce media")
+        return refs
     if kind == "video":
+        if payload.get("operation") == "project_video":
+            script = pipeline.generate_video(item.project_id)
+            urls = [
+                task.video_url
+                for task in (getattr(script, "video_tasks", None) or [])
+                if getattr(task, "status", None) == "completed" and getattr(task, "video_url", None)
+            ]
+            urls.extend(
+                frame.video_url
+                for frame in (getattr(script, "frames", None) or [])
+                if getattr(frame, "video_url", None)
+            )
+            urls = list(dict.fromkeys(urls))
+            if not urls:
+                raise RuntimeError("video generation did not produce media")
+            return [_production_media_ref(url, kind="video", item_id=item.id) for url in urls]
+        if payload.get("operation") == "motion_ref":
+            pipeline.process_motion_ref_task(item.project_id, payload["legacy_task_id"])
+            task = pipeline.video_generation_tasks.get(payload["legacy_task_id"])
+            if not task or task.get("status") != "completed":
+                raise RuntimeError((task or {}).get("error") or "motion reference generation did not complete")
+            script = pipeline.get_script(item.project_id)
+            asset = next((candidate for values in (script.characters, script.scenes, script.props)
+                          for candidate in values if candidate.id == payload["asset_id"]), None)
+            urls = []
+            if asset is not None:
+                unit = getattr(asset, payload["asset_type"], None)
+                for candidate in (getattr(unit, "video_variants", []) if unit else []):
+                    if getattr(candidate, "url", None):
+                        urls.append(candidate.url)
+                for candidate in getattr(asset, "video_assets", []) or []:
+                    if getattr(candidate, "video_url", None):
+                        urls.append(candidate.video_url)
+            urls = list(dict.fromkeys(urls))
+            if not urls:
+                raise RuntimeError("motion reference generation did not produce media")
+            return [_production_media_ref(url, kind="motion_ref", item_id=item.id) for url in urls]
         if item.retry_of:
             source_item = _production_adapter().repository.get_item(item.retry_of)
             if source_item and payload["legacy_task_id"] == source_item.payload.get("legacy_task_id"):
@@ -384,6 +500,16 @@ def _dispatch_production_item(item):
             raise RuntimeError((task.error if task else None) or "video generation did not complete")
         return [_production_media_ref(task.video_url, kind="video", item_id=item.id)]
     if kind == "storyboard":
+        if payload.get("operation") == "project_storyboard":
+            script = pipeline.generate_storyboard(item.project_id)
+            urls = []
+            for frame in (getattr(script, "frames", None) or []):
+                url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None)
+                if url and url not in urls:
+                    urls.append(url)
+            if not urls:
+                raise RuntimeError("storyboard generation did not produce media")
+            return [_production_media_ref(url, kind="storyboard", item_id=item.id) for url in urls]
         pipeline.generate_storyboard_render(
             item.project_id,
             payload["frame_id"],
@@ -396,6 +522,43 @@ def _dispatch_production_item(item):
         url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None) if frame else None
         return [_production_media_ref(url, kind="storyboard", item_id=item.id)]
     if kind == "audio":
+        if payload.get("operation") == "dialogue_line":
+            script = pipeline.generate_dialogue_line(
+                item.project_id,
+                payload["frame_id"],
+                payload.get("speed", 1.0),
+                payload.get("pitch", 1.0),
+                payload.get("volume", 50),
+                instructions=payload.get("instructions"),
+            )
+            frame = next((candidate for candidate in (getattr(script, "frames", None) or []) if candidate.id == payload["frame_id"]), None)
+            url = getattr(frame, "audio_url", None) if frame else None
+            if not url:
+                raise RuntimeError("dialogue audio generation did not produce media")
+            return [_production_media_ref(url, kind="dialogue", item_id=item.id)]
+        if payload.get("operation") == "mix_sfx":
+            script = pipeline.generate_audio(item.project_id)
+            urls = [
+                frame.sfx_url
+                for frame in (getattr(script, "frames", None) or [])
+                if getattr(frame, "sfx_url", None)
+            ]
+            if not urls:
+                raise RuntimeError("SFX generation did not produce media")
+            return [_production_media_ref(url, kind="sfx", item_id=item.id) for url in dict.fromkeys(urls)]
+        if payload.get("operation") == "dialogue_batch":
+            script = pipeline.generate_dialogue_audio_batch(item.project_id, payload.get("instructions") or {})
+            urls = [
+                frame.audio_url
+                for frame in (getattr(script, "frames", None) or [])
+                if getattr(frame, "audio_url", None)
+            ]
+            batch = getattr(script, "dialogue_audio_batch", None)
+            if not urls and batch and all(result in {"skipped", "failed", "no_voice", "busy"} for result in batch.results.values()):
+                return []
+            if not urls:
+                raise RuntimeError("dialogue audio generation did not produce media")
+            return [_production_media_ref(url, kind="dialogue", item_id=item.id) for url in dict.fromkeys(urls)]
         pipeline.generate_audio(item.project_id)
         script = pipeline.get_script(item.project_id)
         urls = [frame.audio_url for frame in (script.frames if script else []) if getattr(frame, "audio_url", None)]
@@ -441,6 +604,11 @@ def _start_production_or_raise(item_id: str):
     """Run a synchronous adapter item without turning provider failure into 200."""
     result = _production_adapter().start(item_id)
     if result.status == "failed":
+        message = result.error_message or "production task failed"
+        if "Frame not found" in message or "Script not found" in message:
+            raise HTTPException(status_code=404, detail=message)
+        if "TTS" in message or "audio generation" in message:
+            raise HTTPException(status_code=502, detail=message)
         raise RuntimeError(result.error_message or "production task failed")
     return result
 
@@ -700,6 +868,10 @@ def _is_workspace_viewer(context) -> bool:
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
+        # Workspace model defaults are readable by every member; writes stay
+        # owner-only through the mutating-method guard below.
+        if parts == ["config", "model-settings"] and method == "GET":
+            return False
         return True
     if method not in _MUTATING_METHODS:
         return False
@@ -955,6 +1127,9 @@ def debug_config():
 def _project_payload(script: Script) -> dict:
     """Present shared assets consistently without persisting inherited copies."""
     payload = script.model_dump()
+    resolved_model_settings = pipeline.resolve_model_settings(script.id)
+    payload["model_settings"] = resolved_model_settings.settings.model_dump()
+    payload["model_settings_sources"] = resolved_model_settings.sources
     series = pipeline.get_series(script.series_id) if script.series_id else None
     workspace_id = pipeline.repository.workspace_for_script(script.id)
     library = pipeline.list_library_assets(workspace_id) if workspace_id else None
@@ -1016,6 +1191,7 @@ class GenerateAssetRequest(BaseModel):
     batch_size: int = 1
     model_name: Optional[str] = None
     aspect_ratio: Optional[str] = None
+    candidate_type: Optional[Literal["simple", "detailed", "design_sheet"]] = None
 
 
 class CastGenerationPreviewRequest(BaseModel):
@@ -2261,6 +2437,7 @@ class UpdateModelSettingsRequest(BaseModel):
     scene_aspect_ratio: Optional[str] = None
     prop_aspect_ratio: Optional[str] = None
     storyboard_aspect_ratio: Optional[str] = None
+    reset_fields: List[str] = Field(default_factory=list)
 
 @app.get("/series/{series_id}/model_settings")
 def get_series_model_settings(series_id: str):
@@ -2268,24 +2445,77 @@ def get_series_model_settings(series_id: str):
     series = pipeline.get_series(series_id)
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
-    return series.model_settings.model_dump()
+    return pipeline.resolve_series_model_settings(series_id).settings.model_dump()
+
+
+@app.get("/series/{series_id}/model_settings/effective")
+def get_effective_series_model_settings(series_id: str):
+    """Return the effective Series settings and the source layer per field."""
+    try:
+        resolved = pipeline.resolve_series_model_settings(series_id)
+        return signed_response({"settings": resolved.settings.model_dump(), "sources": resolved.sources})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/config/model-settings")
+def get_global_model_settings(request: Request):
+    """Return Workspace-level model defaults shared by new and existing work."""
+    context = request.state.auth_context
+    raw = request.app.state.auth_service.repository.get_workspace_provider_config(context.workspace.id)
+    return load_workspace_model_settings(raw).model_dump()
+
+
+@app.put("/config/model-settings")
+def update_global_model_settings(request: Request, settings: UpdateModelSettingsRequest):
+    """Persist Workspace-level model defaults without mixing them with provider keys."""
+    context = request.state.auth_context
+    repository = request.app.state.auth_service.repository
+    raw = repository.get_workspace_provider_config(context.workspace.id)
+    current = load_workspace_model_settings(raw)
+    updates = {key: value for key, value in settings.model_dump().items() if key != "reset_fields" and value is not None}
+    unknown_fields = sorted(set(settings.reset_fields) - set(MODEL_SETTING_FIELDS))
+    if unknown_fields:
+        raise HTTPException(status_code=422, detail=f"Unknown model setting: {unknown_fields[0]}")
+    updated = current.model_copy(update=updates)
+    if settings.reset_fields:
+        defaults = ModelSettings()
+        updated = updated.model_copy(update={field: getattr(defaults, field) for field in settings.reset_fields})
+    repository.update_workspace_provider_config(
+        workspace_id=context.workspace.id,
+        user_id=context.user.id,
+        values={WORKSPACE_MODEL_SETTINGS_KEY: json.dumps(updated.model_dump(), ensure_ascii=False, sort_keys=True)},
+        removed_keys=[],
+        now=time.time(),
+    )
+    record_request_event(
+        request,
+        action="model.settings.update",
+        object_type="workspace",
+        object_id=str(context.workspace.id),
+        metadata={"fields": sorted(set(updates) | set(settings.reset_fields))},
+    )
+    return updated.model_dump()
 
 
 @app.put("/series/{series_id}/model_settings")
 def update_series_model_settings(series_id: str, settings: UpdateModelSettingsRequest):
     """Update Series-level model settings."""
-    updates = {k: v for k, v in settings.model_dump().items() if v is not None}
-    if not updates:
+    updates = {k: v for k, v in settings.model_dump().items() if v is not None and k != "reset_fields"}
+    unknown_fields = sorted(set(settings.reset_fields) - set(MODEL_SETTING_FIELDS))
+    if unknown_fields:
+        raise HTTPException(status_code=422, detail=f"Unknown model setting: {unknown_fields[0]}")
+    if not updates and not settings.reset_fields:
         series = pipeline.get_series(series_id)
         if not series:
             raise HTTPException(status_code=404, detail="Series not found")
         return signed_response(series)
     try:
-        current_series = pipeline.get_series(series_id)
-        if not current_series:
-            raise HTTPException(status_code=404, detail="Series not found")
-        ms = current_series.model_settings.model_copy(update=updates)
-        series = pipeline.update_series(series_id, {"model_settings": ms})
+        series = pipeline.update_series_model_settings(
+            series_id,
+            reset_fields=settings.reset_fields,
+            **updates,
+        )
         return signed_response(series)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -2459,6 +2689,7 @@ def generate_series_asset(series_id: str, request: GenerateAssetRequest, backgro
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
+            response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -2965,6 +3196,105 @@ class EnvConfig(ProviderRoutingConfig):
     MULEROUTER_API_KEY: Optional[str] = None
     MOMA_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
+
+
+class ProviderConnectionTestRequest(BaseModel):
+    provider: str = Field(..., min_length=1)
+    model: Optional[str] = None
+    modality: Literal["text", "image", "video", "audio"] = "text"
+    timeout_seconds: float = Field(8.0, ge=1.0, le=15.0)
+
+
+_PROVIDER_TEST_CREDENTIALS = {
+    "dashscope": ("DASHSCOPE_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "kling": ("DASHSCOPE_API_KEY", "KLING_ACCESS_KEY", "KLING_SECRET_KEY"),
+    "vidu": ("DASHSCOPE_API_KEY", "VIDU_API_KEY"),
+    "pixverse": ("DASHSCOPE_API_KEY",),
+    "mulerouter": ("MULEROUTER_API_KEY",),
+    "moma": ("MOMA_API_KEY",),
+}
+
+
+def _provider_test_secret(provider: str, modality: str) -> tuple[str | None, bool]:
+    keys = _PROVIDER_TEST_CREDENTIALS.get(provider, ())
+    if provider == "openai" and modality == "image":
+        keys = ("OPENAI_IMAGE_API_KEY",)
+    values = [(key, (workspace_getenv(key, "") or "").strip()) for key in keys]
+    if provider == "kling" and (workspace_getenv("KLING_PROVIDER_MODE", "") or "").strip().lower() == "vendor":
+        values = [(key, (workspace_getenv(key, "") or "").strip()) for key in ("KLING_ACCESS_KEY", "KLING_SECRET_KEY")]
+    elif provider == "kling":
+        values = [("DASHSCOPE_API_KEY", (workspace_getenv("DASHSCOPE_API_KEY", "") or "").strip())]
+    if provider == "vidu" and (workspace_getenv("VIDU_PROVIDER_MODE", "") or "").strip().lower() == "vendor":
+        values = [("VIDU_API_KEY", (workspace_getenv("VIDU_API_KEY", "") or "").strip())]
+    configured = all(value for _, value in values) if provider == "kling" and len(values) > 1 else any(value for _, value in values)
+    return next((value, True) for _, value in values if value) if configured else (None, False)
+
+
+def _provider_test_url(provider: str, modality: str) -> str:
+    from ...utils.endpoints import get_provider_base_url
+
+    if provider == "openai":
+        base = workspace_getenv("OPENAI_IMAGE_BASE_URL" if modality == "image" else "OPENAI_BASE_URL", "")
+        base = (base or "https://api.openai.com/v1").rstrip("/")
+    else:
+        base = get_provider_base_url(provider.upper())
+    if base.endswith("/models"):
+        return base
+    if base.endswith("/v1") or "/v1/" in base:
+        return f"{base.rstrip('/')}/models"
+    if provider == "dashscope" and "dashscope.aliyuncs.com" in base:
+        return f"{base.rstrip('/')}/compatible-mode/v1/models"
+    return base.rstrip("/")
+
+
+def _redact_provider_message(message: str) -> str:
+    redacted = str(message or "")
+    for field in SECRET_FIELDS:
+        value = (workspace_getenv(field, "") or "").strip()
+        if value:
+            redacted = redacted.replace(value, "[redacted]")
+    return redacted[:500] or "Provider connection test failed"
+
+
+@app.post("/config/provider-test")
+def test_provider_connection(request: ProviderConnectionTestRequest, http_request: Request):
+    """Probe provider connectivity without invoking a billable generation."""
+    provider = request.provider.strip().lower()
+    if provider not in _PROVIDER_TEST_CREDENTIALS:
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+    secret, configured = _provider_test_secret(provider, request.modality)
+    base_payload = {
+        "provider": provider,
+        "model": request.model,
+        "modality": request.modality,
+        "host": _provider_test_url(provider, request.modality),
+        "risk": "connectivity_only",
+        "estimated_cost": 0,
+        "credential_configured": configured,
+        "latency_ms": None,
+        "success": False,
+        "category": "auth" if not configured else None,
+        "message": "Provider credential is not configured" if not configured else "",
+    }
+    if not configured:
+        record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": False, "category": "auth"})
+        return base_payload
+
+    started = time.perf_counter()
+    try:
+        response = requests.get(
+            base_payload["host"],
+            headers={"Authorization": f"Bearer {secret}"},
+            timeout=request.timeout_seconds,
+        )
+        response.raise_for_status()
+        base_payload.update(success=True, category=None, message="Provider is reachable", latency_ms=max(0, int((time.perf_counter() - started) * 1000)))
+    except Exception as exc:
+        classified = __import__("src.utils.provider_errors", fromlist=["classify_provider_error"]).classify_provider_error(exc, provider=provider)
+        base_payload.update(success=False, category=classified.category.value, message=_redact_provider_message(classified.detail), latency_ms=max(0, int((time.perf_counter() - started) * 1000)))
+    record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": base_payload["success"], "category": base_payload["category"], "latency_ms": base_payload["latency_ms"]})
+    return base_payload
 
 
 def _normalize_provider_mode(value: Optional[str]) -> str:
@@ -3859,6 +4189,22 @@ def generate_assets(script_id: str, background_tasks: BackgroundTasks):
     # Given the mock nature, it's fast.
 
     try:
+        workspace_id = None
+        repository = getattr(pipeline, "repository", None)
+        if repository is not None:
+            try:
+                workspace_id = repository.workspace_for_script(script_id)
+            except (KeyError, ValueError):
+                workspace_id = None
+        if workspace_id:
+            job_item = _production_adapter().create(
+                "asset_batch", workspace_id, script_id, None,
+                {"operation": "asset_batch"}, f"asset_batch:{script_id}",
+            )
+            background_tasks.add_task(_context_call(_start_production_item, job_item.id))
+            response = _project_payload(script)
+            response["_job_item_id"] = job_item.id
+            return signed_response(response)
         updated_script = pipeline.generate_assets(script_id)
         return signed_response(updated_script)
     except ProviderError:
@@ -3892,12 +4238,22 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
             batch_size=request.batch_size
         )
         
-        # Add background processing
-        background_tasks.add_task(_context_call(pipeline.process_motion_ref_task, script_id, task_id))
+        job_item = _create_production_item(
+            "video", script_id, None,
+            {"operation": "motion_ref", "legacy_task_id": task_id, "asset_id": request.asset_id, "asset_type": request.asset_type},
+            f"motion_ref:{script_id}:{request.asset_id}:{request.asset_type}:{request.prompt or ''}:{request.audio_url or ''}",
+        )
+        if job_item is None:
+            background_tasks.add_task(_context_call(pipeline.process_motion_ref_task, script_id, task_id))
+        else:
+            background_tasks.add_task(_context_call(_start_production_item, job_item.id))
         
         # Return script with task_id for frontend polling
         response_data = _project_payload(script)
         response_data["_task_id"] = task_id
+        if job_item is not None:
+            response_data["_job_item_id"] = job_item.id
+            response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
 
     except ValueError as e:
@@ -4020,9 +4376,25 @@ def refine_storyboard_batch(script_id: str, request: Optional[RefineBatchRequest
 def generate_storyboard(script_id: str):
     """Triggers storyboard generation."""
     try:
-        updated_script = pipeline.generate_storyboard(script_id)
-        return signed_response(updated_script)
+        job_item = _create_production_item(
+            "storyboard", script_id, None,
+            {"operation": "project_storyboard"},
+            f"storyboard:{script_id}:current",
+        )
+        updated_script = (
+            pipeline.generate_storyboard(script_id)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        if updated_script is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4031,9 +4403,25 @@ def generate_storyboard(script_id: str):
 def generate_video(script_id: str):
     """Triggers video generation."""
     try:
-        updated_script = pipeline.generate_video(script_id)
-        return signed_response(updated_script)
+        job_item = _create_production_item(
+            "video", script_id, None,
+            {"operation": "project_video"},
+            f"video:{script_id}:project",
+        )
+        updated_script = (
+            pipeline.generate_video(script_id)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        if updated_script is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4215,7 +4603,26 @@ def retry_video_task(script_id: str, task_id: str, background_tasks: BackgroundT
     try:
         task, created = pipeline.retry_video_task(script_id, task_id)
         if created:
-            background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task.id))
+            job_item = None
+            repository = getattr(pipeline, "repository", None)
+            if repository is not None:
+                try:
+                    workspace_id = repository.workspace_for_script(script_id)
+                except (KeyError, ValueError):
+                    workspace_id = None
+                if workspace_id:
+                    for job in _production_adapter().repository.list_jobs(workspace_id, project_id=script_id).items:
+                        source = next((candidate for candidate in job.items if candidate.kind == "video" and candidate.status == "failed" and candidate.payload.get("legacy_task_id") == task_id), None)
+                        if source:
+                            job_item = _production_adapter().retry(source.id)
+                            job_item = _production_adapter().repository.update_item_payload(
+                                job_item.id,
+                                {**job_item.payload, "legacy_task_id": task.id, "operation": "retry_precreated"},
+                            )
+                            background_tasks.add_task(_context_call(_start_production_item, job_item.id))
+                            break
+            if job_item is None:
+                background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task.id))
         return signed_response(task)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=error.args[0])
@@ -4329,6 +4736,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             request.batch_size,
             request.model_name,
             request.aspect_ratio,
+            request.candidate_type,
         )
         
         job_item = _create_production_item(
@@ -4346,6 +4754,7 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
         response_data["_task_id"] = task_id
         if job_item is not None:
             response_data["_job_item_id"] = job_item.id
+            response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
 
     except ValueError as e:
@@ -4465,6 +4874,25 @@ def cancel_task(job_id: str, request: Request):
     """Cancel only pending/processing items in a unified job."""
     context = _task_context(request)
     repository = _task_repository(request)
+    existing = repository.get_job(context.workspace.id, job_id)
+    if existing is not None:
+        # Keep the Playground history state aligned with the durable task
+        # ledger.  Mark it first so a pending worker observes cancellation
+        # before the JobItem becomes terminal.
+        playground_kinds = {"t2i", "i2i", "t2v", "i2v", "r2v", "v2v"}
+        if any(item.kind in playground_kinds and item.status in {"pending", "processing"} for item in existing.items):
+            from ..playground.api import _storage as playground_storage
+
+            for item in existing.items:
+                if item.kind not in playground_kinds or item.status not in {"pending", "processing"}:
+                    continue
+                generation_id = item.payload.get("generation_id")
+                if generation_id:
+                    playground_storage.cancel_generation(
+                        generation_id,
+                        context.workspace.id,
+                        error="Canceled by user",
+                    )
     job = repository.cancel_job(context.workspace.id, job_id)
     if job is None:
         code = "TASK_NOT_FOUND" if not repository.job_exists(job_id) else "AUTH_RESOURCE_NOT_FOUND"
@@ -4564,10 +4992,20 @@ def generate_asset_video(script_id: str, asset_type: str, asset_id: str, request
             request.aspect_ratio
         )
         
-        # Add background processing
-        background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task_id))
+        job_item = _create_production_item(
+            "video", script_id, None,
+            {"legacy_task_id": task_id, "asset_id": asset_id, "asset_type": asset_type, "operation": "asset_video"},
+            f"asset_video:{script_id}:{asset_type}:{asset_id}:{request.prompt or ''}:{request.duration}:{request.aspect_ratio or ''}",
+        )
+        if job_item is None:
+            background_tasks.add_task(_context_call(pipeline.process_video_task, script_id, task_id))
+        else:
+            background_tasks.add_task(_context_call(_start_production_item, job_item.id))
         
-        return signed_response(script)
+        response = _project_payload(script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -4781,12 +5219,39 @@ def update_model_settings(script_id: str, request: UpdateModelSettingsRequest):
             prop_aspect_ratio=request.prop_aspect_ratio,
             storyboard_aspect_ratio=request.storyboard_aspect_ratio,
             image_model=request.image_model,
+            reset_fields=request.reset_fields,
         )
         return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/projects/{script_id}/model_settings/effective")
+def get_effective_model_settings(script_id: str, frame_id: Optional[str] = None):
+    """Return effective model settings and the source layer for each field."""
+    try:
+        resolved = pipeline.resolve_model_settings(script_id, frame_id)
+        return signed_response({"settings": resolved.settings.model_dump(), "sources": resolved.sources})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/projects/{script_id}/frames/{frame_id}/model_settings", response_model=Script)
+def update_shot_model_settings(script_id: str, frame_id: str, request: UpdateModelSettingsRequest):
+    """Persist sparse Shot-level model overrides with reset-to-parent semantics."""
+    try:
+        updated = pipeline.update_shot_model_settings(
+            script_id,
+            frame_id,
+            reset_fields=request.reset_fields,
+            **{key: value for key, value in request.model_dump().items() if key != "reset_fields" and value is not None},
+        )
+        return signed_response(updated)
+    except ValueError as exc:
+        status = 404 if "not found" in str(exc).lower() or "script" in str(exc).lower() or "frame" in str(exc).lower() else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 class UpdatePromptConfigRequest(BaseModel):
@@ -4906,6 +5371,45 @@ def update_voice_params(script_id: str, char_id: str, request: UpdateVoiceParams
 def get_voices():
     """Returns list of available voices."""
     return pipeline.audio_generator.get_available_voices()
+
+
+class VoiceRecommendationRequest(BaseModel):
+    character_gender: Optional[str] = None
+    character_description: str = ""
+    preview_text: str = ""
+    limit: int = Field(8, ge=1, le=20)
+
+
+@app.post("/voices/recommend")
+def recommend_voices(request: VoiceRecommendationRequest):
+    """Rank catalog voices with explainable, non-binding recommendations."""
+    normalized_gender = (request.character_gender or "").strip().lower()
+    gender_aliases = {"female": {"female", "女"}, "male": {"male", "男"}, "neutral": {"neutral", "中性"}}
+    voices = [voice for voice in pipeline.audio_generator.get_available_voices() if voice.get("origin", "system") == "system"]
+    ranked = []
+    for voice in voices:
+        score = 0
+        reasons: list[str] = []
+        voice_gender = str(voice.get("gender") or "").lower()
+        if normalized_gender and any(normalized_gender in aliases and voice_gender in aliases for aliases in gender_aliases.values()):
+            target = next((key for key, aliases in gender_aliases.items() if normalized_gender in aliases), None)
+            if target and voice_gender == target:
+                score += 60
+                reasons.append("gender_match")
+        elif not normalized_gender:
+            reasons.append("gender_neutral")
+        if voice.get("supports_instruction"):
+            score += 20
+            reasons.append("emotion_instruction")
+        if request.preview_text and len(request.preview_text.strip()) >= 4:
+            score += 10
+            reasons.append("preview_ready")
+        if voice.get("family") == "cosyvoice":
+            score += 5
+            reasons.append("natural_dialogue")
+        ranked.append({"voice_id": voice.get("id"), "name": voice.get("name"), "score": score, "reasons": reasons})
+    ranked.sort(key=lambda item: (-item["score"], str(item["voice_id"])))
+    return {"recommendations": ranked[: request.limit], "selection_requires_confirmation": True}
 
 
 class VoicePreviewRequest(BaseModel):
@@ -5130,12 +5634,23 @@ class GenerateLineAudioRequest(BaseModel):
 def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudioRequest):
     """Generates audio for a specific frame with parameters."""
     try:
-        updated_script = pipeline.generate_dialogue_line(
-            script_id, frame_id,
-            request.speed, request.pitch, request.volume,
-            instructions=request.instructions,
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"operation": "dialogue_line", "frame_id": frame_id, "speed": request.speed, "pitch": request.pitch,
+             "volume": request.volume, "instructions": request.instructions},
+            f"dialogue_line:{script_id}:{frame_id}:{request.speed}:{request.pitch}:{request.volume}:{request.instructions or ''}",
         )
-        return signed_response(updated_script)
+        if job_item is not None and job_item.idempotent and job_item.status in {"pending", "processing"}:
+            raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
+        updated_script = (
+            pipeline.generate_dialogue_line(script_id, frame_id, request.speed, request.pitch, request.volume, instructions=request.instructions)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except GenerationInProgressError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except LookupError as e:
@@ -5144,6 +5659,8 @@ def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudi
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -5298,10 +5815,36 @@ class DialogueAudioBatchRequest(BaseModel):
 def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudioBatchRequest] = None):
     """Generate current dialogue and persist progress so retries can reuse completed audio."""
     try:
-        script = pipeline.generate_dialogue_audio_batch(script_id, request.instructions if request else None)
+        from .models import GenerationStatus
+        instructions = request.instructions if request else {}
+        existing_script = pipeline.get_script(script_id)
+        if existing_script is None:
+            raise HTTPException(status_code=404, detail="Script not found")
+        frame_ids = {frame.id for frame in existing_script.frames}
+        if any(frame_id not in frame_ids or not isinstance(value, str) or len(value) > 256 for frame_id, value in instructions.items()):
+            raise ValueError("Dialogue instructions must belong to this project and contain at most 256 characters")
+        if existing_script.dialogue_audio_batch and existing_script.dialogue_audio_batch.status in {GenerationStatus.PENDING, GenerationStatus.PROCESSING}:
+            raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
+        previous_batch_id = existing_script.dialogue_audio_batch.id if existing_script.dialogue_audio_batch else "none"
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"operation": "dialogue_batch", "instructions": instructions, "allow_empty_result": True},
+            f"dialogue_batch:{script_id}:{previous_batch_id}:{json.dumps(instructions, sort_keys=True, ensure_ascii=False)}",
+        )
+        if job_item is not None and job_item.idempotent and job_item.status in {"pending", "processing"}:
+            raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
+        script = (
+            pipeline.generate_dialogue_audio_batch(script_id, instructions)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        if script is None:
+            raise HTTPException(status_code=404, detail="Script not found")
         payload = _project_payload(script)
-        results = script.dialogue_audio_batch.results.values()
+        results = (script.dialogue_audio_batch.results.values() if script.dialogue_audio_batch else ())
         payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
+        if job_item is not None:
+            payload["_job_item_id"] = job_item.id
         return signed_response(payload)
     except GenerationInProgressError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -5310,6 +5853,8 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -5357,8 +5902,19 @@ def generate_mix_sfx(script_id: str):
     # but ideally we'd have granular methods in pipeline.
     # Let's just call generate_audio again, it's idempotent-ish.
     try:
-        updated_script = pipeline.generate_audio(script_id)
-        return signed_response(updated_script)
+        job_item = _create_production_item(
+            "audio", script_id, None,
+            {"operation": "mix_sfx"}, f"mix_sfx:{script_id}:current",
+        )
+        updated_script = (
+            pipeline.generate_audio(script_id)
+            if job_item is None
+            else (_start_production_or_raise(job_item.id) and pipeline.get_script(script_id))
+        )
+        response = _project_payload(updated_script)
+        if job_item is not None:
+            response["_job_item_id"] = job_item.id
+        return signed_response(response)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -5404,6 +5960,8 @@ class UpdateFrameRequest(BaseModel):
     shot_size: Optional[str] = None
     camera_movement_description: Optional[str] = None
     transition_hint: Optional[str] = None
+    in_point: Optional[float] = Field(None, ge=0)
+    out_point: Optional[float] = Field(None, gt=0)
 
 @app.post("/projects/{script_id}/frames/update", response_model=Script)
 def update_frame(script_id: str, request: UpdateFrameRequest):
@@ -5423,6 +5981,8 @@ def update_frame(script_id: str, request: UpdateFrameRequest):
             shot_size=request.shot_size,
             camera_movement_description=request.camera_movement_description,
             transition_hint=request.transition_hint,
+            in_point=request.in_point,
+            out_point=request.out_point,
         )
         return signed_response(updated_script)
     except ValueError as e:
@@ -5435,6 +5995,18 @@ class AddFrameRequest(BaseModel):
     action_description: str = ""
     camera_angle: str = "medium_shot"
     insert_at: Optional[int] = None
+
+class SplitAssemblyFrameRequest(BaseModel):
+    split_point: float = Field(..., gt=0)
+
+@app.post("/projects/{script_id}/frames/{frame_id}/split", response_model=Script)
+def split_assembly_frame(script_id: str, frame_id: str, request: SplitAssemblyFrameRequest):
+    try:
+        return signed_response(pipeline.split_assembly_frame(script_id, frame_id, request.split_point))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @app.post("/projects/{script_id}/frames", response_model=Script)
 def add_frame(script_id: str, request: AddFrameRequest):
@@ -5517,6 +6089,7 @@ def storyboard_readiness(script_id: str):
     report = evaluate_storyboard_readiness(script)
     script.storyboard_ready = bool(report["ready"])
     script.storyboard_readiness = report
+    script.storyboard_continuity_ledger = report.get("continuity_ledger")
     pipeline.scripts[script_id] = script
     pipeline._save_data()
     return signed_response(report | {"storyboard_ready": script.storyboard_ready})
@@ -6028,6 +6601,70 @@ class SaveArtDirectionRequest(BaseModel):
     style_config: Dict[str, Any]
     custom_styles: List[Dict[str, Any]] = []
     ai_recommendations: List[Dict[str, Any]] = []
+
+class VisualHandbookRequest(BaseModel):
+    markdown: str = Field(..., min_length=1, max_length=200_000)
+    title: Optional[str] = None
+
+class VisualHandbookTemplateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    markdown: Optional[str] = Field(None, max_length=200_000)
+
+def _handbook_style(markdown: str, title: Optional[str]) -> Dict[str, Any]:
+    heading = title or next((line[2:].strip() for line in markdown.splitlines() if line.startswith("# ")), "视觉手册")
+    sections: Dict[str, str] = {}
+    current = "overview"
+    values: list[str] = []
+    for line in markdown.splitlines():
+        if line.startswith("## "):
+            if values:
+                sections[current] = "\n".join(values).strip()
+            current = line[3:].strip() or "overview"
+            values = []
+        elif not line.startswith("# "):
+            values.append(line)
+    if values:
+        sections[current] = "\n".join(values).strip()
+    return {"id": f"handbook:{heading.lower().replace(' ', '-')}", "name": heading, "positive_prompt": markdown, "negative_prompt": "", "sections": sections}
+
+@app.get("/projects/{script_id}/art_direction/handbook")
+def export_visual_handbook(script_id: str):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    markdown = script.visual_handbook_markdown or ""
+    return {"project_id": script_id, "markdown": markdown, "style_config": _handbook_style(markdown, None) if markdown else None}
+
+@app.put("/projects/{script_id}/art_direction/handbook")
+def import_visual_handbook(script_id: str, request: VisualHandbookRequest):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    script.visual_handbook_markdown = request.markdown
+    style = _handbook_style(request.markdown, request.title)
+    existing = script.art_direction
+    script.art_direction = ArtDirection(selected_style_id=style["id"], style_config=style, custom_styles=(existing.custom_styles if existing else []), ai_recommendations=(existing.ai_recommendations if existing else []))
+    script.updated_at = time.time()
+    pipeline._save_data()
+    return signed_response(script)
+
+@app.get("/art_direction/handbook/templates")
+def list_visual_handbook_templates():
+    templates = []
+    for script in pipeline.scripts.values():
+        templates.extend(getattr(script, "visual_handbook_templates", []) or [])
+    return {"templates": templates}
+
+@app.post("/projects/{script_id}/art_direction/handbook/templates")
+def save_visual_handbook_template(script_id: str, request: VisualHandbookTemplateRequest):
+    script = pipeline.get_script(script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Project not found")
+    item = {"id": f"template:{uuid.uuid4().hex[:10]}", "name": request.name.strip(), "markdown": request.markdown or script.visual_handbook_markdown or "", "created_at": time.time()}
+    script.visual_handbook_templates = [*script.visual_handbook_templates, item]
+    script.updated_at = time.time()
+    pipeline._save_data()
+    return item
 
 
 @app.post("/projects/{script_id}/art_direction/analyze")
@@ -7284,6 +7921,7 @@ class SyncDerivationRequest(BaseModel):
     estimated_duration: float = 0
     word_count: int = 0
     confidence_score: float = 0
+    l3_supplements: Optional[List[Dict[str, Any]]] = None
 
 
 class DeriveGapEntity(BaseModel):
@@ -7319,6 +7957,13 @@ def sync_derivation(project_id: str, req: SyncDerivationRequest):
     project_dir = _get_project_dir(project_id)
     derivation_path = project_dir / "derivation.json"
 
+    previous = {}
+    if derivation_path.exists():
+        try:
+            previous = json.loads(derivation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+
     data = {
         "scenes": req.scenes,
         "characters": req.characters,
@@ -7326,6 +7971,11 @@ def sync_derivation(project_id: str, req: SyncDerivationRequest):
         "estimated_duration": req.estimated_duration,
         "word_count": req.word_count,
         "confidence_score": req.confidence_score,
+        "l3_supplements": (
+            req.l3_supplements
+            if req.l3_supplements is not None
+            else previous.get("l3_supplements", [])
+        ),
         "synced_at": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -20,6 +20,7 @@ import EnvConfigDialog from "@/components/project/EnvConfigDialog";
 import PromptConfigModal from "@/components/project/PromptConfigModal";
 import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import EntityConfirmModal from "@/components/modules/EntityConfirmModal";
+import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
 import { ActionMenu, Button, EmptyState, LoadingState } from "@omnistudio/ui";
 import AppShell from "@/components/layout/AppShell";
 import styles from "./ProjectClient.module.css";
@@ -191,17 +192,19 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
             />
 
             <AppShell activeTab="editor" onTabChange={() => {}} context={context} transitionKey={`${id}/${activeStep}`}>
-                <div className={styles.content}>
-                    {loadFailed && <div role="alert" className={styles.error}>{tChrome("refreshFailed")}<Button variant="quiet" onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button></div>}
-                    {activeStep === "script" && <ScriptProcessor />}
-                    {activeStep === "art_direction" && <ArtDirection />}
-                    {activeStep === "cast" && <Cast />}
-                    {activeStep === "assets" && <ConsistencyVault />}
-                    {activeStep === "storyboard" && <StoryboardComposer />}
-                    {activeStep === "storyboard_r2v" && <StoryboardR2V />}
-                    {activeStep === "motion" && <VideoGenerator />}
-                    {activeStep === "assembly" && <VideoAssembly />}
-                </div>
+                <EpisodeEditLeaseGuard scriptId={id}>
+                    <div className={styles.content}>
+                        {loadFailed && <div role="alert" className={styles.error}>{tChrome("refreshFailed")}<Button variant="quiet" onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button></div>}
+                        {activeStep === "script" && <ScriptProcessor />}
+                        {activeStep === "art_direction" && <ArtDirection />}
+                        {activeStep === "cast" && <Cast />}
+                        {activeStep === "assets" && <ConsistencyVault />}
+                        {activeStep === "storyboard" && <StoryboardComposer />}
+                        {activeStep === "storyboard_r2v" && <StoryboardR2V />}
+                        {activeStep === "motion" && <VideoGenerator />}
+                        {activeStep === "assembly" && <VideoAssembly />}
+                    </div>
+                </EpisodeEditLeaseGuard>
             </AppShell>
 
             <EntityExtractionConfirm />

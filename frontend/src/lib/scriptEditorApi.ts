@@ -39,6 +39,26 @@ export interface SnapshotResponse {
   created_at: string;
 }
 
+export interface DerivationSyncPayload {
+  scenes?: object[];
+  characters?: object[];
+  locations?: string[];
+  estimated_duration?: number;
+  word_count?: number;
+  confidence_score?: number;
+  l3_supplements?: Array<Record<string, unknown>>;
+}
+
+type RawL3Result = L3Result & { scene_index?: number; sceneIndex?: number };
+
+const normalizeL3Result = (item: RawL3Result): L3Result => {
+  const { scene_index, sceneIndex, ...rest } = item;
+  const normalizedSceneIndex = sceneIndex ?? scene_index;
+  return normalizedSceneIndex === undefined
+    ? rest
+    : { ...rest, sceneIndex: normalizedSceneIndex };
+};
+
 export const scriptEditorApi = {
   /** 保存文档 */
   saveDocument: async (projectId: string, content: object, createSnapshot = false): Promise<DocumentResponse> => {
@@ -111,7 +131,7 @@ export const scriptEditorApi = {
   },
 
   /** 同步派生数据到后端 */
-  syncDerivation: async (projectId: string, data: any): Promise<void> => {
+  syncDerivation: async (projectId: string, data: DerivationSyncPayload): Promise<void> => {
     await apiClient.post(`${API_URL}/projects/${projectId}/sync_derivation`, data);
   },
 
@@ -122,9 +142,12 @@ export const scriptEditorApi = {
       already_extracted?: { scenes: string[]; characters: string[] };
       gaps?: string[]; // e.g. ['props', 'beats', 'locations']
     }
-  ): Promise<{ results: L3Result[]; task_id?: string }> => {
+  ): Promise<{ entities?: L3Result[]; results?: L3Result[]; cached?: boolean; task_id?: string }> => {
     const res = await apiClient.post(`${API_URL}/projects/${projectId}/derive_gaps`, params);
-    return res.data;
+    const data = res.data ?? {};
+    const rawResults = (data.entities ?? data.results ?? []) as RawL3Result[];
+    const normalized = rawResults.map(normalizeL3Result);
+    return { ...data, entities: normalized, results: normalized };
   },
 
   /** 确认 ShotBlock */

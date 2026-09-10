@@ -25,6 +25,7 @@ report:
 
 import time
 import uuid
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -123,6 +124,37 @@ def test_orphan_recovery_is_noop_when_nothing_stuck(pipeline):
 
     # No save side-effect needed (recovered count was zero).
     assert pipeline.scripts["p1"].video_tasks[0].status == "completed"
+
+
+def test_processing_video_task_can_resume_after_restart(pipeline, tmp_path):
+    task = _video_task(status="processing", task_id="t-processing")
+    pipeline.scripts = {"p1": _script_with_tasks(task)}
+    pipeline._download_temp_image = lambda _url: None
+    pipeline.video_generator.model.generate.return_value = (str(tmp_path / "video.mp4"), 0.0)
+
+    pipeline.process_video_task("p1", task.id)
+
+    assert task.status == "completed"
+    assert task.video_url.replace("\\", "/") == "video/video_t-processing.mp4"
+
+
+def test_orphan_sweep_leaves_legacy_task_for_durable_video_recovery(pipeline, monkeypatch):
+    task = _video_task(status="processing", task_id="legacy-task")
+    pipeline.scripts = {"p1": _script_with_tasks(task)}
+    pipeline.storage_engine = object()
+
+    class FakeJobRepository:
+        def __init__(self, _engine):
+            pass
+
+        def list_inflight(self):
+            return [SimpleNamespace(kind="video", project_id="p1", payload={"legacy_task_id": task.id})]
+
+    monkeypatch.setattr("src.storage.job_repository.JobRepository", FakeJobRepository)
+
+    pipeline._recover_orphan_tasks()
+
+    assert task.status == "processing"
 
 
 # ---------------------------------------------------------------------------

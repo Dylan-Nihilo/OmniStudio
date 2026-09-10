@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Play, Pause, Check, Sparkles, Loader2, Trash2 } from "lucide-react";
 import { Button, Dialog } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
-import { api, type VoiceMeta, type CustomVoice } from "@/lib/api";
+import { api, type VoiceMeta, type CustomVoice, type VoiceRecommendation } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 import VoiceCloneModal from "./VoiceCloneModal";
 import VoiceDesignModal from "./VoiceDesignModal";
@@ -70,6 +70,7 @@ export default function VoicePickerModal({
     const tc = useTranslations("common");
     const [tab, setTab] = useState<Tab>("system");
     const [voices, setVoices] = useState<VoiceMeta[]>([]);
+    const [recommendations, setRecommendations] = useState<VoiceRecommendation[]>([]);
     const [customVoices, setCustomVoices] = useState<CustomVoice[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -113,6 +114,11 @@ export default function VoicePickerModal({
                 if (!cancelled) {
                     setVoices(vs);
                     setCustomVoices(customs);
+                    if (api.recommendVoices) {
+                        void api.recommendVoices({ character_gender: characterGender, character_description: characterDescription, preview_text: previewText, limit: 8 })
+                            .then((result) => { if (!cancelled) setRecommendations(result.recommendations || []); })
+                            .catch(() => { if (!cancelled) setRecommendations([]); });
+                    }
                 }
             })
             .catch((e) => { if (!cancelled) setError(e?.message || "Failed to load voices"); })
@@ -207,6 +213,9 @@ export default function VoicePickerModal({
     // L1.5 recommended subset based on character gender
     const recommended = useMemo<VoiceMeta[]>(() => {
         if (!voices.length) return [];
+        if (recommendations.length) {
+            return recommendations.map((recommendation) => voices.find((voice) => voice.id === recommendation.voice_id)).filter((voice): voice is VoiceMeta => !!voice);
+        }
         const genderKey = characterGender === "Female" || characterGender === "女" || characterGender === "female"
             ? "Female"
             : characterGender === "Male" || characterGender === "男" || characterGender === "male"
@@ -222,7 +231,15 @@ export default function VoicePickerModal({
         return (RECOMMENDED_BY_GENDER[genderKey] ?? [])
             .map((id) => voices.find((v) => v.id === id))
             .filter((v): v is VoiceMeta => !!v);
-    }, [voices, characterGender]);
+    }, [voices, characterGender, recommendations]);
+
+    const recommendationReasons = useMemo(
+        () => new Map(recommendations.map((recommendation) => [
+            recommendation.voice_id,
+            recommendation.reasons.map((reason) => t(`recommendationReasons.${reason}`)),
+        ])),
+        [recommendations, t],
+    );
 
     // Group system voices by sub-category for the catalog area
     const groups = useMemo(() => {
@@ -317,6 +334,7 @@ export default function VoicePickerModal({
                                                 previewing={previewingId === v.id}
                                                 onSelect={() => setSelectedId(v.id)}
                                                 onPreview={() => handlePreview(v)}
+                                                recommendationReasons={recommendationReasons.get(v.id)}
                                             />
                                         ))}
                                     </div>
@@ -324,10 +342,10 @@ export default function VoicePickerModal({
                             )}
 
                             {/* Grouped catalog */}
-                            <VoiceGroup label={t("groupCosyvoice")} voices={groups.cosy} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} />
-                            <VoiceGroup label={t("groupStandardZh")} voices={groups.qwenStandard} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} />
-                            <VoiceGroup label={t("groupDialect")} voices={groups.qwenDialect} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} />
-                            <VoiceGroup label={t("groupInternational")} voices={groups.qwenIntl} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} />
+                            <VoiceGroup label={t("groupCosyvoice")} voices={groups.cosy} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup label={t("groupStandardZh")} voices={groups.qwenStandard} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup label={t("groupDialect")} voices={groups.qwenDialect} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup label={t("groupInternational")} voices={groups.qwenIntl} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
                         </div>
                     )}
 
@@ -456,6 +474,7 @@ function VoiceGroup({
     previewingId,
     onSelect,
     onPreview,
+    recommendationReasons,
 }: {
     label: string;
     voices: VoiceMeta[];
@@ -464,6 +483,7 @@ function VoiceGroup({
     previewingId: string | null;
     onSelect: (id: string) => void;
     onPreview: (voice: VoiceMeta) => void;
+    recommendationReasons?: Map<string, string[]>;
 }) {
     if (!voices.length) return null;
     return (
@@ -481,6 +501,7 @@ function VoiceGroup({
                         previewing={previewingId === v.id}
                         onSelect={() => onSelect(v.id)}
                         onPreview={() => onPreview(v)}
+                        recommendationReasons={recommendationReasons?.get(v.id)}
                     />
                 ))}
             </div>
@@ -495,6 +516,7 @@ function VoiceCard({
     previewing,
     onSelect,
     onPreview,
+    recommendationReasons,
 }: {
     voice: VoiceMeta;
     selected: boolean;
@@ -502,6 +524,7 @@ function VoiceCard({
     previewing: boolean;
     onSelect: () => void;
     onPreview: () => void;
+    recommendationReasons?: string[];
 }) {
     return (
         <div
@@ -523,6 +546,7 @@ function VoiceCard({
                         {voice.lang_primary ? ` · ${voice.lang_primary}` : ""}
                         {voice.supports_instruction ? " · instr" : ""}
                     </p>
+                    {recommendationReasons?.length ? <p className="mt-1 text-[0.625rem] text-primary/80">{recommendationReasons.join(" · ")}</p> : null}
                 </div>
                 <button
                     onClick={(e) => { e.stopPropagation(); onPreview(); }}

@@ -50,6 +50,7 @@ export const GLOBAL_NAV_ITEMS: { id: GlobalTab; icon: typeof LayoutGrid; hash: s
 export const getUserMenuLayerClasses = () => "relative z-30";
 export const getUserMenuPopoverClasses = () =>
   "isolate rounded-xl border border-glass-border bg-elevated shadow-lg";
+export const getSidebarBrandImageStyle = () => ({ width: 24, height: "auto" as const });
 export const getLogoutButtonClasses = () =>
   "flex w-full items-center justify-start gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-status-failed-fg transition hover:bg-status-failed-bg hover:text-status-failed-fg";
 
@@ -143,7 +144,7 @@ export default function GlobalSidebar({ activeTab, onTabChange, context, taskBad
       <aside className={styles.rail} data-tauri-drag-region data-app-sidebar>
         {isTauri() && <div className="tauri-titlebar-inset" />}
         <button type="button" onClick={() => handleNav("workspace", "#/workspace")} aria-label={t("workspaceAria")} className={styles.brand}>
-          <Image src={brandMark} alt="" width={24} height={24} /><span>Omni Studio</span>
+          <Image src={brandMark} alt="" width={24} height={24} priority style={getSidebarBrandImageStyle()} /><span>Omni Studio</span>
         </button>
         <div className={styles.navigationBody}><nav className={styles.railNav} aria-label={t("mainNavAria")}>
           <WorkspaceNavigation active={activeTab === "workspace"} section={workspaceSection} />

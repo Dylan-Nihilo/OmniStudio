@@ -77,6 +77,17 @@ def test_failed_dispatch_can_retry_and_preserves_retry_lineage(adapter_and_repos
     assert attempts == 2
 
 
+def test_recover_replays_pending_item_left_behind_by_restart(adapter_and_repository):
+    adapter, repository, calls = adapter_and_repository
+    item = adapter.create("video", "workspace-1", None, None, {}, "video:pending-recovery:v1")
+
+    recovered = adapter.recover_inflight("workspace-1")
+
+    assert recovered == {"recovered": 1, "failed": 0, "skipped": 0}
+    assert repository.get_item(item.id).status == "succeeded"
+    assert [call["item_id"] for call in calls] == [item.id]
+
+
 def test_cancel_prevents_pending_dispatch_and_late_success(adapter_and_repository):
     adapter, repository, calls = adapter_and_repository
     pending = adapter.create("audio", "workspace-1", None, None, {}, "audio:cancel:v1")

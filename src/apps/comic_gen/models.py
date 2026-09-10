@@ -158,6 +158,7 @@ class ImageVariant(BaseModel):
     # NEW: 上传来源标记
     is_uploaded_source: bool = Field(False, description="Whether this is a user-uploaded source file")
     upload_type: Optional[str] = Field(None, description="Upload type if is_uploaded_source: full_body/head_shot/three_views/image")
+    candidate_type: Optional[Literal["simple", "detailed", "design_sheet"]] = Field(None, description="Typed character reference candidate")
 
 # Maximum variants to keep per asset (excluding favorited ones)
 MAX_VARIANTS_PER_ASSET = 10
@@ -412,6 +413,8 @@ class StoryboardFrame(BaseModel):
 
     # === Storyboard Schema v2: Rich frame fields ===
     duration: Optional[int] = Field(None, description="建议时长（秒）")
+    in_point: Optional[float] = Field(None, ge=0, description="Assembly trim in point in seconds")
+    out_point: Optional[float] = Field(None, gt=0, description="Assembly trim out point in seconds")
     visual_description: Optional[str] = Field(None, description="画面描述：环境氛围 + 角色表演 + 物理动作的综合自然语言描述")
     dialogue_structured: Optional[DialogueStructured] = Field(None, description="结构化对白（speaker + line + emotion + delivery）")
     camera_movement_structured: Optional[CameraMovementData] = Field(None, description="结构化运镜（primary + secondary + speed + description）")
@@ -510,6 +513,9 @@ class StoryboardFrame(BaseModel):
         None,
         description="Task ID of the chosen final take for this frame (singular). Set in Assembly stage; read by Storyboard.",
     )
+    # Sparse per-shot model overrides.  Effective values are resolved at
+    # generation time from global -> Project -> Episode -> Shot.
+    model_settings_overrides: Dict[str, Any] = Field(default_factory=dict)
 
 class CustomVoice(BaseModel):
     """PR-3h/i — User-created custom voice (clone or design).
@@ -602,6 +608,7 @@ class Script(BaseModel):
     storyboard_generation: Optional[StoryboardGeneration] = None
     storyboard_ready: bool = Field(False, description="Whether deterministic storyboard readiness checks pass")
     storyboard_readiness: Optional[Dict[str, Any]] = Field(None, description="Latest storyboard readiness report")
+    storyboard_continuity_ledger: Optional[Dict[str, Any]] = Field(None, description="Latest deterministic continuity ledger")
     
     # Global style settings (legacy, will be replaced by art_direction)
     style_preset: str = Field("realistic", description="Global style preset for all image generations")
@@ -609,9 +616,17 @@ class Script(BaseModel):
     
     # Art Direction configuration (new approach)
     art_direction: Optional[ArtDirection] = Field(None, description="Global visual style configuration")
+    visual_handbook_markdown: Optional[str] = Field(None, description="Markdown visual handbook source")
+    visual_handbook_templates: List[Dict[str, Any]] = Field(default_factory=list, description="Saved visual handbook templates")
     
     # Model Settings for each generation stage
     model_settings: ModelSettings = Field(default_factory=ModelSettings, description="Model selection for T2I/I2I/I2V")
+    # Sparse Episode overrides preserve inheritance instead of freezing a
+    # copied parent snapshot in every generated project.
+    model_settings_overrides: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sparse Episode overrides; None marks a legacy full snapshot",
+    )
 
     # Custom prompt configuration for polish stages
     prompt_config: PromptConfig = Field(default_factory=PromptConfig, description="Custom system prompts for polish stages")
@@ -631,6 +646,10 @@ class Script(BaseModel):
     merged_video_url: Optional[str] = Field(None, description="URL of the merged final video")
     merge_verification: Optional[Dict[str, Any]] = None
     merge_progress: Optional[Dict[str, Any]] = None
+    merge_failure: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Structured export failure context, including retained intermediate paths for retry diagnostics",
+    )
 
     # Final FFmpeg output settings.  ``None`` (or an omitted key) keeps the
     # merge pipeline's existing defaults.
@@ -702,12 +721,18 @@ class Series(BaseModel):
 
     # Unified visual style
     art_direction: Optional[ArtDirection] = Field(None, description="Series-level art direction")
+    visual_handbook_markdown: Optional[str] = Field(None, description="Markdown visual handbook source")
+    visual_handbook_templates: List[Dict[str, Any]] = Field(default_factory=list, description="Saved visual handbook templates")
 
     # Series-level prompt configuration
     prompt_config: PromptConfig = Field(default_factory=PromptConfig, description="Series-level custom prompts")
 
     # Model settings
     model_settings: ModelSettings = Field(default_factory=ModelSettings, description="Series-level model settings")
+    model_settings_overrides: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sparse Project overrides; None marks a legacy full snapshot",
+    )
 
     # Workflow mode for all episodes in this series
     workflow_mode: str = Field("i2v_legacy", description="Workflow mode: 'r2v' or 'i2v_legacy'")

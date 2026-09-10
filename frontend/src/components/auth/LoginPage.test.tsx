@@ -33,7 +33,11 @@ describe("LoginPage", () => {
     render(<LoginPage />);
 
     expect(screen.getByTestId("auth-surface")).toBeInTheDocument();
-    expect(screen.getByTestId("auth-brand").querySelector('img[alt="Omni Studio"]')).toBeInTheDocument();
+    const brandImage = screen.getByTestId("auth-brand").querySelector('img[alt="Omni Studio"]');
+    expect(brandImage).toBeInTheDocument();
+    expect(brandImage).toHaveAttribute("width", "30");
+    expect(brandImage).toHaveAttribute("height", "30");
+    expect(brandImage).toHaveStyle({ width: "30px", height: "auto" });
     expect(screen.getByTestId("auth-panel")).toBeInTheDocument();
   });
 

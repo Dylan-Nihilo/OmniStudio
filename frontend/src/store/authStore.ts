@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { apiClient, AUTH_API_URL, clearReturnHash, refreshCsrfToken } from "@/lib/apiClient";
+import {
+  clearWorkspaceNavigationContexts,
+  loadWorkspaceNavigationContext,
+  saveWorkspaceNavigationContext,
+} from "@/lib/workspaceNavigationContext";
 
 export interface AuthUser {
   id: string;
@@ -102,6 +107,54 @@ const authenticatedStatus = (current: SetupStatus | null): SetupStatus => ({
 });
 
 export const ACTIVE_WORKSPACE_KEY = "omni_studio.activeWorkspaceId";
+
+const PRIVATE_LOCAL_STORAGE_KEYS = [
+  ACTIVE_WORKSPACE_KEY,
+  "omni_studio-auth",
+  "omni_studio.script-editor.last-project",
+  "omni_studio_default_model_settings",
+  "omni_studio_default_prompt_config",
+  "omni_studio:playground:featured",
+  "omni_studio:playground:concurrency",
+];
+const PRIVATE_LOCAL_STORAGE_PREFIXES = [
+  "project-storage:",
+  "omni_studio.script-editor.dismissed-cache:",
+];
+const PRIVATE_SESSION_STORAGE_KEYS = [
+  "omni_studio.clientInstanceId",
+  "omni_studio.auth.returnTo",
+  "omni-studio.shot-drafts.v1",
+  "omni_studio:chunk-recovery",
+];
+
+/** Remove browser-persisted private state before the next identity can boot. */
+const clearPrivateClientStorage = (): void => {
+  if (typeof window === "undefined") return;
+  try {
+    for (const key of PRIVATE_LOCAL_STORAGE_KEYS) window.localStorage.removeItem(key);
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index);
+      if (key && PRIVATE_LOCAL_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Storage may be unavailable in hardened webviews; the server session is
+    // still revoked and in-memory state is cleared below.
+  }
+  clearWorkspaceNavigationContexts();
+  try {
+    for (const key of PRIVATE_SESSION_STORAGE_KEYS) window.sessionStorage.removeItem(key);
+  } catch {
+    // Ignore restricted sessionStorage just like localStorage.
+  }
+  try {
+    if (typeof indexedDB !== "undefined") indexedDB.deleteDatabase("scriptEditorCache");
+  } catch {
+    // IndexedDB is optional; offline cache failures must not block logout.
+  }
+};
 
 const rememberActiveWorkspace = (workspace: WorkspaceSummary | null): void => {
   if (typeof window === "undefined") return;
@@ -306,11 +359,17 @@ export const useAuthStore = create<AuthStore>()(
       setActiveWorkspace: async (workspaceId) => {
         const workspace = get().workspaces.find((item) => item.id === workspaceId);
         if (!workspace || workspace.id === get().activeWorkspace?.id) return;
+        const currentWorkspace = get().activeWorkspace;
+        const userId = get().user?.id;
+        if (typeof window !== "undefined" && userId && currentWorkspace) {
+          saveWorkspaceNavigationContext(userId, currentWorkspace.id, window.location.hash || "#/");
+        }
         rememberActiveWorkspace(workspace);
         set({ activeWorkspace: workspace });
         await rehydrateProjectWorkspace();
-        window.location.hash = "#/";
-        window.dispatchEvent(new Event("hashchange"));
+        const targetHash = loadWorkspaceNavigationContext(userId, workspace.id) || "#/";
+        if (window.location.hash === targetHash) window.dispatchEvent(new Event("hashchange"));
+        else window.location.hash = targetHash;
       },
 
       createWorkspace: async (name) => {
@@ -346,16 +405,8 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       clearSession: () => {
+        clearPrivateClientStorage();
         rememberActiveWorkspace(null);
-        if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem("omni_studio.clientInstanceId");
-          // Project state is scoped by user and Workspace; remove all local
-          // snapshots on logout so stale private data cannot be rehydrated.
-          for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-            const key = window.localStorage.key(index);
-            if (key?.startsWith("project-storage:")) window.localStorage.removeItem(key);
-          }
-        }
         set({
           user: null,
           activeWorkspace: null,

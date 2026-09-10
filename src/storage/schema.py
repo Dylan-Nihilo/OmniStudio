@@ -694,6 +694,34 @@ class SourceEpisodeLink(Base):
     )
 
 
+class SourceChapterEpisodeLink(Base):
+    """Many-to-many relationship between source chapters and episodes."""
+
+    __tablename__ = "source_chapter_episode_links"
+
+    chapter_id: Mapped[str] = mapped_column(
+        KEY,
+        ForeignKey("source_chapters.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    episode_id: Mapped[str] = mapped_column(
+        KEY,
+        ForeignKey("episodes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        KEY,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        Index("ix_source_chapter_episode_links_episode", "episode_id", "created_at"),
+        Index("ix_source_chapter_episode_links_chapter", "chapter_id", "created_at"),
+    )
+
+
 class SourceImportPreview(Base):
     """Durable workspace-scoped draft for the Source import preview flow."""
 
@@ -1165,6 +1193,7 @@ __all__ = [
     "SourceRevisionImpact",
     "SourceImpactTarget",
     "SourceEpisodeLink",
+    "SourceChapterEpisodeLink",
     "SourceImportPreview",
     "SourceEpisodeSplitPreview",
     "SourceChapterAnalysis",

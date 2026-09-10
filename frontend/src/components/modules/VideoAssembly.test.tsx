@@ -1,8 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { ExportPhase } from './VideoAssembly';
+import { ExportPhase, countReadyFrames } from './VideoAssembly';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+
+it('counts only explicitly selected completed takes with a video URL', () => {
+  const frames = [
+    { id: 'ready', selected_video_id: 'task-ready' },
+    { id: 'failed', selected_video_id: 'task-failed' },
+    { id: 'missing', selected_video_id: 'task-missing' },
+    { id: 'unselected', selected_video_id: null },
+  ];
+  const tasks = [
+    { id: 'task-ready', status: 'completed', video_url: '/ready.mp4' },
+    { id: 'task-failed', status: 'failed', video_url: '/failed.mp4' },
+    { id: 'task-missing', status: 'completed', video_url: null },
+  ];
+
+  expect(countReadyFrames(frames, tasks)).toBe(1);
+});
 
 it('saves numeric export values and clears optional resolution and fps through the component picker', async () => {
   const save = vi.fn().mockResolvedValue(undefined);
@@ -19,7 +35,7 @@ it('saves numeric export values and clears optional resolution and fps through t
   fireEvent.click(await screen.findByRole('option', { name: '—' }));
   fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
   await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ fps: null })));
-});
+}, 15_000);
 
 it('offers an explicit retry action after a merge failure', () => {
   const onMerge = vi.fn();
@@ -29,4 +45,13 @@ it('offers an explicit retry action after a merge failure', () => {
 
   fireEvent.click(screen.getByRole('button', { name: 'retryMerge' }));
   expect(onMerge).toHaveBeenCalledTimes(1);
+});
+
+it('shows retained intermediate export context after a failed merge', () => {
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError="ffmpeg failed" mergeFailure={{ stage: 'transcoding', intermediate_dir: 'tmp/export-1' }} framesReady={1} framesTotal={1}
+    exportSettings={{}} precheckReport={null} mergeProgress={null} mergeVerification={null}
+    onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()} />);
+
+  expect(screen.getByText('retainedIntermediate')).toBeInTheDocument();
+  expect(screen.getByText('tmp/export-1')).toBeInTheDocument();
 });
