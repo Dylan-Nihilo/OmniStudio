@@ -93,8 +93,12 @@ class JobRepository:
         JobStatus.SKIPPED.value,
     }
 
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, *, billing_hook: Any | None = None) -> None:
         self.engine = engine
+        # Optional collaborator (src.billing.metering.JobBillingHook): freezes credits on
+        # create_item and settles/releases them on terminal transitions, inside the same
+        # transaction as the job item write.
+        self.billing_hook = billing_hook
 
     def create_job(
         self,
@@ -159,6 +163,11 @@ class JobRepository:
             ).mappings().first()
             if existing is not None:
                 return self._item_record(existing, idempotent=True)
+            stored_payload = dict(payload or {})
+            if self.billing_hook is not None:
+                stored_payload = self.billing_hook.before_create(
+                    connection, workspace_id=job["workspace_id"], item_id=item_id, kind=kind, payload=stored_payload,
+                )
             connection.execute(
                 JobItem.__table__.insert().values(
                     id=item_id,
@@ -171,7 +180,7 @@ class JobRepository:
                     progress=0.0,
                     idempotency_key=idempotency_key,
                     retry_of=retry_of,
-                    payload_json=json.dumps(payload or {}, ensure_ascii=False),
+                    payload_json=json.dumps(stored_payload, ensure_ascii=False),
                     media_refs_json="[]",
                     created_at=now,
                     updated_at=now,
@@ -201,6 +210,18 @@ class JobRepository:
                 return self._item_record(existing, idempotent=True)
             now = time.time()
             item_id = str(uuid.uuid4())
+            retry_payload = json.loads(source["payload_json"] or "{}")
+            if self.billing_hook is not None:
+                # A retry is a new paid attempt: drop the old hold record and quote afresh.
+                billing_spec = retry_payload.get("billing")
+                if isinstance(billing_spec, dict):
+                    retry_payload["billing"] = {
+                        key: billing_spec[key] for key in ("model_id", "stage", "params", "quantity") if key in billing_spec
+                    }
+                retry_payload = self.billing_hook.before_create(
+                    connection, workspace_id=source["workspace_id"], item_id=item_id, kind=source["kind"],
+                    payload=retry_payload,
+                )
             connection.execute(
                 JobItem.__table__.insert().values(
                     id=item_id,
@@ -213,7 +234,7 @@ class JobRepository:
                     progress=0.0,
                     idempotency_key=idempotency_key,
                     retry_of=failed_item_id,
-                    payload_json=source["payload_json"],
+                    payload_json=json.dumps(retry_payload, ensure_ascii=False),
                     media_refs_json="[]",
                     created_at=now,
                     updated_at=now,
@@ -453,6 +474,11 @@ class JobRepository:
                 .where(Job.__table__.c.id == row["job_id"])
                 .values(updated_at=now)
             )
+            if self.billing_hook is not None and target_status in self._TERMINAL:
+                self.billing_hook.on_terminal(
+                    connection, item_id=item_id, status=target_status,
+                    payload=json.loads(row["payload_json"] or "{}"), media_refs=refs,
+                )
             updated = connection.execute(
                 select(JobItem.__table__).where(JobItem.__table__.c.id == item_id)
             ).mappings().one()

@@ -122,14 +122,20 @@ class WalletService:
                 return posted
 
     # ---- job lifecycle --------------------------------------------------
-    def hold(self, wallet_id: str, job_item_id: str, quote: Quote, *, actor_user_id: str | None = None) -> bool:
+    # The *_in variants run on a caller-owned connection so the job item write and the
+    # ledger write commit (or roll back) together.
+    def hold_in(self, connection: Connection, wallet_id: str, job_item_id: str, quote: Quote, *,
+                actor_user_id: str | None = None) -> bool:
         if quote.credits <= 0:
             return False
+        return self._post(connection, wallet_id, "hold", -quote.credits, f"{job_item_id}:hold",
+                          d_balance=0, d_frozen=quote.credits, job_item_id=job_item_id,
+                          actor_user_id=actor_user_id, quote=quote)
+
+    def hold(self, wallet_id: str, job_item_id: str, quote: Quote, *, actor_user_id: str | None = None) -> bool:
         with self.engine.connect() as connection:
             with begin_immediate(connection):
-                return self._post(connection, wallet_id, "hold", -quote.credits, f"{job_item_id}:hold",
-                                  d_balance=0, d_frozen=quote.credits, job_item_id=job_item_id,
-                                  actor_user_id=actor_user_id, quote=quote)
+                return self.hold_in(connection, wallet_id, job_item_id, quote, actor_user_id=actor_user_id)
 
     def _held_amount(self, connection: Connection, job_item_id: str) -> tuple[str, int] | None:
         ledger = CreditLedger.__table__
@@ -138,27 +144,53 @@ class WalletService:
         ).first()
         return (row.wallet_id, -row.amount) if row else None
 
-    def settle(self, job_item_id: str, actual: Quote | None = None) -> bool:
+    def settle_in(self, connection: Connection, job_item_id: str, actual: Quote | None = None) -> bool:
         """Charge the actual quote (capped at the held amount) and release the rest. No hold -> no-op."""
+        held = self._held_amount(connection, job_item_id)
+        if held is None:
+            return False
+        wallet_id, frozen = held
+        charge = min(actual.credits, frozen) if actual is not None else frozen
+        return self._post(connection, wallet_id, "settle", -charge, f"{job_item_id}:settle",
+                          d_balance=-charge, d_frozen=-frozen, job_item_id=job_item_id, quote=actual)
+
+    def settle(self, job_item_id: str, actual: Quote | None = None) -> bool:
         with self.engine.connect() as connection:
             with begin_immediate(connection):
-                held = self._held_amount(connection, job_item_id)
-                if held is None:
-                    return False
-                wallet_id, frozen = held
-                charge = min(actual.credits, frozen) if actual is not None else frozen
-                return self._post(connection, wallet_id, "settle", -charge, f"{job_item_id}:settle",
-                                  d_balance=-charge, d_frozen=-frozen, job_item_id=job_item_id, quote=actual)
+                return self.settle_in(connection, job_item_id, actual)
+
+    def release_in(self, connection: Connection, job_item_id: str, *, reason: str = "failed") -> bool:
+        held = self._held_amount(connection, job_item_id)
+        if held is None:
+            return False
+        wallet_id, frozen = held
+        return self._post(connection, wallet_id, "release", frozen, f"{job_item_id}:release",
+                          d_balance=0, d_frozen=-frozen, job_item_id=job_item_id, reason=reason)
 
     def release(self, job_item_id: str, *, reason: str = "failed") -> bool:
         with self.engine.connect() as connection:
             with begin_immediate(connection):
-                held = self._held_amount(connection, job_item_id)
-                if held is None:
-                    return False
-                wallet_id, frozen = held
-                return self._post(connection, wallet_id, "release", frozen, f"{job_item_id}:release",
-                                  d_balance=0, d_frozen=-frozen, job_item_id=job_item_id, reason=reason)
+                return self.release_in(connection, job_item_id, reason=reason)
+
+    def debit(self, wallet_id: str, quote: Quote, idempotency_key: str, *, cap_to_available: bool = True,
+              reason: str = "") -> int:
+        """Immediate charge for post-paid usage (LLM tokens). Returns the credits actually charged."""
+        if quote.credits <= 0:
+            return 0
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                charge = quote.credits
+                if cap_to_available:
+                    wallets = Wallet.__table__
+                    row = connection.execute(select(wallets.c.balance, wallets.c.frozen).where(wallets.c.id == wallet_id)).first()
+                    if row is None:
+                        raise BillingError("WALLET_NOT_FOUND", wallet_id, status_code=404)
+                    charge = max(0, min(charge, row.balance - row.frozen))
+                if charge == 0:
+                    return 0
+                posted = self._post(connection, wallet_id, "settle", -charge, idempotency_key,
+                                    d_balance=-charge, d_frozen=0, reason=reason, quote=quote)
+                return charge if posted else 0
 
 
 __all__ = ["WalletService", "CREDIT_TYPES"]
