@@ -125,7 +125,7 @@ describe("ArtDirection shared asset refresh", () => {
         render(<ArtDirection />);
 
         const editor = await screen.findByRole("textbox", { name: "visualHandbook" });
-        expect(editor).toHaveValue("# Existing handbook");
+        await waitFor(() => expect(editor).toHaveValue("# Existing handbook"));
 
         fireEvent.click(screen.getByRole("button", { name: "Noir" }));
         expect(editor).toHaveValue("# Noir handbook");

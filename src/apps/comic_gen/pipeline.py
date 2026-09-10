@@ -499,7 +499,15 @@ class ComicGenPipeline:
             init_schema(self.storage_engine)
 
             legacy_projects_path = self.data_file
-            if (
+            if self.storage_engine.dialect.name != "sqlite" and legacy_projects_path and os.path.isfile(legacy_projects_path):
+                # The JSON importer reconciles against the SQLite file; on MySQL that file is
+                # not the live store, so legacy data must be imported before switching.
+                logger.warning(
+                    "Legacy JSON import skipped: storage dialect %s is not SQLite (found %s)",
+                    self.storage_engine.dialect.name,
+                    legacy_projects_path,
+                )
+            elif (
                 storage_config.get("auto_migrate", True)
                 and legacy_projects_path
                 and os.path.isfile(legacy_projects_path)

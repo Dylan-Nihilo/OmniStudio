@@ -1187,7 +1187,7 @@ class SourceRepository:
                             created_by_user_id=row["created_by_user_id"],
                             created_at=timestamp,
                         )
-                        .prefix_with("OR IGNORE")
+                        .prefix_with("OR IGNORE", dialect="sqlite").prefix_with("IGNORE", dialect="mysql")
                     )
                 connection.execute(
                     update(SourceEpisodeSplitPreview)
@@ -1954,7 +1954,7 @@ class SourceRepository:
                         created_by_user_id=user_id,
                         created_at=timestamp,
                     )
-                    .prefix_with("OR IGNORE")
+                    .prefix_with("OR IGNORE", dialect="sqlite").prefix_with("IGNORE", dialect="mysql")
                 )
                 connection.execute(
                     update(SourceDocument).where(SourceDocument.id == source_id).values(updated_at=timestamp)

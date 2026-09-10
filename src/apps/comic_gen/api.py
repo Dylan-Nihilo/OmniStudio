@@ -1245,12 +1245,24 @@ def health_check():
         # user log directory (common in packaged or restricted environments).
         log_dir = os.path.join("output", "logs")
     log_file = os.path.join(log_dir, "app.log")
+    storage = {"dialect": None, "ok": None}
+    engine = getattr(pipeline, "storage_engine", None)
+    if engine is not None:
+        storage["dialect"] = engine.dialect.name
+        try:
+            with engine.connect() as connection:
+                connection.exec_driver_sql("SELECT 1")
+            storage["ok"] = True
+        except Exception as exc:  # noqa: BLE001 - liveness must report, not raise
+            storage["ok"] = False
+            storage["error"] = exc.__class__.__name__
     return {
         "ok": True,
         "time": time.time(),
         "log_file": log_file,
         "log_dir": log_dir,
         "studio_projects": len(getattr(pipeline, "scripts", {})),
+        "storage": storage,
     }
 
 

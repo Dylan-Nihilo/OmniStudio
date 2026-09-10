@@ -474,7 +474,7 @@ class AuthRepository:
                 if invitation["email_normalized"] != email_normalized:
                     raise ValueError("AUTH_INVITATION_EMAIL_MISMATCH")
                 connection.execute(
-                    WorkspaceMembership.__table__.insert().prefix_with("OR IGNORE").values(
+                    WorkspaceMembership.__table__.insert().prefix_with("OR IGNORE", dialect="sqlite").prefix_with("IGNORE", dialect="mysql").values(
                         workspace_id=invitation["workspace_id"],
                         user_id=user_id,
                         role="member",
