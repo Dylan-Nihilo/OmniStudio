@@ -37,12 +37,13 @@ def _invite_member(client, workspace_id: str, username: str) -> None:
     assert registered.status_code == 201, registered.text
 
 
-def test_setup_user_becomes_root_and_admin_routes_are_guarded(tmp_path: Path):
+def test_setup_user_becomes_root_and_admin_routes_are_guarded(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "1")
     app, engine, service = _make_app(tmp_path)
     with make_client(app, local=True) as client:
         _setup_owner(client)
         me = client.get("/billing/wallet").json()
-        assert me["role"] == "root" and me["available"] == 0
+        assert me["role"] == "root" and me["available"] == 0 and me["enabled"] is True
 
         rule = client.get("/admin/pricing/rule").json()
         assert rule["credits_per_yuan"] == 44.0
@@ -112,3 +113,16 @@ def test_publish_blocks_below_target_and_reports_error_envelope(tmp_path: Path):
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "PRICING_MARGIN_BELOW_TARGET"
         assert client.post("/admin/pricing/preview", json={"purchase_price_cny": -1}).status_code == 422
+
+
+def test_wallet_hides_itself_while_billing_is_switched_off(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("OMNI_STUDIO_BILLING_ENABLED", raising=False)
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        me = _setup_owner(client) and client.get("/billing/wallet").json()
+        # root still gets a wallet and its role: that is how prices get configured before go-live
+        assert me["enabled"] is False and me["role"] == "root" and me["available"] == 0
+
+        _invite_member(client, me["workspace_id"], "member")
+        member = client.get("/billing/wallet").json()
+        assert member == {"enabled": False, "role": None}

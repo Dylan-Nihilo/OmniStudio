@@ -48,7 +48,7 @@ describe("creditsFor", () => {
 describe("billing store", () => {
     it("turns billing on once the wallet responds", async () => {
         vi.mocked(billingApi.wallet).mockResolvedValue({
-            wallet_id: "w1", workspace_id: "ws1", balance: 1000, frozen: 200, available: 800, role: "root",
+            enabled: true, wallet_id: "w1", workspace_id: "ws1", balance: 1000, frozen: 200, available: 800, role: "root",
         });
         await useBillingStore.getState().refresh();
         expect(useBillingStore.getState().enabled).toBe(true);
@@ -63,6 +63,22 @@ describe("billing store", () => {
         expect(useBillingStore.getState().wallet).toBeNull();
     });
 
+    it("hides the UI when the backend reports billing is switched off", async () => {
+        vi.mocked(billingApi.wallet).mockResolvedValue({ enabled: false, role: null });
+        await useBillingStore.getState().refresh();
+        expect(useBillingStore.getState().enabled).toBe(false);
+        expect(useBillingStore.getState().isLow()).toBe(false);
+    });
+
+    it("still hands root its role while billing is off, so prices can be set up first", async () => {
+        vi.mocked(billingApi.wallet).mockResolvedValue({
+            enabled: false, wallet_id: "w1", workspace_id: "ws1", balance: 0, frozen: 0, available: 0, role: "root",
+        });
+        await useBillingStore.getState().refresh();
+        expect(useBillingStore.getState().enabled).toBe(false);
+        expect(useBillingStore.getState().role()).toBe("root");
+    });
+
     it("keeps the previous verdict while the user is signed out", async () => {
         useBillingStore.setState({ enabled: true });
         vi.mocked(billingApi.wallet).mockRejectedValue({ response: { status: 401 } });
@@ -72,7 +88,7 @@ describe("billing store", () => {
 
     it("flags a low balance against the threshold", async () => {
         vi.mocked(billingApi.wallet).mockResolvedValue({
-            wallet_id: "w1", workspace_id: "ws1", balance: 300, frozen: 0, available: 300, role: null,
+            enabled: true, wallet_id: "w1", workspace_id: "ws1", balance: 300, frozen: 0, available: 300, role: null,
         });
         await useBillingStore.getState().refresh();
         expect(useBillingStore.getState().isLow()).toBe(true);

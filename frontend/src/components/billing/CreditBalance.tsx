@@ -25,7 +25,7 @@ export default function CreditBalance({ onOpenLedger }: { onOpenLedger?: () => v
         return () => clearInterval(timer);
     }, [refresh]);
 
-    if (!enabled || !wallet) return null;
+    if (!enabled || wallet?.available === undefined) return null;
 
     const low = isLow();
     return (
@@ -33,12 +33,12 @@ export default function CreditBalance({ onOpenLedger }: { onOpenLedger?: () => v
             type="button"
             onClick={onOpenLedger}
             className={clsx(styles.badge, low && styles.low)}
-            title={t("frozenHint", { frozen: wallet.frozen })}
+            title={t("frozenHint", { frozen: wallet.frozen ?? 0 })}
             aria-label={t("balanceAria", { available: wallet.available })}
         >
             <Coins size={16} strokeWidth={1.8} aria-hidden="true" />
             <span className={styles.amount}>{wallet.available.toLocaleString()}</span>
-            {wallet.frozen > 0 && <span className={styles.frozen}>+{wallet.frozen.toLocaleString()}</span>}
+            {(wallet.frozen ?? 0) > 0 && <span className={styles.frozen}>+{wallet.frozen!.toLocaleString()}</span>}
         </button>
     );
 }

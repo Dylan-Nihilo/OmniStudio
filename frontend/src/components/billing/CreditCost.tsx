@@ -54,7 +54,7 @@ export default function CreditCost({ modelId, params = {}, quantity = 1, exact =
         return <span className={clsx(styles.cost, styles.unpriced)}>{t("unpriced")}</span>;
     }
 
-    const insufficient = wallet !== null && wallet.available < credits;
+    const insufficient = wallet?.available !== undefined && wallet.available < credits;
     return (
         <span className={clsx(styles.cost, insufficient && styles.insufficient)}
               title={insufficient ? t("insufficientHint", { available: wallet?.available ?? 0 }) : undefined}>

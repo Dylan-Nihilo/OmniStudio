@@ -37,8 +37,8 @@ export default function CreditLedgerDialog({ isOpen, onClose }: { isOpen: boolea
             footer={<Button variant="quiet" onPress={onClose}>{t("close")}</Button>}
         >
             <div className={styles.summary}>
-                <span><strong>{wallet?.available.toLocaleString() ?? "-"}</strong>{t("available")}</span>
-                <span><strong>{wallet?.frozen.toLocaleString() ?? "-"}</strong>{t("frozen")}</span>
+                <span><strong>{wallet?.available?.toLocaleString() ?? "-"}</strong>{t("available")}</span>
+                <span><strong>{wallet?.frozen?.toLocaleString() ?? "-"}</strong>{t("frozen")}</span>
             </div>
             {loading && <p className={styles.hint}>{t("loading")}</p>}
             {!loading && entries.length === 0 && <p className={styles.hint}>{t("ledgerEmpty")}</p>}

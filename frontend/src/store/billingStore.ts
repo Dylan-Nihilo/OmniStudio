@@ -33,7 +33,9 @@ export const useBillingStore = create<BillingState>((set, get) => ({
         set({ loading: true });
         try {
             const wallet = await billingApi.wallet();
-            set({ wallet, enabled: true, loading: false });
+            // Root/admin get a wallet even while billing is off so they can set prices up first;
+            // the badge only appears once the deployment actually bills.
+            set({ wallet, enabled: wallet.enabled, loading: false });
         } catch (error) {
             const status = (error as { response?: { status?: number } })?.response?.status;
             // 401 just means "not signed in yet"; keep the previous verdict and retry later.
@@ -53,7 +55,7 @@ export const useBillingStore = create<BillingState>((set, get) => ({
 
     isLow: () => {
         const { wallet, lowBalanceThreshold } = get();
-        return wallet !== null && wallet.available < lowBalanceThreshold;
+        return wallet?.available !== undefined && wallet.available < lowBalanceThreshold;
     },
 }));
 

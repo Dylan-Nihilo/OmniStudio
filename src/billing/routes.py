@@ -14,6 +14,7 @@ from ..apps.comic_gen.auth.dependencies import get_current_user
 from ..apps.comic_gen.auth.service import AuthContext
 from . import BillingServices
 from .errors import BillingError
+from .metering import billing_enabled
 
 
 def get_billing(request: Request) -> BillingServices:
@@ -64,9 +65,18 @@ class QuoteRequest(BaseModel):
 
 @router.get("/wallet")
 def wallet(context: CurrentUser, billing: Billing) -> dict[str, Any]:
+    """Balance plus whether this deployment bills at all, so the UI can hide itself.
+
+    Admins still get their role while billing is off: that is how root reaches the console
+    to set prices up before switching OMNI_STUDIO_BILLING_ENABLED on.
+    """
+    role = billing.roles.role_of(context.user.id)
+    enabled = billing_enabled()
+    if not enabled and role not in ("root", "admin"):
+        return {"enabled": False, "role": None}
     w = billing.wallets.for_workspace(context.workspace.id)
-    return {"wallet_id": w["id"], "workspace_id": context.workspace.id, **billing.wallets.balance(w["id"]),
-            "role": billing.roles.role_of(context.user.id)}
+    return {"enabled": enabled, "wallet_id": w["id"], "workspace_id": context.workspace.id,
+            **billing.wallets.balance(w["id"]), "role": role}
 
 
 @router.get("/ledger")

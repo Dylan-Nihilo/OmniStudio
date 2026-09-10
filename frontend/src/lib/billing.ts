@@ -3,11 +3,13 @@ import { apiClient, API_URL } from "@/lib/apiClient";
 export type PlatformRole = "root" | "admin" | "reseller_admin" | null;
 
 export interface WalletSummary {
-    wallet_id: string;
-    workspace_id: string;
-    balance: number;
-    frozen: number;
-    available: number;
+    /** False on deployments that do not bill; the credit UI stays hidden. */
+    enabled: boolean;
+    wallet_id?: string;
+    workspace_id?: string;
+    balance?: number;
+    frozen?: number;
+    available?: number;
     role: PlatformRole;
 }
 
