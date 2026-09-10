@@ -94,6 +94,9 @@ from .collaboration_context import (
 )
 from .audit import record_request_event
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
+from ...billing import BillingServices
+from ...billing.errors import BillingError
+from ...billing.routes import admin_router as billing_admin_router, billing_exception_handler, router as billing_router
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
 from ...storage.job_repository import JobRepository
@@ -280,6 +283,7 @@ _CORS_ALLOW_HEADERS = [
 ]
 
 app.add_exception_handler(AuthError, auth_exception_handler)
+app.add_exception_handler(BillingError, billing_exception_handler)
 
 
 @app.exception_handler(SourceRepositoryError)
@@ -309,6 +313,7 @@ app.state.legacy_claim_service = LegacyClaimService(
     series_path=pipeline.series_data_file,
 )
 app.state.source_repository = SourceRepository(pipeline.storage_engine)
+app.state.billing = BillingServices.build(pipeline.storage_engine)
 app.state.director_plan_store = DirectorPlanStore(pipeline.storage_engine)
 app.state.director_plan_previews = {}
 
@@ -482,6 +487,8 @@ def recover_production_jobs() -> None:
         logger.exception("production JobItem recovery failed")
 app.include_router(auth_router)
 app.include_router(source_router)
+app.include_router(billing_router)
+app.include_router(billing_admin_router)
 
 
 def _iter_media_strings(value, field: str = ""):
