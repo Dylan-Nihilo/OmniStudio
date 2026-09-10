@@ -1172,6 +1172,147 @@ Index("ix_series_updated", Series.__table__.c.updated_at.desc())
 Index("ix_episodes_updated", Episode.__table__.c.updated_at.desc())
 
 
+# ---------------------------------------------------------------------------
+# Billing: platform roles, adjustable credit ratio, published price books,
+# wallets and the append-only credit ledger (W4).
+# ---------------------------------------------------------------------------
+
+
+class PlatformRole(Base):
+    """Platform-wide role, orthogonal to workspace membership roles."""
+
+    __tablename__ = "platform_roles"
+
+    user_id: Mapped[str] = mapped_column(KEY, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(LABEL, nullable=False)
+    granted_by_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    granted_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("role IN ('root', 'admin', 'reseller_admin')", name="ck_platform_roles_role"),
+    )
+
+
+class PricingSettings(Base):
+    """Single-row draft of the three credit-ratio parameters (id is always 'current')."""
+
+    __tablename__ = "pricing_settings"
+
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
+    credit_face_value_cny: Mapped[float] = mapped_column(REAL, nullable=False)
+    l1_discount: Mapped[float] = mapped_column(REAL, nullable=False)
+    target_markup: Mapped[float] = mapped_column(REAL, nullable=False)
+    rounding_step: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    min_credits: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    updated_by_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("credit_face_value_cny > 0", name="ck_pricing_settings_face_value"),
+        CheckConstraint("l1_discount > 0 AND l1_discount <= 1", name="ck_pricing_settings_l1_discount"),
+        CheckConstraint("target_markup >= 0", name="ck_pricing_settings_markup"),
+    )
+
+
+class PricingItem(Base):
+    """Draft price line: model canonical id + spec match -> purchase price. Credits are derived at publish time."""
+
+    __tablename__ = "pricing_items"
+
+    item_id: Mapped[str] = mapped_column(NAME, primary_key=True)
+    model_id: Mapped[str] = mapped_column(NAME, nullable=False)
+    stage: Mapped[str] = mapped_column(LABEL, nullable=False)
+    billing_unit: Mapped[str] = mapped_column(LABEL, nullable=False)
+    match_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
+    purchase_price_cny: Mapped[float] = mapped_column(REAL, nullable=False)
+    multiplier: Mapped[float] = mapped_column(REAL, nullable=False, server_default="1")
+    credits_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    updated_by_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("stage IN ('text', 'image', 'video', 'tts')", name="ck_pricing_items_stage"),
+        CheckConstraint("purchase_price_cny >= 0", name="ck_pricing_items_price"),
+        CheckConstraint("multiplier > 0", name="ck_pricing_items_multiplier"),
+        CheckConstraint("json_valid(match_json)", name="ck_pricing_items_match_json"),
+        Index("ix_pricing_items_model", "model_id"),
+    )
+
+
+class PriceBookVersion(Base):
+    """Immutable published snapshot of the rule and every price line with its computed credits."""
+
+    __tablename__ = "price_book_versions"
+
+    version: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rule_json: Mapped[str] = mapped_column(BIG, nullable=False)
+    items_json: Mapped[str] = mapped_column(BIG, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    published_by_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    published_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    effective_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(rule_json)", name="ck_price_book_versions_rule_json"),
+        CheckConstraint("json_valid(items_json)", name="ck_price_book_versions_items_json"),
+        Index("ix_price_book_versions_effective", "effective_at"),
+    )
+
+
+class Wallet(Base):
+    """One wallet per workspace (or per reseller pool). ``balance`` includes ``frozen``."""
+
+    __tablename__ = "wallets"
+
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
+    owner_type: Mapped[str] = mapped_column(LABEL, nullable=False)
+    owner_id: Mapped[str] = mapped_column(KEY, nullable=False)
+    balance: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    frozen: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("owner_type", "owner_id", name="uq_wallets_owner"),
+        CheckConstraint("owner_type IN ('workspace', 'reseller')", name="ck_wallets_owner_type"),
+        CheckConstraint("balance >= 0 AND frozen >= 0 AND frozen <= balance", name="ck_wallets_balances"),
+    )
+
+
+class CreditLedger(Base):
+    """Append-only credit movements. ``hold`` freezes, ``settle``/``release`` resolve the hold."""
+
+    __tablename__ = "credit_ledger"
+
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
+    wallet_id: Mapped[str] = mapped_column(KEY, ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False)
+    type: Mapped[str] = mapped_column(LABEL, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    frozen_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    job_item_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(NAME, nullable=False)
+    price_book_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    item_id: Mapped[str | None] = mapped_column(NAME, nullable=True)
+    unit_credits: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quantity: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    actor_user_id: Mapped[str | None] = mapped_column(KEY, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_credit_ledger_idempotency"),
+        CheckConstraint(
+            "type IN ('purchase', 'grant', 'adjust', 'transfer_in', 'transfer_out', 'hold', 'settle', 'release', 'expire')",
+            name="ck_credit_ledger_type",
+        ),
+        Index("ix_credit_ledger_wallet_created", "wallet_id", "created_at"),
+        Index("ix_credit_ledger_job_item", "job_item_id"),
+    )
+
+
 __all__ = [
     "Base",
     "SchemaMigration",
@@ -1204,4 +1345,10 @@ __all__ = [
     "Job",
     "JobItem",
     "JobItemEvent",
+    "PlatformRole",
+    "PricingSettings",
+    "PricingItem",
+    "PriceBookVersion",
+    "Wallet",
+    "CreditLedger",
 ]

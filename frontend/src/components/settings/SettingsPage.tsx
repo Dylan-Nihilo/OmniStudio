@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
+import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
+import { useBillingStore } from "@/store/billingStore";
 import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
@@ -21,7 +23,7 @@ import { Button, IconButton, LoadingState, SelectField, Tabs, TextAreaField, Tex
 import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import UpdateChecker from "./UpdateChecker";
 import styles from "./SettingsPage.module.css";
-type SettingsCategory = "general" | "models" | "prompts" | "apikeys" | "storage" | "about";
+type SettingsCategory = "general" | "models" | "prompts" | "apikeys" | "storage" | "billing" | "about";
 import { SectionCard as Section, FormRow, KeyField, Toggle } from "./SettingsControls";
 
 const APP_VERSION = "v0.2.0";
@@ -194,6 +196,7 @@ export default function SettingsPage(props: SettingsPageProps = {}) {
 
 function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
+  const billingRole = useBillingStore((state) => state.wallet?.role ?? null);
   const { locale, theme, animations, setLocale, setTheme, setAnimations } = useSettingsStore();
 
   const [active, setActive] = useState<SettingsCategory>(initialCategory);
@@ -701,10 +704,12 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const tabs: { id: SettingsCategory; label: string }[] = [
     {id:"general", label:t("tabGeneral")}, {id:"models", label:t("tabModels")}, {id:"prompts", label:t("tabPrompts")},
-    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")}, {id:"about", label:t("tabAbout")},
+    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")},
+    ...(billingRole === "root" || billingRole === "admin" ? [{id:"billing" as SettingsCategory, label:t("tabBilling")}] : []),
+    {id:"about", label:t("tabAbout")},
   ];
-  const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), about:t("eyebrowAbout")};
-  const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, about:renderAbout};
+  const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), billing:t("eyebrowBilling"), about:t("eyebrowAbout")};
+  const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, billing:() => <BillingAdminPanel />, about:renderAbout};
   const saveAction = active === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
   const remoteConfig = active === "apikeys" || active === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };

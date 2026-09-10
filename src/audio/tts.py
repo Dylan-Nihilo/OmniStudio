@@ -7,6 +7,7 @@ See: https://help.aliyun.com/zh/model-studio/cosyvoice-python-sdk
 """
 import os
 import logging
+import uuid
 from threading import Lock
 from typing import Optional, Tuple
 
@@ -178,17 +179,20 @@ class TTSProcessor:
         family = family_override or self._resolve_family_for_voice(voice)
 
         if family == 'qwen3':
-            return self._synthesize_qwen3(
+            result = self._synthesize_qwen3(
                 text, output_path, voice,
                 speech_rate=speech_rate, instructions=instructions,
                 model_override=model_override,
             )
-        # CosyVoice (default for legacy entries without family metadata)
-        return self._synthesize_cosyvoice(
-            text, output_path, voice,
-            speech_rate=speech_rate, pitch_rate=pitch_rate, volume=volume,
-            instructions=instructions, model_override=model_override,
-        )
+        else:
+            # CosyVoice (default for legacy entries without family metadata)
+            result = self._synthesize_cosyvoice(
+                text, output_path, voice,
+                speech_rate=speech_rate, pitch_rate=pitch_rate, volume=volume,
+                instructions=instructions, model_override=model_override,
+            )
+        _charge_tts_usage(model_override or self._resolve_model_for_voice(voice), text, result)
+        return result
 
     def _synthesize_cosyvoice(
         self, text: str, output_path: str, voice: str,
@@ -378,3 +382,33 @@ class TTSProcessor:
     def list_voices():
         """List available voices with metadata"""
         return VOICES
+
+
+def _charge_tts_usage(model: str, text: str, result) -> None:
+    """Charge the workspace per 10k synthesized characters. Never raises: the audio already exists."""
+    from ..billing.metering import billing_enabled, current_workspace_id
+
+    if not billing_enabled() or not text:
+        return
+    workspace_id = current_workspace_id.get()
+    if not workspace_id:
+        return
+    try:
+        from ..billing import BillingServices
+        from ..billing.metering import TextMeter
+        from ..storage.db import create_engine
+
+        meter = _text_meter or TextMeter(BillingServices.build(create_engine()))
+        request_id = (result[2] if isinstance(result, tuple) and len(result) > 2 else None) or uuid.uuid4()
+        meter.charge_chars(workspace_id, model, len(text), f"tts:{workspace_id}:{request_id}")
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to charge TTS usage for model %s", model)
+
+
+_text_meter = None
+
+
+def set_text_meter(meter) -> None:
+    """Injected at app startup so TTS bills through the app's BillingServices."""
+    global _text_meter
+    _text_meter = meter

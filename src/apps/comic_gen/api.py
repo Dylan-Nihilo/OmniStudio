@@ -78,6 +78,7 @@ from .auth.service import AuthError, AuthService
 from .auth.dependencies import get_current_user
 from .auth.routes import require_csrf
 from .auth.settings import AuthSettings
+from . import llm_adapter as _llm_adapter_module
 from .source_models import (
     SourceChapterCreate,
     SourceChapterList,
@@ -97,6 +98,12 @@ from .collaboration_context import (
 )
 from .audit import record_request_event
 from ...utils.workspace_env import current_workspace_config, workspace_getenv
+from ... import audio as _audio_pkg  # noqa: F401 - ensures src.audio is importable before use
+from ...audio import tts as _tts_module
+from ...billing import BillingServices
+from ...billing.errors import BillingError
+from ...billing.metering import billing_enabled, billing_hook_for, current_actor_user_id, current_workspace_id, text_meter_for
+from ...billing.routes import admin_router as billing_admin_router, billing_exception_handler, router as billing_router
 from ...storage.auth_repository import AuthRepository
 from ...storage.db import DEFAULT_DB_PATH
 from ...storage.job_repository import JobRepository
@@ -283,6 +290,7 @@ _CORS_ALLOW_HEADERS = [
 ]
 
 app.add_exception_handler(AuthError, auth_exception_handler)
+app.add_exception_handler(BillingError, billing_exception_handler)
 
 
 @app.exception_handler(SourceRepositoryError)
@@ -312,6 +320,11 @@ app.state.legacy_claim_service = LegacyClaimService(
     series_path=pipeline.series_data_file,
 )
 app.state.source_repository = SourceRepository(pipeline.storage_engine)
+app.state.billing = BillingServices.build(pipeline.storage_engine)
+# LLM and TTS bill post-paid from deep inside the call stack; hand them the app's services
+# instead of letting them build a second engine per call.
+_llm_adapter_module.set_text_meter(text_meter_for(app.state))
+_tts_module.set_text_meter(text_meter_for(app.state))
 app.state.director_plan_store = DirectorPlanStore(pipeline.storage_engine)
 app.state.director_plan_previews = {}
 
@@ -586,7 +599,7 @@ def _production_adapter(request: Request | None = None) -> ProductionJobAdapter:
     adapter = getattr(app_state, "production_job_adapter", None)
     if adapter is None or adapter.repository.engine is not engine:
         adapter = ProductionJobAdapter(
-            JobRepository(engine),
+            JobRepository(engine, billing_hook=billing_hook_for(app_state)),
             dispatchers={kind: _dispatch_production_item for kind in ProductionJobAdapter.SUPPORTED_KINDS},
         )
         app_state.production_job_adapter = adapter
@@ -613,6 +626,54 @@ def _start_production_or_raise(item_id: str):
     return result
 
 
+_ASSET_VIEW_COUNTS = {"all": 3, "reference_sheet": 1, "full_body": 1, "three_view": 1, "headshot": 1}
+
+
+def _asset_billing_spec(legacy_task: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Model + size tier + image count for an asset generation task."""
+    if not legacy_task:
+        return None
+    params = legacy_task.get("params") or {}
+    views = _ASSET_VIEW_COUNTS.get(str(params.get("generation_type") or "all"), 1)
+    quantity = max(int(params.get("batch_size") or 1), 1) * views
+    if legacy_task.get("is_series"):
+        return {"model_id": params.get("t2i_model"), "stage": "image",
+                "params": {"size": params.get("effective_size")}, "quantity": quantity}
+    model_name = params.get("model_name")
+    size = None
+    script = pipeline.get_script(legacy_task.get("script_id")) if legacy_task.get("script_id") else None
+    settings = getattr(script, "model_settings", None)
+    if settings is not None:
+        model_name = model_name or settings.image_model or settings.t2i_model
+        from .assets import ASPECT_RATIO_TO_SIZE
+        size = ASPECT_RATIO_TO_SIZE.get(params.get("aspect_ratio") or settings.character_aspect_ratio)
+    return {"model_id": model_name, "stage": "image", "params": {"size": size}, "quantity": quantity}
+
+
+def _video_billing_spec(project_id: str | None, video_task_id: str | None) -> dict[str, Any] | None:
+    """Model + resolution/mode/audio + requested seconds, read after create_video_task settled the model."""
+    script = pipeline.get_script(project_id) if project_id else None
+    task = next((t for t in (getattr(script, "video_tasks", None) or []) if t.id == video_task_id), None)
+    if task is None:
+        return None
+    return {
+        "model_id": task.model, "stage": "video",
+        "params": {"resolution": task.resolution, "mode": task.mode,
+                   "audio_mode": getattr(task.audio_mode, "value", task.audio_mode)},
+        "quantity": max(int(task.duration or 1), 1),
+    }
+
+
+def _billing_spec(kind: str, project_id: str | None, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Paid vendor work only: images and videos. TTS/LLM are charged where they are called;
+    export/merge is local ffmpeg and costs nothing."""
+    if kind == "asset":
+        return _asset_billing_spec(payload.get("legacy_task") or pipeline.asset_generation_tasks.get(payload.get("legacy_task_id")))
+    if kind == "video":
+        return _video_billing_spec(project_id, payload.get("video_task_id") or payload.get("legacy_task_id"))
+    return None
+
+
 def _create_production_item(kind: str, project_id: str | None, episode_id: str | None,
                             payload: dict[str, Any], idempotency_key: str) -> Any | None:
     repository = getattr(pipeline, "repository", None)
@@ -628,9 +689,15 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
             if workspace_id:
                 break
     if not workspace_id:
+        if billing_enabled():
+            # Falling back to un-ledgered execution would hand out free generations.
+            raise HTTPException(status_code=409, detail="无法确定该项目所属的 Workspace，已阻止未计费的生成")
         return None
     if kind == "asset" and payload.get("legacy_task_id"):
         payload = {**payload, "legacy_task": deepcopy(pipeline.asset_generation_tasks.get(payload["legacy_task_id"]))}
+    spec = _billing_spec(kind, project_id, payload)
+    if spec and spec.get("model_id"):
+        payload = {**payload, "billing": spec}
     return _production_adapter().create(kind, workspace_id, project_id, episode_id, payload, idempotency_key)
 
 
@@ -650,6 +717,8 @@ def recover_production_jobs() -> None:
         logger.exception("production JobItem recovery failed")
 app.include_router(auth_router)
 app.include_router(source_router)
+app.include_router(billing_router)
+app.include_router(billing_admin_router)
 
 
 def _iter_media_strings(value, field: str = ""):
@@ -906,6 +975,8 @@ def _apply_security_headers(response):
 async def enforce_auth_and_security_headers(request: Request, call_next):
     role_token = None
     config_token = None
+    workspace_token = None
+    actor_token = None
     try:
         service = getattr(request.app.state, "auth_service", None)
         if service is None:
@@ -973,6 +1044,8 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                         now=time.time(),
                     )
             config_token = current_workspace_config.set(workspace_config)
+            workspace_token = current_workspace_id.set(context.workspace.id)
+            actor_token = current_actor_user_id.set(context.user.id)
             if _owner_required_for_request(request.method.upper(), request.url.path) and not _is_workspace_owner(context):
                 raise AuthError(
                     "AUTH_OWNER_REQUIRED",
@@ -1061,6 +1134,10 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             current_workspace_role.reset(role_token)
         if config_token is not None:
             current_workspace_config.reset(config_token)
+        if workspace_token is not None:
+            current_workspace_id.reset(workspace_token)
+        if actor_token is not None:
+            current_actor_user_id.reset(actor_token)
     return _apply_security_headers(response)
 
 
@@ -4772,7 +4849,7 @@ def _task_repository(request: Request) -> JobRepository:
     engine = getattr(request.app.state, "storage_engine", None)
     if engine is None:
         raise TaskAPIError("TASK_STORAGE_UNAVAILABLE", "任务存储不可用", status_code=503)
-    return JobRepository(engine)
+    return JobRepository(engine, billing_hook=billing_hook_for(request.app.state))
 
 
 def _task_item_payload(item):

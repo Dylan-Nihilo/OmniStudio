@@ -1,0 +1,22 @@
+.badge {
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--color-border-default);
+    border-radius: 8px;
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+
+.badge:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+
+.badge.low { border-color: var(--color-warning, #d97706); color: var(--color-warning, #d97706); }
+
+.amount { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* Credits held by running jobs, shown next to the spendable balance. */
+.frozen { margin-left: auto; font-size: 11px; opacity: 0.65; font-variant-numeric: tabular-nums; }

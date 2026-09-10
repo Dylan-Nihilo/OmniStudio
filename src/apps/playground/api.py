@@ -4,13 +4,14 @@ import os
 import uuid
 from contextvars import copy_context
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Request
 
 from .models import (
     CreateTemplateRequest,
     GenerateRequest,
+    PlaygroundMode,
     PlaygroundTemplate,
     SaveToLibraryRequest,
     UpdateTemplateRequest,
@@ -19,6 +20,7 @@ from .service import PlaygroundService
 from .storage import PlaygroundStorage
 from ...utils import get_logger
 from ...storage.job_repository import JobRepository
+from ...billing.metering import billing_hook_for
 
 logger = get_logger(__name__)
 
@@ -43,7 +45,22 @@ def _job_repository(request: Request) -> JobRepository:
     engine = getattr(request.app.state, "storage_engine", None)
     if engine is None:
         raise HTTPException(status_code=503, detail="Task storage unavailable")
-    return JobRepository(engine)
+    return JobRepository(engine, billing_hook=billing_hook_for(request.app.state))
+
+
+def _billing_spec(payload: GenerateRequest) -> dict[str, Any]:
+    """Playground charges per image or per requested second, times the batch size."""
+    parameters = payload.parameters or {}
+    batch = max(int(payload.batch_size or 1), 1)
+    if payload.mode in (PlaygroundMode.T2I, PlaygroundMode.I2I):
+        return {"model_id": payload.model_id, "stage": "image",
+                "params": {"size": parameters.get("size"), "quality": parameters.get("quality")},
+                "quantity": batch}
+    seconds = max(int(parameters.get("duration") or 5), 1)
+    return {"model_id": payload.model_id, "stage": "video",
+            "params": {"resolution": parameters.get("resolution"), "mode": parameters.get("mode"),
+                       "audio": bool(parameters.get("audio") or parameters.get("audio_url"))},
+            "quantity": seconds * batch}
 
 
 def _workspace_input_media(value: str, workspace_id: str) -> bool:
@@ -81,7 +98,7 @@ def generate(payload: GenerateRequest, background_tasks: BackgroundTasks, http_r
         job.id,
         payload.mode.value,
         payload.idempotency_key or f"playground:{gen.id}",
-        payload={"generation_id": gen.id, "model_id": payload.model_id},
+        payload={"generation_id": gen.id, "model_id": payload.model_id, "billing": _billing_spec(payload)},
     )
     gen = gen.model_copy(update={"job_id": job.id, "job_item_id": item.id})
     _storage.update_generation(gen)

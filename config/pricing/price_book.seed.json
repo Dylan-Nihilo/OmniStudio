@@ -1,0 +1,752 @@
+{
+  "note": "2026-09 厂商官方市场价（美元项按 7.15 折算为人民币参考价）。root 上线后按实际进货价覆盖。",
+  "rule": {
+    "credit_face_value_cny": 0.1,
+    "l1_discount": 0.5,
+    "target_markup": 1.2,
+    "rounding_step": 1,
+    "min_credits": 1
+  },
+  "items": [
+    {
+      "model_id": "text/deepseek-v4-flash",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "in"
+      },
+      "purchase_price_cny": 3.0,
+      "display_name": "标准"
+    },
+    {
+      "model_id": "text/deepseek-v4-flash",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "out"
+      },
+      "purchase_price_cny": 9.0,
+      "display_name": "标准"
+    },
+    {
+      "model_id": "text/deepseek-v4-pro",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "in"
+      },
+      "purchase_price_cny": 9.0,
+      "display_name": "高速"
+    },
+    {
+      "model_id": "text/deepseek-v4-pro",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "out"
+      },
+      "purchase_price_cny": 27.0,
+      "display_name": "高速"
+    },
+    {
+      "model_id": "text/gpt-5.6-terra",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "in"
+      },
+      "purchase_price_cny": 14.3,
+      "display_name": "卓越"
+    },
+    {
+      "model_id": "text/gpt-5.6-terra",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "out"
+      },
+      "purchase_price_cny": 85.8,
+      "display_name": "卓越"
+    },
+    {
+      "model_id": "text/claude-opus-5",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "in"
+      },
+      "purchase_price_cny": 35.75,
+      "display_name": "极致"
+    },
+    {
+      "model_id": "text/claude-opus-5",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "out"
+      },
+      "purchase_price_cny": 178.75,
+      "display_name": "极致"
+    },
+    {
+      "model_id": "text/claude-sonnet-5",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "in"
+      },
+      "purchase_price_cny": 14.3,
+      "display_name": "极致(备选)"
+    },
+    {
+      "model_id": "text/claude-sonnet-5",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "out"
+      },
+      "purchase_price_cny": 71.5,
+      "display_name": "极致(备选)"
+    },
+    {
+      "model_id": "text/qwen3.7-plus",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "in"
+      },
+      "purchase_price_cny": 2.0,
+      "display_name": "标准(备选)"
+    },
+    {
+      "model_id": "text/qwen3.7-plus",
+      "stage": "text",
+      "billing_unit": "token_1m",
+      "match": {
+        "direction": "out"
+      },
+      "purchase_price_cny": 8.0,
+      "display_name": "标准(备选)"
+    },
+    {
+      "model_id": "wan/wan2.7-image#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "≤2K"
+      },
+      "purchase_price_cny": 0.2,
+      "display_name": "万相"
+    },
+    {
+      "model_id": "wan/wan2.7-image-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "≤2K"
+      },
+      "purchase_price_cny": 0.5,
+      "display_name": "万相Pro"
+    },
+    {
+      "model_id": "qwen/qwen-image-2.0#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "≤2K"
+      },
+      "purchase_price_cny": 0.2,
+      "display_name": "千问"
+    },
+    {
+      "model_id": "qwen/qwen-image-2.0-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "≤2K"
+      },
+      "purchase_price_cny": 0.5,
+      "display_name": "千问Pro"
+    },
+    {
+      "model_id": "seedream/seedream-5.0-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "≤2K"
+      },
+      "purchase_price_cny": 0.3,
+      "display_name": "Seedream"
+    },
+    {
+      "model_id": "seedream/seedream-5.0-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "4K"
+      },
+      "purchase_price_cny": 0.6,
+      "display_name": "Seedream"
+    },
+    {
+      "model_id": "gemini/nano-banana#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "1K"
+      },
+      "purchase_price_cny": 0.279,
+      "display_name": "Gemini"
+    },
+    {
+      "model_id": "gemini/nano-banana-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "quality": "1K",
+        "size": "2K"
+      },
+      "purchase_price_cny": 0.958,
+      "display_name": "Gemini Pro"
+    },
+    {
+      "model_id": "gemini/nano-banana-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size": "4K"
+      },
+      "purchase_price_cny": 1.716,
+      "display_name": "Gemini Pro"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "quality": "low",
+        "size": "1K"
+      },
+      "purchase_price_cny": 0.043,
+      "display_name": "GPT"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "quality": "medium",
+        "size": "1K"
+      },
+      "purchase_price_cny": 0.379,
+      "display_name": "GPT"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "quality": "high",
+        "size": "1K"
+      },
+      "purchase_price_cny": 1.509,
+      "display_name": "GPT"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "quality": "high",
+        "size": "2K"
+      },
+      "purchase_price_cny": 3.003,
+      "display_name": "GPT"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "quality": "high",
+        "size": "4K"
+      },
+      "purchase_price_cny": 6.006,
+      "display_name": "GPT"
+    },
+    {
+      "model_id": "happyhorse/happyhorse-1.1-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.9,
+      "display_name": "快乐马"
+    },
+    {
+      "model_id": "happyhorse/happyhorse-1.1-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 1.2,
+      "display_name": "快乐马"
+    },
+    {
+      "model_id": "happyhorse/happyhorse-1.1-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.9,
+      "display_name": "快乐马"
+    },
+    {
+      "model_id": "happyhorse/happyhorse-1.1-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 1.2,
+      "display_name": "快乐马"
+    },
+    {
+      "model_id": "wan/wan2.7-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.6,
+      "display_name": "万相"
+    },
+    {
+      "model_id": "wan/wan2.7-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 1.0,
+      "display_name": "万相"
+    },
+    {
+      "model_id": "wan/wan2.7-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.6,
+      "display_name": "万相"
+    },
+    {
+      "model_id": "wan/wan2.7-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 1.0,
+      "display_name": "万相"
+    },
+    {
+      "model_id": "minimax/minimax-h3#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1K"
+      },
+      "purchase_price_cny": 0.572,
+      "display_name": "MiniMax"
+    },
+    {
+      "model_id": "minimax/minimax-h3#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "2K"
+      },
+      "purchase_price_cny": 0.93,
+      "display_name": "MiniMax"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.99,
+      "display_name": "Seedance 2.0"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 2.48,
+      "display_name": "Seedance 2.0"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.99,
+      "display_name": "Seedance 2.0"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 2.48,
+      "display_name": "Seedance 2.0"
+    },
+    {
+      "model_id": "seedance/seedance-2.5-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 1.51,
+      "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "seedance/seedance-2.5-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 3.75,
+      "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "kling/kling-v3-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "mode": "std"
+      },
+      "purchase_price_cny": 0.6,
+      "display_name": "可灵"
+    },
+    {
+      "model_id": "kling/kling-v3-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "mode": "pro"
+      },
+      "purchase_price_cny": 0.8,
+      "display_name": "可灵"
+    },
+    {
+      "model_id": "kling/kling-v3-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "mode": "std",
+        "audio": true
+      },
+      "purchase_price_cny": 0.9,
+      "display_name": "可灵"
+    },
+    {
+      "model_id": "kling/kling-v3-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "mode": "pro",
+        "audio": true
+      },
+      "purchase_price_cny": 1.2,
+      "display_name": "可灵"
+    },
+    {
+      "model_id": "kling/kling-v3-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "mode": "std"
+      },
+      "purchase_price_cny": 0.6,
+      "display_name": "可灵"
+    },
+    {
+      "model_id": "kling/kling-v3-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "mode": "pro"
+      },
+      "purchase_price_cny": 0.8,
+      "display_name": "可灵"
+    },
+    {
+      "model_id": "vidu/viduq3-pro-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "540p"
+      },
+      "purchase_price_cny": 0.322,
+      "display_name": "Vidu Pro"
+    },
+    {
+      "model_id": "vidu/viduq3-pro-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.715,
+      "display_name": "Vidu Pro"
+    },
+    {
+      "model_id": "vidu/viduq3-pro-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 0.858,
+      "display_name": "Vidu Pro"
+    },
+    {
+      "model_id": "vidu/viduq3-pro-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "540p"
+      },
+      "purchase_price_cny": 0.25,
+      "display_name": "Vidu Pro"
+    },
+    {
+      "model_id": "vidu/viduq3-pro-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.429,
+      "display_name": "Vidu Pro"
+    },
+    {
+      "model_id": "vidu/viduq3-pro-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 0.536,
+      "display_name": "Vidu Pro"
+    },
+    {
+      "model_id": "vidu/viduq3-turbo-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "540p"
+      },
+      "purchase_price_cny": 0.25,
+      "display_name": "Vidu Turbo"
+    },
+    {
+      "model_id": "vidu/viduq3-turbo-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.393,
+      "display_name": "Vidu Turbo"
+    },
+    {
+      "model_id": "vidu/viduq3-turbo-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 0.465,
+      "display_name": "Vidu Turbo"
+    },
+    {
+      "model_id": "vidu/viduq3-turbo-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "540p"
+      },
+      "purchase_price_cny": 0.143,
+      "display_name": "Vidu Turbo"
+    },
+    {
+      "model_id": "vidu/viduq3-turbo-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.358,
+      "display_name": "Vidu Turbo"
+    },
+    {
+      "model_id": "vidu/viduq3-turbo-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 0.465,
+      "display_name": "Vidu Turbo"
+    },
+    {
+      "model_id": "pixverse/pixverse/pixverse-v6-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "360p"
+      },
+      "purchase_price_cny": 0.358,
+      "display_name": "PixVerse V6"
+    },
+    {
+      "model_id": "pixverse/pixverse/pixverse-v6-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "540p"
+      },
+      "purchase_price_cny": 0.501,
+      "display_name": "PixVerse V6"
+    },
+    {
+      "model_id": "pixverse/pixverse/pixverse-v6-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.643,
+      "display_name": "PixVerse V6"
+    },
+    {
+      "model_id": "pixverse/pixverse/pixverse-v6-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 1.287,
+      "display_name": "PixVerse V6"
+    },
+    {
+      "model_id": "pixverse/pixverse/pixverse-v6-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p",
+        "audio": true
+      },
+      "purchase_price_cny": 0.858,
+      "display_name": "PixVerse V6"
+    },
+    {
+      "model_id": "pixverse/pixverse/pixverse-v6-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p",
+        "audio": true
+      },
+      "purchase_price_cny": 1.645,
+      "display_name": "PixVerse V6"
+    },
+    {
+      "model_id": "pixverse/pixverse-c1-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.715,
+      "display_name": "PixVerse C1"
+    },
+    {
+      "model_id": "pixverse/pixverse-c1-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 1.359,
+      "display_name": "PixVerse C1"
+    },
+    {
+      "model_id": "tts/cosyvoice-v2",
+      "stage": "tts",
+      "billing_unit": "chars_10k",
+      "match": {
+        "variant": "标准"
+      },
+      "purchase_price_cny": 2.0,
+      "display_name": "CosyVoice"
+    },
+    {
+      "model_id": "tts/cosyvoice-v3-flash",
+      "stage": "tts",
+      "billing_unit": "chars_10k",
+      "match": {
+        "variant": "快速"
+      },
+      "purchase_price_cny": 1.0,
+      "display_name": "CosyVoice"
+    },
+    {
+      "model_id": "tts/cosyvoice-v3-plus",
+      "stage": "tts",
+      "billing_unit": "chars_10k",
+      "match": {
+        "variant": "高清"
+      },
+      "purchase_price_cny": 2.0,
+      "display_name": "CosyVoice"
+    },
+    {
+      "model_id": "tts/cosyvoice-v3.5-plus",
+      "stage": "tts",
+      "billing_unit": "chars_10k",
+      "match": {
+        "variant": "克隆音色"
+      },
+      "purchase_price_cny": 1.5,
+      "display_name": "CosyVoice"
+    },
+    {
+      "model_id": "tts/qwen3-tts-flash",
+      "stage": "tts",
+      "billing_unit": "chars_10k",
+      "match": {
+        "variant": "标准"
+      },
+      "purchase_price_cny": 0.8,
+      "display_name": "Qwen TTS"
+    }
+  ]
+}
