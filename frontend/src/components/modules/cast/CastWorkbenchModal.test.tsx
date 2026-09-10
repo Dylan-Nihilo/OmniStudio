@@ -87,7 +87,7 @@ describe("CastWorkbenchModal asset generation", () => {
         vi.useRealTimers();
     });
 
-    it("fails a generation that is still processing after 45 seconds", async () => {
+    it("keeps polling slow provider jobs and times out after three minutes", async () => {
         render(
             <CastWorkbenchModal
                 isOpen
@@ -109,6 +109,16 @@ describe("CastWorkbenchModal asset generation", () => {
 
         await act(async () => {
             await vi.advanceTimersByTimeAsync(47_500);
+        });
+
+        expect(useProjectStore.getState().generatingTasks).toHaveLength(1);
+        expect(useToastStore.getState().toasts).not.toContainEqual(expect.objectContaining({
+            kind: "error",
+            body: "toastGenTimeout",
+        }));
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(135_000);
         });
 
         expect(useProjectStore.getState().generatingTasks).toHaveLength(0);
