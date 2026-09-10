@@ -14,7 +14,7 @@ import copy
 from io import BytesIO
 import zipfile
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration
+from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
@@ -22,6 +22,7 @@ from .storyboard import StoryboardGenerator
 from .video import VideoGenerator
 from .audio import AudioGenerator
 from .export import ExportManager
+from .model_settings import MODEL_SETTING_FIELDS, ResolvedModelSettings, resolve_model_settings as merge_model_settings
 from ...utils import get_logger
 from ...utils.oss_utils import is_object_key
 from ...utils.model_catalog import load_generated_model_catalog
@@ -1061,20 +1062,22 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
         
-        # Get effective model names from project settings if not overridden
-        t2i_model = model_name or script.model_settings.t2i_model
-        i2i_model = script.model_settings.i2i_model
+        # Resolve the current inheritance chain instead of using a frozen
+        # Episode snapshot.
+        effective_settings = self.resolve_model_settings(script_id).settings
+        t2i_model = model_name or effective_settings.t2i_model
+        i2i_model = effective_settings.i2i_model
         
         # Get effective size based on asset type (aspect_ratio param overrides model_settings)
         from .assets import ASPECT_RATIO_TO_SIZE
         if aspect_ratio:
             effective_aspect = aspect_ratio
         elif asset_type == "character":
-            effective_aspect = script.model_settings.character_aspect_ratio
+            effective_aspect = effective_settings.character_aspect_ratio
         elif asset_type == "scene":
-            effective_aspect = script.model_settings.scene_aspect_ratio
+            effective_aspect = effective_settings.scene_aspect_ratio
         elif asset_type == "prop":
-            effective_aspect = script.model_settings.prop_aspect_ratio
+            effective_aspect = effective_settings.prop_aspect_ratio
         else:
             effective_aspect = "9:16"
 
@@ -2687,11 +2690,12 @@ class ComicGenPipeline:
 
             # Get effective size from storyboard_aspect_ratio
             from .assets import ASPECT_RATIO_TO_SIZE
-            storyboard_aspect_ratio = script.model_settings.storyboard_aspect_ratio
+            effective_settings = self.resolve_model_settings(script_id, frame_id).settings
+            storyboard_aspect_ratio = effective_settings.storyboard_aspect_ratio
             effective_size = ASPECT_RATIO_TO_SIZE.get(storyboard_aspect_ratio, "1024*576")  # Default to landscape
             
             # Use model from settings
-            i2i_model = script.model_settings.i2i_model
+            i2i_model = effective_settings.i2i_model
             logger.info(f"Rendering frame {frame_id} using model {i2i_model} with {len(ref_image_paths)} reference images")
             if len(ref_image_urls) > 0:
                 logger.debug(f"Original reference URLs from frontend: {ref_image_urls}")
@@ -4550,7 +4554,7 @@ class ComicGenPipeline:
             prompt=prompt or f"Cinematic shot of {target_asset.name}",
             status="pending",
             duration=duration,
-            model=script.model_settings.r2v_model if hasattr(script.model_settings, 'r2v_model') and script.model_settings.r2v_model else "wan2.7-r2v",
+            model=self.resolve_model_settings(script_id).settings.r2v_model or "wan2.7-r2v",
             generation_mode="r2v",
             created_at=time.time()
         )
@@ -5407,31 +5411,107 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def update_model_settings(self, script_id: str, t2i_model: str = None, i2i_model: str = None, i2v_model: str = None, r2v_model: str = None, character_aspect_ratio: str = None, scene_aspect_ratio: str = None, prop_aspect_ratio: str = None, storyboard_aspect_ratio: str = None, image_model: str = None) -> Script:
-        """Updates the model settings for a script."""
+    def resolve_model_settings(self, script_id: str, frame_id: str | None = None) -> ResolvedModelSettings:
+        """Return effective global -> Project -> Episode -> Shot settings."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        series = self.series_store.get(script.series_id) if getattr(script, "series_id", None) else None
+        project_settings = series.model_settings if series else None
+        episode_overrides = dict(getattr(script, "model_settings_overrides", {}) or {})
+        # Standalone projects predate sparse overrides; preserve their complete
+        # project snapshot as the local layer for backward compatibility.
+        if series is None and not episode_overrides:
+            episode_overrides = script.model_settings.model_dump()
+        shot_overrides: dict[str, Any] = {}
+        if frame_id:
+            frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
+            if frame is None:
+                raise ValueError(f"Frame not found: {frame_id}")
+            shot_overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})
+        return merge_model_settings(ModelSettings(), project_settings, episode_overrides, shot_overrides)
+
+    def update_model_settings(
+        self,
+        script_id: str,
+        t2i_model: str = None,
+        i2i_model: str = None,
+        i2v_model: str = None,
+        r2v_model: str = None,
+        character_aspect_ratio: str = None,
+        scene_aspect_ratio: str = None,
+        prop_aspect_ratio: str = None,
+        storyboard_aspect_ratio: str = None,
+        image_model: str = None,
+        reset_fields: list[str] | None = None,
+    ) -> Script:
+        """Update sparse Episode settings and refresh the effective snapshot."""
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
 
-        if t2i_model:
-            script.model_settings.t2i_model = t2i_model
-        if i2i_model:
-            script.model_settings.i2i_model = i2i_model
-        if i2v_model:
-            script.model_settings.i2v_model = i2v_model
-        if r2v_model:
-            script.model_settings.r2v_model = r2v_model
-        if image_model:
-            script.model_settings.image_model = image_model
-        if character_aspect_ratio:
-            script.model_settings.character_aspect_ratio = character_aspect_ratio
-        if scene_aspect_ratio:
-            script.model_settings.scene_aspect_ratio = scene_aspect_ratio
-        if prop_aspect_ratio:
-            script.model_settings.prop_aspect_ratio = prop_aspect_ratio
-        if storyboard_aspect_ratio:
-            script.model_settings.storyboard_aspect_ratio = storyboard_aspect_ratio
+        updates = {
+            "t2i_model": t2i_model,
+            "i2i_model": i2i_model,
+            "i2v_model": i2v_model,
+            "r2v_model": r2v_model,
+            "character_aspect_ratio": character_aspect_ratio,
+            "scene_aspect_ratio": scene_aspect_ratio,
+            "prop_aspect_ratio": prop_aspect_ratio,
+            "storyboard_aspect_ratio": storyboard_aspect_ratio,
+            "image_model": image_model,
+        }
+        overrides = dict(getattr(script, "model_settings_overrides", {}) or {})
+        if getattr(self, "series_store", {}).get(getattr(script, "series_id", None)) is None and not overrides:
+            # Migrate a legacy standalone project's complete snapshot into
+            # sparse overrides before applying the first edit. This preserves
+            # old custom values while allowing reset_fields to reveal globals.
+            defaults = ModelSettings().model_dump()
+            legacy_values = script.model_settings.model_dump()
+            overrides = {
+                field: value
+                for field, value in legacy_values.items()
+                if value != defaults.get(field)
+            }
+        for field, value in updates.items():
+            if value is not None:
+                overrides[field] = value
+        for field in reset_fields or []:
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            overrides.pop(field, None)
+        script.model_settings_overrides = overrides
+        script.model_settings = self.resolve_model_settings(script_id).settings
 
+        self._save_data()
+        return script
+
+    def update_shot_model_settings(
+        self,
+        script_id: str,
+        frame_id: str,
+        *,
+        reset_fields: list[str] | None = None,
+        **updates: Any,
+    ) -> Script:
+        """Persist sparse model overrides for one Shot and keep the chain live."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
+        if frame is None:
+            raise ValueError(f"Frame not found: {frame_id}")
+        overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})
+        for field, value in updates.items():
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            if value is not None:
+                overrides[field] = value
+        for field in reset_fields or []:
+            if field not in MODEL_SETTING_FIELDS:
+                raise ValueError(f"Unknown model setting: {field}")
+            overrides.pop(field, None)
+        frame.model_settings_overrides = overrides
         self._save_data()
         return script
 

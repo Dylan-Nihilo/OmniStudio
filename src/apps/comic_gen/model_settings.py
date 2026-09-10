@@ -1,0 +1,55 @@
+"""Effective model-setting resolution across the Studio ownership layers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+from .models import ModelSettings
+
+MODEL_SETTING_FIELDS = tuple(ModelSettings.model_fields)
+
+
+@dataclass(frozen=True)
+class ResolvedModelSettings:
+    settings: ModelSettings
+    sources: dict[str, str]
+
+
+def _as_mapping(value: ModelSettings | Mapping[str, Any] | None) -> Mapping[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, ModelSettings):
+        return value.model_dump()
+    return value
+
+
+def resolve_model_settings(
+    global_settings: ModelSettings | Mapping[str, Any] | None = None,
+    project_settings: ModelSettings | Mapping[str, Any] | None = None,
+    episode_overrides: Mapping[str, Any] | None = None,
+    shot_overrides: Mapping[str, Any] | None = None,
+) -> ResolvedModelSettings:
+    """Merge global -> Project -> Episode -> Shot settings deterministically.
+
+    Layers only replace fields they explicitly contain.  This is deliberately
+    mapping-based so older payloads with a complete ``ModelSettings`` snapshot
+    remain readable while new records can persist sparse override maps.
+    """
+    base = ModelSettings.model_validate(_as_mapping(global_settings) or {})
+    values = base.model_dump()
+    sources = {field: "global" for field in MODEL_SETTING_FIELDS}
+    for source_name, layer in (
+        ("project", project_settings),
+        ("episode", episode_overrides),
+        ("shot", shot_overrides),
+    ):
+        for field, value in _as_mapping(layer).items():
+            if field not in values or value is None:
+                continue
+            values[field] = value
+            sources[field] = source_name
+    return ResolvedModelSettings(ModelSettings.model_validate(values), sources)
+
+
+__all__ = ["MODEL_SETTING_FIELDS", "ResolvedModelSettings", "resolve_model_settings"]

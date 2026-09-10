@@ -1,5 +1,6 @@
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
+import type { FrontendModelSettings } from "@/lib/modelCatalog";
 
 export interface StoryboardGeneration {
     id: string;
@@ -1408,6 +1409,7 @@ export const api = {
         storyboardAspectRatio?: string,
         imageModel?: string,
         r2vModel?: string,
+        resetFields?: string[],
     ) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/model_settings`, {
             t2i_model: t2iModel,
@@ -1418,9 +1420,22 @@ export const api = {
             character_aspect_ratio: characterAspectRatio,
             scene_aspect_ratio: sceneAspectRatio,
             prop_aspect_ratio: propAspectRatio,
-            storyboard_aspect_ratio: storyboardAspectRatio
+            storyboard_aspect_ratio: storyboardAspectRatio,
+            reset_fields: resetFields,
         });
         return res.data;
+    },
+
+    getEffectiveModelSettings: async (scriptId: string, frameId?: string) => {
+        const response = await apiClient.get(`${API_URL}/projects/${scriptId}/model_settings/effective`, {
+            params: frameId ? { frame_id: frameId } : undefined,
+        });
+        return response.data as { settings: FrontendModelSettings; sources: Record<string, string> };
+    },
+
+    updateShotModelSettings: async (scriptId: string, frameId: string, settings: Partial<FrontendModelSettings> & { reset_fields?: string[] }) => {
+        const response = await apiClient.put(`${API_URL}/projects/${scriptId}/frames/${frameId}/model_settings`, settings);
+        return response.data;
     },
 
     getPromptConfig: async (scriptId: string) => {
@@ -2368,6 +2383,7 @@ export const api = {
         scene_aspect_ratio?: string;
         prop_aspect_ratio?: string;
         storyboard_aspect_ratio?: string;
+        reset_fields?: string[];
     }) => {
         const response = await apiClient.put(`${API_URL}/series/${seriesId}/model_settings`, settings);
         return response.data;

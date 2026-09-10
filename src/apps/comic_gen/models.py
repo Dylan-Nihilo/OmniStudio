@@ -513,6 +513,9 @@ class StoryboardFrame(BaseModel):
         None,
         description="Task ID of the chosen final take for this frame (singular). Set in Assembly stage; read by Storyboard.",
     )
+    # Sparse per-shot model overrides.  Effective values are resolved at
+    # generation time from global -> Project -> Episode -> Shot.
+    model_settings_overrides: Dict[str, Any] = Field(default_factory=dict)
 
 class CustomVoice(BaseModel):
     """PR-3h/i — User-created custom voice (clone or design).
@@ -618,6 +621,9 @@ class Script(BaseModel):
     
     # Model Settings for each generation stage
     model_settings: ModelSettings = Field(default_factory=ModelSettings, description="Model selection for T2I/I2I/I2V")
+    # Sparse Episode overrides preserve inheritance instead of freezing a
+    # copied parent snapshot in every generated project.
+    model_settings_overrides: Dict[str, Any] = Field(default_factory=dict)
 
     # Custom prompt configuration for polish stages
     prompt_config: PromptConfig = Field(default_factory=PromptConfig, description="Custom system prompts for polish stages")

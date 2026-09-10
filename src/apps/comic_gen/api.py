@@ -62,7 +62,9 @@ from .models import (
     StoryboardFrame,
     VideoTask,
     AudioMode,
+    ModelSettings,
 )
+from .model_settings import MODEL_SETTING_FIELDS
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
 from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
@@ -2416,6 +2418,7 @@ class UpdateModelSettingsRequest(BaseModel):
     scene_aspect_ratio: Optional[str] = None
     prop_aspect_ratio: Optional[str] = None
     storyboard_aspect_ratio: Optional[str] = None
+    reset_fields: List[str] = Field(default_factory=list)
 
 @app.get("/series/{series_id}/model_settings")
 def get_series_model_settings(series_id: str):
@@ -2429,8 +2432,11 @@ def get_series_model_settings(series_id: str):
 @app.put("/series/{series_id}/model_settings")
 def update_series_model_settings(series_id: str, settings: UpdateModelSettingsRequest):
     """Update Series-level model settings."""
-    updates = {k: v for k, v in settings.model_dump().items() if v is not None}
-    if not updates:
+    updates = {k: v for k, v in settings.model_dump().items() if v is not None and k != "reset_fields"}
+    unknown_fields = sorted(set(settings.reset_fields) - set(MODEL_SETTING_FIELDS))
+    if unknown_fields:
+        raise HTTPException(status_code=422, detail=f"Unknown model setting: {unknown_fields[0]}")
+    if not updates and not settings.reset_fields:
         series = pipeline.get_series(series_id)
         if not series:
             raise HTTPException(status_code=404, detail="Series not found")
@@ -2440,6 +2446,9 @@ def update_series_model_settings(series_id: str, settings: UpdateModelSettingsRe
         if not current_series:
             raise HTTPException(status_code=404, detail="Series not found")
         ms = current_series.model_settings.model_copy(update=updates)
+        if settings.reset_fields:
+            defaults = ModelSettings()
+            ms = ms.model_copy(update={field: getattr(defaults, field) for field in settings.reset_fields if hasattr(defaults, field)})
         series = pipeline.update_series(series_id, {"model_settings": ms})
         return signed_response(series)
     except ValueError as e:
@@ -5144,12 +5153,39 @@ def update_model_settings(script_id: str, request: UpdateModelSettingsRequest):
             prop_aspect_ratio=request.prop_aspect_ratio,
             storyboard_aspect_ratio=request.storyboard_aspect_ratio,
             image_model=request.image_model,
+            reset_fields=request.reset_fields,
         )
         return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/projects/{script_id}/model_settings/effective")
+def get_effective_model_settings(script_id: str, frame_id: Optional[str] = None):
+    """Return effective model settings and the source layer for each field."""
+    try:
+        resolved = pipeline.resolve_model_settings(script_id, frame_id)
+        return signed_response({"settings": resolved.settings.model_dump(), "sources": resolved.sources})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/projects/{script_id}/frames/{frame_id}/model_settings", response_model=Script)
+def update_shot_model_settings(script_id: str, frame_id: str, request: UpdateModelSettingsRequest):
+    """Persist sparse Shot-level model overrides with reset-to-parent semantics."""
+    try:
+        updated = pipeline.update_shot_model_settings(
+            script_id,
+            frame_id,
+            reset_fields=request.reset_fields,
+            **{key: value for key, value in request.model_dump().items() if key != "reset_fields" and value is not None},
+        )
+        return signed_response(updated)
+    except ValueError as exc:
+        status = 404 if "not found" in str(exc).lower() or "script" in str(exc).lower() or "frame" in str(exc).lower() else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 class UpdatePromptConfigRequest(BaseModel):
