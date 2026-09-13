@@ -186,7 +186,10 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
     const [pendingDelete, setPendingDelete] = useState<PricingItemRow | null>(null);
 
     const shown = items.filter((item) => item.stage === stage);
-    const unselectable = shown.filter((item) => !describePriceItem(item).selectable);
+    const described = new Map(shown.map((item) => [item.item_id, describePriceItem(item)]));
+    // Priced but the catalog has no entry at all: the row can never be used, so offer a purge.
+    const orphaned = shown.filter((item) => !described.get(item.item_id)!.selectable && !described.get(item.item_id)!.planned);
+    const planned = shown.filter((item) => described.get(item.item_id)!.planned);
     // The opposite and more dangerous gap: the picker offers it, the price book does not
     // cover it, so generating with it fails as soon as billing is switched on.
     const pricedIds = new Set(shown.map((item) => item.model_id));
@@ -218,7 +221,7 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
 
     const removeAllUnselectable = async () => {
         try {
-            for (const item of unselectable) {
+            for (const item of orphaned) {
                 await billingAdminApi.deleteItem(item.item_id);
             }
             await onChanged();
@@ -237,14 +240,15 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                     </button>
                 ))}
                 <span className={styles.spacer} />
-                {isRoot && unselectable.length > 0 && (
+                {isRoot && orphaned.length > 0 && (
                     <Button variant="quiet" size="sm" onPress={() => void removeAllUnselectable()}>
-                        {t("deleteUnselectable", { count: unselectable.length })}
+                        {t("deleteUnselectable", { count: orphaned.length })}
                     </Button>
                 )}
             </div>
 
-            {unselectable.length > 0 && <p className={styles.notice}>{t("unselectableHint")}</p>}
+            {orphaned.length > 0 && <p className={styles.notice}>{t("unselectableHint")}</p>}
+            {planned.length > 0 && <p className={styles.notice}>{t("notWiredHint")}</p>}
 
             {unpriced.length > 0 && (
                 <div className={styles.danger}>
@@ -274,18 +278,18 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                 <tbody>
                     {shown.map((item) => {
                         const edited = edits[item.item_id];
-                        const described = describePriceItem(item);
+                        const label = described.get(item.item_id)!;
                         const specs = describeSpec(item.match as Record<string, unknown>);
                         return (
                             <tr key={item.item_id} className={clsx(!item.meets_target && styles.belowTarget, !item.enabled && styles.disabled)}>
                                 <td>
-                                    <span className={styles.modelName}>{described.name}</span>
-                                    {described.capability && (
+                                    <span className={styles.modelName}>{label.name}</span>
+                                    {label.capability && (
                                         <span className={styles.capability}>
-                                            {TRANSLATED_CAPABILITIES.has(described.capability) ? t(`capability.${described.capability}`) : described.capability}
+                                            {TRANSLATED_CAPABILITIES.has(label.capability) ? t(`capability.${label.capability}`) : label.capability}
                                         </span>
                                     )}
-                                    {!described.selectable && <span className={styles.warnBadge}>{t("notSelectable")}</span>}
+                                    {!label.selectable && <span className={styles.warnBadge}>{t(label.planned ? "notWired" : "notSelectable")}</span>}
                                     <span className={styles.modelId}>{item.model_id}</span>
                                 </td>
                                 <td>
@@ -299,7 +303,7 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                                 </td>
                                 <td>
                                     {isRoot
-                                        ? <input className={styles.priceInput} aria-label={`${described.name} ${t("purchasePrice")}`}
+                                        ? <input className={styles.priceInput} aria-label={`${label.name} ${t("purchasePrice")}`}
                                                  value={edited ?? String(item.purchase_price_cny)}
                                                  onChange={(event) => setEdits((prev) => ({ ...prev, [item.item_id]: event.target.value }))} />
                                         : item.purchase_price_cny}
@@ -313,7 +317,7 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                                         {edited !== undefined && Number(edited) !== item.purchase_price_cny && (
                                             <Button size="sm" onPress={() => void save(item, Number(edited))}>{t("save")}</Button>
                                         )}
-                                        <IconButton variant="quiet" aria-label={t("deleteItemAria", { name: described.name })}
+                                        <IconButton variant="quiet" aria-label={t("deleteItemAria", { name: label.name })}
                                                     onPress={() => setPendingDelete(item)}>
                                             <Trash2 size={14} />
                                         </IconButton>

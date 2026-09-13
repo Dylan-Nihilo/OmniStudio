@@ -10,11 +10,13 @@ export interface PriceItemDescription {
     /** Catalog selection group (i2v / r2v / t2i / image), or null for text and voice. */
     capability: string | null;
     /**
-     * False when a generation model has no catalog entry: nobody can select it, so the row
-     * is dead weight and safe to delete. Text and voice models are never in the catalog, so
-     * they are reported as `true` — their absence is expected, not a problem.
+     * False when nobody can pick this model today — either the catalog has no entry at all,
+     * or the entry is still `planned`/hidden and so never reaches the picker. Text and voice
+     * models are never in the catalog, so they report `true`: their absence is expected.
      */
     selectable: boolean;
+    /** True when the catalog knows the model but has not exposed it yet. */
+    planned: boolean;
     /** Vendor family, when the catalog knows it. */
     family: string | null;
 }
@@ -33,18 +35,21 @@ export function describePriceItem(item: { model_id: string; stage: PriceItemKind
             name: item.display_name ? `${item.display_name} · ${bare}` : bare,
             capability: null,
             selectable: true,
+            planned: false,
             family: null,
         };
     }
 
     const mode = getCanonicalModeEntry(item.model_id) as {
-        display_name?: string; family?: string; ui?: { selection_group?: string };
+        display_name?: string; family?: string; status?: string; ui?: { selection_group?: string; visible_in?: string[] };
     } | null;
     if (mode) {
+        const exposed = mode.status === "active" && (mode.ui?.visible_in?.length ?? 0) > 0;
         return {
             name: mode.display_name || item.model_id,
             capability: mode.ui?.selection_group ?? null,
-            selectable: true,
+            selectable: exposed,
+            planned: !exposed,
             family: mode.family ?? null,
         };
     }
@@ -55,6 +60,7 @@ export function describePriceItem(item: { model_id: string; stage: PriceItemKind
         name: line?.display_name || item.display_name || item.model_id,
         capability: item.model_id.includes("#") ? item.model_id.split("#")[1] : null,
         selectable: false,
+        planned: false,
         family: null,
     };
 }

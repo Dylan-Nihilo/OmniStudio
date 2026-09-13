@@ -120,3 +120,99 @@ models:
           reference_images:
             max: 9
             reference_type: image
+
+  - id: seedance/seedance-2.5-video
+    display_name: Seedance 2.5
+    description: ByteDance Seedance 2.5 video generation
+    # planned: the price book covers it, but no provider route exists yet. Seedance 2.0 goes
+    # through MuleRouter, while 2.5 is bought direct from ByteDance, which needs the Ark
+    # client in src/models/doubao.py wired up first. Flip to active once a real call succeeds.
+    status: planned
+    release_stage: preview
+    docs:
+      context_hub_doc_ids:
+        - mulerouter/seedance-2.0
+    runtime:
+      mulerouter:
+        gateway: mulerouter
+    modes:
+      t2v:
+        legacy_id: seedance-2.5-t2v
+        display_name: Seedance 2.5 T2V
+        description: Text-to-video generation
+        capabilities: [t2v]
+        ui:
+          selection_group: t2v
+          visible_in: []
+          order: 86
+          badges: [new]
+        duration:
+          type: slider
+          min: 4
+          max: 15
+          step: 1
+          default: 5
+        params:
+          resolution:
+            options: [480p, 720p]
+            default: 720p
+          seed: true
+          negativePrompt: false
+          promptExtend: false
+          watermark: true
+      i2v:
+        legacy_id: seedance-2.5-i2v
+        display_name: Seedance 2.5 I2V
+        description: Image-to-video generation
+        capabilities: [i2v]
+        ui:
+          selection_group: i2v
+          visible_in: []
+          order: 91
+          badges: [new]
+        duration:
+          type: slider
+          min: 4
+          max: 15
+          step: 1
+          default: 5
+        params:
+          resolution:
+            options: [480p, 720p]
+            default: 720p
+          seed: true
+          negativePrompt: false
+          promptExtend: false
+          watermark: true
+        inputs:
+          reference_images:
+            max: 1
+            reference_type: image
+      r2v:
+        legacy_id: seedance-2.5-r2v
+        display_name: Seedance 2.5 R2V
+        description: Reference-to-video with multi-image input
+        capabilities: [r2v]
+        ui:
+          selection_group: r2v
+          visible_in: []
+          order: 81
+          badges: [new]
+        duration:
+          type: slider
+          min: 4
+          max: 15
+          step: 1
+          default: 5
+        params:
+          resolution:
+            options: [480p, 720p]
+            default: 720p
+          seed: true
+          negativePrompt: false
+          promptExtend: false
+          watermark: true
+        inputs:
+          reference_images:
+            max: 9
+            reference_type: image

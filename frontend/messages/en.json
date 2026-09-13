@@ -3006,7 +3006,9 @@
         "direction": "Direction",
         "variant": "Tier"
       },
-      "unpricedHint": "{count} model(s) the picker offers have no price. After publishing, generating with them fails outright as unpriced. Click a name to prefill the form below."
+      "unpricedHint": "{count} model(s) the picker offers have no price. After publishing, generating with them fails outright as unpriced. Click a name to prefill the form below.",
+      "notWired": "not wired",
+      "notWiredHint": "Models marked “not wired” are registered in the catalog but have no working provider route yet; their price is kept and takes effect once the route works."
     }
   }
 }

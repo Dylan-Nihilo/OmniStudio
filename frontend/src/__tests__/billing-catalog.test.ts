@@ -11,7 +11,7 @@ import {
 describe("describePriceItem", () => {
     it("names generation models the way the model picker does", () => {
         expect(describePriceItem({ model_id: "happyhorse/happyhorse-1.1-video#r2v", stage: "video" })).toEqual({
-            name: "HappyHorse R2V", capability: "r2v", selectable: true, family: "happyhorse",
+            name: "HappyHorse R2V", capability: "r2v", selectable: true, planned: false, family: "happyhorse",
         });
         expect(describePriceItem({ model_id: "wan/wan2.7-image-pro#image", stage: "image" }).name)
             .toBe("Wan 2.7 Image Pro");
@@ -25,6 +25,14 @@ describe("describePriceItem", () => {
         expect(described.name).toBe("Gemini Pro");
     });
 
+    it("separates a model awaiting provider wiring from one missing entirely", () => {
+        // Seedance 2.5 is registered but still `planned`, so it is priced yet unpickable.
+        const planned = describePriceItem({ model_id: "seedance/seedance-2.5-video#i2v", stage: "video" });
+        expect(planned).toMatchObject({ name: "Seedance 2.5 I2V", selectable: false, planned: true });
+        const absent = describePriceItem({ model_id: "gemini/gemini-3.1-pro-preview#image", stage: "image" });
+        expect(absent).toMatchObject({ selectable: false, planned: false });
+    });
+
     it("falls back to the model line when only the mode suffix is unknown", () => {
         const described = describePriceItem({ model_id: "happyhorse/happyhorse-1.1-video#t2v", stage: "video" });
         expect(described.selectable).toBe(false);
@@ -33,7 +41,7 @@ describe("describePriceItem", () => {
 
     it("treats text and voice models as expected absences, not problems", () => {
         expect(describePriceItem({ model_id: "text/deepseek-v4-flash", stage: "text", display_name: "标准" })).toEqual({
-            name: "标准 · deepseek-v4-flash", capability: null, selectable: true, family: null,
+            name: "标准 · deepseek-v4-flash", capability: null, selectable: true, planned: false, family: null,
         });
         expect(describePriceItem({ model_id: "tts/cosyvoice-v2", stage: "tts" }).name).toBe("cosyvoice-v2");
     });

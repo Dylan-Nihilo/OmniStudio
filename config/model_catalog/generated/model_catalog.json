@@ -19,6 +19,9 @@
       "seedance-2.0-i2v": "seedance/seedance-2.0-video#i2v",
       "seedance-2.0-r2v": "seedance/seedance-2.0-video#r2v",
       "seedance-2.0-t2v": "seedance/seedance-2.0-video#t2v",
+      "seedance-2.5-i2v": "seedance/seedance-2.5-video#i2v",
+      "seedance-2.5-r2v": "seedance/seedance-2.5-video#r2v",
+      "seedance-2.5-t2v": "seedance/seedance-2.5-video#t2v",
       "viduq3-pro-i2v": "vidu/viduq3-pro-video#i2v",
       "viduq3-pro-r2v": "vidu/viduq3-pro-video#r2v",
       "viduq3-turbo-i2v": "vidu/viduq3-turbo-video#i2v",
@@ -351,7 +354,10 @@
       "models": [
         "seedance-2.0-i2v",
         "seedance-2.0-r2v",
-        "seedance-2.0-t2v"
+        "seedance-2.0-t2v",
+        "seedance-2.5-i2v",
+        "seedance-2.5-r2v",
+        "seedance-2.5-t2v"
       ],
       "provider": "mulerouter",
       "routing_prefixes": [
@@ -1244,6 +1250,68 @@
         }
       },
       "status": "active",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "supported_modalities": [
+        "t2v",
+        "i2v",
+        "r2v"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      }
+    },
+    "seedance/seedance-2.5-video": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "ByteDance Seedance 2.5 video generation",
+      "display_name": "Seedance 2.5",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video",
+      "legacy_model_ids": [
+        "seedance-2.5-i2v",
+        "seedance-2.5-r2v",
+        "seedance-2.5-t2v"
+      ],
+      "modes": [
+        "seedance/seedance-2.5-video#i2v",
+        "seedance/seedance-2.5-video#r2v",
+        "seedance/seedance-2.5-video#t2v"
+      ],
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "mulerouter": {
+          "gateway": "mulerouter"
+        }
+      },
+      "status": "planned",
       "supported_backends": [
         "mulerouter"
       ],
@@ -3739,6 +3807,241 @@
           "video_sidebar",
           "global_settings"
         ]
+      }
+    },
+    "seedance-2.5-i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "Image-to-video generation",
+      "display_name": "Seedance 2.5 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.5-i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "status": "planned",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 91,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": []
+      }
+    },
+    "seedance-2.5-r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.5 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.5-r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "status": "planned",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 81,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": []
+      }
+    },
+    "seedance-2.5-t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.5 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.5-t2v",
+      "inputs": {},
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "status": "planned",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 86,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": []
       }
     },
     "viduq3-pro-i2v": {
@@ -7024,6 +7327,265 @@
           "video_sidebar",
           "global_settings"
         ]
+      }
+    },
+    "seedance/seedance-2.5-video#i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "Image-to-video generation",
+      "display_name": "Seedance 2.5 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video#i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.5-i2v",
+      "mode": "i2v",
+      "model_line_id": "seedance/seedance-2.5-video",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "mulerouter": {
+          "gateway": "mulerouter"
+        }
+      },
+      "status": "planned",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 91,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": []
+      }
+    },
+    "seedance/seedance-2.5-video#r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.5 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video#r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.5-r2v",
+      "mode": "r2v",
+      "model_line_id": "seedance/seedance-2.5-video",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "mulerouter": {
+          "gateway": "mulerouter"
+        }
+      },
+      "status": "planned",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 81,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": []
+      }
+    },
+    "seedance/seedance-2.5-video#t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "mulerouter": [
+          "MULEROUTER_API_KEY"
+        ]
+      },
+      "default_backend": "mulerouter",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.5 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "mulerouter/seedance-2.0"
+        ],
+        "official_snapshot_ids": [
+          "mulerouter/seedance-2.0/2026-06-03"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video#t2v",
+      "inputs": {},
+      "legacy_model_id": "seedance-2.5-t2v",
+      "mode": "t2v",
+      "model_line_id": "seedance/seedance-2.5-video",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "mulerouter",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "mulerouter": {
+          "gateway": "mulerouter"
+        }
+      },
+      "status": "planned",
+      "supported_backends": [
+        "mulerouter"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "mulerouter": "mulerouter_audio_url"
+        },
+        "image_input_mode": {
+          "mulerouter": "mulerouter_base64_image"
+        },
+        "reference_video_input_mode": {
+          "mulerouter": "mulerouter_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 86,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": []
       }
     },
     "vidu/viduq3-pro-video#i2v": {
