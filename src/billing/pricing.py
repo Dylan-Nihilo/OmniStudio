@@ -96,7 +96,7 @@ class PriceItem:
     item_id: str                          # 稳定主键，如 "seedance/seedance-2.0-video#i2v|1080p"
     model_id: str                         # 模型目录 canonical mode id，文本/TTS 用 text/*, tts/*
     stage: str                            # text | image | video | tts
-    billing_unit: str                     # second | image | token_1m | chars_10k
+    billing_unit: str                     # second (video) | image | chars_1k (text, voice)
     match: dict[str, Any]                 # 请求参数需满足的条件，如 {"resolution": "1080p"}
     purchase_price_cny: float             # root 输入的进货价（每计费单位）
     multiplier: float = 1.0               # 单项系数（促销 0.8、新模型 1.2 等），默认 1
