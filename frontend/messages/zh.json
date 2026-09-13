@@ -3015,7 +3015,9 @@
         "image": " 积分/张",
         "chars_1k": " 积分/千字"
       },
-      "actualCost": "实际成本 {credits}"
+      "actualCost": "实际成本 {credits}",
+      "retired": "已下架",
+      "retiredHint": "有 {count} 条价格对应已下架的模型，用户已经选不到，可以删掉。"
     }
   }
 }

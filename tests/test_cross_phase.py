@@ -312,10 +312,10 @@ class TestModelSettingsIntegration:
         s = Series(id="s1", title="S", created_at=now, updated_at=now)
         assert isinstance(s.model_settings, ModelSettings)
         # Defaults follow the catalog (HappyHorse 1.0→1.1 upgrade: i2v
-        # default moved to happyhorse-1.1-i2v, i2i default unified with
-        # t2i on wan2.7-image-pro).
-        assert s.model_settings.t2i_model == "wan2.7-image-pro"
-        assert s.model_settings.i2v_model == "happyhorse-1.1-i2v"
+        # defaults follow the priced catalog: video on Seedance 2.0, i2i unified
+        # with t2i on gpt-image-2).
+        assert s.model_settings.t2i_model == "gpt-image-2"
+        assert s.model_settings.i2v_model == "seedance-2.0-i2v"
 
     def test_update_series_model_settings_via_pipeline(self, pipeline):
         """Pipeline update_series should accept model_settings changes."""
@@ -325,7 +325,7 @@ class TestModelSettingsIntegration:
         assert updated.model_settings.t2i_model == "custom-t2i"
         assert updated.model_settings.i2v_model == "kling-1.6"
         # Other fields keep catalog defaults.
-        assert updated.model_settings.i2i_model == "wan2.7-image-pro"
+        assert updated.model_settings.i2i_model == "gpt-image-2"
 
     def test_update_series_model_settings_partial_via_copy(self, pipeline):
         """Partial update via model_copy should preserve other fields."""
@@ -334,7 +334,7 @@ class TestModelSettingsIntegration:
         updated_ms = current_ms.model_copy(update={"t2i_model": "new-model"})
         updated = pipeline.update_series(s.id, {"model_settings": updated_ms})
         assert updated.model_settings.t2i_model == "new-model"
-        assert updated.model_settings.i2i_model == "wan2.7-image-pro"  # preserved
+        assert updated.model_settings.i2i_model == "gpt-image-2"  # preserved
         assert updated.model_settings.storyboard_aspect_ratio == "16:9"  # preserved
 
     def test_model_settings_not_overwritten_by_id_or_created_at(self, pipeline):

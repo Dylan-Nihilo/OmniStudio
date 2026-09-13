@@ -76,13 +76,13 @@ describe("PlaygroundPage", () => {
 
   it("blocks excess references after a model switch without discarding the user's inputs", async () => {
     const media = Array.from({ length: 6 }, (_, index) => `reference-${index}.png`);
-    usePlaygroundStore.setState({ mode: "r2v", modelId: "wan2.7-r2v", prompt: "A station", inputMedia: media });
+    usePlaygroundStore.setState({ mode: "r2v", modelId: "minimax/minimax-h3", prompt: "A station", inputMedia: media });
     render(<PlaygroundPage />);
     await waitFor(() => expect(getHistory).toHaveBeenCalled());
     expect(screen.getByRole("button", { name: "compose.generate" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("media.tooManyReferences");
     expect(usePlaygroundStore.getState().inputMedia).toEqual(media);
-    act(() => usePlaygroundStore.getState().setModelId("happyhorse-1.1-r2v"));
+    act(() => usePlaygroundStore.getState().setModelId("seedance-2.0-r2v"));
     await waitFor(() => expect(screen.getByRole("button", { name: "compose.generate" })).toBeEnabled());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(usePlaygroundStore.getState().inputMedia).toEqual(media);

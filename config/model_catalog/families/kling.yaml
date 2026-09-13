@@ -36,7 +36,7 @@ models:
   - id: kling/kling-v3-video
     display_name: Kling V3 Video
     description: Kling AI latest video model with I2V and R2V modes
-    status: active
+    status: deprecated
     release_stage: stable
     runtime:
       dashscope:

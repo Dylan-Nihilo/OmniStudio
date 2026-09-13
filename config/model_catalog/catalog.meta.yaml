@@ -1,8 +1,10 @@
 version: 1
 defaults:
+  # Every default must point at a model the price book covers, or a fresh workspace would be
+  # unable to generate anything the moment billing is switched on.
   model_settings:
-    t2i_model: wan2.7-image-pro
-    i2i_model: wan2.7-image-pro
-    i2v_model: happyhorse-1.1-i2v
-    r2v_model: happyhorse-1.1-r2v
-    image_model: wan2.7-image-pro
+    t2i_model: gpt-image-2
+    i2i_model: gpt-image-2
+    i2v_model: seedance-2.0-i2v
+    r2v_model: seedance-2.0-r2v
+    image_model: gpt-image-2

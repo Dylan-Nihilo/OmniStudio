@@ -1,5 +1,5 @@
 {
-  "note": "2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1），按 1 字=1 token 折成每千字；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
+  "note": "2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -156,6 +156,7 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.0009,
+      "credits_override": 1,
       "display_name": "标准"
     },
     {
@@ -166,6 +167,7 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.0036,
+      "credits_override": 2,
       "display_name": "标准"
     },
     {
@@ -176,6 +178,7 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.0012,
+      "credits_override": 2,
       "display_name": "高级"
     },
     {
@@ -186,6 +189,7 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.0045,
+      "credits_override": 4,
       "display_name": "高级"
     },
     {
@@ -196,6 +200,7 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.004,
+      "credits_override": 3,
       "display_name": "卓越"
     },
     {
@@ -206,6 +211,7 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.032,
+      "credits_override": 6,
       "display_name": "卓越"
     },
     {
@@ -216,6 +222,7 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.009,
+      "credits_override": 4,
       "display_name": "极致"
     },
     {
@@ -226,6 +233,7 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.045,
+      "credits_override": 8,
       "display_name": "极致"
     },
     {

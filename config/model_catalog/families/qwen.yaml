@@ -26,7 +26,7 @@ models:
   - id: qwen-image-2.0-pro
     display_name: Qwen Image 2.0 Pro
     description: Advanced image generation with precise text rendering and complex composition
-    status: active
+    status: deprecated
     release_stage: stable
     capabilities: [t2i, i2i]
     docs:
@@ -51,7 +51,7 @@ models:
   - id: qwen-image-2.0
     display_name: Qwen Image 2.0
     description: Standard image generation with strong artistic style support
-    status: active
+    status: deprecated
     release_stage: stable
     capabilities: [t2i, i2i]
     docs:

@@ -83,6 +83,13 @@ TEXT = [
     ("卓越", "gpt-5.6-sol", "gpt", 5.0, 40.0),
     ("极致", "claude-opus-5", "claude", 5.0, 25.0),
 ]
+# Text is priced by tier rather than by cost. Cost alone puts three of the four tiers at the
+# 1-credit floor, so a user upgrading from 标准 to 卓越 sees the same bill and cannot tell the
+# tiers apart. The ladder is one credit per tier for input, double that for output — the
+# cheapest useful scale, and still far above cost on every row (see the margins printed below).
+TEXT_INPUT_CREDITS = {"标准": 1, "高级": 2, "卓越": 3, "极致": 4}
+
+
 def per_1k_chars(price_per_million_tokens: float, vendor: str) -> float:
     tokens = 1000 * TOKENS_PER_CHAR
     return round(price_per_million_tokens * TEXT_MULTIPLIER[vendor] * tokens / 1_000_000, 6)
@@ -90,9 +97,10 @@ def per_1k_chars(price_per_million_tokens: float, vendor: str) -> float:
 
 text = [{"model_id": f"text/{name}", "stage": "text", "billing_unit": "chars_1k",
          "match": {"direction": direction},
-         "purchase_price_cny": per_1k_chars(price, vendor), "display_name": tier}
+         "purchase_price_cny": per_1k_chars(price, vendor),
+         "credits_override": TEXT_INPUT_CREDITS[tier] * factor, "display_name": tier}
         for tier, name, vendor, price_in, price_out in TEXT
-        for direction, price in (("in", price_in), ("out", price_out))]
+        for direction, price, factor in (("in", price_in, 1), ("out", price_out, 2))]
 
 # --- image -----------------------------------------------------------------
 # Supplier cost per image in CNY. The Gemini models bill one price at every size; gpt-image-2
@@ -129,8 +137,9 @@ def main() -> int:
     items = video + text + image + voice
     doc = {
         "note": ("2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；"
-                 "文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1），"
-                 "按 1 字=1 token 折成每千字；"
+                 "文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），"
+                 "进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）"
+                 "按 1 字=1 token 折成每千字，用于核对利润；"
                  "图片=供应商每张成本；配音=百炼官方价折成每千字。"
                  "计费单位：视频每秒、图片每张、文本与配音每千字。"
                  "match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。"),
@@ -144,7 +153,7 @@ def main() -> int:
     units = {"second": "积分/秒", "image": "积分/张", "chars_1k": "积分/千字"}
     for item in items:
         raw = item["purchase_price_cny"] * per_yuan
-        rate = max(math.ceil(raw - 1e-9), RULE["min_credits"])
+        rate = item.get("credits_override") or max(math.ceil(raw - 1e-9), RULE["min_credits"])
         margin = rate * RULE["credit_face_value_cny"] * RULE["l1_discount"] / item["purchase_price_cny"] - 1
         spec = ",".join(f"{k}={v}" for k, v in item["match"].items()) or "-"
         print(f'  {item["stage"]:6} {item["model_id"]:40} {spec:16} ¥{item["purchase_price_cny"]:<10} '

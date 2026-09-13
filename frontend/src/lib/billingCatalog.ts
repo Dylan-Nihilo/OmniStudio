@@ -11,12 +11,18 @@ export interface PriceItemDescription {
     capability: string | null;
     /**
      * False when nobody can pick this model today — either the catalog has no entry at all,
-     * or the entry is still `planned`/hidden and so never reaches the picker. Text and voice
-     * models are never in the catalog, so they report `true`: their absence is expected.
+     * or the entry is not exposed to the picker. Text and voice models are never in the
+     * catalog, so they report `true`: their absence is expected.
      */
     selectable: boolean;
-    /** True when the catalog knows the model but has not exposed it yet. */
+    /** True when the catalog knows the model but has not wired a provider for it yet. */
     planned: boolean;
+    /**
+     * True when the model was offered once and has since been retired. Distinct from
+     * `planned`: a retired price row is dead weight to be deleted, whereas a planned one is
+     * waiting for provider work and should keep its price.
+     */
+    retired: boolean;
     /** Vendor family, when the catalog knows it. */
     family: string | null;
 }
@@ -36,6 +42,7 @@ export function describePriceItem(item: { model_id: string; stage: PriceItemKind
             capability: null,
             selectable: true,
             planned: false,
+            retired: false,
             family: null,
         };
     }
@@ -49,7 +56,8 @@ export function describePriceItem(item: { model_id: string; stage: PriceItemKind
             name: mode.display_name || item.model_id,
             capability: mode.ui?.selection_group ?? null,
             selectable: exposed,
-            planned: !exposed,
+            planned: !exposed && mode.status === "planned",
+            retired: !exposed && mode.status !== "planned",
             family: mode.family ?? null,
         };
     }
@@ -61,6 +69,7 @@ export function describePriceItem(item: { model_id: string; stage: PriceItemKind
         capability: item.model_id.includes("#") ? item.model_id.split("#")[1] : null,
         selectable: false,
         planned: false,
+        retired: false,
         family: null,
     };
 }

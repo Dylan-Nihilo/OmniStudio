@@ -30,7 +30,7 @@ models:
   - id: happyhorse/happyhorse-1.1-video
     display_name: HappyHorse 1.1 Video
     description: HappyHorse video generation with I2V and R2V modes
-    status: active
+    status: deprecated
     release_stage: stable
     docs:
       context_hub_doc_ids:

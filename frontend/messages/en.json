@@ -3015,7 +3015,9 @@
         "image": " credits/image",
         "chars_1k": " credits/1k chars"
       },
-      "actualCost": "true cost {credits}"
+      "actualCost": "true cost {credits}",
+      "retired": "retired",
+      "retiredHint": "{count} price rows point at retired models that users can no longer pick; they can be deleted."
     }
   }
 }

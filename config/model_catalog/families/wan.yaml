@@ -33,7 +33,7 @@ models:
   - id: wan2.7-image-pro
     display_name: Wan 2.7 Image Pro
     description: Full-featured image generation and editing with text rendering, brand color, and 4K support
-    status: active
+    status: deprecated
     release_stage: stable
     capabilities: [t2i, i2i]
     docs:
@@ -61,7 +61,7 @@ models:
   - id: wan2.7-image
     display_name: Wan 2.7 Image
     description: Standard image generation and editing model
-    status: active
+    status: deprecated
     release_stage: stable
     capabilities: [t2i, i2i]
     docs:
@@ -90,7 +90,7 @@ models:
   - id: wan/wan2.7-video
     display_name: Wan 2.7 Video
     description: Wan 2.7 video generation with I2V, R2V, T2V, and VideoEdit modes
-    status: active
+    status: deprecated
     release_stage: stable
     docs:
       context_hub_doc_ids: [aliyun/wan-i2v-r2v]

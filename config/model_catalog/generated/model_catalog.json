@@ -48,18 +48,18 @@
   },
   "defaults": {
     "canonical_model_settings": {
-      "i2i_model": "wan/wan2.7-image-pro#image",
-      "i2v_model": "happyhorse/happyhorse-1.1-video#i2v",
-      "image_model": "wan/wan2.7-image-pro#image",
-      "r2v_model": "happyhorse/happyhorse-1.1-video#r2v",
-      "t2i_model": "wan/wan2.7-image-pro#image"
+      "i2i_model": "gpt-image/gpt-image-2#image",
+      "i2v_model": "seedance/seedance-2.0-video#i2v",
+      "image_model": "gpt-image/gpt-image-2#image",
+      "r2v_model": "seedance/seedance-2.0-video#r2v",
+      "t2i_model": "gpt-image/gpt-image-2#image"
     },
     "model_settings": {
-      "i2i_model": "wan2.7-image-pro",
-      "i2v_model": "happyhorse-1.1-i2v",
-      "image_model": "wan2.7-image-pro",
-      "r2v_model": "happyhorse-1.1-r2v",
-      "t2i_model": "wan2.7-image-pro"
+      "i2i_model": "gpt-image-2",
+      "i2v_model": "seedance-2.0-i2v",
+      "image_model": "gpt-image-2",
+      "r2v_model": "seedance-2.0-r2v",
+      "t2i_model": "gpt-image-2"
     }
   },
   "families": {
@@ -708,7 +708,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -777,7 +777,7 @@
           "gateway": "kling"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -901,7 +901,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1014,7 +1014,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1073,7 +1073,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1131,7 +1131,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1188,7 +1188,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1378,7 +1378,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -1449,7 +1449,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -2158,7 +2158,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2221,7 +2221,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2289,7 +2289,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2521,7 +2521,7 @@
         "happyhorse-1.0-",
         "happyhorse-1.1-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2603,7 +2603,7 @@
         "happyhorse-1.0-",
         "happyhorse-1.1-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2773,7 +2773,7 @@
         "kling-",
         "kling/kling-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -2876,7 +2876,7 @@
         "kling-",
         "kling/kling-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -3063,7 +3063,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3146,7 +3146,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3284,7 +3284,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3377,7 +3377,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3455,7 +3455,7 @@
       "routing_prefixes": [
         "qwen-image-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3530,7 +3530,7 @@
       "routing_prefixes": [
         "qwen-image-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -4114,7 +4114,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -4208,7 +4208,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -4310,7 +4310,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -4402,7 +4402,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -5286,7 +5286,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5373,7 +5373,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5457,7 +5457,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5543,7 +5543,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5985,7 +5985,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6075,7 +6075,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6190,7 +6190,7 @@
           "gateway": "kling"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -6305,7 +6305,7 @@
           "gateway": "kling"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -6510,7 +6510,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6602,7 +6602,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6753,7 +6753,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6855,7 +6855,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6942,7 +6942,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -7026,7 +7026,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -7670,7 +7670,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -7776,7 +7776,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -7890,7 +7890,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -7994,7 +7994,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -8933,7 +8933,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -9026,7 +9026,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -9130,7 +9130,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -9225,7 +9225,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],

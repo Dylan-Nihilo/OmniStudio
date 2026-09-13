@@ -188,8 +188,12 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
 
     const shown = items.filter((item) => item.stage === stage);
     const described = new Map(shown.map((item) => [item.item_id, describePriceItem(item)]));
-    // Priced but the catalog has no entry at all: the row can never be used, so offer a purge.
-    const orphaned = shown.filter((item) => !described.get(item.item_id)!.selectable && !described.get(item.item_id)!.planned);
+    // Rows nobody can ever pick, so offer a purge: either the catalog has no entry at all
+    // (orphaned) or the model has been retired. Planned rows are excluded — they are waiting
+    // on provider work and need to keep their price for the day they go live.
+    const deletable = shown.filter((item) => !described.get(item.item_id)!.selectable && !described.get(item.item_id)!.planned);
+    const retired = deletable.filter((item) => described.get(item.item_id)!.retired);
+    const orphaned = deletable.filter((item) => !described.get(item.item_id)!.retired);
     const planned = shown.filter((item) => described.get(item.item_id)!.planned);
     // The opposite and more dangerous gap: the picker offers it, the price book does not
     // cover it, so generating with it fails as soon as billing is switched on.
@@ -222,7 +226,7 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
 
     const removeAllUnselectable = async () => {
         try {
-            for (const item of orphaned) {
+            for (const item of deletable) {
                 await billingAdminApi.deleteItem(item.item_id);
             }
             await onChanged();
@@ -241,14 +245,15 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                     </button>
                 ))}
                 <span className={styles.spacer} />
-                {isRoot && orphaned.length > 0 && (
+                {isRoot && deletable.length > 0 && (
                     <Button variant="quiet" size="sm" onPress={() => void removeAllUnselectable()}>
-                        {t("deleteUnselectable", { count: orphaned.length })}
+                        {t("deleteUnselectable", { count: deletable.length })}
                     </Button>
                 )}
             </div>
 
             {orphaned.length > 0 && <p className={styles.notice}>{t("unselectableHint")}</p>}
+            {retired.length > 0 && <p className={styles.notice}>{t("retiredHint", { count: retired.length })}</p>}
             {planned.length > 0 && <p className={styles.notice}>{t("notWiredHint")}</p>}
 
             {unpriced.length > 0 && (
@@ -290,7 +295,7 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                                             {TRANSLATED_CAPABILITIES.has(label.capability) ? t(`capability.${label.capability}`) : label.capability}
                                         </span>
                                     )}
-                                    {!label.selectable && <span className={styles.warnBadge}>{t(label.planned ? "notWired" : "notSelectable")}</span>}
+                                    {!label.selectable && <span className={styles.warnBadge}>{t(label.planned ? "notWired" : label.retired ? "retired" : "notSelectable")}</span>}
                                     <span className={styles.modelId}>{item.model_id}</span>
                                 </td>
                                 <td>

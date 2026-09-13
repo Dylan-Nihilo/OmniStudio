@@ -35,7 +35,7 @@ models:
   - id: vidu/viduq3-pro-video
     display_name: Vidu Q3 Pro Video
     description: Vidu Q3 Pro with I2V and R2V modes
-    status: active
+    status: deprecated
     release_stage: stable
     runtime:
       dashscope:
@@ -117,7 +117,7 @@ models:
   - id: vidu/viduq3-turbo-video
     display_name: Vidu Q3 Turbo Video
     description: Vidu Q3 Turbo fast generation with I2V and R2V modes
-    status: active
+    status: deprecated
     release_stage: stable
     runtime:
       dashscope:
