@@ -17,7 +17,10 @@ Sources, agreed 2026-09-13:
 Video is quoted in CNY already; text and image need no FX because newapi bills 1 unit = ¥1.
 
 Users are charged in one unit per stage — video per second, image per image, text and voice
-per 1000 characters — because nobody can reason about a price quoted per million tokens.
+per 1000 characters — and every rate is a whole number of credits, so a bill can be worked
+out in your head. Rounding a rate up only adds margin, which is why the cheap tiers sit well
+above the 120% target rather than at it.
+
 Vendors bill text by token, so the per-character price assumes TOKENS_PER_CHAR below.
 """
 
@@ -138,12 +141,14 @@ def main() -> int:
 
     per_yuan = (1 + RULE["target_markup"]) / RULE["l1_discount"] / RULE["credit_face_value_cny"]
     print(f"{len(items)} items -> {SEED.relative_to(Path.cwd()) if SEED.is_relative_to(Path.cwd()) else SEED}")
-    units = {"second": "每秒", "image": "每张", "chars_1k": "每千字"}
+    units = {"second": "积分/秒", "image": "积分/张", "chars_1k": "积分/千字"}
     for item in items:
         raw = item["purchase_price_cny"] * per_yuan
+        rate = max(math.ceil(raw - 1e-9), RULE["min_credits"])
+        margin = rate * RULE["credit_face_value_cny"] * RULE["l1_discount"] / item["purchase_price_cny"] - 1
         spec = ",".join(f"{k}={v}" for k, v in item["match"].items()) or "-"
         print(f'  {item["stage"]:6} {item["model_id"]:40} {spec:16} ¥{item["purchase_price_cny"]:<10} '
-              f'{raw:>8.3f} 积分{units[item["billing_unit"]]}')
+              f'{rate:>4} {units[item["billing_unit"]]:9} (真实 {raw:6.3f}, 利润 {margin:>6.0%})')
     return 0
 
 

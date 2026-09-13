@@ -23,13 +23,6 @@ const UNITS: Record<PriceItemKind, BillingUnit> = { video: "second", image: "ima
 
 type Tab = "rule" | "items" | "versions" | "roles";
 
-/** A unit can cost a fraction of a credit, so show enough digits to tell rows apart. */
-function formatRate(credits: number): string {
-    if (credits >= 10) return credits.toFixed(0);
-    if (credits >= 1) return credits.toFixed(1);
-    return credits.toFixed(3);
-}
-
 /**
  * Root console for the credit ratio and the price book.
  *
@@ -317,8 +310,13 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                                         : item.purchase_price_cny}
                                 </td>
                                 <td className={styles.strong}>
-                                    {formatRate(item.credits_raw ?? item.credits)}
+                                    {item.credits}
                                     <span className={styles.unit}>{t(`unit.${item.unit}`)}</span>
+                                    {/* Rounding a rate up to a whole credit can leave a lot of
+                                        headroom on cheap models; show what the cost really is. */}
+                                    {item.credits_raw !== undefined && item.credits - item.credits_raw > 0.05 && (
+                                        <span className={styles.headroom}>{t("actualCost", { credits: item.credits_raw.toFixed(2) })}</span>
+                                    )}
                                 </td>
                                 <td>¥{item.list_price_cny.toFixed(2)}</td>
                                 <td>¥{item.l1_price_cny.toFixed(2)}</td>

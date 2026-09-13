@@ -33,17 +33,17 @@ beforeEach(() => {
 
 describe("creditsFor", () => {
     it("prefers the most specific matching spec", () => {
-        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p" })).toBe(26.4);
-        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p", audio: true })).toBe(39.6);
+        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p" })).toBe(27);
+        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p", audio: true })).toBe(40);
     });
 
     it("matches items with no spec constraints", () => {
-        expect(creditsFor(PRICING, "wan/wan2.7-image#image", { size_tier: "2K" })).toBe(8.8);
+        expect(creditsFor(PRICING, "wan/wan2.7-image#image", { size_tier: "2K" })).toBe(9);
     });
 
-    it("returns the unrounded rate so a long text task is not billed at the rounded-up 1", () => {
-        // 0.158 per 1000 characters, not the 1 the table displays
-        expect(creditsFor(PRICING, "text/DeepSeek-V4.1-Flash", { direction: "out" })).toBe(0.158);
+    it("returns the whole rate the server charges, not the underlying cost", () => {
+        // text rounds up to 1 credit per 1000 characters, which is what a user is billed
+        expect(creditsFor(PRICING, "text/DeepSeek-V4.1-Flash", { direction: "out" })).toBe(1);
     });
 
     it("returns null for unpriced models, specs and a missing table", () => {

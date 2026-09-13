@@ -57,3 +57,6 @@
 .danger ul { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
 .danger li { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
 .linkButton { color: var(--color-primary); font-size: 12px; text-decoration: underline; }
+
+.unit { margin-left: 3px; color: var(--color-text-secondary); font-size: 10px; font-weight: 400; }
+.headroom { display: block; margin-top: 1px; color: var(--color-text-muted, var(--color-text-secondary)); font-size: 10px; font-weight: 400; opacity: 0.75; }

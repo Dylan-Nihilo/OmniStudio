@@ -3014,7 +3014,8 @@
         "second": " 积分/秒",
         "image": " 积分/张",
         "chars_1k": " 积分/千字"
-      }
+      },
+      "actualCost": "实际成本 {credits}"
     }
   }
 }

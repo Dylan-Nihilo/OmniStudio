@@ -66,7 +66,7 @@ def test_setup_user_becomes_root_and_admin_routes_are_guarded(tmp_path: Path, mo
 
         quote = client.post("/billing/quote", json={"model_id": "happyhorse/happyhorse-1.1-video#i2v",
                                                     "params": {"resolution": "1080p"}, "quantity": 5}).json()
-        assert quote["credits"] == 264 and quote["price_book_version"] == 1
+        assert quote["credits"] == 265 and quote["price_book_version"] == 1
 
         table = client.get("/billing/pricing-table").json()
         assert table["version"] == 1 and table["items"][0]["credits"] == 53
@@ -76,7 +76,7 @@ def test_setup_user_becomes_root_and_admin_routes_are_guarded(tmp_path: Path, mo
         updated = client.put("/admin/pricing/rule", json={"target_markup": 1.5}).json()
         assert updated["credits_per_yuan"] == 50.0 and updated["draft_table"][0]["credits"] == 60
         assert client.post("/billing/quote", json={"model_id": "happyhorse/happyhorse-1.1-video#i2v",
-                                                   "params": {"resolution": "1080p"}, "quantity": 5}).json()["credits"] == 264
+                                                   "params": {"resolution": "1080p"}, "quantity": 5}).json()["credits"] == 265
         client.post("/admin/pricing/publish", json={"note": "v2"})
         assert client.post("/billing/quote", json={"model_id": "happyhorse/happyhorse-1.1-video#i2v",
                                                    "params": {"resolution": "1080p"}, "quantity": 5}).json()["credits"] == 300

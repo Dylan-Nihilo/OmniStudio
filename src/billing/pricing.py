@@ -52,15 +52,14 @@ class CreditRule:
         stepped = math.ceil(raw / self.rounding_step - 1e-9) * self.rounding_step
         return max(int(stepped), self.min_credits)
 
-    def charge(self, raw_per_unit: float, quantity: float) -> int:
-        """Round once on the total.
+    def charge(self, unit_credits: int, quantity: float) -> int:
+        """Charge a whole-credit unit rate for a real quantity.
 
-        Rounding per unit and then multiplying would inflate any unit whose true rate sits
-        below one credit: text at 0.16 credits per 1000 characters would bill a whole credit
-        per 1000, six times the real cost.
+        Every rate in the price book is a whole number of credits, so a user can multiply it
+        by seconds, images or thousands of characters in their head. That is worth more than
+        shaving the last fraction off a bill, and rounding up only ever adds margin.
         """
-        total = raw_per_unit * quantity
-        stepped = math.ceil(total / self.rounding_step - 1e-9) * self.rounding_step
+        stepped = math.ceil(unit_credits * quantity / self.rounding_step - 1e-9) * self.rounding_step
         return max(int(stepped), self.min_credits)
 
     def markup_for(self, price_cny: float, credits: int) -> float:
@@ -110,7 +109,8 @@ class PriceItem:
             self.purchase_price_cny, self.multiplier)
 
     def raw_credits(self, rule: CreditRule) -> float:
-        """Unrounded per-unit price, used to charge a real quantity."""
+        """Unrounded per-unit price. Informational: shows root how much headroom the
+        rounded-up rate leaves over the real cost. Charging uses the whole rate."""
         if self.credits_override is not None:
             return float(self.credits_override)
         return rule.raw_credits_for_price(self.purchase_price_cny, self.multiplier)
@@ -153,18 +153,18 @@ class PriceBookSnapshot:
 
     def quote(self, model_id: str, params: dict[str, Any], quantity: float = 1.0) -> Quote:
         item = self.find(model_id, params)
-        return Quote(item.item_id, item.credits(self.rule), quantity,
-                     self.rule.charge(item.raw_credits(self.rule), quantity), self.version,
+        unit = item.credits(self.rule)
+        return Quote(item.item_id, unit, quantity, self.rule.charge(unit, quantity), self.version,
                      {"billing_unit": item.billing_unit})
 
     def quote_text(self, model_id: str, chars_in: int, chars_out: int) -> Quote:
         """Text bills per 1000 characters, with separate rates for what goes in and comes out."""
         item_in = self.find(model_id, {"direction": "in"})
         item_out = self.find(model_id, {"direction": "out"})
-        total = (item_in.raw_credits(self.rule) * chars_in / 1000
-                 + item_out.raw_credits(self.rule) * chars_out / 1000)
-        return Quote(item_in.item_id, item_in.credits(self.rule), (chars_in + chars_out) / 1000,
-                     self.rule.charge(total, 1.0), self.version,
+        rate_in, rate_out = item_in.credits(self.rule), item_out.credits(self.rule)
+        total = rate_in * chars_in / 1000 + rate_out * chars_out / 1000
+        return Quote(item_in.item_id, rate_in, (chars_in + chars_out) / 1000,
+                     max(math.ceil(total - 1e-9), self.rule.min_credits), self.version,
                      {"chars_in": chars_in, "chars_out": chars_out})
 
     def table(self) -> list[dict[str, Any]]:
