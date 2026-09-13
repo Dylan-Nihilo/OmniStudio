@@ -7,22 +7,23 @@ Sources, agreed 2026-09-13:
     channel we actually buy through: Seedance 2.0 字节厂商 (86折), Seedance 2.5 字节厂商 (85折),
     MiniMax Hailuo 2.3 自部署 (62折). Seedance modes all take image references, never a video,
     so every row uses the 「不含视频」 column.
-  * Text and image — newapi list price (kaizo.top /api/pricing, model_ratio x $2 per 1M tokens,
-    model_price per call). List price rather than our group rate, so any discount we negotiate
-    turns into extra margin instead of forcing a reprice.
+  * Text — newapi list price (kaizo.top /api/pricing, model_ratio x $2 per 1M tokens) times our
+    per-vendor multiplier. newapi settles its quota unit 1:1 against CNY, so a list price of
+    "$5" times a 1.8 multiplier costs ¥9 per million tokens.
+  * Image — our supplier's per-image cost, flat for the Gemini models and tiered by resolution
+    for gpt-image-2.
   * Voice — 百炼 (DashScope) official price per 10k characters.
 
-FX 6.7 CNY/USD, the rate the supplier's own quote sheet converts at.
+Video is quoted in CNY already; text and image need no FX because newapi bills 1 unit = ¥1.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 SEED = Path(__file__).resolve().parents[1] / "config" / "pricing" / "price_book.seed.json"
-
-FX = 6.7
 
 RULE = {"credit_face_value_cny": 0.10, "l1_discount": 0.50, "target_markup": 1.20,
         "rounding_step": 1, "min_credits": 1}
@@ -34,10 +35,6 @@ TOKENS_PER_SECOND = {"480p": 854 * 480 * 24 // 1024, "720p": 1280 * 720 * 24 // 
 
 def per_second(cny_per_million_tokens: float, resolution: str) -> float:
     return cny_per_million_tokens * TOKENS_PER_SECOND[resolution] / 1_000_000
-
-
-def usd(amount: float) -> float:
-    return round(amount * FX, 4)
 
 
 # --- video -----------------------------------------------------------------
@@ -64,30 +61,42 @@ for resolution, price in MINIMAX.items():
                   "match": {"resolution": resolution}, "purchase_price_cny": price,
                   "display_name": "MiniMax Hailuo 2.3"})
 
-# --- text ------------------------------------------------------------------
-# Model ids must equal the name the LLM adapter sends upstream, which is the newapi model name.
+# --- text -----------------------------------------------------------------
+# Cost = newapi list price x the multiplier we are charged for that vendor's pool.
+# Model ids must equal the name the LLM adapter sends upstream, i.e. the newapi model name.
+TEXT_MULTIPLIER = {"deepseek": 0.6, "gemini": 0.8, "gpt": 0.8, "claude": 1.8}
 TEXT = [
-    ("标准", "DeepSeek-V4.1-Flash", 1.5, 6.0),
-    ("高级", "gemini-3.7-flash", 1.5, 5.625),
-    ("卓越", "gpt-5.6-sol", 5.0, 40.0),
-    ("极致", "claude-opus-5", 5.0, 25.0),
+    # tier, newapi model name, vendor, list price in, list price out
+    ("标准", "DeepSeek-V4.1-Flash", "deepseek", 1.5, 6.0),
+    ("高级", "gemini-3.7-flash", "gemini", 1.5, 5.625),
+    ("卓越", "gpt-5.6-sol", "gpt", 5.0, 40.0),
+    ("极致", "claude-opus-5", "claude", 5.0, 25.0),
 ]
 text = [{"model_id": f"text/{name}", "stage": "text", "billing_unit": "token_1m",
-         "match": {"direction": direction}, "purchase_price_cny": usd(price), "display_name": tier}
-        for tier, name, price_in, price_out in TEXT
+         "match": {"direction": direction},
+         "purchase_price_cny": round(price * TEXT_MULTIPLIER[vendor], 4), "display_name": tier}
+        for tier, name, vendor, price_in, price_out in TEXT
         for direction, price in (("in", price_in), ("out", price_out))]
 
 # --- image -----------------------------------------------------------------
-# gemini-3.1-pro-preview bills per token; an image is ~1120 output tokens at 1K/2K
-# (Gemini 3 Pro Image's published figure), so $18/1M x 1120 = $0.02016 per image.
-GEMINI_IMAGE_TOKENS = 1120
+# Supplier cost per image in CNY. The Gemini models bill one price at every size; gpt-image-2
+# is tiered, plus a catch-all at the top tier so a request whose size we cannot read is charged
+# the most rather than refused.
 image = [
-    {"model_id": "gemini/gemini-3.1-pro-preview#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": usd(18.0 * GEMINI_IMAGE_TOKENS / 1_000_000), "display_name": "标准"},
+    {"model_id": "gemini/gemini-image-lite#image", "stage": "image", "billing_unit": "image",
+     "match": {}, "purchase_price_cny": 0.06, "display_name": "标准"},
+    {"model_id": "gemini/gemini-image-flash#image", "stage": "image", "billing_unit": "image",
+     "match": {}, "purchase_price_cny": 0.08, "display_name": "高级"},
+    {"model_id": "gemini/gemini-image-pro#image", "stage": "image", "billing_unit": "image",
+     "match": {}, "purchase_price_cny": 0.16, "display_name": "卓越"},
     {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": usd(0.2), "display_name": "高级"},
-    {"model_id": "gpt-image/gpt-image-2.5-sunburst#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": usd(0.2), "display_name": "卓越"},
+     "match": {"size_tier": "1K"}, "purchase_price_cny": 0.06, "display_name": "GPT Image 2"},
+    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
+     "match": {"size_tier": "2K"}, "purchase_price_cny": 0.10, "display_name": "GPT Image 2"},
+    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
+     "match": {"size_tier": "4K"}, "purchase_price_cny": 0.12, "display_name": "GPT Image 2"},
+    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
+     "match": {}, "purchase_price_cny": 0.12, "display_name": "GPT Image 2 (尺寸未知)"},
 ]
 
 # --- voice -----------------------------------------------------------------
@@ -101,8 +110,9 @@ voice = [{"model_id": model_id, "stage": "tts", "billing_unit": "chars_10k", "ma
 def main() -> int:
     items = video + text + image + voice
     doc = {
-        "note": ("2026-09-13 供应商报价：视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、"
-                 "MiniMax 自部署）；文本/图片=newapi 刊例原价（汇率 6.7）；配音=百炼官方价。"
+        "note": ("2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；"
+                 "文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）；"
+                 "图片=供应商每张成本；配音=百炼官方价。"
                  "match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。"),
         "rule": RULE,
         "items": items,
@@ -111,7 +121,6 @@ def main() -> int:
 
     per_yuan = (1 + RULE["target_markup"]) / RULE["l1_discount"] / RULE["credit_face_value_cny"]
     print(f"{len(items)} items -> {SEED.relative_to(Path.cwd()) if SEED.is_relative_to(Path.cwd()) else SEED}")
-    import math
     for item in items:
         credits = max(math.ceil(item["purchase_price_cny"] * per_yuan), RULE["min_credits"])
         spec = ",".join(f"{k}={v}" for k, v in item["match"].items()) or "-"

@@ -1,5 +1,5 @@
 {
-  "note": "2026-09-13 供应商报价：视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本/图片=newapi 刊例原价（汇率 6.7）；配音=百炼官方价。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
+  "note": "2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）；图片=供应商每张成本；配音=百炼官方价。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -155,7 +155,7 @@
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 10.05,
+      "purchase_price_cny": 0.9,
       "display_name": "标准"
     },
     {
@@ -165,7 +165,7 @@
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 40.2,
+      "purchase_price_cny": 3.6,
       "display_name": "标准"
     },
     {
@@ -175,7 +175,7 @@
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 10.05,
+      "purchase_price_cny": 1.2,
       "display_name": "高级"
     },
     {
@@ -185,7 +185,7 @@
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 37.6875,
+      "purchase_price_cny": 4.5,
       "display_name": "高级"
     },
     {
@@ -195,7 +195,7 @@
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 33.5,
+      "purchase_price_cny": 4.0,
       "display_name": "卓越"
     },
     {
@@ -205,7 +205,7 @@
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 268.0,
+      "purchase_price_cny": 32.0,
       "display_name": "卓越"
     },
     {
@@ -215,7 +215,7 @@
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 33.5,
+      "purchase_price_cny": 9.0,
       "display_name": "极致"
     },
     {
@@ -225,32 +225,70 @@
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 167.5,
+      "purchase_price_cny": 45.0,
       "display_name": "极致"
     },
     {
-      "model_id": "gemini/gemini-3.1-pro-preview#image",
+      "model_id": "gemini/gemini-image-lite#image",
       "stage": "image",
       "billing_unit": "image",
       "match": {},
-      "purchase_price_cny": 0.1351,
+      "purchase_price_cny": 0.06,
       "display_name": "标准"
+    },
+    {
+      "model_id": "gemini/gemini-image-flash#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {},
+      "purchase_price_cny": 0.08,
+      "display_name": "高级"
+    },
+    {
+      "model_id": "gemini/gemini-image-pro#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {},
+      "purchase_price_cny": 0.16,
+      "display_name": "卓越"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size_tier": "1K"
+      },
+      "purchase_price_cny": 0.06,
+      "display_name": "GPT Image 2"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size_tier": "2K"
+      },
+      "purchase_price_cny": 0.1,
+      "display_name": "GPT Image 2"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size_tier": "4K"
+      },
+      "purchase_price_cny": 0.12,
+      "display_name": "GPT Image 2"
     },
     {
       "model_id": "gpt-image/gpt-image-2#image",
       "stage": "image",
       "billing_unit": "image",
       "match": {},
-      "purchase_price_cny": 1.34,
-      "display_name": "高级"
-    },
-    {
-      "model_id": "gpt-image/gpt-image-2.5-sunburst#image",
-      "stage": "image",
-      "billing_unit": "image",
-      "match": {},
-      "purchase_price_cny": 1.34,
-      "display_name": "卓越"
+      "purchase_price_cny": 0.12,
+      "display_name": "GPT Image 2 (尺寸未知)"
     },
     {
       "model_id": "tts/cosyvoice-v2",

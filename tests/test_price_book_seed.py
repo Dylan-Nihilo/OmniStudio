@@ -48,7 +48,7 @@ class _Catalog:
 
 def test_seed_publishes_and_every_row_clears_the_margin_target(published):
     table = published.runtime.require_current().table()
-    assert len(table) == 30
+    assert len(table) == 34
     assert [row["item_id"] for row in table if not row["meets_target"]] == []
 
 
@@ -61,9 +61,12 @@ def test_seed_publishes_and_every_row_clears_the_margin_target(published):
         # MiniMax prices by its own resolution names
         ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "2K"}, "quantity": 5}, 110),
         ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "1K"}, "quantity": 10}, 140),
-        # image: one price per model at any size, so every size tier must still quote
-        ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "1024*1024"}, "quantity": 1}, 59),
-        ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "3840x2160", "quality": "high"}, "quantity": 4}, 236),
+        # image: gpt-image-2 is tiered by resolution, and quality must not block the match
+        ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "1024*1024"}, "quantity": 1}, 3),
+        ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "2048*2048", "quality": "high"}, "quantity": 4}, 20),
+        ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "3840x2160"}, "quantity": 1}, 6),
+        # a size we cannot read falls back to the top tier rather than being refused
+        ({"model_id": "gpt-image-2", "stage": "image", "params": {}, "quantity": 1}, 6),
     ],
 )
 def test_specs_the_app_sends_resolve_to_a_price(published, spec, expected_credits):
@@ -73,8 +76,8 @@ def test_specs_the_app_sends_resolve_to_a_price(published, spec, expected_credit
 
 def test_text_and_tts_quote_through_their_own_entry_points(published):
     # the model id is whatever the LLM adapter sends upstream, i.e. the newapi model name
-    assert published.runtime.quote_text("text/DeepSeek-V4.1-Flash", 20_000, 5_000).credits == 18
-    assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 67
+    assert published.runtime.quote_text("text/DeepSeek-V4.1-Flash", 20_000, 5_000).credits == 2
+    assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 18
     # TTS passes no variant, so each voice model needs a catch-all row
     assert published.runtime.quote("tts/cosyvoice-v2", {}, 600 / 10_000).credits == 6
 
@@ -85,3 +88,20 @@ def test_a_spec_outside_the_price_book_is_refused_rather_than_free(published):
         # Seedance 2.0 is only priced at 720p/1080p, matching the resolutions the catalog offers
         hook.quote_spec({"model_id": "seedance-2.0-i2v", "stage": "video", "params": {"resolution": "480p"}, "quantity": 5})
     assert error.value.code == "PRICING_ITEM_NOT_FOUND"
+
+
+def test_text_tiers_get_more_expensive_in_order(published):
+    """标准 < 高级 < 卓越 < 极致 on output tokens, which dominate a script-writing bill."""
+    snapshot = published.runtime.require_current()
+    costs = [snapshot.quote(f"text/{name}", {"direction": "out"}, 1).credits for name in
+             ("DeepSeek-V4.1-Flash", "gemini-3.7-flash", "gpt-5.6-sol", "claude-opus-5")]
+    assert costs == sorted(costs), costs
+
+
+def test_every_image_stays_inside_the_price_band_we_promised(published):
+    """每张图的标价落在 1 毛到 1 元之间——低于说明成本填错了，高于说明档位选错了。"""
+    snapshot = published.runtime.require_current()
+    for row in snapshot.table():
+        if row["stage"] != "image":
+            continue
+        assert 0.1 <= row["credits"] * snapshot.rule.credit_face_value_cny <= 1.0, row
