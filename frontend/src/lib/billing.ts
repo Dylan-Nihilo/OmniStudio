@@ -36,13 +36,19 @@ export interface QuoteResult {
     price_book_version: number;
 }
 
+/** One credit unit per stage: video per second, image per image, text and voice per 1000 characters. */
+export type BillingUnit = "second" | "image" | "chars_1k";
+
 export interface PricingTableRow {
     item_id: string;
     model_id: string;
     stage: "text" | "image" | "video" | "tts";
-    unit: string;
+    unit: BillingUnit;
     match: Record<string, unknown>;
+    /** Rounded rate for one unit; a rate below one credit rounds up to 1 here. */
     credits: number;
+    /** Unrounded rate, the honest number when a unit costs a fraction of a credit. */
+    credits_raw: number;
     display_name: string;
 }
 
@@ -148,7 +154,7 @@ export const billingAdminApi = {
     upsertItem: async (item: {
         model_id: string;
         stage: string;
-        billing_unit: string;
+        billing_unit: BillingUnit;
         match?: Record<string, unknown>;
         purchase_price_cny: number;
         multiplier?: number;

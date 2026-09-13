@@ -3008,7 +3008,13 @@
       },
       "unpricedHint": "{count} model(s) the picker offers have no price. After publishing, generating with them fails outright as unpriced. Click a name to prefill the form below.",
       "notWired": "not wired",
-      "notWiredHint": "Models marked “not wired” are registered in the catalog but have no working provider route yet; their price is kept and takes effect once the route works."
+      "notWiredHint": "Models marked “not wired” are registered in the catalog but have no working provider route yet; their price is kept and takes effect once the route works.",
+      "creditsPerUnit": "Rate",
+      "unit": {
+        "second": " credits/sec",
+        "image": " credits/image",
+        "chars_1k": " credits/1k chars"
+      }
     }
   }
 }

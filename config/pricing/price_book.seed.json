@@ -1,5 +1,5 @@
 {
-  "note": "2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）；图片=供应商每张成本；配音=百炼官方价。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
+  "note": "2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1），按 1 字=1 token 折成每千字；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -151,81 +151,81 @@
     {
       "model_id": "text/DeepSeek-V4.1-Flash",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 0.9,
+      "purchase_price_cny": 0.0009,
       "display_name": "标准"
     },
     {
       "model_id": "text/DeepSeek-V4.1-Flash",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 3.6,
+      "purchase_price_cny": 0.0036,
       "display_name": "标准"
     },
     {
       "model_id": "text/gemini-3.7-flash",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 1.2,
+      "purchase_price_cny": 0.0012,
       "display_name": "高级"
     },
     {
       "model_id": "text/gemini-3.7-flash",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 4.5,
+      "purchase_price_cny": 0.0045,
       "display_name": "高级"
     },
     {
       "model_id": "text/gpt-5.6-sol",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 4.0,
+      "purchase_price_cny": 0.004,
       "display_name": "卓越"
     },
     {
       "model_id": "text/gpt-5.6-sol",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 32.0,
+      "purchase_price_cny": 0.032,
       "display_name": "卓越"
     },
     {
       "model_id": "text/claude-opus-5",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "in"
       },
-      "purchase_price_cny": 9.0,
+      "purchase_price_cny": 0.009,
       "display_name": "极致"
     },
     {
       "model_id": "text/claude-opus-5",
       "stage": "text",
-      "billing_unit": "token_1m",
+      "billing_unit": "chars_1k",
       "match": {
         "direction": "out"
       },
-      "purchase_price_cny": 45.0,
+      "purchase_price_cny": 0.045,
       "display_name": "极致"
     },
     {
@@ -293,41 +293,41 @@
     {
       "model_id": "tts/cosyvoice-v2",
       "stage": "tts",
-      "billing_unit": "chars_10k",
+      "billing_unit": "chars_1k",
       "match": {},
-      "purchase_price_cny": 2.0,
+      "purchase_price_cny": 0.2,
       "display_name": "标准"
     },
     {
       "model_id": "tts/cosyvoice-v3-flash",
       "stage": "tts",
-      "billing_unit": "chars_10k",
+      "billing_unit": "chars_1k",
       "match": {},
-      "purchase_price_cny": 1.0,
+      "purchase_price_cny": 0.1,
       "display_name": "快速"
     },
     {
       "model_id": "tts/cosyvoice-v3-plus",
       "stage": "tts",
-      "billing_unit": "chars_10k",
+      "billing_unit": "chars_1k",
       "match": {},
-      "purchase_price_cny": 2.0,
+      "purchase_price_cny": 0.2,
       "display_name": "高清"
     },
     {
       "model_id": "tts/cosyvoice-v3.5-plus",
       "stage": "tts",
-      "billing_unit": "chars_10k",
+      "billing_unit": "chars_1k",
       "match": {},
-      "purchase_price_cny": 1.5,
+      "purchase_price_cny": 0.15,
       "display_name": "克隆音色"
     },
     {
       "model_id": "tts/qwen3-tts-flash",
       "stage": "tts",
-      "billing_unit": "chars_10k",
+      "billing_unit": "chars_1k",
       "match": {},
-      "purchase_price_cny": 0.8,
+      "purchase_price_cny": 0.08,
       "display_name": "Qwen TTS"
     }
   ]

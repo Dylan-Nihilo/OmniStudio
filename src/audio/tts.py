@@ -385,7 +385,7 @@ class TTSProcessor:
 
 
 def _charge_tts_usage(model: str, text: str, result) -> None:
-    """Charge the workspace per 10k synthesized characters. Never raises: the audio already exists."""
+    """Charge the workspace per 1000 synthesized characters. Never raises: the audio already exists."""
     from ..billing.metering import billing_enabled, current_workspace_id
 
     if not billing_enabled() or not text:
@@ -400,7 +400,7 @@ def _charge_tts_usage(model: str, text: str, result) -> None:
 
         meter = _text_meter or TextMeter(BillingServices.build(create_engine()))
         request_id = (result[2] if isinstance(result, tuple) and len(result) > 2 else None) or uuid.uuid4()
-        meter.charge_chars(workspace_id, model, len(text), f"tts:{workspace_id}:{request_id}")
+        meter.charge_voice(workspace_id, model, len(text), f"tts:{workspace_id}:{request_id}")
     except Exception:  # noqa: BLE001
         logger.exception("Failed to charge TTS usage for model %s", model)
 

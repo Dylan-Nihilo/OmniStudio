@@ -247,23 +247,32 @@ class TextMeter:
         if self.services.wallets.balance(wallet_id)["available"] < minimum:
             raise BillingError("INSUFFICIENT_CREDITS", "积分不足，无法继续生成", status_code=402)
 
-    def charge_tokens(self, workspace_id: str | None, model_id: str, tokens_in: int, tokens_out: int,
-                      idempotency_key: str) -> int:
+    def charge_text(self, workspace_id: str | None, model_id: str, chars_in: int, chars_out: int,
+                    idempotency_key: str, *, tokens: str = "") -> int:
+        """Charge an LLM call per 1000 characters of prompt and completion.
+
+        Characters rather than tokens because that is the unit users see; the token counts the
+        provider reported ride along in the ledger reason so the assumed characters-per-token
+        ratio can be audited against reality.
+        """
         wallet_id = self._wallet_id(workspace_id)
         if wallet_id is None:
             return 0
         quote = self.services.runtime.quote_text(f"text/{model_id}" if "/" not in model_id else model_id,
-                                                  tokens_in, tokens_out)
-        return self.services.wallets.debit(wallet_id, quote, idempotency_key, reason=f"llm:{model_id}")
+                                                  chars_in, chars_out)
+        reason = f"llm:{model_id} chars={chars_in}/{chars_out}" + (f" tokens={tokens}" if tokens else "")
+        return self.services.wallets.debit(wallet_id, quote, idempotency_key, reason=reason)
 
-    def charge_chars(self, workspace_id: str | None, model_id: str, chars: int, idempotency_key: str,
+    def charge_voice(self, workspace_id: str | None, model_id: str, chars: int, idempotency_key: str,
                      variant: str | None = None) -> int:
+        """Charge a TTS call per 1000 characters, the same unit as text."""
         wallet_id = self._wallet_id(workspace_id)
         if wallet_id is None:
             return 0
         params = {"variant": variant} if variant else {}
-        quote = self.services.runtime.quote(f"tts/{model_id}" if "/" not in model_id else model_id, params, chars / 10_000)
-        return self.services.wallets.debit(wallet_id, quote, idempotency_key, reason=f"tts:{model_id}")
+        quote = self.services.runtime.quote(f"tts/{model_id}" if "/" not in model_id else model_id, params, chars / 1000)
+        return self.services.wallets.debit(wallet_id, quote, idempotency_key,
+                                            reason=f"tts:{model_id} chars={chars}")
 
 
 def billing_hook_for(app_state: Any) -> JobBillingHook | None:

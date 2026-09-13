@@ -65,7 +65,13 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     },
 }));
 
-/** Credits for a model + spec, or null when the item has no price (or billing is off). */
+/**
+ * Unrounded credits per unit for a model + spec, or null when the item has no price.
+ *
+ * Returns the raw rate, not the rounded one: text costs a fraction of a credit per 1000
+ * characters, and multiplying the rounded 1 would overstate a long script several times over.
+ * The caller rounds once, after multiplying by the quantity, exactly like the server does.
+ */
 export function creditsFor(pricing: PricingTable | null, modelId: string, params: Record<string, unknown> = {}): number | null {
     if (!pricing) return null;
     const candidates = pricing.items.filter((item) => item.model_id === modelId
@@ -73,5 +79,5 @@ export function creditsFor(pricing: PricingTable | null, modelId: string, params
     if (!candidates.length) return null;
     // Most specific match wins, mirroring PriceBookSnapshot.find on the server.
     const best = candidates.reduce((a, b) => (Object.keys(b.match).length > Object.keys(a.match).length ? b : a));
-    return best.credits;
+    return best.credits_raw ?? best.credits;
 }

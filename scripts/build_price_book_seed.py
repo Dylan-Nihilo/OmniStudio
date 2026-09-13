@@ -15,6 +15,10 @@ Sources, agreed 2026-09-13:
   * Voice — 百炼 (DashScope) official price per 10k characters.
 
 Video is quoted in CNY already; text and image need no FX because newapi bills 1 unit = ¥1.
+
+Users are charged in one unit per stage — video per second, image per image, text and voice
+per 1000 characters — because nobody can reason about a price quoted per million tokens.
+Vendors bill text by token, so the per-character price assumes TOKENS_PER_CHAR below.
 """
 
 from __future__ import annotations
@@ -65,6 +69,10 @@ for resolution, price in MINIMAX.items():
 # Cost = newapi list price x the multiplier we are charged for that vendor's pool.
 # Model ids must equal the name the LLM adapter sends upstream, i.e. the newapi model name.
 TEXT_MULTIPLIER = {"deepseek": 0.6, "gemini": 0.8, "gpt": 0.8, "claude": 1.8}
+# Vendors bill tokens, users are charged characters. Chinese runs 0.6-0.8 tokens per character
+# on every tokenizer these models use, so 1.0 deliberately over-states it: we can never end up
+# charging less than the tokens actually cost, and the gap is extra margin.
+TOKENS_PER_CHAR = 1.0
 TEXT = [
     # tier, newapi model name, vendor, list price in, list price out
     ("标准", "DeepSeek-V4.1-Flash", "deepseek", 1.5, 6.0),
@@ -72,9 +80,14 @@ TEXT = [
     ("卓越", "gpt-5.6-sol", "gpt", 5.0, 40.0),
     ("极致", "claude-opus-5", "claude", 5.0, 25.0),
 ]
-text = [{"model_id": f"text/{name}", "stage": "text", "billing_unit": "token_1m",
+def per_1k_chars(price_per_million_tokens: float, vendor: str) -> float:
+    tokens = 1000 * TOKENS_PER_CHAR
+    return round(price_per_million_tokens * TEXT_MULTIPLIER[vendor] * tokens / 1_000_000, 6)
+
+
+text = [{"model_id": f"text/{name}", "stage": "text", "billing_unit": "chars_1k",
          "match": {"direction": direction},
-         "purchase_price_cny": round(price * TEXT_MULTIPLIER[vendor], 4), "display_name": tier}
+         "purchase_price_cny": per_1k_chars(price, vendor), "display_name": tier}
         for tier, name, vendor, price_in, price_out in TEXT
         for direction, price in (("in", price_in), ("out", price_out))]
 
@@ -100,19 +113,23 @@ image = [
 ]
 
 # --- voice -----------------------------------------------------------------
+# 百炼 quotes per 10k characters; divided by ten so voice shares the text unit.
 VOICE = [("tts/cosyvoice-v2", 2.0, "标准"), ("tts/cosyvoice-v3-flash", 1.0, "快速"),
          ("tts/cosyvoice-v3-plus", 2.0, "高清"), ("tts/cosyvoice-v3.5-plus", 1.5, "克隆音色"),
          ("tts/qwen3-tts-flash", 0.8, "Qwen TTS")]
-voice = [{"model_id": model_id, "stage": "tts", "billing_unit": "chars_10k", "match": {},
-          "purchase_price_cny": price, "display_name": label} for model_id, price, label in VOICE]
+voice = [{"model_id": model_id, "stage": "tts", "billing_unit": "chars_1k", "match": {},
+          "purchase_price_cny": round(price_per_10k / 10, 6), "display_name": label}
+         for model_id, price_per_10k, label in VOICE]
 
 
 def main() -> int:
     items = video + text + image + voice
     doc = {
         "note": ("2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；"
-                 "文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）；"
-                 "图片=供应商每张成本；配音=百炼官方价。"
+                 "文本=newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1），"
+                 "按 1 字=1 token 折成每千字；"
+                 "图片=供应商每张成本；配音=百炼官方价折成每千字。"
+                 "计费单位：视频每秒、图片每张、文本与配音每千字。"
                  "match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。"),
         "rule": RULE,
         "items": items,
@@ -121,10 +138,12 @@ def main() -> int:
 
     per_yuan = (1 + RULE["target_markup"]) / RULE["l1_discount"] / RULE["credit_face_value_cny"]
     print(f"{len(items)} items -> {SEED.relative_to(Path.cwd()) if SEED.is_relative_to(Path.cwd()) else SEED}")
+    units = {"second": "每秒", "image": "每张", "chars_1k": "每千字"}
     for item in items:
-        credits = max(math.ceil(item["purchase_price_cny"] * per_yuan), RULE["min_credits"])
+        raw = item["purchase_price_cny"] * per_yuan
         spec = ",".join(f"{k}={v}" for k, v in item["match"].items()) or "-"
-        print(f'  {item["stage"]:6} {item["model_id"]:44} {spec:18} ¥{item["purchase_price_cny"]:<9} {credits:>6} 积分')
+        print(f'  {item["stage"]:6} {item["model_id"]:40} {spec:16} ¥{item["purchase_price_cny"]:<10} '
+              f'{raw:>8.3f} 积分{units[item["billing_unit"]]}')
     return 0
 
 

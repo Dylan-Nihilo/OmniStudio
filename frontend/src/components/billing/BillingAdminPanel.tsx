@@ -8,6 +8,7 @@ import { Button, Dialog, IconButton, SelectField, TextField } from "@omnistudio/
 
 import {
     billingAdminApi,
+    type BillingUnit,
     type CreditRule,
     type PriceBookVersion,
     type PricingItemRow,
@@ -18,9 +19,16 @@ import { toast } from "@/store/toastStore";
 import styles from "./BillingAdminPanel.module.css";
 
 const STAGES: readonly PriceItemKind[] = ["video", "image", "text", "tts"];
-const UNITS: Record<PriceItemKind, string> = { video: "second", image: "image", text: "token_1m", tts: "chars_10k" };
+const UNITS: Record<PriceItemKind, BillingUnit> = { video: "second", image: "image", text: "chars_1k", tts: "chars_1k" };
 
 type Tab = "rule" | "items" | "versions" | "roles";
+
+/** A unit can cost a fraction of a credit, so show enough digits to tell rows apart. */
+function formatRate(credits: number): string {
+    if (credits >= 10) return credits.toFixed(0);
+    if (credits >= 1) return credits.toFixed(1);
+    return credits.toFixed(3);
+}
 
 /**
  * Root console for the credit ratio and the price book.
@@ -271,7 +279,7 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                 <thead>
                     <tr>
                         <th>{t("model")}</th><th>{t("spec")}</th><th>{t("purchasePrice")}</th>
-                        <th>{t("credits")}</th><th>{t("listPrice")}</th><th>{t("l1Price")}</th><th>{t("margin")}</th>
+                        <th>{t("creditsPerUnit")}</th><th>{t("listPrice")}</th><th>{t("l1Price")}</th><th>{t("margin")}</th>
                         {isRoot && <th className={styles.actionsHead}>{t("actions")}</th>}
                     </tr>
                 </thead>
@@ -308,7 +316,10 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                                                  onChange={(event) => setEdits((prev) => ({ ...prev, [item.item_id]: event.target.value }))} />
                                         : item.purchase_price_cny}
                                 </td>
-                                <td className={styles.strong}>{item.credits.toLocaleString()}</td>
+                                <td className={styles.strong}>
+                                    {formatRate(item.credits_raw ?? item.credits)}
+                                    <span className={styles.unit}>{t(`unit.${item.unit}`)}</span>
+                                </td>
                                 <td>¥{item.list_price_cny.toFixed(2)}</td>
                                 <td>¥{item.l1_price_cny.toFixed(2)}</td>
                                 <td>{(item.markup_vs_purchase * 100).toFixed(0)}%</td>

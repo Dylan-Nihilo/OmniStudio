@@ -13,7 +13,7 @@ interface CreditCostProps {
     modelId: string | null | undefined;
     /** Spec the price item matches on: resolution / mode / audio / size_tier / quality. */
     params?: Record<string, unknown>;
-    /** Seconds for video, images for image models. */
+    /** Seconds for video, images for image models, thousands of characters for text and voice. */
     quantity?: number;
     /** Ask the server instead of reading the cached table (use when the spec is unusual). */
     exact?: boolean;
@@ -49,7 +49,9 @@ export default function CreditCost({ modelId, params = {}, quantity = 1, exact =
     if (!enabled || !modelId) return null;
 
     const unit = creditsFor(pricing, modelId, params);
-    const credits = quoted ?? (unit === null ? null : Math.ceil(unit * quantity));
+    // Round once on the total, like the server: a unit that costs a fraction of a credit must
+    // not be rounded up before it is multiplied.
+    const credits = quoted ?? (unit === null ? null : Math.max(1, Math.ceil(unit * quantity - 1e-9)));
     if (credits === null) {
         return <span className={clsx(styles.cost, styles.unpriced)}>{t("unpriced")}</span>;
     }

@@ -15,11 +15,14 @@ const PRICING: PricingTable = {
     credit_face_value_cny: 0.1,
     items: [
         { item_id: "a", model_id: "wan/wan2.7-video#i2v", stage: "video", unit: "second",
-          match: { resolution: "720p" }, credits: 27, display_name: "" },
+          match: { resolution: "720p" }, credits: 27, credits_raw: 26.4, display_name: "" },
         { item_id: "b", model_id: "wan/wan2.7-video#i2v", stage: "video", unit: "second",
-          match: { resolution: "720p", audio: true }, credits: 40, display_name: "" },
+          match: { resolution: "720p", audio: true }, credits: 40, credits_raw: 39.6, display_name: "" },
         { item_id: "c", model_id: "wan/wan2.7-image#image", stage: "image", unit: "image",
-          match: {}, credits: 9, display_name: "" },
+          match: {}, credits: 9, credits_raw: 8.8, display_name: "" },
+        // text costs a fraction of a credit per unit, which is the case rounding must not break
+        { item_id: "d", model_id: "text/DeepSeek-V4.1-Flash", stage: "text", unit: "chars_1k",
+          match: { direction: "out" }, credits: 1, credits_raw: 0.158, display_name: "标准" },
     ],
 };
 
@@ -30,12 +33,17 @@ beforeEach(() => {
 
 describe("creditsFor", () => {
     it("prefers the most specific matching spec", () => {
-        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p" })).toBe(27);
-        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p", audio: true })).toBe(40);
+        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p" })).toBe(26.4);
+        expect(creditsFor(PRICING, "wan/wan2.7-video#i2v", { resolution: "720p", audio: true })).toBe(39.6);
     });
 
     it("matches items with no spec constraints", () => {
-        expect(creditsFor(PRICING, "wan/wan2.7-image#image", { size_tier: "2K" })).toBe(9);
+        expect(creditsFor(PRICING, "wan/wan2.7-image#image", { size_tier: "2K" })).toBe(8.8);
+    });
+
+    it("returns the unrounded rate so a long text task is not billed at the rounded-up 1", () => {
+        // 0.158 per 1000 characters, not the 1 the table displays
+        expect(creditsFor(PRICING, "text/DeepSeek-V4.1-Flash", { direction: "out" })).toBe(0.158);
     });
 
     it("returns null for unpriced models, specs and a missing table", () => {

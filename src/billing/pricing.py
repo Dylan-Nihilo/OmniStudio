@@ -40,11 +40,27 @@ class CreditRule:
     def l1_price_per_credit(self) -> float:
         return self.credit_face_value_cny * self.l1_discount
 
-    def credits_for_price(self, price_cny: float, multiplier: float = 1.0) -> int:
+    def raw_credits_for_price(self, price_cny: float, multiplier: float = 1.0) -> float:
+        """Credits for one unit before any rounding. May be far below 1 for fine units."""
         if price_cny < 0 or multiplier <= 0:
             raise ValueError("price must be >= 0 and multiplier > 0")
-        raw = price_cny * self.credits_per_yuan * multiplier
+        return price_cny * self.credits_per_yuan * multiplier
+
+    def credits_for_price(self, price_cny: float, multiplier: float = 1.0) -> int:
+        """Credits for one unit, rounded — what the price table displays."""
+        raw = self.raw_credits_for_price(price_cny, multiplier)
         stepped = math.ceil(raw / self.rounding_step - 1e-9) * self.rounding_step
+        return max(int(stepped), self.min_credits)
+
+    def charge(self, raw_per_unit: float, quantity: float) -> int:
+        """Round once on the total.
+
+        Rounding per unit and then multiplying would inflate any unit whose true rate sits
+        below one credit: text at 0.16 credits per 1000 characters would bill a whole credit
+        per 1000, six times the real cost.
+        """
+        total = raw_per_unit * quantity
+        stepped = math.ceil(total / self.rounding_step - 1e-9) * self.rounding_step
         return max(int(stepped), self.min_credits)
 
     def markup_for(self, price_cny: float, credits: int) -> float:
@@ -56,11 +72,14 @@ class CreditRule:
     def preview(self, price_cny: float, multiplier: float = 1.0, credits_override: int | None = None) -> dict[str, Any]:
         """后台“输入进货价 → 看积分”的即时预览"""
         credits = credits_override if credits_override is not None else self.credits_for_price(price_cny, multiplier)
+        raw = (float(credits_override) if credits_override is not None
+               else self.raw_credits_for_price(price_cny, multiplier))
         return {
             "purchase_price_cny": price_cny,
             "credits_per_yuan": round(self.credits_per_yuan, 4),
             "multiplier": multiplier,
             "credits": credits,
+            "credits_raw": round(raw, 4),
             "list_price_cny": round(credits * self.credit_face_value_cny, 4),
             "l1_price_cny": round(credits * self.l1_price_per_credit, 4),
             "markup_vs_purchase": round(self.markup_for(price_cny, credits), 4),
@@ -86,8 +105,15 @@ class PriceItem:
     enabled: bool = True
 
     def credits(self, rule: CreditRule) -> int:
+        """Rounded per-unit price, for display and the margin check."""
         return self.credits_override if self.credits_override is not None else rule.credits_for_price(
             self.purchase_price_cny, self.multiplier)
+
+    def raw_credits(self, rule: CreditRule) -> float:
+        """Unrounded per-unit price, used to charge a real quantity."""
+        if self.credits_override is not None:
+            return float(self.credits_override)
+        return rule.raw_credits_for_price(self.purchase_price_cny, self.multiplier)
 
 
 @dataclass
@@ -127,20 +153,24 @@ class PriceBookSnapshot:
 
     def quote(self, model_id: str, params: dict[str, Any], quantity: float = 1.0) -> Quote:
         item = self.find(model_id, params)
-        uc = item.credits(self.rule)
-        return Quote(item.item_id, uc, quantity, math.ceil(uc * quantity - 1e-9), self.version,
+        return Quote(item.item_id, item.credits(self.rule), quantity,
+                     self.rule.charge(item.raw_credits(self.rule), quantity), self.version,
                      {"billing_unit": item.billing_unit})
 
-    def quote_text(self, model_id: str, tokens_in: int, tokens_out: int) -> Quote:
-        q_in = self.quote(model_id, {"direction": "in"}, tokens_in / 1_000_000)
-        q_out = self.quote(model_id, {"direction": "out"}, tokens_out / 1_000_000)
-        raw = q_in.unit_credits * q_in.quantity + q_out.unit_credits * q_out.quantity
-        return Quote(q_in.item_id, q_in.unit_credits, tokens_in + tokens_out,
-                     max(math.ceil(raw - 1e-9), self.rule.min_credits), self.version,
-                     {"tokens_in": tokens_in, "tokens_out": tokens_out})
+    def quote_text(self, model_id: str, chars_in: int, chars_out: int) -> Quote:
+        """Text bills per 1000 characters, with separate rates for what goes in and comes out."""
+        item_in = self.find(model_id, {"direction": "in"})
+        item_out = self.find(model_id, {"direction": "out"})
+        total = (item_in.raw_credits(self.rule) * chars_in / 1000
+                 + item_out.raw_credits(self.rule) * chars_out / 1000)
+        return Quote(item_in.item_id, item_in.credits(self.rule), (chars_in + chars_out) / 1000,
+                     self.rule.charge(total, 1.0), self.version,
+                     {"chars_in": chars_in, "chars_out": chars_out})
 
     def table(self) -> list[dict[str, Any]]:
         """给后台/前端展示的完整积分表"""
         return [{**self.rule.preview(i.purchase_price_cny, i.multiplier, i.credits_override),
                  "item_id": i.item_id, "model_id": i.model_id, "stage": i.stage, "unit": i.billing_unit,
-                 "match": i.match, "display_name": i.display_name} for i in self.items.values()]
+                 "match": i.match, "display_name": i.display_name,
+                 # Unrounded rate: the only honest number for a unit that costs well under a credit.
+                 "credits_raw": round(i.raw_credits(self.rule), 4)} for i in self.items.values()]

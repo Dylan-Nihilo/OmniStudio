@@ -62,10 +62,11 @@ def _seed_items(billing: BillingServices) -> None:
                       match={"resolution": "1080p"}, purchase_price_cny=1.20)
     admin.upsert_item("root", model_id="happyhorse/happyhorse-1.1-video#i2v", stage="video", billing_unit="second",
                       match={"resolution": "720p"}, purchase_price_cny=0.90)
-    admin.upsert_item("root", model_id="text/deepseek-v4-flash", stage="text", billing_unit="token_1m",
-                      match={"direction": "in"}, purchase_price_cny=3.0)
-    admin.upsert_item("root", model_id="text/deepseek-v4-flash", stage="text", billing_unit="token_1m",
-                      match={"direction": "out"}, purchase_price_cny=9.0)
+    # per 1000 characters, the unit users see
+    admin.upsert_item("root", model_id="text/deepseek-v4-flash", stage="text", billing_unit="chars_1k",
+                      match={"direction": "in"}, purchase_price_cny=0.003)
+    admin.upsert_item("root", model_id="text/deepseek-v4-flash", stage="text", billing_unit="chars_1k",
+                      match={"direction": "out"}, purchase_price_cny=0.009)
 
 
 def test_publish_quote_and_versioning(billing: BillingServices):
@@ -78,7 +79,8 @@ def test_publish_quote_and_versioning(billing: BillingServices):
     first = billing.price_admin.publish("root", note="first")
     assert first.version == 1 and first.item_count == 4
     billing.runtime.invalidate()
-    assert billing.runtime.quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5).credits == 265
+    assert billing.runtime.quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5).credits == 264
+    # 20000 characters in at 0.132/1k plus 5000 out at 0.396/1k = 4.62 credits
     assert billing.runtime.quote_text("text/deepseek-v4-flash", 20_000, 5_000).credits == 5
 
     billing.price_admin.update_rule("root", target_markup=1.5)
@@ -89,7 +91,7 @@ def test_publish_quote_and_versioning(billing: BillingServices):
     assert changed["happyhorse/happyhorse-1.1-video#i2v|resolution=1080p"]["after"] == 60
     assert billing.runtime.quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5).credits == 300
     # settlement of an in-flight job still uses the version it was frozen under
-    assert billing.runtime.at_version(1).quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5).credits == 265
+    assert billing.runtime.at_version(1).quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5).credits == 264
     assert [v["version"] for v in billing.price_admin.list_versions()] == [2, 1]
 
 
@@ -152,10 +154,10 @@ def test_wallet_hold_settle_release_are_idempotent(billing: BillingServices):
     assert wallets.credit(w["id"], 1000, "purchase", "order-1") is False      # replayed payment callback
     assert wallets.balance(w["id"]) == {"balance": 1000, "frozen": 0, "available": 1000}
 
-    q = runtime.quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5)   # 265
+    q = runtime.quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 5)   # 264
     assert wallets.hold(w["id"], "job-a", q) is True
     assert wallets.hold(w["id"], "job-a", q) is False
-    assert wallets.balance(w["id"]) == {"balance": 1000, "frozen": 265, "available": 735}
+    assert wallets.balance(w["id"]) == {"balance": 1000, "frozen": 264, "available": 736}
 
     actual = runtime.quote("happyhorse/happyhorse-1.1-video#i2v", {"resolution": "1080p"}, 4)  # only 4 s produced
     assert wallets.settle("job-a", actual) is True

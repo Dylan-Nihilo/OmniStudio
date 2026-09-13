@@ -37,10 +37,11 @@ def env(monkeypatch):
                       match={"resolution": "1080p"}, purchase_price_cny=1.0)          # 44 credits / s
     admin.upsert_item("u1", model_id="wan/wan2.7-image-pro#image", stage="image", billing_unit="image",
                       match={}, purchase_price_cny=0.5)                                # 22 credits / image
-    admin.upsert_item("u1", model_id="text/qwen3.7-plus", stage="text", billing_unit="token_1m",
-                      match={"direction": "in"}, purchase_price_cny=2.0)
-    admin.upsert_item("u1", model_id="text/qwen3.7-plus", stage="text", billing_unit="token_1m",
-                      match={"direction": "out"}, purchase_price_cny=8.0)
+    # per 1000 characters: 0.002 -> 0.088 credits/1k in, 0.008 -> 0.352 credits/1k out
+    admin.upsert_item("u1", model_id="text/qwen3.7-plus", stage="text", billing_unit="chars_1k",
+                      match={"direction": "in"}, purchase_price_cny=0.002)
+    admin.upsert_item("u1", model_id="text/qwen3.7-plus", stage="text", billing_unit="chars_1k",
+                      match={"direction": "out"}, purchase_price_cny=0.008)
     admin.publish("u1")
     hook = JobBillingHook(services, catalog=_Catalog(), enabled=True)
     repo = JobRepository(engine, billing_hook=hook)
@@ -134,14 +135,25 @@ def test_items_without_billing_spec_and_disabled_hook_are_untouched(env):
     assert services.wallets.balance(wallet_id)["frozen"] == 0
 
 
-def test_text_meter_charges_tokens_capped_at_balance(env):
+def test_text_meter_charges_characters_capped_at_balance(env):
     services, hook, repo, wallet_id = env
     meter = TextMeter(services, enabled=True)
-    charged = meter.charge_tokens("ws1", "qwen3.7-plus", 20_000, 5_000, "llm:1")
+    # 20k in + 5k out = 20 x 0.088 + 5 x 0.352 = 3.52 credits -> 4
+    charged = meter.charge_text("ws1", "qwen3.7-plus", 20_000, 5_000, "llm:1")
     assert charged == 4 and services.wallets.balance(wallet_id)["available"] == 996
-    assert meter.charge_tokens("ws1", "qwen3.7-plus", 20_000, 5_000, "llm:1") == 0     # idempotent
+    assert meter.charge_text("ws1", "qwen3.7-plus", 20_000, 5_000, "llm:1") == 0        # idempotent
     services.wallets.credit(wallet_id, -994, "adjust", "drain", reason="test")
-    assert meter.charge_tokens("ws1", "qwen3.7-plus", 1_000_000, 0, "llm:2") == 2       # capped at the 2 left
+    assert meter.charge_text("ws1", "qwen3.7-plus", 10_000_000, 0, "llm:2") == 2        # capped at the 2 left
     with pytest.raises(BillingError):
         meter.ensure_available("ws1")
-    assert TextMeter(services, enabled=False).charge_tokens("ws1", "qwen3.7-plus", 1, 1, "llm:3") == 0
+    assert TextMeter(services, enabled=False).charge_text("ws1", "qwen3.7-plus", 1, 1, "llm:3") == 0
+
+
+def test_a_short_text_call_is_not_rounded_up_to_a_whole_credit_per_1000(env):
+    """Rounding per unit would bill a full credit for every 1000 characters, ~6x the real cost."""
+    services, _, _, wallet_id = env
+    meter = TextMeter(services, enabled=True)
+    # 1000 characters out costs 0.352 credits; the floor applies once, to the total
+    assert meter.charge_text("ws1", "qwen3.7-plus", 0, 1_000, "short") == 1
+    # 10x the text must cost about 10x, not 10 whole credits
+    assert meter.charge_text("ws1", "qwen3.7-plus", 0, 10_000, "longer") == 4
