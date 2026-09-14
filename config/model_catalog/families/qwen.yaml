@@ -23,12 +23,45 @@ docs:
   official_snapshot_ids:
     - aliyun/qwen-image/2026-04-22
 models:
+  - id: qwen-image-3.0-pro
+    display_name: Qwen Image 3.0 Pro
+    description: Image generation and editing with detailed composition and precise text rendering
+    # Keep existing projects resolvable; unpriced Qwen models stay out of paid pickers.
+    status: deprecated
+    release_stage: stable
+    capabilities: [t2i, i2i]
+    inputs:
+      reference_images:
+        max: 3
+    docs:
+      official_snapshot_ids: [aliyun/qwen-image-3/2026-09-11]
+      context_hub_doc_ids: [aliyun/qwen-image]
+    runtime:
+      dashscope:
+        gateway: dashscope
+        api_model_id: qwen-image-3.0-pro
+    ui:
+      selection_group: image
+      visible_in: [project_settings, series_settings, global_settings]
+      order: 110
+      badges: [new]
+    params:
+      size:
+        options: ["1024*1024", "1280*1280", "1440*1440", "2048*2048", "1280*720", "720*1280"]
+        default: "1280*1280"
+      negativePrompt: true
+      promptExtend: true
+      watermark: true
+      seed: true
   - id: qwen-image-2.0-pro
     display_name: Qwen Image 2.0 Pro
     description: Advanced image generation with precise text rendering and complex composition
     status: deprecated
     release_stage: stable
     capabilities: [t2i, i2i]
+    inputs:
+      reference_images:
+        max: 3
     docs:
       context_hub_doc_ids: [aliyun/qwen-image]
     runtime:
@@ -54,6 +87,9 @@ models:
     status: deprecated
     release_stage: stable
     capabilities: [t2i, i2i]
+    inputs:
+      reference_images:
+        max: 3
     docs:
       context_hub_doc_ids: [aliyun/qwen-image]
     runtime:
