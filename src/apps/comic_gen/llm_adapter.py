@@ -146,6 +146,29 @@ class LLMAdapter:
             kwargs["response_format"] = response_format
 
         try:
+            if self.provider == "openai":
+                # Receive upstream tokens as they arrive so a long JSON response
+                # does not hit the gateway's non-streaming response timeout.
+                parts = []
+                finish_reason = None
+                usage_response = None
+                with client.chat.completions.create(**kwargs, stream=True, stream_options={"include_usage": True}) as stream:
+                    for chunk in stream:
+                        if getattr(chunk, "usage", None) is not None:
+                            usage_response = chunk
+                        if not chunk.choices:
+                            continue
+                        choice = chunk.choices[0]
+                        if choice.delta.content:
+                            parts.append(choice.delta.content)
+                        if choice.finish_reason:
+                            finish_reason = choice.finish_reason
+                if finish_reason != "stop" or not parts:
+                    raise RuntimeError(f"Incomplete model response (finish_reason={finish_reason})")
+                logger.info("LLM stream completed: model=%s, characters=%s", model, sum(map(len, parts)))
+                content = "".join(parts)
+                _charge_llm_usage(model, messages, content, usage_response)
+                return content
             response = client.chat.completions.create(**kwargs)
             content = response.choices[0].message.content
             _charge_llm_usage(model, messages, content, response)

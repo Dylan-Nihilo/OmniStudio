@@ -1,8 +1,10 @@
 import subprocess
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import threading
 
 import src.apps.comic_gen.pipeline as pipeline_module
 from src.apps.comic_gen.models import Script, StoryboardFrame, VideoTask
@@ -12,6 +14,7 @@ from src.apps.comic_gen.pipeline import ComicGenPipeline
 @pytest.fixture
 def pipeline():
     instance = ComicGenPipeline.__new__(ComicGenPipeline)
+    instance._save_lock = threading.RLock()
     instance.scripts = {}
     instance._save_data = lambda: None
     return instance
@@ -74,7 +77,11 @@ def _install_merge_mocks(monkeypatch, tmp_path, *, fail_concat=False):
         if "-frames:a" in command:
             return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
-        if "concat" in command:
+        if "-af" in command:
+            Path(command[-1]).write_bytes(b"normalized video")
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        if "-movflags" in command:
             if fail_concat:
                 raise subprocess.CalledProcessError(
                     returncode=1,
@@ -189,3 +196,24 @@ def test_merge_videos_persists_failure_context_and_keeps_intermediates(
     assert failure["intermediate_dir"]
     assert (tmp_path / "normalization").exists()
     assert (tmp_path / "merge_list_script-1.txt").exists()
+
+
+def test_export_completion_survives_project_polling_and_preserves_edits(pipeline, monkeypatch):
+    script = _script()
+    pipeline.scripts[script.id] = script
+
+    def render(script_id, snapshot):
+        latest = script.model_copy(deep=True)
+        latest.title = "Edited while rendering"
+        pipeline.scripts[script_id] = latest
+        snapshot.merged_video_url = "video/final.mp4"
+        snapshot.merge_verification = {"ok": True}
+        pipeline._set_merge_progress(snapshot, "done", "Exported", 1)
+        return pipeline.scripts[script_id]
+
+    monkeypatch.setattr(pipeline, "_merge_videos_impl", render)
+    result = pipeline.merge_videos(script.id)
+    assert result.title == "Edited while rendering"
+    assert result.merged_video_url == "video/final.mp4"
+    assert result.merge_verification == {"ok": True}
+    assert result.merge_progress["stage"] == "done"

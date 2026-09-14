@@ -1,4 +1,12 @@
 from tests.test_w2_project_api import api_client
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from src.apps.comic_gen import api as api_module
+from src.apps.comic_gen.assets import AssetGenerator
+from src.apps.comic_gen.models import AssetUnit, Character, ImageVariant, Prop, Scene
 
 
 def _create_series(client, title="Cast flow"):
@@ -94,3 +102,68 @@ def test_cast_batch_lock_updates_only_requested_assets(api_client):
     locked = {item["id"]: item["locked"] for item in response.json()["characters"]}
     assert locked[assets[0]["id"]] is True
     assert locked[assets[1]["id"]] is False
+
+
+def test_generate_again_dispatches_a_new_task_after_provider_failure(api_client, monkeypatch):
+    project = api_client.post("/projects?skip_analysis=true", json={"title": "Retry", "text": "A painter"}).json()
+    pipeline = api_module.pipeline
+    pipeline.scripts[project["id"]].characters.append(Character(id="painter", name="Painter", description="Old painter"))
+    pipeline._save_data()
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(args)
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(pipeline, "generate_asset", fail)
+    results = []
+    for _ in range(2):
+        response = api_client.post(f"/projects/{project['id']}/assets/generate", json={
+            "asset_id": "painter", "asset_type": "character", "prompt": "same prompt",
+            "model_name": "qwen-image-2.0-pro",
+        })
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert pipeline.asset_generation_tasks[body["_task_id"]]["status"] == "failed"
+        results.append(body)
+    assert len(calls) == 2
+    assert results[0]["_job_item_id"] != results[1]["_job_item_id"]
+
+
+@pytest.mark.parametrize("kind,model,field", [("character", Character, "characters"), ("scene", Scene, "scenes"), ("prop", Prop, "props")])
+def test_asset_generation_survives_refresh_and_preserves_concurrent_edits(api_client, monkeypatch, kind, model, field):
+    project = api_client.post("/projects?skip_analysis=true", json={"title": "Asset refresh", "text": "A painter in the rain"}).json()
+    pipeline = api_module.pipeline
+    asset = model(id="asset-1", name="Painter", description="Original description")
+    getattr(pipeline.scripts[project["id"]], field).append(asset)
+    pipeline._save_data()
+    captured = []
+
+    def generate(prompt, output_path, **kwargs):
+        captured.append(prompt)
+        assert api_client.get(f"/projects/{project['id']}").status_code == 200
+        current = getattr(pipeline.scripts[project["id"]], field)[0]
+        current.description = "Edited while generating"
+        variant = ImageVariant(id="concurrent", url="assets/concurrent.png")
+        if kind == "character":
+            current.reference_sheet = AssetUnit(image_variants=[variant], selected_image_id=variant.id)
+        else:
+            current.image_asset.variants.append(variant)
+            current.image_asset.selected_id = variant.id
+        current.image_url = variant.url
+        pipeline._save_data()
+        Path(output_path).write_bytes(b"generated-image")
+        return output_path, 0
+
+    pipeline.asset_generator = AssetGenerator()
+    pipeline.asset_generator.model = SimpleNamespace(generate=generate)
+    monkeypatch.setattr(pipeline.asset_generator, "_get_model_for", lambda _: pipeline.asset_generator.model)
+    pipeline.generate_asset(project["id"], asset.id, kind, generation_type="reference_sheet", prompt="Keep the window on the right", apply_style=False)
+    restored = api_client.get(f"/projects/{project['id']}").json()[field][0]
+    unit = restored["reference_sheet"] if kind == "character" else restored["image_asset"]
+    variants = unit["image_variants"] if kind == "character" else unit["variants"]
+    assert len(variants) == 2
+    assert restored["description"] == "Edited while generating"
+    assert restored["image_url"] == "assets/concurrent.png"
+    assert restored["status"] == "completed"
+    assert captured == ["Keep the window on the right"]

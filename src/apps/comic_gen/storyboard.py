@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from typing import Dict, Any, List
 from .models import StoryboardFrame, Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant
@@ -55,7 +56,7 @@ class StoryboardGenerator:
         
         # If frontend provides explicit reference paths, use them directly
         # Otherwise, auto-collect from characters and scene
-        use_frontend_refs = (ref_image_paths and len(ref_image_paths) > 0) or ref_image_path
+        use_frontend_refs = ref_image_paths is not None or ref_image_path is not None
         
         if use_frontend_refs:
             # Use only what frontend provided (already selected by user)
@@ -140,8 +141,10 @@ class StoryboardGenerator:
         char_text = ", ".join(char_descriptions)
 
         # Remove duplicates
-        asset_ref_paths = list(set(asset_ref_paths))
+        asset_ref_paths = list(dict.fromkeys(asset_ref_paths))
         
+        if prompt is None:
+            prompt = frame.image_prompt
         if not prompt:
             prompt = f"Storyboard Frame: {frame.action_description}. "
             if char_text:
@@ -153,13 +156,10 @@ class StoryboardGenerator:
             if frame.camera_movement:
                 prompt += f", {frame.camera_movement}"
             prompt += "."
-        else:
-            # If prompt is provided by user/LLM, ensure character descriptions are still present for I2I consistency
-            if char_text and char_text not in prompt:
-                prompt = f"{prompt} Characters: {char_text}."
         
         # Store the optimized prompt
         frame.image_prompt = prompt
+        generation_prompt = re.sub(r"\[character\d+:[^\]]+\]", "", prompt).strip()
         
         # Initialize rendered_image_asset if not present
         if not frame.rendered_image_asset:
@@ -180,7 +180,11 @@ class StoryboardGenerator:
                 # Use I2I if reference images are available
                 # Pass collected asset paths to model
                 logger.info(f"[Storyboard] Calling model.generate with {len(asset_ref_paths)} reference images using model {model_name or 'default'}")
-                self.model.generate(prompt, output_path, ref_image_paths=asset_ref_paths, size=effective_size, model_name=model_name)
+                model = self.model
+                if model_name and model_name.startswith("gpt-image"):
+                    from ...models.mulerouter import MuleRouterImageModel
+                    model = MuleRouterImageModel({})
+                model.generate(generation_prompt, output_path, ref_image_paths=asset_ref_paths, size=effective_size, model_name=model_name)
                 
                 # Store relative path for frontend serving
                 rel_path = os.path.relpath(output_path, "output")
@@ -189,7 +193,7 @@ class StoryboardGenerator:
                 variant = ImageVariant(
                     id=variant_id,
                     url=rel_path,
-                    prompt_used=prompt,
+                    prompt_used=generation_prompt,
                     created_at=time.time(),
                     model_name=model_name,
                     params={"size": effective_size, "seed": None},

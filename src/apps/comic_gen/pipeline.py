@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from sqlalchemy import select
 import json
+import math
 import os
 import re
 import shutil
@@ -74,6 +75,8 @@ def _resolve_explicit_video_take(script: Any, frame: Any) -> Tuple[Optional[Any]
     # A dubbed clip is an explicit transformation of the selected take, so it
     # is safe to use only after the source take has passed the checks above.
     dubbed_url = getattr(frame, "dubbed_video_url", None)
+    if dubbed_url and getattr(frame, "dubbed_video_task_id", None) != selected_id:
+        return task, None, "Dubbed audio belongs to a different take; preview and apply it to the selected video"
     return task, dubbed_url or task.video_url, ""
 
 
@@ -313,21 +316,39 @@ def _format_srt_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d},{millis:03d}"
 
 
+def _dialogue_audio_bounds(relative_path: str) -> Tuple[float, float]:
+    """Read audible bounds of an applied dialogue clip, excluding edge silence."""
+    audio_path = _safe_resolve_path("output", relative_path)
+    probe = subprocess.run(
+        [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of", "json", audio_path],
+        check=True, capture_output=True, text=True, timeout=30,
+    )
+    duration = float(json.loads(probe.stdout)["format"]["duration"])
+    detection = subprocess.run(
+        [get_ffmpeg_path(), "-nostdin", "-i", audio_path, "-af", "silencedetect=noise=-45dB:d=0.06",
+         "-f", "null", "-"], check=True, capture_output=True, text=True, timeout=30,
+    )
+    # ponytail: fixed silence floor for generated voices; use relative loudness if quiet recordings are supported here.
+    starts = [float(value) for value in re.findall(r"silence_start: ([\d.]+)", detection.stderr)]
+    ends = [float(value) for value in re.findall(r"silence_end: ([\d.]+)", detection.stderr)]
+    start = ends[0] if starts and starts[0] <= 0.01 and ends else 0.0
+    end = starts[-1] if starts and (len(starts) > len(ends) or ends and ends[-1] >= duration - 0.02) else duration
+    return round(start, 3), round(end, 3)
+
+
 def _write_soft_subtitles(script: Script, path: str) -> bool:
-    """Write deterministic SRT captions from frame dialogue and durations."""
-    elapsed = 0.0
+    """Align captions with applied voices on the trimmed, transitioned timeline."""
     entries: List[str] = []
-    for frame in script.frames:
+    for frame, elapsed, trim_start, duration in _export_timeline(script.frames):
         structured = getattr(frame, "dialogue_structured", None)
         text = (getattr(structured, "line", None) if structured else None) or getattr(frame, "dialogue", None) or ""
-        duration = getattr(frame, "duration", None) or 0.5
-        try:
-            duration = max(0.1, float(duration))
-        except (TypeError, ValueError):
-            duration = 0.5
         start, end = elapsed, elapsed + duration
-        elapsed = end
-        if text.strip():
+        if text.strip() and getattr(frame, "dubbed_video_url", None) and getattr(frame, "audio_url", None):
+            voice_start, voice_end = _dialogue_audio_bounds(frame.audio_url)
+            offset = max(0, getattr(frame, "dub_offset_ms", 0)) / 1000.0
+            start = elapsed + max(0, voice_start + offset - trim_start)
+            end = elapsed + min(duration, voice_end + offset - trim_start)
+        if text.strip() and end > start:
             entries.append(f"{len(entries) + 1}\n{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}\n{text.strip()}\n")
     if not entries:
         return False
@@ -336,13 +357,14 @@ def _write_soft_subtitles(script: Script, path: str) -> bool:
     return True
 
 
-_CUT_TRANSITION_HINTS = {"", "cut", "straight_cut", "straight-cut", "none"}
+_CUT_TRANSITION_HINTS = {"", "cut", "straight_cut", "straight-cut", "none", "硬切", "直切", "匹配剪辑", "match_cut", "match-cut"}
 _TRANSITION_FILTERS = {
     "fade": "fade",
     "dissolve": "fade",
     "crossfade": "fade",
-    "match_cut": "fade",
-    "match-cut": "fade",
+    "叠化": "fade",
+    "溶解": "fade",
+    "黑场": "fadeblack",
     "fadeblack": "fadeblack",
     "fade_black": "fadeblack",
     "fadewhite": "fadewhite",
@@ -369,6 +391,34 @@ def _frame_duration_seconds(frame: Any) -> float:
     return max(0.5, duration)
 
 
+def _clip_duration_seconds(frame: Any) -> float:
+    trim_start = float(getattr(frame, "in_point", None) or 0)
+    trim_end = getattr(frame, "out_point", None)
+    duration = float(trim_end) - trim_start if trim_end is not None else _frame_duration_seconds(frame)
+    if duration <= 0:
+        raise ValueError(f"Frame {frame.id}: trim range must have positive duration")
+    return duration
+
+
+def _transition_overlap(previous: Any, elapsed: float, next_duration: float) -> float:
+    if _transition_filter_name(getattr(previous, "transition_hint", None)) is None:
+        return 0.0
+    return max(0.05, min(0.35, elapsed * 0.25, next_duration * 0.25))
+
+
+def _export_timeline(frames):
+    """One timeline for pictures, captions and per-shot audio."""
+    elapsed = 0.0
+    previous = None
+    for frame in frames:
+        duration = _clip_duration_seconds(frame)
+        if previous is not None:
+            elapsed -= _transition_overlap(previous, elapsed, duration)
+        yield frame, elapsed, float(getattr(frame, "in_point", None) or 0), duration
+        elapsed += duration
+        previous = frame
+
+
 def _build_transition_merge_command(
     ffmpeg_path: str,
     video_paths: List[str],
@@ -392,16 +442,20 @@ def _build_transition_merge_command(
     filters: List[str] = []
     for index in range(len(video_paths)):
         filters.append(
-            f"[{index}:v]settb=AVTB,{','.join(common_video)}[v{index}]"
+            f"[{index}:v]setpts=PTS-STARTPTS,{','.join(common_video)},settb=AVTB[v{index}]"
         )
-        filters.append(f"[{index}:a]aresample=async=1:first_pts=0[a{index}]")
+        filters.append(
+            f"[{index}:a]aresample=async=1:first_pts=0,"
+            f"atrim=duration={_clip_duration_seconds(frames[index])},asetpts=PTS-STARTPTS[a{index}]"
+        )
 
     current_video = "v0"
     current_audio = "a0"
-    current_duration = _frame_duration_seconds(frames[0])
+    durations = [_clip_duration_seconds(frame) for frame in frames]
+    current_duration = durations[0]
     for index in range(1, len(video_paths)):
         transition = _transition_filter_name(getattr(frames[index - 1], "transition_hint", None))
-        next_duration = _frame_duration_seconds(frames[index])
+        next_duration = durations[index]
         if transition is None:
             next_video = f"vc{index}"
             next_audio = f"ac{index}"
@@ -413,11 +467,12 @@ def _build_transition_merge_command(
             )
             current_duration += next_duration
         else:
-            overlap = min(0.35, current_duration * 0.25, next_duration * 0.25)
-            overlap = max(0.05, overlap)
+            overlap = _transition_overlap(frames[index - 1], current_duration, next_duration)
             next_video = f"vx{index}"
             next_audio = f"ax{index}"
             offset = max(0.0, current_duration - overlap)
+            filters.append(f"[{current_video}]fps={fps},settb=AVTB[vt{index}]")
+            current_video = f"vt{index}"
             filters.append(
                 f"[{current_video}][v{index}]xfade=transition={transition}:duration={overlap:.3f}:offset={offset:.3f}[{next_video}]"
             )
@@ -434,6 +489,7 @@ def _build_transition_merge_command(
         "-filter_complex", ";".join(filters),
         "-map", f"[{current_video}]",
         "-map", f"[{current_audio}]",
+        "-r", str(fps), "-fps_mode", "cfr",
         "-c:v", "libx264",
         "-crf", str(export_settings["crf"]),
         "-preset", export_settings["preset"],
@@ -608,12 +664,16 @@ class ComicGenPipeline:
         STUCK = ("pending", "processing")
         durable_video_projects: set[str] = set()
         durable_video_tasks: set[str] = set()
+        durable_lip_sync_items: set[str] = set()
         if self.storage_engine is not None:
             try:
                 from ...storage.job_repository import JobRepository
 
                 for item in JobRepository(self.storage_engine).list_inflight():
                     if item.kind != "video":
+                        continue
+                    if item.payload.get("operation") == "lip_sync":
+                        durable_lip_sync_items.add(item.id)
                         continue
                     if item.project_id:
                         durable_video_projects.add(item.project_id)
@@ -642,7 +702,7 @@ class ComicGenPipeline:
                     frame.audio_generation_status = GenerationStatus.FAILED
                     frame.audio_error = frame.audio_error or self._ORPHAN_RECOVERY_REASON
                     recovered += 1
-                if frame.dub_generation_status in STUCK:
+                if frame.dub_generation_status in STUCK and frame.dub_generation_id not in durable_lip_sync_items:
                     frame.dub_generation_status = GenerationStatus.FAILED
                     frame.dub_error = frame.dub_error or self._ORPHAN_RECOVERY_REASON
                     recovered += 1
@@ -1095,6 +1155,9 @@ class ComicGenPipeline:
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
+        reference_image_path = self._resolve_media_path(reference_image_url, suffix=".png") if reference_image_url else None
+        if reference_image_url and not reference_image_path:
+            raise ValueError("Reference image is unavailable; upload or select an existing image")
         
         # Resolve the current inheritance chain instead of using a frozen
         # Episode snapshot.
@@ -1188,6 +1251,9 @@ class ComicGenPipeline:
         self._save_data()
         if asset_is_series_level:
             self._save_series_data()
+        # Generate against a snapshot; project reads and edits can replace cached objects.
+        before_generation = target_asset.model_copy(deep=True)
+        target_asset = target_asset.model_copy(deep=True)
         
         try:
             # Generate with Art Direction style injected
@@ -1211,24 +1277,44 @@ class ComicGenPipeline:
                     i2i_model_name=i2i_model,
                     size=effective_size,
                     candidate_type=candidate_type,
+                    reference_image_path=reference_image_path,
                 )
             elif asset_type == "scene":
-                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size)
+                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path)
             elif asset_type == "prop":
-                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size)
+                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path)
                 
             target_asset.status = GenerationStatus.COMPLETED
         except Exception as e:
             target_asset.status = GenerationStatus.FAILED
             raise e
         finally:
-            self._save_data()
-            # If the asset lives on the parent series (not the episode),
-            # _save_data() (which persists scripts/episodes) won't capture
-            # the variant changes — persist the series too, otherwise the
-            # generated image disappears on the next reload.
-            if asset_is_series_level:
-                self._save_series_data()
+            with self._save_lock:
+                script = self.scripts.get(script_id)
+                owner = self.series_store.get(script.series_id) if script and asset_is_series_level else script
+                field = {"character": "characters", "scene": "scenes", "prop": "props"}[asset_type]
+                current = next((item for item in getattr(owner, field, []) if item.id == asset_id), None)
+                if current is None:
+                    raise ValueError(f"{asset_type.capitalize()} {asset_id} was removed during generation")
+                for field in type(target_asset).model_fields:
+                    previous, generated = getattr(before_generation, field), getattr(target_asset, field)
+                    if previous == generated:
+                        continue
+                    value = getattr(current, field)
+                    if field in {"reference_sheet", "full_body_asset", "three_view_asset", "headshot_asset", "image_asset"} and generated:
+                        if value is None:
+                            value = type(generated)()
+                            setattr(current, field, value)
+                        variants_key = "image_variants" if hasattr(generated, "image_variants") else "variants"
+                        previous_ids = {v.id for v in getattr(previous, variants_key, [])}
+                        known_ids = {v.id for v in getattr(value, variants_key)}
+                        getattr(value, variants_key).extend(v for v in getattr(generated, variants_key) if v.id not in previous_ids | known_ids)
+                        for key in type(generated).model_fields:
+                            if key != variants_key and getattr(value, key) == getattr(previous, key, None):
+                                setattr(value, key, getattr(generated, key))
+                    elif value == previous:
+                        setattr(current, field, generated)
+                self._save_series_data() if asset_is_series_level else self._save_data()
 
         return script
 
@@ -1363,6 +1449,9 @@ class ComicGenPipeline:
         generation_type = params.get("generation_type", "all")
         prompt = params.get("prompt")
         reference_image_url = params.get("reference_image_url")
+        reference_image_path = self._resolve_media_path(reference_image_url, suffix=".png") if reference_image_url else None
+        if reference_image_url and not reference_image_path:
+            raise ValueError("Reference image is unavailable; upload or select an existing image")
 
         if asset_type == "character":
             target = next((c for c in series.characters if c.id == asset_id), None)
@@ -1372,6 +1461,8 @@ class ComicGenPipeline:
                 target, generation_type=generation_type, prompt=prompt or "",
                 positive_prompt=positive_prompt, negative_prompt=negative_prompt,
                 batch_size=batch_size, model_name=t2i_model, size=effective_size,
+                i2i_model_name=params.get("i2i_model") or t2i_model,
+                reference_image_path=reference_image_path,
             )
         elif asset_type == "scene":
             target = next((s for s in series.scenes if s.id == asset_id), None)
@@ -1380,6 +1471,7 @@ class ComicGenPipeline:
             self.asset_generator.generate_scene(
                 target, positive_prompt=positive_prompt, negative_prompt=negative_prompt,
                 batch_size=batch_size, model_name=t2i_model, size=effective_size,
+                prompt=prompt, reference_image_path=reference_image_path,
             )
         elif asset_type == "prop":
             target = next((p for p in series.props if p.id == asset_id), None)
@@ -1388,6 +1480,7 @@ class ComicGenPipeline:
             self.asset_generator.generate_prop(
                 target, positive_prompt=positive_prompt, negative_prompt=negative_prompt,
                 batch_size=batch_size, model_name=t2i_model, size=effective_size,
+                prompt=prompt, reference_image_path=reference_image_path,
             )
         else:
             raise ValueError(f"Unknown asset type: {asset_type}")
@@ -2044,6 +2137,7 @@ class ComicGenPipeline:
                 camera_movement=frame_data.get("camera_movement"),
                 dialogue=frame_data.get("dialogue"),
                 speaker=frame_data.get("speaker"),
+                dialogue_mode=frame_data.get("dialogue_mode") or "on_screen",
                 duration=frame_data.get("duration"),
                 status=GenerationStatus.PENDING
             )
@@ -2082,6 +2176,7 @@ class ComicGenPipeline:
             "camera_movement": frame.camera_movement,
             "dialogue": frame.dialogue,
             "speaker": frame.speaker,
+            "dialogue_mode": frame.dialogue_mode,
             "duration": frame.duration,
             "character_names": [c.name for c in all_characters if c.id in frame.character_ids],
             "scene_name": next((s.name for s in all_scenes if s.id == frame.scene_id), None),
@@ -2328,7 +2423,27 @@ class ComicGenPipeline:
         frame = next((f for f in script.frames if f.id == frame_id), None)
         if not frame:
             raise ValueError(f"Frame {frame_id} not found")
-        
+
+        if kwargs.get("in_point") is not None or kwargs.get("out_point") is not None:
+            trim_start = max(0.0, float(kwargs.get("in_point") if kwargs.get("in_point") is not None else frame.in_point or 0))
+            trim_end = kwargs.get("out_point") if kwargs.get("out_point") is not None else frame.out_point
+            if trim_end is not None:
+                trim_end = float(trim_end)
+                if not math.isfinite(trim_start) or not math.isfinite(trim_end) or trim_end <= trim_start:
+                    raise ValueError("out_point must be greater than in_point")
+                selected_task = next((task for task in (script.video_tasks or []) if task.id == frame.selected_video_id), None)
+                source_duration = float(selected_task.duration) if selected_task and selected_task.duration else None
+                if selected_task and selected_task.video_url:
+                    source_path = _safe_resolve_path("output", selected_task.video_url)
+                    if os.path.isfile(source_path):
+                        probe = subprocess.run(
+                            [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of", "json", source_path],
+                            check=True, capture_output=True, text=True, timeout=30,
+                        )
+                        source_duration = float(json.loads(probe.stdout)["format"]["duration"])
+                if source_duration is not None and trim_end > source_duration:
+                    raise ValueError("out_point exceeds the selected video's duration")
+
         # Update only provided fields
         if kwargs.get('image_prompt') is not None:
             frame.image_prompt = kwargs['image_prompt']
@@ -2336,6 +2451,11 @@ class ComicGenPipeline:
             frame.action_description = kwargs['action_description']
         if kwargs.get('visual_description') is not None:
             frame.visual_description = kwargs['visual_description']
+        for key, options in (("prompt_mode", {"structured", "complete"}), ("dialogue_mode", {"on_screen", "voiceover"})):
+            if kwargs.get(key) is not None:
+                if kwargs[key] not in options:
+                    raise ValueError(f"Invalid {key}")
+                setattr(frame, key, kwargs[key])
         if kwargs.get('dialogue') is not None:
             frame.dialogue = kwargs['dialogue']
             if frame.dialogue_structured:
@@ -2352,12 +2472,6 @@ class ComicGenPipeline:
             frame.in_point = max(0.0, float(kwargs['in_point']))
         if 'out_point' in kwargs and kwargs.get('out_point') is not None:
             frame.out_point = float(kwargs['out_point'])
-        if frame.in_point is not None and frame.out_point is not None:
-            if frame.out_point <= frame.in_point:
-                raise ValueError("out_point must be greater than in_point")
-            selected_task = next((task for task in (script.video_tasks or []) if task.id == frame.selected_video_id), None)
-            if selected_task and selected_task.duration and frame.out_point > float(selected_task.duration):
-                raise ValueError("out_point exceeds the selected video's duration")
         if kwargs.get('shot_size') is not None:
             frame.shot_size = kwargs['shot_size']
         if kwargs.get('camera_movement_description') is not None:
@@ -2374,7 +2488,7 @@ class ComicGenPipeline:
         if kwargs.get('transition_hint') is not None:
             frame.transition_hint = kwargs['transition_hint']
         if frame.visual_description is not None and any(kwargs.get(key) is not None for key in (
-            'visual_description', 'shot_size', 'camera_angle', 'camera_movement_description', 'transition_hint',
+            'visual_description', 'prompt_mode', 'shot_size', 'camera_angle', 'camera_movement_description', 'transition_hint',
         )):
             from .prompt_assembly import assemble_prompt
             frame.assembled_prompt = assemble_prompt(frame, self.resolve_episode_assets(script)["characters"])
@@ -2740,7 +2854,9 @@ class ComicGenPipeline:
                 resolved["characters"],
                 scene,
                 ref_image_path=ref_image_path,
-                ref_image_paths=ref_image_paths,
+                ref_image_paths=ref_image_paths if composition_data is not None and (
+                    "reference_image_urls" in composition_data or "reference_image_url" in composition_data
+                ) else None,
                 prompt=final_prompt,
                 batch_size=batch_size,
                 size=effective_size,
@@ -2758,7 +2874,8 @@ class ComicGenPipeline:
                 target.status = frame.status
                 target.image_generation_status = frame.status
                 target.image_error = frame.image_error
-                target.image_prompt = frame.image_prompt
+                if target.image_prompt == prompt:
+                    target.image_prompt = frame.image_prompt
                 generated = [v for v in frame.rendered_image_asset.variants if v.id not in original_variant_ids] if frame.rendered_image_asset else []
                 if generated:
                     if target.rendered_image_asset is None:
@@ -2800,7 +2917,46 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None) -> Tuple[Script, str]:
+    def _shot_input_fingerprint(self, script: Script, frame: StoryboardFrame, submitted_refs: Optional[List[str]] = None) -> str:
+        from .revision import compute_dependency_fingerprint
+        fields = ("visual_description", "action_description", "prompt_mode", "character_ids", "scene_id", "prop_ids",
+                  "duration", "dialogue", "dialogue_structured", "dialogue_mode", "camera_movement_structured",
+                  "shot_size", "camera_angle", "lighting", "dialogue_instructions")
+        params = {field: getattr(frame, field, None) for field in fields}
+        urls = getattr(frame, "t2i_image_urls", [])
+        index = getattr(frame, "t2i_selected_index", 0)
+        refs = {"first_frame": urls[index] if urls and 0 <= index < len(urls) else getattr(frame, "rendered_image_url", None)}
+        if getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
+            refs["audio"] = getattr(frame, "audio_url", None)
+        ids = set(getattr(frame, "character_ids", []) + getattr(frame, "prop_ids", []))
+        ids.add(getattr(frame, "scene_id", None))
+        names = set(re.findall(r"\[character\d+:([^\]]+)\]", (params["visual_description"] or params["action_description"] or "")))
+        if any(ids) or names:
+            assets = self.resolve_episode_assets(script)
+            for kind in ("characters", "scenes", "props"):
+                for asset in assets[kind]:
+                    if asset.id not in ids and asset.name not in names:
+                        continue
+                    image = None
+                    units = ("reference_sheet", "full_body_asset") if kind == "characters" else ("image_asset",)
+                    for field in units:
+                        unit = getattr(asset, field, None)
+                        variants = getattr(unit, "image_variants", getattr(unit, "variants", []))
+                        selected = getattr(unit, "selected_image_id", getattr(unit, "selected_id", None))
+                        variant = next((v for v in variants if v.id == selected), variants[0] if variants else None)
+                        if variant:
+                            image = variant.url
+                            break
+                    if submitted_refs is not None:
+                        historical = {variant.url for field in units for variant in (
+                            getattr(getattr(asset, field, None), "image_variants", getattr(getattr(asset, field, None), "variants", [])))}
+                        image = next((url for url in submitted_refs if url in historical), image)
+                    refs[asset.id] = image
+                    if kind == "characters" and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
+                        params[asset.id] = [getattr(asset, key, None) for key in ("voice_id", "voice_speed", "voice_pitch", "voice_volume")]
+        return compute_dependency_fingerprint("shot-video", refs, params)
+
+    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None, last_frame_url: Optional[str] = None) -> Tuple[Script, str]:
         """Creates a new video generation task."""
         script = self.get_script(script_id)
         if not script:
@@ -2809,9 +2965,16 @@ class ComicGenPipeline:
         if frame_id and not any(frame.id == frame_id for frame in script.frames):
             raise ValueError(f"Frame not found: {frame_id}")
 
+        frame = next((frame for frame in script.frames if frame.id == frame_id), None)
+        # Post-production keeps the first frame locked. Audio-driven H3 uses
+        # reference mode instead; changing that choice silently breaks continuity.
+        if audio_mode == "driven" and not audio_url and frame:
+            self._validate_dub_audio(script, frame)
+            audio_url = frame.audio_url
+
         # Validate the unified mode at task creation time so unsupported
         # provider combinations return a clean 400 before queuing work.
-        resolve_video_audio_options(
+        audio_options = resolve_video_audio_options(
             model=model,
             audio_mode=audio_mode,
             audio_url=audio_url,
@@ -2819,6 +2982,11 @@ class ComicGenPipeline:
             legacy_sound=sound,
             legacy_vidu_audio=vidu_audio,
         )
+        if last_frame_url and (
+            model != "minimax/minimax-h3" or generation_mode != "i2v" or not image_url
+            or reference_image_urls or reference_video_urls or audio_options["audio_url"]
+        ):
+            raise ValueError("Last frame requires MiniMax H3 I2V with a first frame and no reference media")
         
         task_id = str(uuid.uuid4())
         
@@ -2907,6 +3075,17 @@ class ComicGenPipeline:
             logger.error(f"Failed to snapshot input image: {e}")
             # Fallback to original URL
 
+        last_frame_snapshot = last_frame_url
+        if last_frame_url and not last_frame_url.startswith(("http", "data:")):
+            source = _safe_resolve_path("output", last_frame_url)
+            if not os.path.isfile(source):
+                raise ValueError("Last frame image does not exist")
+            import shutil
+            os.makedirs(os.path.join("output", "video_inputs"), exist_ok=True)
+            extension = os.path.splitext(source)[1] or ".png"
+            last_frame_snapshot = f"video_inputs/{task_id}_last{extension}"
+            shutil.copy2(source, _safe_resolve_path("output", last_frame_snapshot))
+
         # Enrich prompt with dialogue cue when a frame has dialogue text.
         # This gives the video model explicit mouth-movement instructions.
         if frame_id and prompt:
@@ -2914,12 +3093,16 @@ class ComicGenPipeline:
             if frame:
                 from .prompt_assembly import enrich_prompt_with_dialogue
                 prompt = enrich_prompt_with_dialogue(prompt, frame)
+                if model == "minimax/minimax-h3" and audio_mode == "driven" and frame.prompt_mode != "complete":
+                    prompt += "。使用参考音频中的对白、音色和说话节奏；只在对应对白发声时说话，台词结束后自然闭口，不新增台词。"
 
         task = VideoTask(
             id=task_id,
             project_id=script_id,
+            input_fingerprint=self._shot_input_fingerprint(script, frame, reference_image_urls) if frame else None,
             frame_id=frame_id,
             image_url=snapshot_url,
+            last_frame_url=last_frame_snapshot,
             prompt=prompt,
             status="pending",
             duration=duration,
@@ -3031,8 +3214,11 @@ class ComicGenPipeline:
         output_filename = f"frame_{safe_frame_id}_lastframe_{uuid.uuid4().hex[:8]}.jpg"
         output_path = _safe_resolve_path(output_dir, output_filename)
 
+        source_frame = next((item for item in script.frames if item.id == video_task.frame_id), None)
+        out_point = source_frame.out_point if source_frame and source_frame.selected_video_id == video_task.id else None
+        seek = ["-ss", str(max(0, out_point - 0.1))] if out_point is not None else ["-sseof", "-0.1"]
         cmd = [
-            ffmpeg_path, "-sseof", "-0.1",
+            ffmpeg_path, *seek,
             "-i", video_path,
             "-frames:v", "1",
             "-q:v", "2",
@@ -3080,7 +3266,7 @@ class ComicGenPipeline:
         frame.rendered_image_asset.selected_id = variant.id
         # Also update rendered_image_url so VideoCreator can pick it up
         frame.rendered_image_url = image_url
-
+        self.upload_t2i_frame(script_id, frame_id, image_url)
         script.updated_at = time.time()
         self._save_data()
         return script
@@ -3153,7 +3339,7 @@ class ComicGenPipeline:
         except Exception as e:
             logger.error(f"Failed to download image: {e}")
             raise
-    def select_video_for_frame(self, script_id: str, frame_id: str, video_id: str) -> Script:
+    def select_video_for_frame(self, script_id: str, frame_id: str, video_id: str, *, confirm_review: bool = False, review_fingerprint: Optional[str] = None) -> Script:
         """Manual select: user pins this video as the active take.
 
         Sets is_video_pinned=True so subsequent auto_select_latest_video
@@ -3177,9 +3363,17 @@ class ComicGenPipeline:
             if video.status != GenerationStatus.COMPLETED or not video.video_url:
                 raise ValueError("Video task must be completed with a video before selection")
 
+            if confirm_review:
+                from .revision import compute_revision
+                current_review = compute_revision([frame.selected_video_id, self._shot_input_fingerprint(script, frame)])
+                if review_fingerprint != current_review or frame.selected_video_id != video_id:
+                    raise ValueError("镜头或素材在复核期间发生变化，请重新检查。")
+
             frame.selected_video_id = video_id
             frame.video_url = video.video_url
             frame.is_video_pinned = True
+            if confirm_review:
+                frame.reviewed_video_fingerprint = current_review
 
             self._save_data()
             return script
@@ -3447,7 +3641,8 @@ class ComicGenPipeline:
         if not frame.audio_url or dialogue_audio_is_stale(frame, self._resolve_dialogue_speaker(resolved, frame)):
             raise ValueError("Generate current dialogue audio before previewing or applying a dub")
 
-    def preview_dub(self, script_id: str, frame_id: str, video_task_id: str, offset_ms: int = 0) -> "Script":
+    def preview_dub(self, script_id: str, frame_id: str, video_task_id: str, offset_ms: int = 0,
+                    lip_sync: bool = False, generation_id: str | None = None) -> "Script":
         _validate_safe_id(script_id, "script_id")
         offset_ms = _validate_dub_offset_ms(offset_ms)
         with self._save_lock:
@@ -3459,15 +3654,35 @@ class ComicGenPipeline:
             task = next((task for task in script.video_tasks if task.id == video_task_id), None)
             if not task or task.frame_id != frame_id or task.status != "completed" or not task.video_url:
                 raise ValueError("Select a completed video belonging to this shot")
+            face_reference_url = None
+            if lip_sync:
+                resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
+                speaker = self._resolve_dialogue_speaker(resolved, frame)
+                face_reference_url = speaker.headshot_image_url if speaker else None
+                if len(frame.character_ids) > 1 and not face_reference_url:
+                    raise ValueError("多人镜头需要指定说话人：请先为该角色上传一张单人正脸头像")
             # ponytail: process-local claim; use a database claim for multiple workers.
-            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+            claimed = generation_id is not None and frame.dub_generation_id == generation_id
+            if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING) and not claimed:
                 raise GenerationInProgressError("A dub preview is already being generated")
-            generation_id = str(uuid.uuid4())
-            self._save_fields(frame, dub_generation_status=GenerationStatus.PROCESSING, dub_generation_id=generation_id, dub_error=None)
+            if claimed and frame.dub_generation_status == GenerationStatus.PROCESSING and not frame.dub_provider_task_id:
+                self._save_fields(frame, dub_generation_status=GenerationStatus.FAILED, dub_error="Interrupted before a provider task ID was recorded; inspect the task before retrying")
+                raise ValueError(frame.dub_error)
+            generation_id = generation_id or str(uuid.uuid4())
+            self._save_fields(frame, dub_generation_status=GenerationStatus.PROCESSING, dub_generation_id=generation_id,
+                dub_provider_task_id=frame.dub_provider_task_id if claimed else None, dub_error=None)
             source = frame.model_copy(deep=True)
             video_url = task.video_url
         try:
-            preview_url = self._render_dub_preview(source, video_url, offset_ms)
+            def remember_provider(task_id):
+                with self._save_lock:
+                    current = self.scripts.get(script_id)
+                    target = next((candidate for candidate in current.frames if candidate.id == frame_id), None) if current else None
+                    if target and target.dub_generation_id == generation_id:
+                        self._save_fields(target, dub_provider_task_id=task_id)
+
+            preview_url = (self._render_lip_sync_preview(source, video_url, offset_ms, remember_provider, face_reference_url)
+                if lip_sync else self._render_dub_preview(source, video_url, offset_ms))
             with self._save_lock:
                 current = self.scripts.get(script_id)
                 target = next((f for f in current.frames if f.id == frame_id), None) if current else None
@@ -3478,6 +3693,7 @@ class ComicGenPipeline:
                     raise ValueError("The source media changed. Generate a new dub preview")
                 self._save_fields(target, preview_video_url=preview_url, preview_audio_url=source.audio_url,
                     preview_video_task_id=video_task_id, preview_source_video_url=video_url, preview_offset_ms=offset_ms,
+                    preview_lip_sync=lip_sync,
                     bg_audio_url=source.bg_audio_url, bg_audio_source_video=source.bg_audio_source_video,
                     dub_generation_status=GenerationStatus.COMPLETED, dub_error=None)
                 return current
@@ -3488,6 +3704,58 @@ class ComicGenPipeline:
                 if target and target.dub_generation_id == generation_id:
                     self._save_fields(target, dub_generation_status=GenerationStatus.FAILED, dub_error=str(error))
             raise
+
+    def _render_lip_sync_preview(self, frame: StoryboardFrame, video_url: str, offset_ms: int, on_submitted=None, face_reference_url=None) -> str:
+        """Drive mouth motion from clean TTS, then retain the reviewed voice mix."""
+        import tempfile
+        from ...models.videoretalk import replace_lip_sync
+
+        video_path = self._resolve_media_path(video_url, suffix=".mp4")
+        audio_path = self._resolve_media_path(frame.audio_url, suffix=".mp3")
+        probe = json.loads(subprocess.check_output([get_ffprobe_path(), "-v", "error", "-show_streams",
+            "-show_format", "-of", "json", video_path]))
+        stream = next(item for item in probe["streams"] if item["codec_type"] == "video")
+        width, height = int(stream["width"]), int(stream["height"])
+        source_duration = float(stream.get("duration") or probe["format"]["duration"])
+        delay = max(0, -offset_ms) / 1000
+        duration = source_duration + delay
+        _, voice_end = _dialogue_audio_bounds(frame.audio_url)
+        if voice_end + max(0, offset_ms) / 1000 > duration + 0.04:
+            raise ValueError("Dialogue extends beyond this video. Move it earlier or use a longer take")
+        factor = min(1, 2048 / max(width, height))
+        if min(width, height) * factor < 640:
+            factor = 640 / min(width, height)
+        target_w, target_h = 2 * round(width * factor / 2), 2 * round(height * factor / 2)
+        if max(target_w, target_h) > 2048 or not 2 < duration < 120:
+            raise ValueError("Lip sync requires a 2–120 second video with an aspect ratio no wider than 3.2:1")
+        ffmpeg = get_ffmpeg_path()
+        # Keep the same voice and background mix as the existing dubbing preview.
+        baseline = self._render_dub_preview(frame, video_url, offset_ms)
+        output_name = f"preview_lipsync_{frame.id}_{uuid.uuid4().hex}.mp4"
+        output = _safe_resolve_path(os.path.join("output", "video"), output_name)
+        with tempfile.TemporaryDirectory(prefix="omni_lipsync_") as folder:
+            normalized, voice, corrected = [os.path.join(folder, name) for name in ("input.mp4", "voice.wav", "corrected.mp4")]
+            video_filter = f"scale={target_w}:{target_h},setsar=1"
+            if delay:
+                video_filter += f",tpad=start_mode=clone:start_duration={delay}"
+            subprocess.run([ffmpeg, "-y", "-v", "error", "-i", video_path, "-an", "-vf", video_filter,
+                "-c:v", "libx264", "-crf", "18", "-preset", "fast", "-t", str(duration), normalized],
+                check=True, capture_output=True, timeout=120)
+            subprocess.run([ffmpeg, "-y", "-v", "error", "-i", audio_path, "-af",
+                f"adelay={max(0, offset_ms)}:all=1,apad", "-t", str(duration), "-ar", "48000", "-ac", "1", voice],
+                check=True, capture_output=True, timeout=60)
+            face_path = self._resolve_media_path(face_reference_url, suffix=".png") if face_reference_url else None
+            replace_lip_sync(normalized, voice, corrected, face_image_path=face_path,
+                task_id=frame.dub_provider_task_id, on_submitted=on_submitted)
+            corrected_duration = float(subprocess.check_output([get_ffprobe_path(), "-v", "error",
+                "-show_entries", "format=duration", "-of", "csv=p=0", corrected]))
+            if abs(corrected_duration - duration) > 0.15:
+                raise RuntimeError("Lip-sync output changed the shot duration; the previous take was preserved")
+            subprocess.run([ffmpeg, "-y", "-v", "error", "-i", corrected, "-i", _safe_resolve_path("output", baseline),
+                "-map", "0:v:0", "-map", "1:a:0", "-vf", f"scale={width}:{height}:flags=lanczos",
+                "-c:v", "libx264", "-crf", "18", "-preset", "fast", "-c:a", "copy",
+                "-t", str(duration), "-movflags", "+faststart", output], check=True, capture_output=True, timeout=120)
+        return f"video/{output_name}"
 
     def _render_dub_preview(self, frame: StoryboardFrame, video_url: str, offset_ms: int) -> str:
         """Render a unique file from a detached frame; publication happens after rendering."""
@@ -3633,6 +3901,7 @@ class ComicGenPipeline:
                 raise ValueError("The preview file is missing. Generate a new preview")
             # ponytail: retain replaced files; cleanup needs reference-aware media GC.
             self._save_fields(frame, dubbed_video_url=frame.preview_video_url, dubbed_video_task_id=task.id,
+                dub_lip_sync=frame.preview_lip_sync, preview_lip_sync=False,
                 dub_offset_ms=frame.preview_offset_ms or 0, preview_video_url=None, preview_audio_url=None,
                 preview_video_task_id=None, preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
             return script
@@ -3647,6 +3916,7 @@ class ComicGenPipeline:
             if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
                 raise GenerationInProgressError("Wait for the dub preview to finish")
             self._save_fields(frame, dubbed_video_url=None, dubbed_video_task_id=None, dub_offset_ms=0,
+                dub_lip_sync=False, preview_lip_sync=False,
                 preview_video_url=None, preview_audio_url=None, preview_video_task_id=None,
                 preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
             return script
@@ -3664,6 +3934,7 @@ class ComicGenPipeline:
             "unreadable": [],
             "duration_anomalies": [],
             "no_video_available": [],
+            "content_issues": [],
             "disk": {
                 "path": video_output_dir,
                 "free_bytes": 0,
@@ -3696,12 +3967,41 @@ class ComicGenPipeline:
 
         candidate_files: List[Tuple[Any, str, str]] = []
         for frame in script.frames:
-            _, candidate_url, selection_error = _resolve_explicit_video_take(script, frame)
+            task, candidate_url, selection_error = _resolve_explicit_video_take(script, frame)
             if not candidate_url:
                 report["no_video_available"].append(
                     {"frame_id": frame.id, "reason": selection_error}
                 )
                 continue
+
+            from .revision import compute_revision
+            fingerprint = self._shot_input_fingerprint(script, frame)
+            reviewed = getattr(frame, "reviewed_video_fingerprint", None) == compute_revision([task.id, fingerprint])
+            source_fingerprint = getattr(task, "input_fingerprint", None)
+            audio_review = getattr(task, "model", None) == "minimax/minimax-h3" and getattr(task, "audio_mode", None) == "driven"
+            if not reviewed and (source_fingerprint != fingerprint or audio_review):
+                report["content_issues"].append({
+                    "frame_id": frame.id, "video_id": task.id, "reviewable": True,
+                    "review_fingerprint": compute_revision([task.id, fingerprint]),
+                    "blocking": bool(source_fingerprint) or audio_review,
+                    "reason": "此视频使用了参考音频，请逐镜试听并核对口型、说话起止和台词完整性后再确认。" if audio_review and source_fingerprint == fingerprint else "画面、参考图或对白已变化，请重新生成或复核后保留此版本。" if source_fingerprint else "旧视频缺少输入版本记录，请复核参考图、光线、道具状态和对白口型。",
+                })
+            if getattr(frame, "dubbed_video_url", None):
+                try:
+                    self._validate_dub_audio(script, frame)
+                except (ValueError, GenerationInProgressError):
+                    report["content_issues"].append({"frame_id": frame.id, "video_id": task.id, "blocking": True,
+                        "reason": "已应用配音与当前对白或音色不一致，请重新生成并应用配音。"})
+                else:
+                    try:
+                        _, speech_end = _dialogue_audio_bounds(frame.audio_url)
+                        end_in_clip = speech_end + max(0, frame.dub_offset_ms) / 1000 - (frame.in_point or 0)
+                        if end_in_clip > _clip_duration_seconds(frame) + 0.05:
+                            report["content_issues"].append({"frame_id": frame.id, "video_id": task.id, "blocking": True,
+                                "reason": "当前镜头会截断配音结尾，请延长镜头或调整配音偏移后重新应用。"})
+                    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                        report["content_issues"].append({"frame_id": frame.id, "blocking": True,
+                            "reason": f"无法验证配音完整性：{exc}"})
 
             report["frames_with_video"] += 1
             try:
@@ -3816,6 +4116,7 @@ class ComicGenPipeline:
             not report["missing"]
             and not report["unreadable"]
             and not report["no_video_available"]
+            and not any(item.get("blocking") for item in report["content_issues"])
             and report["disk"]["sufficient"]
             and not fatal_errors
         )
@@ -3835,6 +4136,15 @@ class ComicGenPipeline:
             "progress": float(progress),
             "updated_at": time.time(),
         }
+        with self._save_lock:
+            current = self.scripts.get(script.id)
+            if current is None:
+                raise LookupError("Project was removed during export")
+            # Project polling can replace the cache while FFmpeg renders.
+            # Publish export-owned fields onto the latest project, keeping edits.
+            for field in ("merge_progress", "merge_failure", "merge_verification", "merged_video_url"):
+                setattr(current, field, getattr(script, field, None))
+            self._save_data()
 
     def merge_videos(self, script_id: str) -> Script:
         """Step 5b: Merge selected videos into a single file."""
@@ -3843,6 +4153,8 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
 
+        with self._save_lock:
+            script = copy.deepcopy(script)
         script.merge_failure = None
         self._set_merge_progress(script, "preparing", "准备导出", 0.05)
         try:
@@ -3962,11 +4274,9 @@ class ComicGenPipeline:
             logger.error("[MERGE] No valid video files found on disk!")
             raise ValueError("No valid video files found. The video files may have been deleted or moved.")
 
-        # The concat demuxer adopts the stream layout of its first input.  When
-        # silent generated shots are mixed with dubbed shots, a silent first
-        # clip can otherwise cause the final movie to lose every later audio
-        # track.  Normalize silent inputs by attaching an AAC silence stream so
-        # every segment has a consistent video+audio layout.
+        # Decode each source independently: generated and dubbed AAC tracks can
+        # have different sample rates and codec headers. The concat demuxer must
+        # only see uniform streams, with both tracks fitted to the shot timeline.
         import tempfile
         import shutil
         normalization_dir = tempfile.mkdtemp(prefix=f"omni_studio_merge_{script.id}_")
@@ -3976,55 +4286,36 @@ class ComicGenPipeline:
         try:
             for index, source_path in enumerate(abs_video_paths):
                 frame = selected_frames[index]
-                trim_start = getattr(frame, "in_point", None)
-                trim_end = getattr(frame, "out_point", None)
-                if trim_start is not None or trim_end is not None:
-                    trimmed_path = os.path.join(normalization_dir, f"trimmed_{index + 1:03d}.mp4")
-                    trim_cmd = [ffmpeg_path, "-y"]
-                    if trim_start is not None:
-                        trim_cmd.extend(["-ss", str(trim_start)])
-                    trim_cmd.extend(["-i", source_path])
-                    if trim_end is not None:
-                        duration = float(trim_end) - float(trim_start or 0)
-                        trim_cmd.extend(["-t", str(duration)])
-                    trim_cmd.extend(["-c", "copy", trimmed_path])
-                    subprocess.run(trim_cmd, check=True, capture_output=True, timeout=120)
-                    source_path = trimmed_path
+                trim_start = float(getattr(frame, "in_point", None) or 0)
+                duration = _clip_duration_seconds(frame)
                 probe = subprocess.run(
-                    [
-                        ffmpeg_path, "-v", "error", "-i", source_path,
-                        "-map", "0:a:0", "-frames:a", "1",
-                        "-f", "null", os.devnull,
-                    ],
-                    capture_output=True,
-                    timeout=30,
+                    [ffmpeg_path, "-v", "error", "-i", source_path,
+                     "-map", "0:a:0", "-frames:a", "1", "-f", "null", os.devnull],
+                    capture_output=True, timeout=30,
                 )
-                if probe.returncode == 0:
-                    normalized_paths.append(source_path)
-                    continue
-
-                normalized_path = os.path.join(
-                    normalization_dir, f"segment_{index + 1:03d}.mp4"
-                )
-                logger.info(
-                    f"[MERGE] Input {index + 1} has no audio; attaching silent AAC track"
-                )
-                subprocess.run(
-                    [
-                        ffmpeg_path, "-y",
-                        "-i", source_path,
-                        "-f", "lavfi",
-                        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-                        "-map", "0:v:0", "-map", "1:a:0",
-                        "-c:v", "copy",
-                        "-c:a", "aac", "-b:a", export_settings["audio_bitrate"],
-                        "-shortest",
-                        normalized_path,
-                    ],
-                    check=True,
-                    capture_output=True,
-                    timeout=120,
-                )
+                normalized_path = os.path.join(normalization_dir, f"segment_{index + 1:03d}.mp4")
+                command = [ffmpeg_path, "-y", "-ss", str(trim_start), "-i", source_path]
+                audio_input = "0:a:0"
+                if probe.returncode != 0:
+                    command.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
+                    audio_input = "1:a:0"
+                video_filters = [f"fps={export_settings['fps'] or 30}"]
+                if export_settings["resolution"]:
+                    width, height = export_settings["resolution"].split("x")
+                    video_filters.extend([f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+                                          f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"])
+                video_filters.extend(["setsar=1", "format=yuv420p", f"tpad=stop_mode=clone:stop_duration={duration}",
+                                      f"trim=duration={duration}", "setpts=PTS-STARTPTS"])
+                command.extend([
+                    "-map", "0:v:0", "-map", audio_input,
+                    "-vf", ",".join(video_filters),
+                    "-af", f"aresample=48000,apad,atrim=duration={duration},asetpts=PTS-STARTPTS",
+                    "-r", str(export_settings['fps'] or 30), "-fps_mode", "cfr",
+                    "-ac", "2", "-c:v", "libx264", "-crf", str(export_settings["crf"]),
+                    "-preset", export_settings["preset"], "-c:a", "aac",
+                    "-b:a", export_settings["audio_bitrate"], normalized_path,
+                ])
+                subprocess.run(command, check=True, capture_output=True, timeout=120)
                 normalized_paths.append(normalized_path)
 
             abs_video_paths = normalized_paths
@@ -4056,11 +4347,7 @@ class ComicGenPipeline:
         # Run ffmpeg
         # Use re-encoding for better compatibility (slower but more reliable)
         # -c:v libx264 -c:a aac ensures consistent output format
-        transition_requested = any(
-            _transition_filter_name(getattr(frame, "transition_hint", None))
-            for frame in selected_frames[:-1]
-        )
-        if transition_requested:
+        if len(abs_video_paths) > 1:
             cmd = _build_transition_merge_command(
                 ffmpeg_path,
                 abs_video_paths,
@@ -4071,9 +4358,7 @@ class ComicGenPipeline:
         else:
             cmd = [
                 ffmpeg_path, "-y",  # Use the detected ffmpeg path
-                "-f", "concat",
-                "-safe", "0",
-                "-i", list_path,
+                "-i", abs_video_paths[0],
             ]
             if export_settings["resolution"]:
                 width, height = export_settings["resolution"].split("x")
@@ -4169,16 +4454,15 @@ class ComicGenPipeline:
                     f"{json.dumps(script.merge_verification, ensure_ascii=False)}"
                 )
 
-            self._set_merge_progress(script, "done", "导出完成", 1.0)
             script.merge_failure = None
-            self._save_data()
+            self._set_merge_progress(script, "done", "导出完成", 1.0)
 
             # Cleanup list file
             if os.path.exists(list_path):
                 os.remove(list_path)
             shutil.rmtree(normalization_dir, ignore_errors=True)
 
-            return script
+            return self.scripts[script_id]
         except subprocess.TimeoutExpired:
             logger.error("[MERGE] FFmpeg timed out after 600 seconds")
             raise RuntimeError("FFmpeg timed out. The videos may be too large.")
@@ -4385,17 +4669,15 @@ class ComicGenPipeline:
         bgm_lvl = max(0, min(100, int(mix.get("bgm", 35)))) / 100.0
         sfx_lvl = max(0, min(100, int(mix.get("sfx", 60)))) / 100.0
 
-        sfx_inputs: List[tuple[str, float, str]] = []
-        elapsed = 0.0
-        for frame in frames or []:
+        sfx_inputs: List[tuple[str, float, str, float, float]] = []
+        for frame, elapsed, trim_start, duration in _export_timeline(frames or []):
             sfx_rel = (getattr(frame, "sfx_url", None) or "").strip()
             if sfx_rel:
                 sfx_abs = _safe_resolve_path("output", sfx_rel)
                 if os.path.exists(sfx_abs):
-                    sfx_inputs.append((sfx_abs, elapsed, getattr(frame, "id", "unknown")))
+                    sfx_inputs.append((sfx_abs, elapsed, getattr(frame, "id", "unknown"), trim_start, duration))
                 else:
                     logger.info(f"[MERGE/SFX] file missing — {sfx_abs}; skipping frame {frame.id}")
-            elapsed += _frame_duration_seconds(frame)
 
         if bgm_abs is None and not sfx_inputs:
             return None
@@ -4415,13 +4697,14 @@ class ComicGenPipeline:
             mix_labels.append("[abgm]")
             input_count += 1
 
-        for sfx_index, (sfx_abs, offset, frame_id) in enumerate(sfx_inputs):
+        for sfx_index, (sfx_abs, offset, frame_id, trim_start, duration) in enumerate(sfx_inputs):
             input_index = input_count
             input_args.extend(["-i", sfx_abs])
             label = f"[asfx{sfx_index}]"
             delay = max(0, int(round(offset * 1000)))
             filter_parts.append(
-                f"[{input_index}:a]volume={sfx_lvl:.3f},adelay={delay}|{delay},apad{label}"
+                f"[{input_index}:a]atrim=start={trim_start}:duration={duration},asetpts=PTS-STARTPTS,"
+                f"volume={sfx_lvl:.3f},adelay={delay}|{delay},apad{label}"
             )
             mix_labels.append(label)
             input_count += 1
@@ -4681,6 +4964,7 @@ class ComicGenPipeline:
                     output_path=output_path,
                     img_url=img_url,
                     img_path=img_path,
+                    last_frame=task.last_frame_url,
                     model=task.model,
                     duration=task.duration,
                     resolution=task.resolution,
@@ -4704,8 +4988,10 @@ class ComicGenPipeline:
                     output_path=output_path,
                     model=task.model,
                     image_urls=([img_url] if img_url else []) + list(task.reference_image_urls),
+                    last_frame_url=task.last_frame_url,
                     video_urls=list(task.reference_video_urls),
                     audio_urls=[final_audio_url] if final_audio_url else [],
+                    generation_mode=task.generation_mode,
                     resolution=task.resolution,
                     duration=task.duration,
                     ratio=task.ratio or "16:9",

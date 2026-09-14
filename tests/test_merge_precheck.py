@@ -126,6 +126,46 @@ def test_precheck_merge_all_inputs_are_valid(monkeypatch, pipeline):
     assert report["errors"] == []
 
 
+def test_changed_reference_requires_review_and_another_change_invalidates_review(monkeypatch, pipeline):
+    from threading import RLock
+    from src.apps.comic_gen.models import Script, StoryboardFrame, VideoTask, Scene, ImageAsset, ImageVariant
+    _install_common_mocks(monkeypatch)
+    scene = Scene(id="scene", name="Room", description="room", image_asset=ImageAsset(selected_id="v1", variants=[
+        ImageVariant(id="v1", url="old.png"), ImageVariant(id="v2", url="new.png")]))
+    frame = StoryboardFrame(id="frame-1", scene_id=scene.id, selected_video_id="video-1")
+    task = VideoTask(id="video-1", frame_id=frame.id, project_id="script-1", image_url="", prompt="room", status="completed", video_url="video/frame-1.mp4")
+    script = Script(id="script-1", title="test", original_text="test", created_at=0, updated_at=0, frames=[frame], scenes=[scene], video_tasks=[task])
+    pipeline.scripts[script.id] = script
+    pipeline._save_lock = RLock()
+    pipeline._save_data = lambda: None
+    pipeline.resolve_episode_assets = lambda _: {"characters": [], "scenes": [scene], "props": []}
+    task.input_fingerprint = pipeline._shot_input_fingerprint(script, frame)
+    assert pipeline.precheck_merge(script.id)["ok"]
+    scene.image_asset.selected_id = "v2"
+    assert not pipeline.precheck_merge(script.id)["ok"]
+    fingerprint = pipeline.precheck_merge(script.id)["content_issues"][0]["review_fingerprint"]
+    pipeline.select_video_for_frame(script.id, frame.id, task.id, confirm_review=True, review_fingerprint=fingerprint)
+    assert pipeline.precheck_merge(script.id)["ok"]
+    frame.visual_description = "Night falls"
+    assert not pipeline.precheck_merge(script.id)["ok"]
+    with pytest.raises(ValueError, match="复核期间发生变化"):
+        pipeline.select_video_for_frame(script.id, frame.id, task.id, confirm_review=True, review_fingerprint=fingerprint)
+    assert task.video_url == "video/frame-1.mp4"
+
+
+def test_audio_reference_success_still_requires_an_explicit_review(monkeypatch, pipeline):
+    _install_common_mocks(monkeypatch)
+    script = _script()
+    frame, task = script.frames[0], script.video_tasks[0]
+    task.model, task.audio_mode = "minimax/minimax-h3", "driven"
+    task.input_fingerprint = pipeline._shot_input_fingerprint(script, frame)
+    pipeline.scripts[script.id] = script
+    report = pipeline.precheck_merge(script.id)
+    assert not report["ok"]
+    assert report["content_issues"][0]["blocking"]
+    assert "口型" in report["content_issues"][0]["reason"]
+
+
 def test_precheck_merge_reports_missing_file(monkeypatch, pipeline):
     candidate_path, _ = _install_common_mocks(monkeypatch, file_exists=False)
     pipeline.scripts["script-1"] = _script()
@@ -226,3 +266,13 @@ def test_precheck_merge_reports_missing_script(pipeline):
     assert report["total_frames"] == 0
     assert report["frames_with_video"] == 0
     assert report["errors"] == ["Script not found: missing-script"]
+
+
+def test_export_rejects_a_dub_from_a_previous_take():
+    frame = _frame(dubbed_video_url="video/old-dub.mp4")
+    frame.dubbed_video_task_id = "previous-take"
+    task, url, error = pipeline_module._resolve_explicit_video_take(_script(frames=[frame]), frame)
+    assert task.id == "video-1" and url is None
+    assert "different take" in error
+    frame.dubbed_video_task_id = "video-1"
+    assert pipeline_module._resolve_explicit_video_take(_script(frames=[frame]), frame)[1] == "video/old-dub.mp4"
