@@ -163,6 +163,8 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "MULEROUTER_SITE",
     "MOMA_API_KEY",
     "MOMA_BASE_URL",
+    "JOJOKEY_API_KEY",
+    "JOJOKEY_BASE_URL",
     "IMAGE_PROVIDER",
 }
 
@@ -3272,6 +3274,7 @@ class EnvConfig(ProviderRoutingConfig):
     VIDU_API_KEY: Optional[str] = None
     MULEROUTER_API_KEY: Optional[str] = None
     MOMA_API_KEY: Optional[str] = None
+    JOJOKEY_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -3290,6 +3293,7 @@ _PROVIDER_TEST_CREDENTIALS = {
     "pixverse": ("DASHSCOPE_API_KEY",),
     "mulerouter": ("MULEROUTER_API_KEY",),
     "moma": ("MOMA_API_KEY",),
+    "jojokey": ("JOJOKEY_API_KEY",),
 }
 
 
@@ -7074,6 +7078,7 @@ SECRET_FIELDS = {
     "VIDU_API_KEY",
     "MULEROUTER_API_KEY",
     "MOMA_API_KEY",
+    "JOJOKEY_API_KEY",
 }
 
 # Bullet sentinel: never appears in a real key, so the save path can detect an
@@ -7129,6 +7134,7 @@ def get_env_config():
             "VIDU_API_KEY": _mask_secret(workspace_getenv("VIDU_API_KEY")),
             "MULEROUTER_API_KEY": _mask_secret(workspace_getenv("MULEROUTER_API_KEY")),
             "MOMA_API_KEY": _mask_secret(workspace_getenv("MOMA_API_KEY")),
+            "JOJOKEY_API_KEY": _mask_secret(workspace_getenv("JOJOKEY_API_KEY")),
             # Non-secret config.
             "OSS_BUCKET_NAME": workspace_getenv("OSS_BUCKET_NAME", ""),
             "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),

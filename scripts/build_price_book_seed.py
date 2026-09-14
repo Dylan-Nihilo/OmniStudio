@@ -2,11 +2,12 @@
 
 Run it again whenever a quote changes; the numbers below are the only thing to edit.
 
-Sources, agreed 2026-09-13:
-  * Video — 轻舟万向国内大模型报价表 0821, sheet 「国模-视频生成0818」, discounted price of the
-    channel we actually buy through: Seedance 2.0 字节厂商 (86折), Seedance 2.5 字节厂商 (85折),
-    MiniMax Hailuo 2.3 自部署 (62折). Seedance modes all take image references, never a video,
-    so every row uses the 「不含视频」 column.
+Sources:
+  * Video — JojoKey, measured against our own account on 2026-09-14 (GET /v1/pricing with our
+    key, which is cheaper than the public defaults on the mainline models). Replaces the
+    轻舟万向 quote sheet we costed against before we had a real supplier: that sheet had
+    Seedance 2.5 at ¥0.57/¥1.29 per second, well under what it actually costs, so the old
+    26/57 credit rates were being sold below the 120% floor.
   * Text — newapi list price (kaizo.top /api/pricing, model_ratio x $2 per 1M tokens) times our
     per-vendor multiplier. newapi settles its quota unit 1:1 against CNY, so a list price of
     "$5" times a 1.8 multiplier costs ¥9 per million tokens.
@@ -14,7 +15,9 @@ Sources, agreed 2026-09-13:
     for gpt-image-2.
   * Voice — 百炼 (DashScope) official price per 10k characters.
 
-Video is quoted in CNY already; text and image need no FX because newapi bills 1 unit = ¥1.
+Text and image need no FX because newapi bills 1 unit = ¥1. Every video row does, because
+JojoKey quotes video in USD on the line we can currently reach — see USD_CNY below for why
+that is a pinned constant rather than a rate, and for what to change once the CN line opens.
 
 Users are charged in one unit per stage — video per second, image per image, text and voice
 per 1000 characters — and every rate is a whole number of credits, so a bill can be worked
@@ -35,38 +38,56 @@ SEED = Path(__file__).resolve().parents[1] / "config" / "pricing" / "price_book.
 RULE = {"credit_face_value_cny": 0.10, "l1_discount": 0.50, "target_markup": 1.20,
         "rounding_step": 1, "min_credits": 1}
 
-# Seedance bills per million tokens; a second of video is width x height x 24fps / 1024 tokens.
-TOKENS_PER_SECOND = {"480p": 854 * 480 * 24 // 1024, "720p": 1280 * 720 * 24 // 1024,
-                     "1080p": 1920 * 1080 * 24 // 1024}
-
-
-def per_second(cny_per_million_tokens: float, resolution: str) -> float:
-    return cny_per_million_tokens * TOKENS_PER_SECOND[resolution] / 1_000_000
-
-
 # --- video -----------------------------------------------------------------
-# 折后价 元/百万 token, 不含视频输入
-SEEDANCE_20 = {"720p": 39.56, "1080p": 43.86}
-SEEDANCE_25 = {"480p": 59.50, "720p": 59.50}
-# MiniMax Hailuo 2.3 is quoted directly in 元/秒 (自部署 62折)
-MINIMAX = {"1K": 0.31, "2K": 0.496}      # catalog calls 768P "1K"
+# A bookkeeping constant, not a live exchange rate: nothing here re-reads a market feed, and
+# a rate that moved under us would silently restate every margin. It sits above spot on
+# purpose — overstating cost can only understate profit, never the reverse.
+#
+# Every figure below is JojoKey's USD price per second for our account. Seedance is meant to
+# settle in CNY on the CN line, but that line is not open for our account yet
+# (403 VideoCnBetaNotEnabled), so its CNY price list is unreadable and the USD equivalent is
+# the only honest basis today. Re-read GET /v1/video-cn/models and re-base the Seedance rows
+# once the account is enabled; MiniMax stays on USD either way.
+USD_CNY = 7.3
+
+# JojoKey model -> {resolution: USD per second}, from GET /v1/pricing with our key.
+# The 2.0 tiers use the mainline models rather than the cheaper "特价" ones: 特价 accepts a
+# reference_image role only, and our i2v means "animate this storyboard frame", so it would
+# quietly stop honouring the first frame. Mainline is also cheaper at 720p and adds 480p.
+SEEDANCE_20_TIERS = [
+    ("标准", "seedance/seedance-2.0-mini", {"480p": 0.012336, "720p": 0.026528}),
+    ("高级", "seedance/seedance-2.0-fast", {"480p": 0.037008, "720p": 0.079584}),
+    ("卓越", "seedance/seedance-2.0-video", {"480p": 0.061680, "720p": 0.132640, "1080p": 0.328284}),
+]
+# Seedance 2.5 prices by whether the input contains video. Our r2v passes images, so every
+# row uses the dearer no-video-reference column and can never undercharge.
+SEEDANCE_25 = {"480p": 0.108370, "720p": 0.233046, "1080p": 0.412818}
+# MiniMax: minimax-h3-official would have matched our old 1K/2K rows, but it carries no price
+# on our account and the API refuses an unpriced model, so this is the route that works.
+MINIMAX = {"480p": 0.020, "720p": 0.040}
+
+
+def per_second_cny(usd_per_second: float) -> float:
+    return round(usd_per_second * USD_CNY, 4)
+
 
 video: list[dict] = []
 for mode in ("t2v", "i2v", "r2v"):
-    for resolution, price in SEEDANCE_20.items():
-        video.append({"model_id": f"seedance/seedance-2.0-video#{mode}", "stage": "video",
-                      "billing_unit": "second", "match": {"resolution": resolution},
-                      "purchase_price_cny": round(per_second(price, resolution), 4),
-                      "display_name": "Seedance 2.0"})
-    for resolution, price in SEEDANCE_25.items():
+    for tier, model_line, prices in SEEDANCE_20_TIERS:
+        for resolution, usd in prices.items():
+            video.append({"model_id": f"{model_line}#{mode}", "stage": "video",
+                          "billing_unit": "second", "match": {"resolution": resolution},
+                          "purchase_price_cny": per_second_cny(usd),
+                          "display_name": f"Seedance 2.0 {tier}"})
+    for resolution, usd in SEEDANCE_25.items():
         video.append({"model_id": f"seedance/seedance-2.5-video#{mode}", "stage": "video",
                       "billing_unit": "second", "match": {"resolution": resolution},
-                      "purchase_price_cny": round(per_second(price, resolution), 4),
+                      "purchase_price_cny": per_second_cny(usd),
                       "display_name": "Seedance 2.5"})
-for resolution, price in MINIMAX.items():
+for resolution, usd in MINIMAX.items():
     video.append({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "billing_unit": "second",
-                  "match": {"resolution": resolution}, "purchase_price_cny": price,
-                  "display_name": "MiniMax Hailuo 2.3"})
+                  "match": {"resolution": resolution}, "purchase_price_cny": per_second_cny(usd),
+                  "display_name": "MiniMax H3"})
 
 # --- text -----------------------------------------------------------------
 # Cost = newapi list price x the multiplier we are charged for that vendor's pool.
@@ -136,7 +157,9 @@ voice = [{"model_id": model_id, "stage": "tts", "billing_unit": "chars_1k", "mat
 def main() -> int:
     items = video + text + image + voice
     doc = {
-        "note": ("2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；"
+        "note": ("2026-09-14 供应商报价。视频=JojoKey 我方账号实测价（GET /v1/pricing），"
+                 f"美元按记账常量 {USD_CNY} 折人民币（非实时汇率，高于即期以免低估成本）；"
+                 "国内线开通后 Seedance 应改用 /v1/video-cn/models 的人民币价重算；"
                  "文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），"
                  "进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）"
                  "按 1 字=1 token 折成每千字，用于核对利润；"

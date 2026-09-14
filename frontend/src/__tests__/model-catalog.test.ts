@@ -60,11 +60,14 @@ describe('model catalog selectors', () => {
         expect(GLOBAL_T2I_MODELS.map((model) => model.id)).toEqual(GLOBAL_IMAGE_MODELS.map((m) => m.id));
         expect(GLOBAL_I2I_MODELS.map((model) => model.id)).toEqual(GLOBAL_IMAGE_MODELS.map((m) => m.id));
 
-        // Ordered DESC by ui.order; ties broken by display_name asc. Only the two I2V
-        // models the price book covers are offered — the rest were retired with it.
+        // Ordered DESC by ui.order; ties broken by display_name asc. Every entry is priced:
+        // the three Seedance 2.0 tiers, 2.5, and MiniMax.
         expect(GLOBAL_I2V_MODELS.map((model) => model.id)).toEqual([
             'minimax/minimax-h3',
+            'seedance-2.5-i2v',
             'seedance-2.0-i2v',
+            'seedance-2.0-fast-i2v',
+            'seedance-2.0-mini-i2v',
         ]);
     });
 

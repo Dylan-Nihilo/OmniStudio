@@ -894,7 +894,8 @@
     "imageProviderLabel": "图像生成服务",
     "imageProviderHint": "选择 GPT 图像模型使用的服务，其他图像模型按模型目录运行。",
     "imageModel": "图像模型",
-    "momaHint": "MiniMax H3 视频生成服务"
+    "momaHint": "MiniMax H3 视频生成服务",
+    "jojokeyHint": "Seedance 2.0 / 2.5 与 MiniMax H3 的中转密钥"
   },
   "project": {
     "createTitle": "创建新项目",

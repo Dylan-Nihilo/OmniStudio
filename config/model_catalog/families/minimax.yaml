@@ -1,15 +1,15 @@
 family: minimax
 display_name: MiniMax
-provider: moma
+provider: jojokey
 routing_prefixes:
   - minimax/minimax-
   - minimax-
 supported_backends:
-  - moma
-default_backend: moma
+  - jojokey
+default_backend: jojokey
 credential_sources:
-  moma:
-    - MOMA_API_KEY
+  jojokey:
+    - JOJOKEY_API_KEY
 supported_modalities:
   - t2v
   - i2v
@@ -17,29 +17,33 @@ supported_modalities:
   - v2v
 transport:
   image_input_mode:
-    moma: moma_content_image_url
+    jojokey: jojokey_content_image_url
   audio_input_mode:
-    moma: moma_content_audio_url
+    jojokey: jojokey_content_audio_url
   reference_video_input_mode:
-    moma: moma_content_video_url
+    jojokey: jojokey_content_video_url
 docs:
   official_snapshot_ids:
-    - moma/minimax-h3/2026-09-07
+    - jojokey/minimax-h3/2026-09-14
 models:
   - id: minimax/minimax-h3
     model_line_id: minimax/minimax-h3
     display_name: MiniMax H3 Video
-    description: MiniMax H3 multimodal video generation through the MOMA gateway
+    description: MiniMax H3 multimodal video generation through the JojoKey relay
     status: active
     release_stage: preview
     capabilities: [i2v, r2v, t2v, v2v]
     runtime:
-      moma:
-        gateway: moma
-        api_model_id: minimax/minimax-h3
+      jojokey:
+        gateway: jojokey
+        # MiniMax is not on JojoKey's CN line, so this one family settles in USD.
+        # minimax-h3-official would match our old 1K/2K rows, but it carries no price on
+        # our account and the API refuses an unpriced model outright.
+        line: overseas
+        overseas_model: minimax-h3-reference-to-video
     docs:
       context_hub_doc_ids:
-        - moma/minimax-h3-api
+        - jojokey/minimax-h3-api
     ui:
       selection_group: i2v
       visible_in: [project_settings, series_settings, video_sidebar, global_settings]
@@ -47,14 +51,15 @@ models:
       badges: [new]
     duration:
       type: slider
-      min: 1
-      max: 10
+      min: 2
+      max: 15
       step: 1
       default: 5
     params:
       resolution:
-        options: [1K, 2K]
-        default: 2K
+        # The resolutions the JojoKey route actually sells for this model.
+        options: [480p, 720p]
+        default: 720p
       ratio:
         options: ["16:9", "9:16", "1:1", "4:3", "3:4"]
         default: "16:9"

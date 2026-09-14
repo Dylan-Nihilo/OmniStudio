@@ -7,6 +7,9 @@ PROVIDER_DEFAULTS = {
     "VIDU": "https://api.vidu.cn/ent/v2",
     "MULEROUTER": "https://api.mulerouter.ai",
     "MOMA": "https://moma.cmecloud.cn/v1",
+    # Official main site. Mirror entrances serve the same API under their own domain, e.g.
+    # https://jojokey.com/video-api/v1 — point JOJOKEY_BASE_URL at whichever the key belongs to.
+    "JOJOKEY": "https://video.jojokey.com/v1",
 }
 
 

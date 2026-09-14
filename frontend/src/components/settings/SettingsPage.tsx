@@ -52,6 +52,7 @@ type EnvConfig = EnvConfigPayload & {
   VIDU_API_KEY: string;
   MULEROUTER_API_KEY: string;
   MOMA_API_KEY: string;
+  JOJOKEY_API_KEY: string;
   MULERUN_CLI_LOGGED_IN?: boolean;
   endpoint_overrides: Record<string, string>;
 };
@@ -88,6 +89,7 @@ const DEFAULT_CONFIG: EnvConfig = {
   VIDU_API_KEY: "",
   MULEROUTER_API_KEY: "",
   MOMA_API_KEY: "",
+  JOJOKEY_API_KEY: "",
   endpoint_overrides: {},
 };
 
@@ -129,7 +131,7 @@ const getValidationErrors = (env: EnvConfig): string[] => {
 };
 
 const STORAGE_FIELDS = ['OSS_ENABLE', 'OSS_BUCKET_NAME', 'OSS_ENDPOINT', 'OSS_BASE_PATH', 'ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'] as const;
-const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY', 'IMAGE_PROVIDER', 'OPENAI_IMAGE_API_KEY', 'OPENAI_IMAGE_BASE_URL', 'OPENAI_IMAGE_MODEL', 'MOMA_API_KEY'] as const;
+const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY', 'IMAGE_PROVIDER', 'OPENAI_IMAGE_API_KEY', 'OPENAI_IMAGE_BASE_URL', 'OPENAI_IMAGE_MODEL', 'MOMA_API_KEY', 'JOJOKEY_API_KEY'] as const;
 
 const LS_KEY_MODEL = "omni_studio_default_model_settings";
 const LS_KEY_PROMPT = "omni_studio_default_prompt_config";
@@ -637,6 +639,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
         </div>
       </FormRow>
+      <FormRow label="JojoKey" hint={t("jojokeyHint")}>{keyField("JOJOKEY_API_KEY", "JojoKey Relay API Key", "sk-...")}</FormRow>
       <FormRow label="MOMA / MiniMax H3" hint={t("momaHint")}>{keyField("MOMA_API_KEY", "MOMA API Key")}</FormRow>
       <FormRow label={t("klingLabel")} hint={t("klingHint")}>
         <div className="space-y-4">

@@ -1,5 +1,5 @@
 {
-  "note": "2026-09-13 供应商报价。视频=轻舟万向报价表折后价（Seedance 2.0/2.5 字节厂商、MiniMax 自部署）；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
+  "note": "2026-09-14 供应商报价。视频=JojoKey 我方账号实测价（GET /v1/pricing），美元按记账常量 7.3 折人民币（非实时汇率，高于即期以免低估成本）；国内线开通后 Seedance 应改用 /v1/video-cn/models 的人民币价重算；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -9,14 +9,64 @@
   },
   "items": [
     {
+      "model_id": "seedance/seedance-2.0-mini#t2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.0901,
+      "display_name": "Seedance 2.0 标准"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-mini#t2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.1937,
+      "display_name": "Seedance 2.0 标准"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-fast#t2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.2702,
+      "display_name": "Seedance 2.0 高级"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-fast#t2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.581,
+      "display_name": "Seedance 2.0 高级"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#t2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.4503,
+      "display_name": "Seedance 2.0 卓越"
+    },
+    {
       "model_id": "seedance/seedance-2.0-video#t2v",
       "stage": "video",
       "billing_unit": "second",
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.8545,
-      "display_name": "Seedance 2.0"
+      "purchase_price_cny": 0.9683,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.0-video#t2v",
@@ -25,8 +75,8 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 2.1316,
-      "display_name": "Seedance 2.0"
+      "purchase_price_cny": 2.3965,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.5-video#t2v",
@@ -35,7 +85,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.5716,
+      "purchase_price_cny": 0.7911,
       "display_name": "Seedance 2.5"
     },
     {
@@ -45,8 +95,68 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 1.2852,
+      "purchase_price_cny": 1.7012,
       "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "seedance/seedance-2.5-video#t2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 3.0136,
+      "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-mini#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.0901,
+      "display_name": "Seedance 2.0 标准"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-mini#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.1937,
+      "display_name": "Seedance 2.0 标准"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-fast#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.2702,
+      "display_name": "Seedance 2.0 高级"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-fast#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.581,
+      "display_name": "Seedance 2.0 高级"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.4503,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.0-video#i2v",
@@ -55,8 +165,8 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.8545,
-      "display_name": "Seedance 2.0"
+      "purchase_price_cny": 0.9683,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.0-video#i2v",
@@ -65,8 +175,8 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 2.1316,
-      "display_name": "Seedance 2.0"
+      "purchase_price_cny": 2.3965,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.5-video#i2v",
@@ -75,7 +185,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.5716,
+      "purchase_price_cny": 0.7911,
       "display_name": "Seedance 2.5"
     },
     {
@@ -85,8 +195,68 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 1.2852,
+      "purchase_price_cny": 1.7012,
       "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "seedance/seedance-2.5-video#i2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 3.0136,
+      "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-mini#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.0901,
+      "display_name": "Seedance 2.0 标准"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-mini#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.1937,
+      "display_name": "Seedance 2.0 标准"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-fast#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.2702,
+      "display_name": "Seedance 2.0 高级"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-fast#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "720p"
+      },
+      "purchase_price_cny": 0.581,
+      "display_name": "Seedance 2.0 高级"
+    },
+    {
+      "model_id": "seedance/seedance-2.0-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "480p"
+      },
+      "purchase_price_cny": 0.4503,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.0-video#r2v",
@@ -95,8 +265,8 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.8545,
-      "display_name": "Seedance 2.0"
+      "purchase_price_cny": 0.9683,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.0-video#r2v",
@@ -105,8 +275,8 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 2.1316,
-      "display_name": "Seedance 2.0"
+      "purchase_price_cny": 2.3965,
+      "display_name": "Seedance 2.0 卓越"
     },
     {
       "model_id": "seedance/seedance-2.5-video#r2v",
@@ -115,7 +285,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.5716,
+      "purchase_price_cny": 0.7911,
       "display_name": "Seedance 2.5"
     },
     {
@@ -125,7 +295,17 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 1.2852,
+      "purchase_price_cny": 1.7012,
+      "display_name": "Seedance 2.5"
+    },
+    {
+      "model_id": "seedance/seedance-2.5-video#r2v",
+      "stage": "video",
+      "billing_unit": "second",
+      "match": {
+        "resolution": "1080p"
+      },
+      "purchase_price_cny": 3.0136,
       "display_name": "Seedance 2.5"
     },
     {
@@ -133,20 +313,20 @@
       "stage": "video",
       "billing_unit": "second",
       "match": {
-        "resolution": "1K"
+        "resolution": "480p"
       },
-      "purchase_price_cny": 0.31,
-      "display_name": "MiniMax Hailuo 2.3"
+      "purchase_price_cny": 0.146,
+      "display_name": "MiniMax H3"
     },
     {
       "model_id": "minimax/minimax-h3#i2v",
       "stage": "video",
       "billing_unit": "second",
       "match": {
-        "resolution": "2K"
+        "resolution": "720p"
       },
-      "purchase_price_cny": 0.496,
-      "display_name": "MiniMax Hailuo 2.3"
+      "purchase_price_cny": 0.292,
+      "display_name": "MiniMax H3"
     },
     {
       "model_id": "text/DeepSeek-V4.1-Flash",

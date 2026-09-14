@@ -894,7 +894,8 @@
     "imageProviderLabel": "Image generation service",
     "imageProviderHint": "Choose the service for GPT image models. Other image models use their catalog provider.",
     "imageModel": "Image model",
-    "momaHint": "MiniMax H3 video generation service"
+    "momaHint": "MiniMax H3 video generation service",
+    "jojokeyHint": "Relay key for Seedance 2.0 / 2.5 and MiniMax H3"
   },
   "project": {
     "createTitle": "Create New Project",

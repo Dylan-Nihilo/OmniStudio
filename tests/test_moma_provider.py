@@ -1,3 +1,11 @@
+"""MOMA adapter unit tests.
+
+No catalog family routes to MOMA any more — MiniMax H3 moved to the JojoKey relay, which is
+the only route we hold a working credential for. The adapter is kept because the gateway
+itself still exists and the account may come back; these tests describe its payload and
+error handling, and the routing coverage lives in tests/test_jojokey_provider.py.
+"""
+
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -5,12 +13,8 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from src.apps.comic_gen.models import VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.models.moma import MomaVideoModel
-from src.utils.endpoints import get_provider_base_url
-from src.utils.model_catalog import build_provider_family_configs, load_generated_model_catalog
-from src.utils.provider_registry import get_default_provider_registry
 
 
 class _FakeResponse:
@@ -26,18 +30,6 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
-
-
-def test_moma_catalog_and_provider_routing():
-    catalog = load_generated_model_catalog()
-    model = catalog["models"]["minimax/minimax-h3"]
-
-    assert model["family"] == "minimax"
-    assert model["capabilities"] == ["i2v", "r2v", "t2v", "v2v"]
-    assert model["ui"]["selection_group"] == "i2v"
-    assert "video_sidebar" in model["ui"]["visible_in"]
-    assert get_default_provider_registry().resolve_backend("minimax/minimax-h3") == "moma"
-    assert get_provider_base_url("MOMA") == "https://moma.cmecloud.cn/v1"
 
 
 def test_moma_adapter_submits_and_polls_with_model_header(monkeypatch, tmp_path):
@@ -156,97 +148,6 @@ def test_moma_adapter_surfaces_submit_error_body(monkeypatch, tmp_path):
             duration=5,
             ratio="16:9",
         )
-
-
-def test_pipeline_routes_minimax_to_moma_adapter(monkeypatch):
-    task = VideoTask(
-        id="task-minimax",
-        project_id="script-1",
-        image_url="",
-        prompt="demo",
-        model="minimax/minimax-h3",
-    )
-    calls = {}
-
-    class FakeMomaModel:
-        def __init__(self, config):
-            calls["config"] = config
-
-        def generate(self, **kwargs):
-            calls["kwargs"] = kwargs
-            return kwargs["output_path"], 0.0
-
-    monkeypatch.setattr("src.models.moma.MomaVideoModel", FakeMomaModel)
-    pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
-    pipeline._save_lock = threading.RLock()
-    pipeline.scripts = {
-        "script-1": SimpleNamespace(
-            id="script-1",
-            video_tasks=[task],
-            frames=[],
-            characters=[],
-            scenes=[],
-            props=[],
-        )
-    }
-    pipeline._save_data = lambda: None
-    pipeline._moma_video_model = None
-    pipeline.get_script = lambda script_id: pipeline.scripts.get(script_id)
-
-    pipeline.process_video_task("script-1", "task-minimax")
-
-    assert task.status == "completed"
-    assert calls["kwargs"]["model"] == "minimax/minimax-h3"
-
-
-def test_pipeline_keeps_minimax_for_direct_r2v_and_forwards_reference_images(monkeypatch):
-    task = VideoTask(
-        id="task-minimax-r2v",
-        project_id="script-1",
-        image_url="",
-        prompt="demo",
-        model="minimax/minimax-h3",
-        generation_mode="r2v",
-        reference_image_urls=[
-            "https://example.com/character.png",
-            "https://example.com/scene.png",
-        ],
-    )
-    calls = {}
-
-    class FakeMomaModel:
-        def __init__(self, config):
-            pass
-
-        def generate(self, **kwargs):
-            calls["kwargs"] = kwargs
-            return kwargs["output_path"], 0.0
-
-    monkeypatch.setattr("src.models.moma.MomaVideoModel", FakeMomaModel)
-    pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
-    pipeline._save_lock = threading.RLock()
-    pipeline.scripts = {
-        "script-1": SimpleNamespace(
-            id="script-1",
-            video_tasks=[task],
-            frames=[],
-            characters=[],
-            scenes=[],
-            props=[],
-        )
-    }
-    pipeline._save_data = lambda: None
-    pipeline._moma_video_model = None
-    pipeline.get_script = lambda script_id: pipeline.scripts.get(script_id)
-
-    pipeline.process_video_task("script-1", "task-minimax-r2v")
-
-    assert task.status == "completed"
-    assert calls["kwargs"]["image_urls"] == [
-        "https://example.com/character.png",
-        "https://example.com/scene.png",
-    ]
-    assert calls["kwargs"]["video_urls"] == []
 
 
 def test_create_video_task_does_not_replace_multimodal_minimax_with_wan():

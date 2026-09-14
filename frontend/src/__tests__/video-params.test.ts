@@ -263,9 +263,10 @@ describe('模型切换参数重置逻辑', () => {
         expect(result.promptExtend).toBe(false);
     });
 
-    it('切换到 MiniMax H3 → resolution 默认 2K', () => {
+    it('切换到 MiniMax H3 → resolution 默认 720p', () => {
+        // 1K/2K were the MOMA route's names; the JojoKey route sells 480p/720p.
         const result = simulateModelSwitch('minimax/minimax-h3');
-        expect(result.resolution).toBe('2K');
+        expect(result.resolution).toBe('720p');
         expect(result.promptExtend).toBe(false);
     });
 
