@@ -563,6 +563,7 @@ class ComicGenPipeline:
         self._vidu_model = None
         self._mulerouter_video_model = None
         self._moma_video_model = None
+        self._jojokey_video_model = None
 
         # Pre-download Demucs model in background so first dub request is fast
         self._demucs_ready = threading.Event()
@@ -4669,8 +4670,32 @@ class ComicGenPipeline:
                 model_name_lower.startswith("seedance")
             )
             use_moma = backend == "moma" and model_name_lower.startswith("minimax")
+            use_jojokey = backend == "jojokey"
 
-            if use_moma:
+            if use_jojokey:
+                if self._jojokey_video_model is None:
+                    from ...models.jojokey import JojoKeyVideoModel
+                    self._jojokey_video_model = JojoKeyVideoModel({})
+                video_path, _ = self._jojokey_video_model.generate(
+                    prompt=task.prompt,
+                    output_path=output_path,
+                    img_url=img_url,
+                    img_path=img_path,
+                    model=task.model,
+                    duration=task.duration,
+                    resolution=task.resolution,
+                    ratio=task.ratio or "16:9",
+                    seed=task.seed,
+                    generate_audio=final_generate_audio,
+                    generation_mode=task.generation_mode,
+                    ref_image_urls=task.reference_image_urls if task.generation_mode == "r2v" else None,
+                    ref_video_urls=task.reference_video_urls if task.generation_mode == "r2v" else None,
+                    audio_url=final_audio_url,
+                    # The CN line dedupes on this header, so a retried submit cannot be
+                    # charged twice. The task id is the same key billing holds against.
+                    idempotency_key=task_id,
+                )
+            elif use_moma:
                 if self._moma_video_model is None:
                     from ...models.moma import MomaVideoModel
                     self._moma_video_model = MomaVideoModel({})

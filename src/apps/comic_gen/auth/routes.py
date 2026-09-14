@@ -232,8 +232,20 @@ def setup(request: Request, payload: SetupRequest, response: Response, service: 
         membership=service.repository.get_membership(result.workspace.id, result.user.id),
     )
     record_request_event(request, action="auth.setup", object_type="user", object_id=str(result.user.id))
+    _bootstrap_platform_root(request, service, str(result.user.id))
     response.headers["Cache-Control"] = "no-store"
     return _auth_response(SetupResponse, result)
+
+
+def _bootstrap_platform_root(request: Request, service: AuthService, user_id: str) -> None:
+    """The user who initialises the platform becomes root (only while no root exists)."""
+    from ....billing.roles import RoleService
+
+    engine = getattr(service.repository, "engine", None)
+    if engine is None:
+        return
+    if RoleService(engine).bootstrap_root(user_id):
+        record_request_event(request, action="role.bootstrap_root", object_type="user", object_id=user_id)
 
 
 @router.get("/legacy-claim/status", response_model=LegacyClaimResponse)

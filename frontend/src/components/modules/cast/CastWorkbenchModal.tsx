@@ -33,7 +33,11 @@ export type CastKind = "character" | "scene" | "prop";
 
 // Module-level poll registry — survives modal close/reopen.
 export const activePolls = new Map<string, ReturnType<typeof setInterval>>();
+<<<<<<< ours
 const ASSET_POLL_TIMEOUT_MS = 180_000;
+=======
+const ASSET_POLL_TIMEOUT_MS = 45_000;
+>>>>>>> theirs
 type BatchSummary = { requested: number; pending: number; succeeded: number; failed: number; canceled: number };
 
 export const getCastPromptTextareaClasses = () =>

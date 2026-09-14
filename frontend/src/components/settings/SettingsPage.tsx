@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
+import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
+import { useBillingStore } from "@/store/billingStore";
 import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
@@ -21,7 +23,7 @@ import { Button, IconButton, LoadingState, SelectField, Tabs, TextAreaField, Tex
 import OmniStudioBranding from "@/components/layout/OmniStudioBranding";
 import UpdateChecker from "./UpdateChecker";
 import styles from "./SettingsPage.module.css";
-type SettingsCategory = "general" | "models" | "prompts" | "apikeys" | "storage" | "about";
+type SettingsCategory = "general" | "models" | "prompts" | "apikeys" | "storage" | "billing" | "about";
 import { SectionCard as Section, FormRow, KeyField, Toggle } from "./SettingsControls";
 
 const APP_VERSION = "v0.2.0";
@@ -50,6 +52,7 @@ type EnvConfig = EnvConfigPayload & {
   VIDU_API_KEY: string;
   MULEROUTER_API_KEY: string;
   MOMA_API_KEY: string;
+  JOJOKEY_API_KEY: string;
   MULERUN_CLI_LOGGED_IN?: boolean;
   endpoint_overrides: Record<string, string>;
 };
@@ -86,6 +89,7 @@ const DEFAULT_CONFIG: EnvConfig = {
   VIDU_API_KEY: "",
   MULEROUTER_API_KEY: "",
   MOMA_API_KEY: "",
+  JOJOKEY_API_KEY: "",
   endpoint_overrides: {},
 };
 
@@ -127,7 +131,7 @@ const getValidationErrors = (env: EnvConfig): string[] => {
 };
 
 const STORAGE_FIELDS = ['OSS_ENABLE', 'OSS_BUCKET_NAME', 'OSS_ENDPOINT', 'OSS_BASE_PATH', 'ALIBABA_CLOUD_ACCESS_KEY_ID', 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'] as const;
-const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY', 'IMAGE_PROVIDER', 'OPENAI_IMAGE_API_KEY', 'OPENAI_IMAGE_BASE_URL', 'OPENAI_IMAGE_MODEL', 'MOMA_API_KEY'] as const;
+const PROVIDER_FIELDS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'DASHSCOPE_API_KEY', 'KLING_PROVIDER_MODE', 'VIDU_PROVIDER_MODE', 'KLING_ACCESS_KEY', 'KLING_SECRET_KEY', 'VIDU_API_KEY', 'MULEROUTER_API_KEY', 'IMAGE_PROVIDER', 'OPENAI_IMAGE_API_KEY', 'OPENAI_IMAGE_BASE_URL', 'OPENAI_IMAGE_MODEL', 'MOMA_API_KEY', 'JOJOKEY_API_KEY'] as const;
 
 const LS_KEY_MODEL = "omni_studio_default_model_settings";
 const LS_KEY_PROMPT = "omni_studio_default_prompt_config";
@@ -194,6 +198,11 @@ export default function SettingsPage(props: SettingsPageProps = {}) {
 
 function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
+  const billingRole = useBillingStore((state) => state.wallet?.role ?? null);
+  const refreshBilling = useBillingStore((state) => state.refresh);
+  // Load the wallet here rather than relying on the sidebar badge having mounted first:
+  // the Billing tab is gated on the platform role and must not depend on render order.
+  useEffect(() => { void refreshBilling(); }, [refreshBilling]);
   const { locale, theme, animations, setLocale, setTheme, setAnimations } = useSettingsStore();
 
   const [active, setActive] = useState<SettingsCategory>(initialCategory);
@@ -630,6 +639,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
         </div>
       </FormRow>
+      <FormRow label="JojoKey" hint={t("jojokeyHint")}>{keyField("JOJOKEY_API_KEY", "JojoKey Relay API Key", "sk-...")}</FormRow>
       <FormRow label="MOMA / MiniMax H3" hint={t("momaHint")}>{keyField("MOMA_API_KEY", "MOMA API Key")}</FormRow>
       <FormRow label={t("klingLabel")} hint={t("klingHint")}>
         <div className="space-y-4">
@@ -701,10 +711,17 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const tabs: { id: SettingsCategory; label: string }[] = [
     {id:"general", label:t("tabGeneral")}, {id:"models", label:t("tabModels")}, {id:"prompts", label:t("tabPrompts")},
-    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")}, {id:"about", label:t("tabAbout")},
+    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")},
+    ...(billingRole === "root" || billingRole === "admin" ? [{id:"billing" as SettingsCategory, label:t("tabBilling")}] : []),
+    {id:"about", label:t("tabAbout")},
   ];
+<<<<<<< ours
   const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), about:t("eyebrowAbout")};
   const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, about:renderAbout};
+=======
+  const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), billing:t("eyebrowBilling"), about:t("eyebrowAbout")};
+  const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, billing:() => <BillingAdminPanel />, about:renderAbout};
+>>>>>>> theirs
   const saveAction = active === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
   const remoteConfig = active === "apikeys" || active === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };

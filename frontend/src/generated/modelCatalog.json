@@ -16,9 +16,18 @@
       "pixverse/pixverse-v6-video": "pixverse/pixverse/pixverse-v6-video#i2v",
       "qwen-image-2.0": "qwen/qwen-image-2.0#image",
       "qwen-image-2.0-pro": "qwen/qwen-image-2.0-pro#image",
+      "seedance-2.0-fast-i2v": "seedance/seedance-2.0-fast#i2v",
+      "seedance-2.0-fast-r2v": "seedance/seedance-2.0-fast#r2v",
+      "seedance-2.0-fast-t2v": "seedance/seedance-2.0-fast#t2v",
       "seedance-2.0-i2v": "seedance/seedance-2.0-video#i2v",
+      "seedance-2.0-mini-i2v": "seedance/seedance-2.0-mini#i2v",
+      "seedance-2.0-mini-r2v": "seedance/seedance-2.0-mini#r2v",
+      "seedance-2.0-mini-t2v": "seedance/seedance-2.0-mini#t2v",
       "seedance-2.0-r2v": "seedance/seedance-2.0-video#r2v",
       "seedance-2.0-t2v": "seedance/seedance-2.0-video#t2v",
+      "seedance-2.5-i2v": "seedance/seedance-2.5-video#i2v",
+      "seedance-2.5-r2v": "seedance/seedance-2.5-video#r2v",
+      "seedance-2.5-t2v": "seedance/seedance-2.5-video#t2v",
       "viduq3-pro-i2v": "vidu/viduq3-pro-video#i2v",
       "viduq3-pro-r2v": "vidu/viduq3-pro-video#r2v",
       "viduq3-turbo-i2v": "vidu/viduq3-turbo-video#i2v",
@@ -45,18 +54,18 @@
   },
   "defaults": {
     "canonical_model_settings": {
-      "i2i_model": "wan/wan2.7-image-pro#image",
-      "i2v_model": "happyhorse/happyhorse-1.1-video#i2v",
-      "image_model": "wan/wan2.7-image-pro#image",
-      "r2v_model": "happyhorse/happyhorse-1.1-video#r2v",
-      "t2i_model": "wan/wan2.7-image-pro#image"
+      "i2i_model": "gpt-image/gpt-image-2#image",
+      "i2v_model": "seedance/seedance-2.0-video#i2v",
+      "image_model": "gpt-image/gpt-image-2#image",
+      "r2v_model": "seedance/seedance-2.0-video#r2v",
+      "t2i_model": "gpt-image/gpt-image-2#image"
     },
     "model_settings": {
-      "i2i_model": "wan2.7-image-pro",
-      "i2v_model": "happyhorse-1.1-i2v",
-      "image_model": "wan2.7-image-pro",
-      "r2v_model": "happyhorse-1.1-r2v",
-      "t2i_model": "wan2.7-image-pro"
+      "i2i_model": "gpt-image-2",
+      "i2v_model": "seedance-2.0-i2v",
+      "image_model": "gpt-image-2",
+      "r2v_model": "seedance-2.0-r2v",
+      "t2i_model": "gpt-image-2"
     }
   },
   "families": {
@@ -203,28 +212,28 @@
     "minimax": {
       "backend_env_key": null,
       "credential_sources": {
-        "moma": [
-          "MOMA_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "moma",
+      "default_backend": "jojokey",
       "display_name": "MiniMax",
       "docs": {
         "official_snapshot_ids": [
-          "moma/minimax-h3/2026-09-07"
+          "jojokey/minimax-a/2026-09-14"
         ]
       },
       "family": "minimax",
       "models": [
         "minimax/minimax-h3"
       ],
-      "provider": "moma",
+      "provider": "jojokey",
       "routing_prefixes": [
         "minimax-",
         "minimax/minimax-"
       ],
       "supported_backends": [
-        "moma"
+        "jojokey"
       ],
       "supported_modalities": [
         "t2v",
@@ -234,13 +243,13 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "moma": "moma_content_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "moma": "moma_content_image_url"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "moma": "moma_content_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       }
     },
@@ -336,30 +345,40 @@
     "seedance": {
       "backend_env_key": null,
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
+      "default_backend": "jojokey",
       "display_name": "Seedance (即梦)",
       "docs": {
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "family": "seedance",
       "models": [
+        "seedance-2.0-fast-i2v",
+        "seedance-2.0-fast-r2v",
+        "seedance-2.0-fast-t2v",
         "seedance-2.0-i2v",
+        "seedance-2.0-mini-i2v",
+        "seedance-2.0-mini-r2v",
+        "seedance-2.0-mini-t2v",
         "seedance-2.0-r2v",
-        "seedance-2.0-t2v"
+        "seedance-2.0-t2v",
+        "seedance-2.5-i2v",
+        "seedance-2.5-r2v",
+        "seedance-2.5-t2v"
       ],
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "supported_modalities": [
         "t2v",
@@ -368,13 +387,13 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       }
     },
@@ -702,7 +721,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -771,7 +790,7 @@
           "gateway": "kling"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -799,19 +818,19 @@
     "minimax/minimax-h3": {
       "backend_env_key": null,
       "credential_sources": {
-        "moma": [
-          "MOMA_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "moma",
-      "description": "MiniMax H3 multimodal video generation through the MOMA gateway",
-      "display_name": "MiniMax H3 Video",
+      "default_backend": "jojokey",
+      "description": "MiniMax A text, keyframe and multimodal reference video via the JojoKey relay",
+      "display_name": "MiniMax A Video",
       "docs": {
         "context_hub_doc_ids": [
-          "moma/minimax-h3-api"
+          "jojokey/minimax-a-api"
         ],
         "official_snapshot_ids": [
-          "moma/minimax-h3/2026-09-07"
+          "jojokey/minimax-a/2026-09-14"
         ]
       },
       "family": "minimax",
@@ -822,21 +841,23 @@
       "modes": [
         "minimax/minimax-h3#i2v"
       ],
-      "provider": "moma",
+      "provider": "jojokey",
       "release_stage": "preview",
       "routing_prefixes": [
         "minimax-",
         "minimax/minimax-"
       ],
       "runtime": {
-        "moma": {
-          "api_model_id": "minimax/minimax-h3",
-          "gateway": "moma"
+        "jojokey": {
+          "dialect": "minimax_a",
+          "gateway": "jojokey",
+          "line": "overseas",
+          "overseas_model": "minimax-A"
         }
       },
       "status": "active",
       "supported_backends": [
-        "moma"
+        "jojokey"
       ],
       "supported_modalities": [
         "t2v",
@@ -846,13 +867,13 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "moma": "moma_content_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "moma": "moma_content_image_url"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "moma": "moma_content_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       }
     },
@@ -895,7 +916,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1008,7 +1029,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1067,7 +1088,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1125,7 +1146,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1182,7 +1203,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -1202,22 +1223,154 @@
         }
       }
     },
+    "seedance/seedance-2.0-fast": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Seedance 2.0 Pro Fast — speed-first tier, 480p/720p",
+      "display_name": "Seedance 2.0 高级",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-fast",
+      "legacy_model_ids": [
+        "seedance-2.0-fast-i2v",
+        "seedance-2.0-fast-r2v",
+        "seedance-2.0-fast-t2v"
+      ],
+      "modes": [
+        "seedance/seedance-2.0-fast#i2v",
+        "seedance/seedance-2.0-fast#r2v",
+        "seedance/seedance-2.0-fast#t2v"
+      ],
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro-fast",
+          "upstream_model": "video-cn-2.0-fast"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "supported_modalities": [
+        "t2v",
+        "i2v",
+        "r2v"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      }
+    },
+    "seedance/seedance-2.0-mini": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Seedance 2.0 Mini — the cheapest tier, 480p/720p",
+      "display_name": "Seedance 2.0 标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-mini",
+      "legacy_model_ids": [
+        "seedance-2.0-mini-i2v",
+        "seedance-2.0-mini-r2v",
+        "seedance-2.0-mini-t2v"
+      ],
+      "modes": [
+        "seedance/seedance-2.0-mini#i2v",
+        "seedance/seedance-2.0-mini#r2v",
+        "seedance/seedance-2.0-mini#t2v"
+      ],
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-mini",
+          "upstream_model": "video-cn-2.0-mini"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "supported_modalities": [
+        "t2v",
+        "i2v",
+        "r2v"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      }
+    },
     "seedance/seedance-2.0-video": {
       "backend_env_key": null,
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "description": "ByteDance Seedance 2.0 video generation via MuleRouter",
-      "display_name": "Seedance 2.0",
+      "default_backend": "jojokey",
+      "description": "Seedance 2.0 Pro — highest quality tier, the only 2.0 tier with 1080p",
+      "display_name": "Seedance 2.0 卓越",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "family": "seedance",
@@ -1232,20 +1385,24 @@
         "seedance/seedance-2.0-video#r2v",
         "seedance/seedance-2.0-video#t2v"
       ],
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "runtime": {
-        "mulerouter": {
-          "gateway": "mulerouter"
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro",
+          "upstream_model": "video-cn-2.0-pro"
         }
       },
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "supported_modalities": [
         "t2v",
@@ -1254,13 +1411,79 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
+        }
+      }
+    },
+    "seedance/seedance-2.5-video": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "ByteDance Seedance 2.5 — multimodal generation and editing, up to 30 seconds",
+      "display_name": "Seedance 2.5",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video",
+      "legacy_model_ids": [
+        "seedance-2.5-i2v",
+        "seedance-2.5-r2v",
+        "seedance-2.5-t2v"
+      ],
+      "modes": [
+        "seedance/seedance-2.5-video#i2v",
+        "seedance/seedance-2.5-video#r2v",
+        "seedance/seedance-2.5-video#t2v"
+      ],
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-2.5",
+          "upstream_model": "video-cn-2.5"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "supported_modalities": [
+        "t2v",
+        "i2v",
+        "r2v"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
         }
       }
     },
@@ -1310,7 +1533,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -1381,7 +1604,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -2090,7 +2313,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2153,7 +2376,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2221,7 +2444,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2453,7 +2676,7 @@
         "happyhorse-1.0-",
         "happyhorse-1.1-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2535,7 +2758,7 @@
         "happyhorse-1.0-",
         "happyhorse-1.1-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -2705,7 +2928,7 @@
         "kling-",
         "kling/kling-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -2808,7 +3031,7 @@
         "kling-",
         "kling/kling-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -2849,25 +3072,25 @@
         "v2v"
       ],
       "credential_sources": {
-        "moma": [
-          "MOMA_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "moma",
-      "description": "MiniMax H3 multimodal video generation through the MOMA gateway",
-      "display_name": "MiniMax H3 Video",
+      "default_backend": "jojokey",
+      "description": "MiniMax A text, keyframe and multimodal reference video via the JojoKey relay",
+      "display_name": "MiniMax A Video",
       "docs": {
         "context_hub_doc_ids": [
-          "moma/minimax-h3-api"
+          "jojokey/minimax-a-api"
         ],
         "official_snapshot_ids": [
-          "moma/minimax-h3/2026-09-07"
+          "jojokey/minimax-a/2026-09-14"
         ]
       },
       "duration": {
         "default": 5,
-        "max": 10,
-        "min": 1,
+        "max": 12,
+        "min": 4,
         "step": 1,
         "type": "slider"
       },
@@ -2885,23 +3108,25 @@
         "ratio": {
           "default": "16:9",
           "options": [
+            "21:9",
             "16:9",
-            "9:16",
-            "1:1",
             "4:3",
-            "3:4"
+            "1:1",
+            "3:4",
+            "9:16"
           ]
         },
         "resolution": {
-          "default": "2K",
+          "default": "720P",
           "options": [
-            "1K",
+            "720P",
+            "960P",
             "2K"
           ]
         },
         "watermark": false
       },
-      "provider": "moma",
+      "provider": "jojokey",
       "release_stage": "preview",
       "routing_prefixes": [
         "minimax-",
@@ -2909,17 +3134,17 @@
       ],
       "status": "active",
       "supported_backends": [
-        "moma"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "moma": "moma_content_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "moma": "moma_content_image_url"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "moma": "moma_content_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -2995,7 +3220,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3078,7 +3303,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3216,7 +3441,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3309,7 +3534,7 @@
         "pixverse-",
         "pixverse/pixverse-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3387,7 +3612,7 @@
       "routing_prefixes": [
         "qwen-image-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3462,7 +3687,7 @@
       "routing_prefixes": [
         "qwen-image-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -3491,25 +3716,272 @@
         ]
       }
     },
+    "seedance-2.0-fast-i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.0 高级 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.0-fast-i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 75,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.0-fast-r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.0 高级 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.0-fast-r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 75,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.0-fast-t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.0 高级 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.0-fast-t2v",
+      "inputs": {},
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 75,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
     "seedance-2.0-i2v": {
       "backend_env_key": null,
       "capabilities": [
         "i2v"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "description": "Image-to-video generation",
-      "display_name": "Seedance 2.0 I2V",
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.0 卓越 I2V",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "duration": {
@@ -3533,6 +4005,7 @@
         "resolution": {
           "default": "1080p",
           "options": [
+            "480p",
             "720p",
             "1080p"
           ]
@@ -3540,25 +4013,26 @@
         "seed": true,
         "watermark": true
       },
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -3576,25 +4050,272 @@
         ]
       }
     },
+    "seedance-2.0-mini-i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.0 标准 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.0-mini-i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.0-mini-r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.0 标准 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.0-mini-r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.0-mini-t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.0 标准 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.0-mini-t2v",
+      "inputs": {},
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
     "seedance-2.0-r2v": {
       "backend_env_key": null,
       "capabilities": [
         "r2v"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
+      "default_backend": "jojokey",
       "description": "Reference-to-video with multi-image input",
-      "display_name": "Seedance 2.0 R2V",
+      "display_name": "Seedance 2.0 卓越 R2V",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "duration": {
@@ -3618,6 +4339,7 @@
         "resolution": {
           "default": "1080p",
           "options": [
+            "480p",
             "720p",
             "1080p"
           ]
@@ -3625,25 +4347,26 @@
         "seed": true,
         "watermark": true
       },
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -3667,19 +4390,19 @@
         "t2v"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
+      "default_backend": "jojokey",
       "description": "Text-to-video generation",
-      "display_name": "Seedance 2.0 T2V",
+      "display_name": "Seedance 2.0 卓越 T2V",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "duration": {
@@ -3698,6 +4421,7 @@
         "resolution": {
           "default": "1080p",
           "options": [
+            "480p",
             "720p",
             "1080p"
           ]
@@ -3705,25 +4429,26 @@
         "seed": true,
         "watermark": true
       },
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -3731,6 +4456,262 @@
           "new"
         ],
         "order": 85,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.5-i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.5 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 30,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.5-i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 91,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.5-r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.5 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 30,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.5-r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 30,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 81,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance-2.5-t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.5 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 30,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance-2.5-t2v",
+      "inputs": {},
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 86,
         "recommended": false,
         "selection_group": "t2v",
         "visible_in": [
@@ -3811,7 +4792,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -3905,7 +4886,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -4007,7 +4988,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -4099,7 +5080,7 @@
         "vidu",
         "vidu/vidu"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -4983,7 +5964,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5070,7 +6051,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5154,7 +6135,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5240,7 +6221,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5682,7 +6663,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5772,7 +6753,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -5887,7 +6868,7 @@
           "gateway": "kling"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -6002,7 +6983,7 @@
           "gateway": "kling"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -6043,25 +7024,25 @@
         "v2v"
       ],
       "credential_sources": {
-        "moma": [
-          "MOMA_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "moma",
-      "description": "MiniMax H3 multimodal video generation through the MOMA gateway",
-      "display_name": "MiniMax H3 Video",
+      "default_backend": "jojokey",
+      "description": "MiniMax A text, keyframe and multimodal reference video via the JojoKey relay",
+      "display_name": "MiniMax A Video",
       "docs": {
         "context_hub_doc_ids": [
-          "moma/minimax-h3-api"
+          "jojokey/minimax-a-api"
         ],
         "official_snapshot_ids": [
-          "moma/minimax-h3/2026-09-07"
+          "jojokey/minimax-a/2026-09-14"
         ]
       },
       "duration": {
         "default": 5,
-        "max": 10,
-        "min": 1,
+        "max": 12,
+        "min": 4,
         "step": 1,
         "type": "slider"
       },
@@ -6082,47 +7063,51 @@
         "ratio": {
           "default": "16:9",
           "options": [
+            "21:9",
             "16:9",
-            "9:16",
-            "1:1",
             "4:3",
-            "3:4"
+            "1:1",
+            "3:4",
+            "9:16"
           ]
         },
         "resolution": {
-          "default": "2K",
+          "default": "720P",
           "options": [
-            "1K",
+            "720P",
+            "960P",
             "2K"
           ]
         },
         "watermark": false
       },
-      "provider": "moma",
+      "provider": "jojokey",
       "release_stage": "preview",
       "routing_prefixes": [
         "minimax-",
         "minimax/minimax-"
       ],
       "runtime": {
-        "moma": {
-          "api_model_id": "minimax/minimax-h3",
-          "gateway": "moma"
+        "jojokey": {
+          "dialect": "minimax_a",
+          "gateway": "jojokey",
+          "line": "overseas",
+          "overseas_model": "minimax-A"
         }
       },
       "status": "active",
       "supported_backends": [
-        "moma"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "moma": "moma_content_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "moma": "moma_content_image_url"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "moma": "moma_content_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -6207,7 +7192,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6299,7 +7284,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6450,7 +7435,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6552,7 +7537,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6639,7 +7624,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6723,7 +7708,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -6752,25 +7737,585 @@
         ]
       }
     },
+    "seedance/seedance-2.0-fast#i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.0 高级 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-fast#i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.0-fast-i2v",
+      "mode": "i2v",
+      "model_line_id": "seedance/seedance-2.0-fast",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro-fast",
+          "upstream_model": "video-cn-2.0-fast"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 75,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.0-fast#r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.0 高级 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-fast#r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.0-fast-r2v",
+      "mode": "r2v",
+      "model_line_id": "seedance/seedance-2.0-fast",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro-fast",
+          "upstream_model": "video-cn-2.0-fast"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 75,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.0-fast#t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.0 高级 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-fast#t2v",
+      "inputs": {},
+      "legacy_model_id": "seedance-2.0-fast-t2v",
+      "mode": "t2v",
+      "model_line_id": "seedance/seedance-2.0-fast",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro-fast",
+          "upstream_model": "video-cn-2.0-fast"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 75,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.0-mini#i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.0 标准 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-mini#i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.0-mini-i2v",
+      "mode": "i2v",
+      "model_line_id": "seedance/seedance-2.0-mini",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-mini",
+          "upstream_model": "video-cn-2.0-mini"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.0-mini#r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.0 标准 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-mini#r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.0-mini-r2v",
+      "mode": "r2v",
+      "model_line_id": "seedance/seedance-2.0-mini",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-mini",
+          "upstream_model": "video-cn-2.0-mini"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.0-mini#t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.0 标准 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 15,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.0-mini#t2v",
+      "inputs": {},
+      "legacy_model_id": "seedance-2.0-mini-t2v",
+      "mode": "t2v",
+      "model_line_id": "seedance/seedance-2.0-mini",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-mini",
+          "upstream_model": "video-cn-2.0-mini"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
     "seedance/seedance-2.0-video#i2v": {
       "backend_env_key": null,
       "capabilities": [
         "i2v"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "description": "Image-to-video generation",
-      "display_name": "Seedance 2.0 I2V",
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.0 卓越 I2V",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "duration": {
@@ -6797,6 +8342,7 @@
         "resolution": {
           "default": "1080p",
           "options": [
+            "480p",
             "720p",
             "1080p"
           ]
@@ -6804,30 +8350,34 @@
         "seed": true,
         "watermark": true
       },
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "runtime": {
-        "mulerouter": {
-          "gateway": "mulerouter"
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro",
+          "upstream_model": "video-cn-2.0-pro"
         }
       },
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -6851,19 +8401,19 @@
         "r2v"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
+      "default_backend": "jojokey",
       "description": "Reference-to-video with multi-image input",
-      "display_name": "Seedance 2.0 R2V",
+      "display_name": "Seedance 2.0 卓越 R2V",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "duration": {
@@ -6890,6 +8440,7 @@
         "resolution": {
           "default": "1080p",
           "options": [
+            "480p",
             "720p",
             "1080p"
           ]
@@ -6897,30 +8448,34 @@
         "seed": true,
         "watermark": true
       },
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "runtime": {
-        "mulerouter": {
-          "gateway": "mulerouter"
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro",
+          "upstream_model": "video-cn-2.0-pro"
         }
       },
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -6944,19 +8499,19 @@
         "t2v"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "jojokey": [
+          "JOJOKEY_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
+      "default_backend": "jojokey",
       "description": "Text-to-video generation",
-      "display_name": "Seedance 2.0 T2V",
+      "display_name": "Seedance 2.0 卓越 T2V",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/seedance-2.0"
+          "jojokey/seedance"
         ],
         "official_snapshot_ids": [
-          "mulerouter/seedance-2.0/2026-06-03"
+          "jojokey/seedance/2026-09-14"
         ]
       },
       "duration": {
@@ -6978,6 +8533,7 @@
         "resolution": {
           "default": "1080p",
           "options": [
+            "480p",
             "720p",
             "1080p"
           ]
@@ -6985,30 +8541,34 @@
         "seed": true,
         "watermark": true
       },
-      "provider": "mulerouter",
+      "provider": "jojokey",
       "release_stage": "stable",
       "routing_prefixes": [
         "seedance-2.0-",
+        "seedance-2.5-",
         "seedance/seedance-"
       ],
       "runtime": {
-        "mulerouter": {
-          "gateway": "mulerouter"
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-pro",
+          "upstream_model": "video-cn-2.0-pro"
         }
       },
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "jojokey"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "jojokey": "jojokey_content_audio_url"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "jojokey": "jojokey_content_image_url"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "jojokey": "jojokey_content_video_url"
         }
       },
       "ui": {
@@ -7016,6 +8576,295 @@
           "new"
         ],
         "order": 85,
+        "recommended": false,
+        "selection_group": "t2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.5-video#i2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "i2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Image-to-video generation from a first frame",
+      "display_name": "Seedance 2.5 I2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 30,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video#i2v",
+      "inputs": {
+        "reference_images": {
+          "max": 1,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.5-i2v",
+      "mode": "i2v",
+      "model_line_id": "seedance/seedance-2.5-video",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-2.5",
+          "upstream_model": "video-cn-2.5"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 91,
+        "recommended": false,
+        "selection_group": "i2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.5-video#r2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "r2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Reference-to-video with multi-image input",
+      "display_name": "Seedance 2.5 R2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 30,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video#r2v",
+      "inputs": {
+        "reference_images": {
+          "max": 30,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "seedance-2.5-r2v",
+      "mode": "r2v",
+      "model_line_id": "seedance/seedance-2.5-video",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-2.5",
+          "upstream_model": "video-cn-2.5"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 81,
+        "recommended": false,
+        "selection_group": "r2v",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "seedance/seedance-2.5-video#t2v": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2v"
+      ],
+      "credential_sources": {
+        "jojokey": [
+          "JOJOKEY_API_KEY"
+        ]
+      },
+      "default_backend": "jojokey",
+      "description": "Text-to-video generation",
+      "display_name": "Seedance 2.5 T2V",
+      "docs": {
+        "context_hub_doc_ids": [
+          "jojokey/seedance-2-5"
+        ],
+        "official_snapshot_ids": [
+          "jojokey/seedance/2026-09-14"
+        ]
+      },
+      "duration": {
+        "default": 5,
+        "max": 30,
+        "min": 4,
+        "step": 1,
+        "type": "slider"
+      },
+      "family": "seedance",
+      "id": "seedance/seedance-2.5-video#t2v",
+      "inputs": {},
+      "legacy_model_id": "seedance-2.5-t2v",
+      "mode": "t2v",
+      "model_line_id": "seedance/seedance-2.5-video",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "resolution": {
+          "default": "720p",
+          "options": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
+        },
+        "seed": true,
+        "watermark": true
+      },
+      "provider": "jojokey",
+      "release_stage": "preview",
+      "routing_prefixes": [
+        "seedance-2.0-",
+        "seedance-2.5-",
+        "seedance/seedance-"
+      ],
+      "runtime": {
+        "jojokey": {
+          "gateway": "jojokey",
+          "line": "cn",
+          "overseas_model": "video-2.5",
+          "upstream_model": "video-cn-2.5"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "jojokey"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "jojokey": "jojokey_content_audio_url"
+        },
+        "image_input_mode": {
+          "jojokey": "jojokey_content_image_url"
+        },
+        "reference_video_input_mode": {
+          "jojokey": "jojokey_content_video_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 86,
         "recommended": false,
         "selection_group": "t2v",
         "visible_in": [
@@ -7108,7 +8957,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -7214,7 +9063,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -7328,7 +9177,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -7432,7 +9281,7 @@
           "gateway": "vidu"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope",
         "vendor"
@@ -8371,7 +10220,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -8464,7 +10313,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -8568,7 +10417,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],
@@ -8663,7 +10512,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "active",
+      "status": "deprecated",
       "supported_backends": [
         "dashscope"
       ],

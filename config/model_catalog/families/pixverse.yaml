@@ -28,7 +28,7 @@ models:
   - id: pixverse/pixverse-v6-video
     display_name: PixVerse V6 Video
     description: PixVerse V6 image-to-video with multi-shot support
-    status: active
+    status: deprecated
     release_stage: stable
     capabilities: [i2v]
     runtime:
@@ -68,7 +68,7 @@ models:
   - id: pixverse/pixverse-c1-video
     display_name: PixVerse C1 Video
     description: PixVerse C1 with I2V and R2V modes
-    status: active
+    status: deprecated
     release_stage: stable
     runtime:
       dashscope:
@@ -141,7 +141,7 @@ models:
   - id: pixverse-v5.6-r2v
     display_name: PixVerse V5.6 R2V
     description: PixVerse V5.6 reference-to-video
-    status: active
+    status: deprecated
     release_stage: stable
     capabilities: [r2v]
     runtime:

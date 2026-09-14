@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 from sqlalchemy import inspect, select, text
@@ -82,6 +83,22 @@ def test_every_table_has_mysql_ddl_without_text_keys() -> None:
         for name in keyed:
             column_type = str(table.c[name].type.compile(dialect=mysql.dialect()))
             assert column_type != "TEXT", f"{table.name}.{name} is a keyed TEXT column"
+
+
+def test_no_text_column_carries_a_literal_default() -> None:
+    """MySQL rejects `TEXT ... DEFAULT 'x'` (error 1101); only expression defaults are allowed.
+
+    SQLite accepts both, so this only shows up when the hosted deployment creates the schema.
+    Short defaulted strings should be VARCHAR (LABEL/NAME); JSON blobs use text_default().
+    """
+    offenders = []
+    for table in Base.metadata.tables.values():
+        ddl = str(CreateTable(table).compile(dialect=mysql.dialect()))
+        for line in ddl.splitlines():
+            match = re.match(r"\s*(\w+)\s+(LONGTEXT|TEXT|BLOB|JSON)\b.*DEFAULT\s+(.+?),?\s*$", line)
+            if match and not match.group(3).startswith("("):
+                offenders.append(f"{table.name}.{match.group(1)}")
+    assert offenders == [], f"MySQL will reject these literal defaults: {offenders}"
 
 
 def test_membership_owner_uniqueness_is_dialect_specific() -> None:

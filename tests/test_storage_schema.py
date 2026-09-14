@@ -77,6 +77,12 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_revision_impacts",
         "source_impact_targets",
         "director_plans",
+        "platform_roles",
+        "pricing_settings",
+        "pricing_items",
+        "price_book_versions",
+        "wallets",
+        "credit_ledger",
     }
 
     expected_indexes = {
@@ -207,6 +213,12 @@ def test_schema_creates_all_tables_and_declared_indexes(memory_engine):
         "source_revision_impacts",
         "source_impact_targets",
         "director_plans",
+        "platform_roles",
+        "pricing_settings",
+        "pricing_items",
+        "price_book_versions",
+        "wallets",
+        "credit_ledger",
     }
 
 

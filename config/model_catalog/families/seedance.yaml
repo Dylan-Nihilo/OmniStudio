@@ -1,45 +1,185 @@
 family: seedance
 display_name: "Seedance (即梦)"
-provider: mulerouter
+provider: jojokey
 routing_prefixes:
   - seedance-2.0-
+  - seedance-2.5-
   - seedance/seedance-
 supported_backends:
-  - mulerouter
-default_backend: mulerouter
+  - jojokey
+default_backend: jojokey
 credential_sources:
-  mulerouter:
-    - MULEROUTER_API_KEY
+  jojokey:
+    - JOJOKEY_API_KEY
 supported_modalities:
   - t2v
   - i2v
   - r2v
 docs:
   official_snapshot_ids:
-    - mulerouter/seedance-2.0/2026-06-03
+    - jojokey/seedance/2026-09-14
 transport:
   image_input_mode:
-    mulerouter: mulerouter_base64_image
+    jojokey: jojokey_content_image_url
   audio_input_mode:
-    mulerouter: mulerouter_audio_url
+    jojokey: jojokey_content_audio_url
   reference_video_input_mode:
-    mulerouter: mulerouter_video_url
+    jojokey: jojokey_content_video_url
+
+# Seedance runs on JojoKey's CN line, which settles in CNY — the whole credit system prices
+# purchases in yuan with no exchange rate, so this is the line that keeps costing honest.
+# `overseas_model` names the equivalent on the USD line, used when the CN line is unavailable.
+#
+# 2.0 is sold in three tiers that differ by price and by how high they go: the 标准 and 高级
+# tiers stop at 720p, only 卓越 reaches 1080p. The cheap "特价" upstream models would have
+# offered 1080p at every tier, but they accept a reference_image role only — no first_frame —
+# and i2v here means "animate this storyboard frame", so they would quietly stop honouring
+# the frame the shot was drawn for.
 models:
-  - id: seedance/seedance-2.0-video
-    display_name: Seedance 2.0
-    description: ByteDance Seedance 2.0 video generation via MuleRouter
+  - id: seedance/seedance-2.0-mini
+    display_name: Seedance 2.0 标准
+    description: Seedance 2.0 Mini — the cheapest tier, 480p/720p
     status: active
     release_stage: stable
     docs:
       context_hub_doc_ids:
-        - mulerouter/seedance-2.0
+        - jojokey/seedance
     runtime:
-      mulerouter:
-        gateway: mulerouter
+      jojokey:
+        gateway: jojokey
+        line: cn
+        upstream_model: video-cn-2.0-mini
+        overseas_model: video-mini
+    modes:
+      t2v:
+        legacy_id: seedance-2.0-mini-t2v
+        display_name: Seedance 2.0 标准 T2V
+        description: Text-to-video generation
+        capabilities: [t2v]
+        ui:
+          selection_group: t2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 70
+        duration: &tier_duration
+          type: slider
+          min: 4
+          max: 15
+          step: 1
+          default: 5
+        params: &mini_params
+          resolution:
+            options: [480p, 720p]
+            default: 720p
+          seed: true
+          negativePrompt: false
+          promptExtend: false
+          watermark: true
+      i2v:
+        legacy_id: seedance-2.0-mini-i2v
+        display_name: Seedance 2.0 标准 I2V
+        description: Image-to-video generation from a first frame
+        capabilities: [i2v]
+        ui:
+          selection_group: i2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 70
+        duration: *tier_duration
+        params: *mini_params
+        inputs:
+          reference_images:
+            max: 1
+            reference_type: image
+      r2v:
+        legacy_id: seedance-2.0-mini-r2v
+        display_name: Seedance 2.0 标准 R2V
+        description: Reference-to-video with multi-image input
+        capabilities: [r2v]
+        ui:
+          selection_group: r2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 70
+        duration: *tier_duration
+        params: *mini_params
+        inputs:
+          reference_images:
+            max: 9
+            reference_type: image
+
+  - id: seedance/seedance-2.0-fast
+    display_name: Seedance 2.0 高级
+    description: Seedance 2.0 Pro Fast — speed-first tier, 480p/720p
+    status: active
+    release_stage: stable
+    docs:
+      context_hub_doc_ids:
+        - jojokey/seedance
+    runtime:
+      jojokey:
+        gateway: jojokey
+        line: cn
+        upstream_model: video-cn-2.0-fast
+        overseas_model: video-pro-fast
+    modes:
+      t2v:
+        legacy_id: seedance-2.0-fast-t2v
+        display_name: Seedance 2.0 高级 T2V
+        description: Text-to-video generation
+        capabilities: [t2v]
+        ui:
+          selection_group: t2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 75
+        duration: *tier_duration
+        params: *mini_params
+      i2v:
+        legacy_id: seedance-2.0-fast-i2v
+        display_name: Seedance 2.0 高级 I2V
+        description: Image-to-video generation from a first frame
+        capabilities: [i2v]
+        ui:
+          selection_group: i2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 75
+        duration: *tier_duration
+        params: *mini_params
+        inputs:
+          reference_images:
+            max: 1
+            reference_type: image
+      r2v:
+        legacy_id: seedance-2.0-fast-r2v
+        display_name: Seedance 2.0 高级 R2V
+        description: Reference-to-video with multi-image input
+        capabilities: [r2v]
+        ui:
+          selection_group: r2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 75
+        duration: *tier_duration
+        params: *mini_params
+        inputs:
+          reference_images:
+            max: 9
+            reference_type: image
+
+  - id: seedance/seedance-2.0-video
+    display_name: Seedance 2.0 卓越
+    description: Seedance 2.0 Pro — highest quality tier, the only 2.0 tier with 1080p
+    status: active
+    release_stage: stable
+    docs:
+      context_hub_doc_ids:
+        - jojokey/seedance
+    runtime:
+      jojokey:
+        gateway: jojokey
+        line: cn
+        upstream_model: video-cn-2.0-pro
+        overseas_model: video-pro
     modes:
       t2v:
         legacy_id: seedance-2.0-t2v
-        display_name: Seedance 2.0 T2V
+        display_name: Seedance 2.0 卓越 T2V
         description: Text-to-video generation
         capabilities: [t2v]
         ui:
@@ -47,15 +187,10 @@ models:
           visible_in: [project_settings, series_settings, video_sidebar, global_settings]
           order: 85
           badges: [new]
-        duration:
-          type: slider
-          min: 4
-          max: 15
-          step: 1
-          default: 5
-        params:
+        duration: *tier_duration
+        params: &pro_params
           resolution:
-            options: [720p, 1080p]
+            options: [480p, 720p, 1080p]
             default: 1080p
           seed: true
           negativePrompt: false
@@ -63,35 +198,23 @@ models:
           watermark: true
       i2v:
         legacy_id: seedance-2.0-i2v
-        display_name: Seedance 2.0 I2V
-        description: Image-to-video generation
+        display_name: Seedance 2.0 卓越 I2V
+        description: Image-to-video generation from a first frame
         capabilities: [i2v]
         ui:
           selection_group: i2v
           visible_in: [project_settings, series_settings, video_sidebar, global_settings]
           order: 90
           badges: [new]
-        duration:
-          type: slider
-          min: 4
-          max: 15
-          step: 1
-          default: 5
-        params:
-          resolution:
-            options: [720p, 1080p]
-            default: 1080p
-          seed: true
-          negativePrompt: false
-          promptExtend: false
-          watermark: true
+        duration: *tier_duration
+        params: *pro_params
         inputs:
           reference_images:
             max: 1
             reference_type: image
       r2v:
         legacy_id: seedance-2.0-r2v
-        display_name: Seedance 2.0 R2V
+        display_name: Seedance 2.0 卓越 R2V
         description: Reference-to-video with multi-image input
         capabilities: [r2v]
         ui:
@@ -99,24 +222,81 @@ models:
           visible_in: [project_settings, series_settings, video_sidebar, global_settings]
           order: 80
           badges: [new]
-        duration:
+        duration: *tier_duration
+        params: *pro_params
+        inputs:
+          reference_images:
+            max: 9
+            reference_type: image
+
+  - id: seedance/seedance-2.5-video
+    display_name: Seedance 2.5
+    description: ByteDance Seedance 2.5 — multimodal generation and editing, up to 30 seconds
+    status: active
+    release_stage: preview
+    docs:
+      context_hub_doc_ids:
+        - jojokey/seedance-2-5
+    runtime:
+      jojokey:
+        gateway: jojokey
+        line: cn
+        upstream_model: video-cn-2.5
+        overseas_model: video-2.5
+    modes:
+      t2v:
+        legacy_id: seedance-2.5-t2v
+        display_name: Seedance 2.5 T2V
+        description: Text-to-video generation
+        capabilities: [t2v]
+        ui:
+          selection_group: t2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 86
+          badges: [new]
+        duration: &v25_duration
           type: slider
           min: 4
-          max: 15
+          max: 30
           step: 1
           default: 5
-        params:
+        params: &v25_params
           resolution:
-            options: [720p, 1080p]
-            default: 1080p
+            options: [480p, 720p, 1080p]
+            default: 720p
           seed: true
           negativePrompt: false
           promptExtend: false
           watermark: true
-        docs:
-          context_hub_doc_ids:
-            - mulerouter/seedance-2.0
+      i2v:
+        legacy_id: seedance-2.5-i2v
+        display_name: Seedance 2.5 I2V
+        description: Image-to-video generation from a first frame
+        capabilities: [i2v]
+        ui:
+          selection_group: i2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 91
+          badges: [new]
+        duration: *v25_duration
+        params: *v25_params
         inputs:
           reference_images:
-            max: 9
+            max: 1
+            reference_type: image
+      r2v:
+        legacy_id: seedance-2.5-r2v
+        display_name: Seedance 2.5 R2V
+        description: Reference-to-video with multi-image input
+        capabilities: [r2v]
+        ui:
+          selection_group: r2v
+          visible_in: [project_settings, series_settings, video_sidebar, global_settings]
+          order: 81
+          badges: [new]
+        duration: *v25_duration
+        params: *v25_params
+        inputs:
+          reference_images:
+            max: 30
             reference_type: image

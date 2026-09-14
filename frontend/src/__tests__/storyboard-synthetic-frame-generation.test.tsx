@@ -146,7 +146,11 @@ vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({
         onResetModel?: () => void;
     }) => <>
         <output aria-label="shot model">{params.model}</output>
+<<<<<<< ours
         <button onClick={() => onChange({ ...params, model: "happyhorse-1.1-r2v" })}>set shot model</button>
+=======
+        <button onClick={() => onChange({ ...params, model: "minimax/minimax-h3" })}>set shot model</button>
+>>>>>>> theirs
         <button onClick={() => onChange({ ...params, model: "wan2.6-i2v" })}>set i2v shot model</button>
         {hasModelOverride ? <button onClick={onResetModel}>reset shot model</button> : null}
     </>,
@@ -808,7 +812,7 @@ describe("StoryboardR2V synthetic frame generation", () => {
                 video_tasks: [],
                 default_generation_mode: "r2v",
                 workflow_mode: "r2v",
-                model_settings: { r2v_model: "wan2.7-r2v" },
+                model_settings: { r2v_model: "seedance-2.0-r2v" },
             },
         } as never);
     });
@@ -916,18 +920,30 @@ describe("StoryboardR2V synthetic frame generation", () => {
         await waitFor(() => expect(updateShotModelSettings).toHaveBeenCalledWith(
             "project-1",
             "frame-real-1",
+<<<<<<< ours
             { r2v_model: "happyhorse-1.1-r2v" },
+=======
+            { r2v_model: "minimax/minimax-h3" },
+>>>>>>> theirs
         ));
         expect(createFrame).toHaveBeenCalledOnce();
         expect(createFrame.mock.invocationCallOrder[0]).toBeLessThan(updateShotModelSettings.mock.invocationCallOrder[0]);
     });
 
     it("uses the backend-resolved project model instead of a stale browser model", () => {
+<<<<<<< ours
         localStorage.setItem("storyboard-r2v-r2v-model", "happyhorse-1.1-r2v");
 
         render(<StoryboardR2V />);
 
         expect(screen.getByLabelText("shot model")).toHaveTextContent("wan2.7-r2v");
+=======
+        localStorage.setItem("storyboard-r2v-r2v-model", "minimax/minimax-h3");
+
+        render(<StoryboardR2V />);
+
+        expect(screen.getByLabelText("shot model")).toHaveTextContent("seedance-2.0-r2v");
+>>>>>>> theirs
     });
 
     it("reads a persisted Shot model override and can reset it to its parent", async () => {
@@ -937,13 +953,21 @@ describe("StoryboardR2V synthetic frame generation", () => {
                 id: "frame-override",
                 action_description: "A saved shot",
                 workbench_tab_mode: "direct_r2v",
+<<<<<<< ours
                 model_settings_overrides: { r2v_model: "happyhorse-1.1-r2v" },
+=======
+                model_settings_overrides: { r2v_model: "minimax/minimax-h3" },
+>>>>>>> theirs
             }],
         };
         useProjectStore.setState({ currentProject: project });
         render(<StoryboardR2V />);
 
+<<<<<<< ours
         expect(screen.getByLabelText("shot model")).toHaveTextContent("happyhorse-1.1-r2v");
+=======
+        expect(screen.getByLabelText("shot model")).toHaveTextContent("minimax/minimax-h3");
+>>>>>>> theirs
         fireEvent.click(screen.getByRole("button", { name: "reset shot model" }));
 
         await waitFor(() => expect(updateShotModelSettings).toHaveBeenCalledWith(
@@ -951,7 +975,11 @@ describe("StoryboardR2V synthetic frame generation", () => {
             "frame-override",
             { reset_fields: ["r2v_model"] },
         ));
+<<<<<<< ours
         expect(screen.getByLabelText("shot model")).toHaveTextContent("wan2.7-r2v");
+=======
+        expect(screen.getByLabelText("shot model")).toHaveTextContent("seedance-2.0-r2v");
+>>>>>>> theirs
     });
 
     it("persists an I2V Shot model under the I2V override field", async () => {

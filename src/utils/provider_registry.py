@@ -1,10 +1,17 @@
 from dataclasses import dataclass, field, replace
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
-from .model_catalog import build_provider_family_configs, load_generated_model_catalog
+from .model_catalog import (
+    SUPPORTED_PROVIDER_BACKENDS,
+    build_provider_family_configs,
+    load_generated_model_catalog,
+)
 from .workspace_env import workspace_getenv
 
-SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma")
+# Re-exported from model_catalog, which validates the family YAML against the same list.
+# Keeping a second copy here let the two drift: a backend the catalog accepted would be
+# rejected at routing time, or the other way round.
+__all__ = ["SUPPORTED_PROVIDER_BACKENDS", "ProviderFamilyConfig", "ProviderRegistry"]
 
 
 @dataclass

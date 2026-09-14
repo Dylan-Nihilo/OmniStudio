@@ -13,6 +13,7 @@ Configuration via environment variables:
   OPENAI_MODEL=gpt-4o
 """
 import logging
+import uuid
 from threading import Lock
 from typing import Dict, List, Optional, Any
 
@@ -146,7 +147,54 @@ class LLMAdapter:
 
         try:
             response = client.chat.completions.create(**kwargs)
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            _charge_llm_usage(model, messages, content, response)
+            return content
         except Exception as e:
             provider_label = "DashScope" if self.provider != "openai" else "OpenAI"
             raise RuntimeError(f"{provider_label} API error: {e}") from e
+
+
+def _charge_llm_usage(model: str, messages: List[Dict[str, str]], content: Optional[str], response: Any) -> None:
+    """Charge the workspace for the characters this call read and wrote.
+
+    Post-paid rather than pre-authorised: the size is only known afterwards, and a script
+    analysis that already ran should not be thrown away over a rounding difference. The debit
+    is capped at the available balance; the next call refuses to start when the wallet is empty.
+    """
+    from ...billing.metering import billing_enabled, current_workspace_id
+
+    if not billing_enabled():
+        return
+    workspace_id = current_workspace_id.get()
+    if not workspace_id:
+        return
+    try:
+        from ...billing import BillingServices
+        from ...billing.metering import TextMeter
+        from ...storage.db import create_engine
+
+        chars_in = sum(len(str(message.get("content") or "")) for message in messages)
+        chars_out = len(content or "")
+        usage = getattr(response, "usage", None)
+        tokens = ""
+        if usage is not None:
+            tokens = (f"{int(getattr(usage, 'prompt_tokens', 0) or 0)}/"
+                      f"{int(getattr(usage, 'completion_tokens', 0) or 0)}")
+        meter = _text_meter or TextMeter(BillingServices.build(create_engine()))
+        meter.charge_text(
+            workspace_id, model, chars_in, chars_out,
+            f"llm:{workspace_id}:{getattr(response, 'id', None) or uuid.uuid4()}",
+            tokens=tokens,
+        )
+    except Exception:  # noqa: BLE001 - never fail a completed generation over accounting
+        logger.exception("Failed to charge LLM usage for model %s", model)
+
+
+_text_meter = None
+
+
+def set_text_meter(meter: Any) -> None:
+    """Injected at app startup so every LLM call bills through the app's BillingServices."""
+    global _text_meter
+    _text_meter = meter

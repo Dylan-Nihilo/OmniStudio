@@ -91,6 +91,13 @@ describe('settings controls and recovery', () => {
   it('loads and saves Workspace model defaults through the backend', async () => {
     render(<SettingsPage initialCategory="models" />);
     await waitFor(() => expect(mocks.getGlobalModelSettings).toHaveBeenCalledOnce());
+<<<<<<< ours
+=======
+    // The request having been made is not the same as the defaults having arrived: the button
+    // stays aria-busy until then, React Aria drops a press while pending, and the save handler
+    // bails out on its own loading flag. Clicking too early does nothing at all, silently.
+    await waitFor(() => expect(screen.getByRole('button', {name:'saveDefaults'})).not.toHaveAttribute('aria-busy'));
+>>>>>>> theirs
     fireEvent.click(screen.getByRole('button', {name:'saveDefaults'}));
     await waitFor(() => expect(mocks.saveGlobalModelSettings).toHaveBeenCalledOnce());
   });

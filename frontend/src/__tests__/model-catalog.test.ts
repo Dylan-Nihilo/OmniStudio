@@ -43,34 +43,31 @@ describe('model catalog selectors', () => {
     });
 
     it('derives visible model selectors from catalog defaults', () => {
-        // Defaults follow the catalog upgrade to wan2.7 (Phase 2, 2026-Q1).
-        // The unified `image_model` surface replaces the per-mode t2i/i2i
-        // settings at the consumer layer.
+        // Defaults name models the price book covers, so a fresh workspace can generate
+        // once billing is on. The unified `image_model` surface replaces the per-mode
+        // t2i/i2i settings at the consumer layer.
         expect(DEFAULT_MODEL_SETTINGS).toMatchObject({
-            t2i_model: 'wan2.7-image-pro',
-            i2i_model: 'wan2.7-image-pro',
-            i2v_model: 'happyhorse-1.1-i2v',
-            image_model: 'wan2.7-image-pro',
+            t2i_model: 'gpt-image-2',
+            i2i_model: 'gpt-image-2',
+            i2v_model: 'seedance-2.0-i2v',
+            image_model: 'gpt-image-2',
         });
 
         // The 't2i' and 'i2i' selection_group surfaces moved to 'image'
         // in Phase 2. The resolver now falls through to visible image-group
-        // models so user picks (e.g. Wan 2.7 Image Pro) persist through
+        // models so user picks (e.g. GPT Image 2) persist through
         // resolveModelId() instead of silently reverting to the default.
         expect(GLOBAL_T2I_MODELS.map((model) => model.id)).toEqual(GLOBAL_IMAGE_MODELS.map((m) => m.id));
         expect(GLOBAL_I2I_MODELS.map((model) => model.id)).toEqual(GLOBAL_IMAGE_MODELS.map((m) => m.id));
 
-        // Ordered DESC by ui.order; ties broken by display_name asc.
+        // Ordered DESC by ui.order; ties broken by display_name asc. Every entry is priced:
+        // the three Seedance 2.0 tiers, 2.5, and MiniMax.
         expect(GLOBAL_I2V_MODELS.map((model) => model.id)).toEqual([
-            'happyhorse-1.1-i2v',
-            'kling-v3-i2v',
             'minimax/minimax-h3',
-            'pixverse/pixverse-v6-video',
+            'seedance-2.5-i2v',
             'seedance-2.0-i2v',
-            'pixverse-c1-i2v',
-            'wan2.7-i2v',
-            'viduq3-pro-i2v',
-            'viduq3-turbo-i2v',
+            'seedance-2.0-fast-i2v',
+            'seedance-2.0-mini-i2v',
         ]);
     });
 
@@ -92,9 +89,9 @@ describe('model catalog fallbacks', () => {
                 'global_settings'
             )
         ).toMatchObject({
-            t2i_model: 'wan2.7-image-pro',
-            i2i_model: 'wan2.7-image-pro',
-            i2v_model: 'happyhorse-1.1-i2v',
+            t2i_model: 'gpt-image-2',
+            i2i_model: 'gpt-image-2',
+            i2v_model: 'seedance-2.0-i2v',
         });
     });
 
@@ -158,7 +155,7 @@ describe('model catalog fallbacks', () => {
                 },
                 'global_settings'
             ).i2v_model
-        ).toBe('happyhorse-1.1-i2v');
+        ).toBe('seedance-2.0-i2v');
 
         // An r2v canonical id normalizes to the matching legacy id
         // (wan2.6-r2v), which is hidden in the i2v surface — so the
@@ -174,41 +171,37 @@ describe('model catalog fallbacks', () => {
                 },
                 'global_settings'
             ).i2v_model
-        ).toBe('happyhorse-1.1-i2v');
+        ).toBe('seedance-2.0-i2v');
 
         expect(compatI2vModels.map((model) => model.id)).not.toContain('wan2.6-i2v');
         expect(compatI2vModels.some((model) => model.id === 'wan/wan2.6-video#i2v')).toBe(false);
         // R2V selection/route ids follow the catalog meta default
-        // (defaults.model_settings.r2v_model = happyhorse-1.1-r2v) via
-        // getFallbackVisibleModelId, not raw ui.order. Several R2V models
-        // share order=80, so anchoring to the explicit meta default keeps the
-        // default route deterministic. Selection and route are unified
-        // (R2V_ROUTE_MODEL_ID = R2V_SELECTION_MODEL_ID).
-        expect(compatR2vSelectionModelId).toBe('happyhorse-1.1-r2v');
-        expect(compatR2vRouteModelId).toBe('happyhorse-1.1-r2v');
+        // (defaults.model_settings.r2v_model = seedance-2.0-r2v) via
+        // getFallbackVisibleModelId, not raw ui.order. Anchoring to the explicit meta
+        // default keeps the route deterministic when visible R2V models tie on ui.order.
+        // Selection and route are unified (R2V_ROUTE_MODEL_ID = R2V_SELECTION_MODEL_ID).
+        expect(compatR2vSelectionModelId).toBe('seedance-2.0-r2v');
+        expect(compatR2vRouteModelId).toBe('seedance-2.0-r2v');
     });
 });
 
 describe('model catalog runtime helpers', () => {
     it('derives the current R2V selection and route ids from catalog data', () => {
-        // Selection and route both resolve to the catalog meta default R2V
-        // model (defaults.model_settings.r2v_model = happyhorse-1.1-r2v) via
-        // getFallbackVisibleModelId — deterministic regardless of the order=80
-        // tie among visible R2V models (happyhorse/kling/seedance/wan2.7).
-        expect(R2V_SELECTION_MODEL_ID).toBe('happyhorse-1.1-r2v');
-        expect(R2V_ROUTE_MODEL_ID).toBe('happyhorse-1.1-r2v');
+        // Selection and route both resolve to the catalog meta default R2V model
+        // (defaults.model_settings.r2v_model = seedance-2.0-r2v) via
+        // getFallbackVisibleModelId, not raw ui.order.
+        expect(R2V_SELECTION_MODEL_ID).toBe('seedance-2.0-r2v');
+        expect(R2V_ROUTE_MODEL_ID).toBe('seedance-2.0-r2v');
     });
 
     it('reads per-model reference image limits from catalog metadata', () => {
-        // getMaxReferenceImages routes the input through resolveModelId
-        // for the 'i2i' surface — when the literal id isn't visible in
-        // that surface (post-Phase 2 the wan2.6 ids moved to the
-        // 'image' selection_group), the resolver falls back to the
-        // current default (wan2.7-image, which advertises 9 refs).
-        // The behavior is correct given how callers (PropertiesPanel)
-        // use the project's i2i_model setting.
-        expect(getMaxReferenceImages('wan2.6-image')).toBe(9);
-        expect(getMaxReferenceImages('wan2.5-i2i-preview')).toBe(9);
+        // getMaxReferenceImages routes the input through resolveModelId for the 'i2i'
+        // surface; an id that surface cannot offer falls back to the current default.
+        // That default is now gpt-image-2, which declares no reference_images limit, so
+        // callers (PropertiesPanel) get the conservative built-in 3 rather than the 9 the
+        // retired wan2.7 image models advertised.
+        expect(getMaxReferenceImages('wan2.6-image')).toBe(3);
+        expect(getMaxReferenceImages('wan2.5-i2i-preview')).toBe(3);
     });
 });
 

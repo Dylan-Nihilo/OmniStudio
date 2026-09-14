@@ -44,6 +44,7 @@ class PlaygroundService:
         self._vidu_model = None
         self._mulerouter_video_model = None
         self._moma_video_model = None
+        self._jojokey_video_model = None
         self._mulerouter_image_model = None
 
     # ------------------------------------------------------------------
@@ -355,10 +356,8 @@ class PlaygroundService:
             out_path = os.path.join(output_dir, out_filename)
 
             try:
-                if model_lower.startswith("seedance"):
-                    self._generate_video_mulerouter(gen, out_path)
-                elif model_lower.startswith("minimax"):
-                    self._generate_video_moma(gen, out_path)
+                if model_lower.startswith("seedance") or model_lower.startswith("minimax"):
+                    self._generate_video_jojokey(gen, out_path)
                 elif model_lower.startswith("kling"):
                     self._generate_video_kling(gen, out_path)
                 elif model_lower.startswith("vidu") or model_lower.startswith("viduq"):
@@ -421,6 +420,41 @@ class PlaygroundService:
             output_path=out_path,
             img_path=img_path,
             img_url=img_url,
+            **kwargs,
+        )
+
+    def _generate_video_jojokey(self, gen: PlaygroundGeneration, out_path: str) -> None:
+        """Delegate to :class:`JojoKeyVideoModel` (Seedance 2.0/2.5 and MiniMax H3)."""
+        from ...models.jojokey import JojoKeyVideoModel
+
+        if self._jojokey_video_model is None:
+            self._jojokey_video_model = JojoKeyVideoModel({})
+
+        params = gen.parameters
+        img_path, img_url = self._resolve_first_input_media(gen)
+
+        kwargs = {
+            "model": gen.model_id,
+            "duration": params.get("duration", 5),
+            "resolution": params.get("resolution"),
+            "ratio": params.get("ratio", params.get("aspect_ratio", "16:9")),
+            "seed": params.get("seed"),
+            "audio_url": params.get("audio_url"),
+            # A playground run is a one-off the user triggered, so the generation id is the
+            # natural dedupe key for a resubmitted request.
+            "idempotency_key": gen.id,
+        }
+        if gen.mode == PlaygroundMode.R2V and gen.input_media:
+            kwargs["generation_mode"] = "r2v"
+            kwargs["ref_image_urls"] = list(gen.input_media)
+        elif gen.mode == PlaygroundMode.V2V and gen.input_media:
+            kwargs["ref_video_urls"] = list(gen.input_media)
+
+        self._jojokey_video_model.generate(
+            prompt=gen.prompt,
+            output_path=out_path,
+            img_url=img_url,
+            img_path=img_path,
             **kwargs,
         )
 

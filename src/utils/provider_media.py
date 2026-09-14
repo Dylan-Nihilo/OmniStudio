@@ -300,6 +300,7 @@ def resolve_media_input(
         or mode.startswith("kling_vendor_")
         or mode.startswith("pixverse_vendor_")
         or mode.startswith("moma_content_")
+        or mode.startswith("jojokey_content_")
     ):
         if mode.startswith("vidu_vendor_"):
             provider_label = "Vidu"
@@ -307,6 +308,8 @@ def resolve_media_input(
             provider_label = "Kling"
         elif mode.startswith("moma_content_"):
             provider_label = "MOMA"
+        elif mode.startswith("jojokey_content_"):
+            provider_label = "JojoKey"
         else:
             provider_label = "Pixverse"
         return _resolve_vendor_url_mode(
