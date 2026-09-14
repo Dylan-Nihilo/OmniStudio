@@ -716,13 +716,8 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     ...(billingRole === "root" || billingRole === "admin" ? [{id:"billing" as SettingsCategory, label:t("tabBilling")}] : []),
     {id:"about", label:t("tabAbout")},
   ];
-<<<<<<< ours
-  const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), about:t("eyebrowAbout")};
-  const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, about:renderAbout};
-=======
   const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), billing:t("eyebrowBilling"), about:t("eyebrowAbout")};
   const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, billing:() => <BillingAdminPanel />, about:renderAbout};
->>>>>>> theirs
   const saveAction = active === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
   const remoteConfig = active === "apikeys" || active === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };
