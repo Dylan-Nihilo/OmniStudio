@@ -57,10 +57,10 @@ def test_seed_publishes_and_every_row_clears_the_margin_target(published):
     "spec,expected_credits",
     [
         # video: seconds x per-second credits, spec straight off the VideoTask
-        ({"model_id": "seedance-2.0-i2v", "stage": "video", "params": {"resolution": "1080p", "ratio": "16:9"}, "quantity": 5}, 530),
-        ({"model_id": "seedance-2.0-r2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 215),
+        ({"model_id": "seedance-2.0-i2v", "stage": "video", "params": {"resolution": "1080p", "ratio": "16:9"}, "quantity": 5}, 430),
+        ({"model_id": "seedance-2.0-r2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 190),
         # the cheap tier is a different model line, not a different spec on the same one
-        ({"model_id": "seedance-2.0-mini-i2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 45),
+        ({"model_id": "seedance-2.0-mini-i2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 95),
         # MiniMax A keys on its own size names, uppercase P and all
         ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "720P"}, "quantity": 5}, 45),
         ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "2K"}, "quantity": 10}, 180),
@@ -144,14 +144,16 @@ def test_every_model_a_user_can_pick_has_a_price():
 
 def test_seedance_25_is_priced_above_what_it_actually_costs(published):
     """It was not, for a while. The 轻舟万向 quote sheet we costed 2.5 against put it at
-    ¥0.57/¥1.29 per second; the real supplier price is roughly triple that, so the 26/57
-    credit rates shipped at about 70% margin against the 120% floor. The margin check below
-    is generic, but 2.5 is the row that broke it, so it gets its own guard.
+    ¥0.57/¥1.29 per second; the real supplier price is several times that, so the 26/57 credit
+    rates shipped at roughly 70% margin against the 120% floor. Exact rates move whenever we
+    re-read the supplier, so this guards the shape rather than the numbers: 2.5 must clear the
+    target, and must not drift back anywhere near the rates that were under water.
     """
     snapshot = published.runtime.require_current()
     rates = {res: snapshot.quote("seedance/seedance-2.5-video#i2v", {"resolution": res}, 1).credits
              for res in ("480p", "720p", "1080p")}
-    assert rates["480p"] >= 35 and rates["720p"] >= 75 and rates["1080p"] >= 133, rates
+    assert rates["480p"] > 26 and rates["720p"] > 57, rates
+    assert rates["480p"] < rates["720p"] < rates["1080p"], rates
     for row in snapshot.table():
         if row["model_id"].startswith("seedance/seedance-2.5"):
             assert row["meets_target"], row

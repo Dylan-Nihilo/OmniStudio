@@ -56,14 +56,19 @@ class _Recorder:
         self.posts.append({"url": url, "headers": dict(headers or {}), "json": json})
         if "/assets/from-url" in url:
             self._asset_seq += 1
-            return _Response(payload={"asset_url": f"{self._asset_prefix}{self._asset_seq}"})
+            return _Response(payload={"id": f"cnasset_{self._asset_seq}",
+                                      "asset_url": f"{self._asset_prefix}{self._asset_seq}",
+                                      "sync_status": 2, "ready": True})
         return _Response(payload={"id": self._submit_id, "status": "queued"})
 
     def get(self, url, headers=None, timeout=None):
         self.gets.append(url)
         if url.startswith("https://cdn."):
             return _Response(content=b"MP4BYTES")
-        payload = self._poll_statuses[min(len(self.gets) - 1, len(self._poll_statuses) - 1)]
+        if "/assets/" in url:
+            return _Response(payload={"id": url.rsplit("/", 1)[-1], "sync_status": 2, "ready": True})
+        polls = [get for get in self.gets if "/videos/" in get]
+        payload = self._poll_statuses[min(len(polls) - 1, len(self._poll_statuses) - 1)]
         return _Response(payload={"id": self._submit_id, **payload})
 
 
@@ -146,6 +151,81 @@ def test_cn_line_registers_assets_before_submitting(recorder, tmp_path):
     assert body["model"] == "video-cn-2.5"
     submit = next(post for post in recorder.posts if "/videos" in post["url"])
     assert submit["headers"]["Idempotency-Key"] == "job-42"
+
+
+def test_an_unsynced_asset_is_waited_on_before_submitting(monkeypatch, tmp_path):
+    """Registration is asynchronous. Submitting against an asset that still reads
+    sync_status 1 is rejected as InvalidVideoCnAsset, which is what happened in production
+    the first time round."""
+    class _SlowSync(_Recorder):
+        def __init__(self):
+            super().__init__()
+            self.checks = 0
+
+        def post(self, url, headers=None, json=None, timeout=None):
+            if "/assets/from-url" in url:
+                self.posts.append({"url": url, "headers": dict(headers or {}), "json": json})
+                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://a1",
+                                          "sync_status": 1, "ready": False})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+        def get(self, url, headers=None, timeout=None):
+            if "/assets/" in url:
+                self.checks += 1
+                self.gets.append(url)
+                ready = self.checks >= 2
+                return _Response(payload={"id": "cnasset_1", "ready": ready,
+                                          "sync_status": 2 if ready else 1})
+            return super().get(url, headers=headers, timeout=timeout)
+
+    rec = _SlowSync()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda *a, **k: object())
+    JojoKeyVideoModel({}).generate(
+        "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.cn/frame.png",
+        model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+    assert rec.checks == 2
+    assert _submit_body(rec)["content"][1]["image_url"]["url"] == "asset://a1"
+
+
+def test_an_asset_that_never_syncs_says_why(monkeypatch, tmp_path):
+    class _NeverSync(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None):
+            if "/assets/from-url" in url:
+                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://a1",
+                                          "sync_status": 1, "ready": False})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+        def get(self, url, headers=None, timeout=None):
+            if "/assets/" in url:
+                return _Response(payload={"id": "cnasset_1", "sync_status": 1, "ready": False})
+            return super().get(url, headers=headers, timeout=timeout)
+
+    monkeypatch.setattr("src.models.jojokey.requests", _NeverSync())
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setenv("JOJOKEY_ASSET_SYNC_SECONDS", "6")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda *a, **k: object())
+    with pytest.raises(RuntimeError, match="reachable from inside China"):
+        JojoKeyVideoModel({}).generate(
+            "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.cn/frame.png",
+            model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+
+def test_a_reference_reused_across_jobs_is_registered_once(recorder, tmp_path):
+    """Registration is billed per asset, so a storyboard that points many shots at the same
+    character reference must not pay for it once per shot."""
+    model = JojoKeyVideoModel({})
+    for shot in range(3):
+        model.generate("a shot", str(tmp_path / f"out{shot}.mp4"),
+                       img_url="https://oss.example.cn/character.png",
+                       model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+    registrations = [post for post in recorder.posts if "/assets/from-url" in post["url"]]
+    assert len(registrations) == 1
+    # The key must not carry anything job-specific, or the vendor would bill each retry.
+    assert "omni-asset:image:" in registrations[0]["headers"]["Idempotency-Key"]
 
 
 def test_overseas_line_passes_urls_straight_through(recorder, tmp_path):
@@ -323,6 +403,79 @@ def test_pipeline_forwards_every_reference_image_for_a_direct_r2v_task(monkeypat
     assert calls["kwargs"]["ref_image_urls"] == ["https://example.com/character.png",
                                                  "https://example.com/scene.png"]
     assert calls["kwargs"]["generation_mode"] == "r2v"
+
+
+class _CnDisabledRecorder(_Recorder):
+    """Answers the CN line the way a disabled account does, and the overseas line normally."""
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        if "/video-cn/" in url:
+            self.posts.append({"url": url, "headers": dict(headers or {}), "json": json})
+            return _Response(403, payload={"detail": {"error": {
+                "code": "VideoCnBetaNotEnabled",
+                "message": "JojoKey Video CN Beta 未对该账号开放"}}})
+        return super().post(url, headers=headers, json=json, timeout=timeout)
+
+
+def test_a_disabled_cn_line_falls_back_to_the_overseas_route(monkeypatch, tmp_path):
+    """JojoKey enables the CN line per account, so a closed account 403s every call. Pinning
+    Seedance to CN alone would mean no video at all until someone flips that switch."""
+    rec = _CnDisabledRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda *a, **k: object())
+    path, _ = JojoKeyVideoModel({}).generate(
+        "a shot", str(tmp_path / "out.mp4"), model="seedance-2.0-mini-t2v", resolution="720p")
+    assert Path(path).read_bytes() == b"MP4BYTES"
+    submits = [post for post in rec.posts if post["url"].endswith("/videos")]
+    # CN is tried first with its own id, then the retry uses the overseas id for that tier.
+    assert [post["json"]["model"] for post in submits] == ["video-cn-2.0-mini", "video-mini"]
+    assert submits[0]["url"].endswith("/video-cn/videos")
+    assert not submits[1]["url"].endswith("/video-cn/videos")
+
+
+def test_a_disabled_cn_line_is_still_an_error_when_there_is_nowhere_to_fall_back(monkeypatch, tmp_path):
+    rec = _CnDisabledRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda *a, **k: object())
+    with pytest.raises(RuntimeError, match="VideoCnBetaNotEnabled"):
+        # A route given entirely by kwargs, with no catalog entry to supply an overseas id.
+        JojoKeyVideoModel({}).generate(
+            "a shot", str(tmp_path / "out.mp4"), model="not-in-the-catalog",
+            line="cn", upstream_model="video-cn-2.0-mini", resolution="720p")
+
+
+@pytest.mark.parametrize(
+    "cn,usd,ready",
+    [
+        ({"enabled": False, "balance_cny": 1000.0}, 0.0, False),   # money, but the line is shut
+        ({"enabled": True, "balance_cny": 0.0}, 0.0, False),       # open, but empty
+        ({"enabled": True, "balance_cny": 1000.0}, 0.0, True),
+        ({"enabled": False, "balance_cny": 0.0}, 12.5, True),      # overseas alone is enough
+    ],
+)
+def test_account_status_reports_what_is_blocking(monkeypatch, cn, usd, ready):
+    """`/v1/models` answers 200 for an account that cannot generate, so a green light there
+    would be a lie. This is what the Settings connection test reports instead."""
+    class _AccountRecorder(_Recorder):
+        def get(self, url, headers=None, timeout=None):
+            if url.endswith("/video-cn/me"):
+                return _Response(payload={"currency": "CNY", **cn})
+            if url.endswith("/me"):
+                return _Response(payload={"spendable_usd": usd})
+            return super().get(url, headers=headers, timeout=timeout)
+
+    monkeypatch.setattr("src.models.jojokey.requests", _AccountRecorder())
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    status = JojoKeyVideoModel({}).account_status()
+    assert status["ready"] is ready
+    # A usable account reports nothing to fix, even about the line it is not using.
+    assert bool(status["blockers"]) is not ready
+    if not ready and not cn["enabled"]:
+        assert any("未对该账号开放" in blocker for blocker in status["blockers"])
 
 
 def test_every_tier_routes_to_a_distinct_upstream_model(recorder, tmp_path):

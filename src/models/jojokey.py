@@ -22,6 +22,7 @@ upstream model or moving Seedance between lines is a YAML edit.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -41,6 +42,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_LINE = "cn"
 DEFAULT_MAX_WAIT_SECONDS = 1800
 DEFAULT_POLL_INTERVAL_SECONDS = 8       # the API asks for one poll every 5-8 seconds
+DEFAULT_ASSET_SYNC_SECONDS = 120        # how long to wait for a reference asset to sync
+ASSET_POLL_INTERVAL_SECONDS = 3
 
 # Two request shapes share the /v1/videos endpoint. Seedance takes an OpenAI-style
 # ``content[]`` with a role per reference; MiniMax A takes flat ``first_frame`` / ``images[]``
@@ -58,12 +61,20 @@ CN_ASSET_TYPES = {"image": 1, "video": 2, "audio": 3}
 _TERMINAL_FAILURES = {"failed", "cancelled", "expired"}
 
 
+class CnLineUnavailable(RuntimeError):
+    """The CN line is switched off for this account, so the request never reached a model."""
+
+
 class JojoKeyVideoModel(VideoGenModel):
     """Generate videos through the JojoKey relay."""
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self._api_key = config.get("api_key")
+        # CN asset handles, keyed by (modality, source url). Registration is billed per
+        # asset, and the adapter is cached per worker, so a storyboard that reuses the same
+        # character reference across shots pays for it once and skips the round trip after.
+        self._asset_cache: Dict[Tuple[str, str], str] = {}
 
     # ---- credentials and routing -------------------------------------------------
 
@@ -128,7 +139,10 @@ class JojoKeyVideoModel(VideoGenModel):
         if response.status_code >= 400:
             detail = " ".join((response.text or "").split())[:2000]
             suffix = f": {detail}" if detail else ""
-            raise RuntimeError(f"JojoKey {phase} failed with HTTP {response.status_code}{suffix}")
+            message = f"JojoKey {phase} failed with HTTP {response.status_code}{suffix}"
+            if response.status_code == 403 and "VideoCnBetaNotEnabled" in detail:
+                raise CnLineUnavailable(message)
+            raise RuntimeError(message)
         response.raise_for_status()
 
     @staticmethod
@@ -164,9 +178,22 @@ class JojoKeyVideoModel(VideoGenModel):
         """Register a public URL as a CN-line ``asset://`` handle.
 
         The CN line takes ``asset://`` references in ``content[]`` rather than raw URLs, so
-        every image and video has to go through here first.
+        every image and video goes through here first. Three things the docs understate:
+
+        * This endpoint requires an Idempotency-Key. They only mention needing one for asset
+          groups and for submission, but a registration without it is refused outright.
+        * Registration costs money (¥0.10 an asset at the time of writing), so the key is
+          derived from the source URL alone and nothing job-specific. The same reference image
+          reused across a hundred shots is then registered — and charged — once.
+        * Registration is asynchronous. It returns ``sync_status: 1`` / ``ready: false``, and
+          submitting against an asset in that state is rejected as InvalidVideoCnAsset.
         """
+        cached = self._asset_cache.get((modality, url))
+        if cached:
+            return cached
+
         base = get_provider_base_url("JOJOKEY")
+        digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:20]
         payload: Dict[str, Any] = {
             "url": url,
             "asset_type": CN_ASSET_TYPES[modality],
@@ -176,16 +203,48 @@ class JojoKeyVideoModel(VideoGenModel):
             payload["group_id"] = group_id
         response = requests.post(
             f"{base}/video-cn/assets/from-url",
-            headers=self._headers(),
+            headers=self._headers(idempotency_key=f"omni-asset:{modality}:{digest}"),
             json=payload,
             timeout=60,
         )
         self._ensure_success(response, "asset registration")
         body = response.json()
         asset_url = body.get("asset_url") or body.get("url")
+        asset_id = body.get("id")
         if not asset_url:
             raise RuntimeError(f"JojoKey asset registration returned no asset_url: {body}")
+        if not self._asset_is_ready(body):
+            self._await_asset(base, str(asset_id), body)
+        self._asset_cache[(modality, url)] = str(asset_url)
         return str(asset_url)
+
+    @staticmethod
+    def _asset_is_ready(body: Dict[str, Any]) -> bool:
+        # sync_status 2 is the vendor's "synced, safe to use"; `ready` mirrors it.
+        return bool(body.get("ready")) or body.get("sync_status") == 2
+
+    def _await_asset(self, base: str, asset_id: str, first: Dict[str, Any]) -> None:
+        """Poll a freshly registered asset until the upstream can read it."""
+        if not asset_id:
+            raise RuntimeError(f"JojoKey asset is not synced and has no id to poll: {first}")
+        deadline = self._env_number("JOJOKEY_ASSET_SYNC_SECONDS", DEFAULT_ASSET_SYNC_SECONDS)
+        waited = 0
+        while waited < deadline:
+            time.sleep(ASSET_POLL_INTERVAL_SECONDS)
+            waited += ASSET_POLL_INTERVAL_SECONDS
+            response = requests.get(f"{base}/video-cn/assets/{asset_id}",
+                                    headers=self._headers(), timeout=30)
+            self._ensure_success(response, "asset sync check")
+            body = response.json()
+            if self._asset_is_ready(body):
+                logger.info("[JojoKey] Asset %s synced after %ss", asset_id, waited)
+                return
+            error = (body.get("operation") or {}).get("result", {}).get("sync_error") or ""
+            if error:
+                raise RuntimeError(f"JojoKey asset {asset_id} failed to sync: {error}")
+        raise RuntimeError(
+            f"JojoKey asset {asset_id} was still unsynced after {deadline}s. The CN line has to "
+            "fetch the source URL itself, so it must be reachable from inside China.")
 
     # ---- payload -----------------------------------------------------------------
 
@@ -293,6 +352,31 @@ class JojoKeyVideoModel(VideoGenModel):
         line, upstream_model, dialect = self._resolve_route(model_id, kwargs)
         start_time = time.time()
 
+        try:
+            video_url = self._submit_and_await(
+                line, upstream_model, dialect, prompt, model_id, img_url, img_path, kwargs)
+        except CnLineUnavailable:
+            # The CN line is enabled per account by JojoKey's admin, and a disabled account
+            # gets a 403 on every call. Falling back keeps generation working off whichever
+            # line is actually open, and costs nothing extra: the price book is already
+            # costed off the USD list, so the overseas price is the one we charge against.
+            fallback = (kwargs.get("overseas_model")
+                        or self._route_for(model_id).get("overseas_model"))
+            if not fallback:
+                raise
+            logger.warning("[JojoKey] CN line unavailable for %s, retrying on the overseas "
+                           "line as %s", model_id, fallback)
+            video_url = self._submit_and_await(
+                "overseas", str(fallback), dialect, prompt, model_id, img_url, img_path, kwargs)
+
+        self._download(video_url, output_path)
+        generation_time = time.time() - start_time
+        logger.info("[JojoKey] Done in %.1fs -> %s", generation_time, output_path)
+        return output_path, generation_time
+
+    def _submit_and_await(self, line: str, upstream_model: str, dialect: str, prompt: str,
+                          model_id: str, img_url: Optional[str], img_path: Optional[str],
+                          kwargs: Dict[str, Any]) -> str:
         generation_mode = (kwargs.get("generation_mode") or "").strip().lower()
         primary = img_url or img_path
         extras = [url for url in (kwargs.get("ref_image_urls") or []) if url]
@@ -358,12 +442,7 @@ class JojoKeyVideoModel(VideoGenModel):
             raise RuntimeError(f"JojoKey submit returned no task id: {task}")
         logger.info("[JojoKey] Task %s submitted (line=%s, model=%s, dialect=%s)",
                     task_id, line, upstream_model, dialect)
-
-        video_url = self._await_video(submit_url, task_id)
-        self._download(video_url, output_path)
-        generation_time = time.time() - start_time
-        logger.info("[JojoKey] Done in %.1fs -> %s", generation_time, output_path)
-        return output_path, generation_time
+        return self._await_video(submit_url, task_id)
 
     def _await_video(self, submit_url: str, task_id: str) -> str:
         max_wait = self._env_number("JOJOKEY_MAX_WAIT_SECONDS", DEFAULT_MAX_WAIT_SECONDS)
@@ -402,6 +481,48 @@ class JojoKeyVideoModel(VideoGenModel):
             os.makedirs(output_dir, exist_ok=True)
         with open(output_path, "wb") as output_file:
             output_file.write(response.content)
+
+    def account_status(self, timeout: float = 10.0) -> Dict[str, Any]:
+        """Report whether either line can actually accept a job.
+
+        The generic provider probe asks for ``/v1/models``, which answers 200 for an account
+        with no balance and a disabled CN line — a green light for something that cannot
+        generate. This reads the two account endpoints instead and says what is blocking.
+        """
+        base = get_provider_base_url("JOJOKEY")
+        status: Dict[str, Any] = {"cn_enabled": False, "cn_balance_cny": 0.0,
+                                  "usd_spendable": 0.0, "ready": False, "blockers": []}
+        reasons: List[str] = []
+        try:
+            cn = requests.get(f"{base}/video-cn/me", headers=self._headers(), timeout=timeout)
+            self._ensure_success(cn, "CN account read")
+            body = cn.json()
+            status["cn_enabled"] = bool(body.get("enabled"))
+            status["cn_balance_cny"] = float(body.get("balance_cny") or 0)
+        except Exception as error:
+            reasons.append(f"国内线状态读取失败：{error}")
+
+        try:
+            me = requests.get(f"{base}/me", headers=self._headers(), timeout=timeout)
+            self._ensure_success(me, "account read")
+            body = me.json()
+            status["usd_spendable"] = float(body.get("spendable_usd") or 0)
+        except Exception as error:
+            reasons.append(f"海外线状态读取失败：{error}")
+
+        cn_ready = status["cn_enabled"] and status["cn_balance_cny"] > 0
+        overseas_ready = status["usd_spendable"] > 0
+        if not status["cn_enabled"]:
+            reasons.append("国内线（JojoKey Video CN Beta）未对该账号开放，需要 JojoKey 后台开启")
+        elif status["cn_balance_cny"] <= 0:
+            reasons.append("国内线余额为 0")
+        if not overseas_ready:
+            reasons.append("海外线可用余额为 0")
+        status["ready"] = cn_ready or overseas_ready
+        # Either line being usable is enough to generate, so a working account reports no
+        # blockers rather than complaining about the line it is not using.
+        status["blockers"] = [] if status["ready"] else reasons
+        return status
 
     @staticmethod
     def _env_number(name: str, default: int) -> int:

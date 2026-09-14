@@ -3364,6 +3364,23 @@ def test_provider_connection(request: ProviderConnectionTestRequest, http_reques
 
     started = time.perf_counter()
     try:
+        if provider == "jojokey":
+            # /v1/models answers 200 for an account with no balance and a disabled CN line,
+            # so the generic probe would report a green light for something that cannot
+            # generate. Read the account state and say what is actually blocking.
+            from ...models.jojokey import JojoKeyVideoModel
+
+            status = JojoKeyVideoModel({}).account_status(timeout=request.timeout_seconds)
+            base_payload.update(
+                success=status["ready"],
+                category=None if status["ready"] else "quota",
+                message=("Provider is reachable" if status["ready"]
+                         else "；".join(status["blockers"])[:500]),
+                latency_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                detail=status,
+            )
+            record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": base_payload["success"], "category": base_payload["category"], "latency_ms": base_payload["latency_ms"]})
+            return base_payload
         response = requests.get(
             base_payload["host"],
             headers={"Authorization": f"Bearer {secret}"},

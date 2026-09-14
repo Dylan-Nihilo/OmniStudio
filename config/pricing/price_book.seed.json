@@ -1,5 +1,5 @@
 {
-  "note": "2026-09-14 供应商报价。视频=JojoKey 我方账号实测价（GET /v1/pricing），美元按记账常量 7.3 折人民币（非实时汇率，高于即期以免低估成本）；国内线开通后 Seedance 应改用 /v1/video-cn/models 的人民币价重算；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
+  "note": "2026-09-14 供应商报价。视频=JojoKey 我方账号实测价。Seedance 走国内线人民币 token 计价（/v1/video-cn/price-estimate，客户比例 0.85），已用一条真实结算任务校验，不涉及汇率；MiniMax 不在国内线，按记账常量 7.3 折算（非实时汇率，高于即期以免低估成本）；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -15,7 +15,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.0901,
+      "purchase_price_cny": 0.2,
       "display_name": "Seedance 2.0 标准"
     },
     {
@@ -25,7 +25,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.1937,
+      "purchase_price_cny": 0.4301,
       "display_name": "Seedance 2.0 标准"
     },
     {
@@ -35,7 +35,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.2702,
+      "purchase_price_cny": 0.3217,
       "display_name": "Seedance 2.0 高级"
     },
     {
@@ -45,7 +45,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.581,
+      "purchase_price_cny": 0.6918,
       "display_name": "Seedance 2.0 高级"
     },
     {
@@ -55,7 +55,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.4503,
+      "purchase_price_cny": 0.4,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -65,7 +65,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.9683,
+      "purchase_price_cny": 0.8601,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -75,7 +75,7 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 2.3965,
+      "purchase_price_cny": 1.9353,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -85,7 +85,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.7911,
+      "purchase_price_cny": 0.716,
       "display_name": "Seedance 2.5"
     },
     {
@@ -95,7 +95,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 1.7012,
+      "purchase_price_cny": 1.5398,
       "display_name": "Seedance 2.5"
     },
     {
@@ -105,7 +105,7 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 3.0136,
+      "purchase_price_cny": 3.4647,
       "display_name": "Seedance 2.5"
     },
     {
@@ -115,7 +115,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.0901,
+      "purchase_price_cny": 0.2,
       "display_name": "Seedance 2.0 标准"
     },
     {
@@ -125,7 +125,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.1937,
+      "purchase_price_cny": 0.4301,
       "display_name": "Seedance 2.0 标准"
     },
     {
@@ -135,7 +135,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.2702,
+      "purchase_price_cny": 0.3217,
       "display_name": "Seedance 2.0 高级"
     },
     {
@@ -145,7 +145,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.581,
+      "purchase_price_cny": 0.6918,
       "display_name": "Seedance 2.0 高级"
     },
     {
@@ -155,7 +155,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.4503,
+      "purchase_price_cny": 0.4,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -165,7 +165,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.9683,
+      "purchase_price_cny": 0.8601,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -175,7 +175,7 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 2.3965,
+      "purchase_price_cny": 1.9353,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -185,7 +185,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.7911,
+      "purchase_price_cny": 0.716,
       "display_name": "Seedance 2.5"
     },
     {
@@ -195,7 +195,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 1.7012,
+      "purchase_price_cny": 1.5398,
       "display_name": "Seedance 2.5"
     },
     {
@@ -205,7 +205,7 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 3.0136,
+      "purchase_price_cny": 3.4647,
       "display_name": "Seedance 2.5"
     },
     {
@@ -215,7 +215,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.0901,
+      "purchase_price_cny": 0.2,
       "display_name": "Seedance 2.0 标准"
     },
     {
@@ -225,7 +225,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.1937,
+      "purchase_price_cny": 0.4301,
       "display_name": "Seedance 2.0 标准"
     },
     {
@@ -235,7 +235,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.2702,
+      "purchase_price_cny": 0.3217,
       "display_name": "Seedance 2.0 高级"
     },
     {
@@ -245,7 +245,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.581,
+      "purchase_price_cny": 0.6918,
       "display_name": "Seedance 2.0 高级"
     },
     {
@@ -255,7 +255,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.4503,
+      "purchase_price_cny": 0.4,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -265,7 +265,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 0.9683,
+      "purchase_price_cny": 0.8601,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -275,7 +275,7 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 2.3965,
+      "purchase_price_cny": 1.9353,
       "display_name": "Seedance 2.0 卓越"
     },
     {
@@ -285,7 +285,7 @@
       "match": {
         "resolution": "480p"
       },
-      "purchase_price_cny": 0.7911,
+      "purchase_price_cny": 0.716,
       "display_name": "Seedance 2.5"
     },
     {
@@ -295,7 +295,7 @@
       "match": {
         "resolution": "720p"
       },
-      "purchase_price_cny": 1.7012,
+      "purchase_price_cny": 1.5398,
       "display_name": "Seedance 2.5"
     },
     {
@@ -305,7 +305,7 @@
       "match": {
         "resolution": "1080p"
       },
-      "purchase_price_cny": 3.0136,
+      "purchase_price_cny": 3.4647,
       "display_name": "Seedance 2.5"
     },
     {
