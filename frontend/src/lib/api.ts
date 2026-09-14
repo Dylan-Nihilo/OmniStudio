@@ -39,7 +39,7 @@ export interface VoiceMeta {
     name: string;
     gender: "Male" | "Female" | "Neutral" | "Unknown";
     model: string;                                            // backend model id (cosyvoice-v3-flash / qwen3-tts-flash / ...)
-    family: "cosyvoice" | "qwen3";
+    family: "cosyvoice" | "qwen3" | "qwen_audio";
     supports_instruction: boolean;
     dialect?: string | null;                                  // 'shanghai' | 'beijing' | 'sichuan' | 'cantonese' | etc.
     lang_primary?: string | null;                             // 'es' | 'ru' | 'it' | 'ko' | 'ja' | 'de' | 'fr' for international
@@ -1459,10 +1459,12 @@ export const api = {
         return res.data;
     },
 
-    selectVideo: async (scriptId: string, frameId: string, videoId: string) => {
+    selectVideo: async (scriptId: string, frameId: string, videoId: string, confirmReview = false, reviewFingerprint?: string) => {
         // Manual pick protects the frame from adoption when later tasks finish.
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/select_video`, {
-            video_id: videoId
+            video_id: videoId,
+            confirm_review: confirmReview,
+            review_fingerprint: reviewFingerprint,
         });
         return res.data;
     },
@@ -1491,7 +1493,7 @@ export const api = {
     },
 
     mergeVideos: async (scriptId: string) => {
-        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/merge`);
+        const res = await apiClient.post(`${API_URL}/projects/${scriptId}/merge`, undefined, { timeout: 180_000 });
         return res.data;
     },
 
@@ -1509,7 +1511,7 @@ export const api = {
     analyzeScriptForStyles: async (scriptId: string, scriptText: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/art_direction/analyze`, {
             script_text: scriptText
-        });
+        }, { timeout: 120_000 });
         return res.data;
     },
 
@@ -1614,6 +1616,8 @@ export const api = {
         image_prompt?: string;
         action_description?: string;
         visual_description?: string;
+        prompt_mode?: "structured" | "complete";
+        dialogue_mode?: "on_screen" | "voiceover";
         dialogue?: string;
         camera_angle?: string;
         scene_id?: string;
@@ -1664,7 +1668,7 @@ export const api = {
     analyzeToStoryboard: async (scriptId: string, text: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/analyze`, {
             text: text
-        });
+        }, { timeout: 180000 });
         return res.data;
     },
 
@@ -1854,10 +1858,11 @@ export const api = {
         return res.data;
     },
 
-    previewDub: async (scriptId: string, frameId: string, videoTaskId: string, offsetMs: number = 0) => {
+    previewDub: async (scriptId: string, frameId: string, videoTaskId: string, offsetMs: number = 0, lipSync: boolean = false) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/frames/${frameId}/dub/preview`, {
             video_task_id: videoTaskId,
             offset_ms: offsetMs,
+            lip_sync: lipSync,
         }, { timeout: 120000 });
         return res.data;
     },

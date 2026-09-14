@@ -96,6 +96,10 @@
     "previewTextDefault": "Hi, this is a voice preview. Something interesting happened today — let me tell you all about it."
   },
   "dialogueAudio": {
+    "matchLips": "Match lip motion",
+    "speakerFace": "{name} · Choose speaker headshot",
+    "speakerFaceInvalid": "Upload a frontal single-person PNG, JPEG or WebP image up to 10 MB.",
+    "matchLipsHint": "Match mouth motion to the current voice. For multiple people, first upload a single frontal headshot for the speaking character. DashScope charges by video duration; preview before applying.",
     "checkingPreview": "Checking dub preview status…",
     "checking": "Checking audio generation status…",
     "statusUnavailable": "Unable to read the generation status. Your previous audio is kept; reconnect to check the result.",
@@ -452,6 +456,10 @@
       "locked": "Locked"
   },
   "common": {
+    "polishInheritProject": "Use series / workspace model",
+    "polishInheritWorkspace": "Use workspace model",
+    "polishInheritProjectHint": "Use the series or workspace text model unless you select an override.",
+    "polishInheritWorkspaceHint": "Use the workspace text model unless you select an override.",
     "save": "Save",
     "cancel": "Cancel",
     "create": "Create",
@@ -1488,6 +1496,16 @@
     "unknown": "Unknown"
   },
   "assembly": {
+    "nextTransition": "Transition to next shot",
+    "transitionCut": "Cut",
+    "transitionMatch": "Match cut",
+    "transitionDissolve": "Dissolve",
+    "transitionBlack": "Fade through black",
+    "transitionSaveFailed": "Could not save the transition. Please retry.",
+    "reviewShotLabel": "Shot {number}",
+    "reviewInspect": "Inspect shot",
+    "reviewKeep": "Reviewed — keep this take",
+
     "assemblyTimeline": "Assembly Timeline",
     "framesReady": "frames ready",
     "selectVideo": "Select Video",
@@ -1561,9 +1579,9 @@
     "diskOk": "Enough Space",
     "diskInsufficient": "Insufficient Space",
     "mergeProgressStage": "Export progress: {stage}",
-    "verificationTitle": "Acceptance Report",
-    "verificationOk": "Verification Passed",
-    "verificationFail": "Verification Failed",
+    "verificationTitle": "Export File Checks",
+    "verificationOk": "File Checks Passed",
+    "verificationFail": "File Checks Failed",
     "videoStream": "Video Stream",
     "audioStream": "Audio Stream",
     "durationSeconds": "Duration (seconds)",
@@ -1734,6 +1752,20 @@
     "noRefVideosAvailable": "No reference videos available. Generate Motion References in the Assets step first."
   },
   "storyboardR2V": {
+    "tooManyFirstFrameRefs": "This shot has {count} reference images; the model supports {limit}. Prepare a scene-state image first, or reduce asset references in the prompt.",
+    "promptModeLabel": "Prompt format",
+    "promptModeStructured": "Visual description + camera settings",
+    "promptModeComplete": "Complete prompt",
+    "firstFramePromptLabel": "First-frame image",
+    "firstFramePromptPlaceholder": "Describe positions, held objects and composition before the action begins.",
+    "firstFrameUseShotPrompt": "Copy shot description",
+    "dialogueModeLabel": "Dialogue placement",
+    "dialogueModeOnScreen": "On-screen dialogue",
+    "dialogueModeVoiceover": "Voiceover",
+    "editCurrentFirstFrame": "Edit with current first frame",
+    "usePreviousCutFrame": "Use previous shot’s out frame",
+    "h3DialogueReferenceHint": "Post-production preserves the first-frame composition; match lips in the voice workbench after generation. Reference audio turns the first frame into a reference image, so composition may change.",
+
     "saveNow": "Save now",
     "saveStatus": "Save status",
     "saved": "Saved",

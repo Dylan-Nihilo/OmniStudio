@@ -138,18 +138,16 @@ export default function PromptConfigModal({ isOpen, onClose }: PromptConfigModal
                                     {t("promptEmptyHint")}
                                 </div>
 
-                                {/* Issue 13: polish 用的 LLM 模型选择。优先项目级 → 系列级 →
-                                    LLMAdapter 默认（qwen3.6-plus）。三个推荐选项都是
-                                    vision-capable，能让带首帧/参考图的润色更准确。 */}
+                                {/* Empty override inherits the configured series/workspace model. */}
                                 <div className="space-y-2">
                                     <div>
                                         <h3 className="text-sm font-bold text-foreground">Polish 模型</h3>
                                         <p className="text-[0.625rem] text-text-muted mt-0.5">
-                                            选择 AI 润色调用的 LLM 模型。三个选项都支持视觉理解，能在润色时参考首帧/参考图。
+                                            {tc("polishInheritProjectHint")}
                                         </p>
                                     </div>
-                                    <SelectField label="Polish 模型" className="[&>label]:sr-only" value={config.polish_model || "qwen3.7-plus"} onChange={value => setConfig(prev => ({ ...prev, polish_model: String(value) }))}
-                                        options={[{ id: "qwen3.7-plus", label: "qwen3.7-plus · 通义千问 3.7 Plus（最新）" }, { id: "qwen3.6-plus", label: "qwen3.6-plus · 通义千问 3.6 Plus（视觉）" }, { id: "qwen3.6-flash", label: "qwen3.6-flash · 通义千问 3.6 Flash（更快）" }, { id: "kimi-k2.6", label: "kimi-k2.6 · Moonshot Kimi K2.6（视觉）" }]} />
+                                    <SelectField label="Polish 模型" className="[&>label]:sr-only" value={config.polish_model || "__default__"} onChange={value => setConfig(prev => ({ ...prev, polish_model: value === "__default__" ? "" : String(value) }))}
+                                        options={[{ id: "__default__", label: tc("polishInheritProject") }, { id: "gpt-5.6-sol", label: "GPT 5.6 Sol · 文本与视觉" }, ...(config.polish_model && config.polish_model !== "gpt-5.6-sol" ? [{ id: config.polish_model, label: config.polish_model }] : [])]} />
                                     <div className="border-b border-border-subtle pt-1" />
                                 </div>
 

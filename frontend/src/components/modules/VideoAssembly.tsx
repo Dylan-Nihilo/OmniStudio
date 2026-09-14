@@ -58,6 +58,10 @@ interface MergePrecheckItem {
     expected?: string;
     path?: string;
     reason?: string;
+    video_id?: string;
+    reviewable?: boolean;
+    review_fingerprint?: string;
+    blocking?: boolean;
 }
 
 interface MergePrecheckReport {
@@ -67,6 +71,7 @@ interface MergePrecheckReport {
     missing?: MergePrecheckItem[];
     unreadable?: MergePrecheckItem[];
     no_video_available?: MergePrecheckItem[];
+    content_issues?: MergePrecheckItem[];
     disk?: {
         free_bytes?: number;
         required_bytes?: number;
@@ -202,6 +207,21 @@ export default function VideoAssembly() {
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to clear video selection:", error);
+        }
+    };
+
+    const [savingTransition, setSavingTransition] = useState<string | null>(null);
+    const handleTransition = async (frameId: string, value: string) => {
+        if (!currentProject) return;
+        setSavingTransition(frameId);
+        try {
+            const updated = await api.updateFrame(currentProject.id, frameId, { transition_hint: value });
+            updateProject(currentProject.id, updated);
+            setPrecheckReport(null);
+        } catch (error) {
+            toast.error(extractErrorDetail(error, ta("transitionSaveFailed")));
+        } finally {
+            setSavingTransition(null);
         }
     };
 
@@ -501,6 +521,14 @@ export default function VideoAssembly() {
                                                 <Button variant="quiet" aria-label={ta("splitSegment")} onPress={() => void handleSplit(frame, selectedVideo)}><Scissors size={14} />{ta("splitSegment")}</Button>
                                                 <Button variant="quiet" aria-label={ta("deleteSegment")} onPress={() => void handleDeleteSegment(frame.id)}><Trash2 size={14} /></Button>
                                             </div>}
+                                            {index < framesTotal - 1 && <div className="max-w-xs" onClick={event => event.stopPropagation()}>
+                                                <SelectField label={ta("nextTransition")} value={frame.transition_hint || "硬切"}
+                                                    isDisabled={isMerging || savingTransition === frame.id}
+                                                    onChange={value => { if (typeof value === "string") void handleTransition(frame.id, value); }}
+                                                    options={[{ id: "硬切", label: ta("transitionCut") }, { id: "匹配剪辑", label: ta("transitionMatch") },
+                                                        { id: "叠化", label: ta("transitionDissolve") }, { id: "黑场", label: ta("transitionBlack") },
+                                                        ...(!frame.transition_hint || ["硬切", "匹配剪辑", "叠化", "黑场"].includes(frame.transition_hint) ? [] : [{ id: frame.transition_hint, label: frame.transition_hint }])]} />
+                                            </div>}
                                         </div>
 
                                         <div className="flex items-center justify-between mt-2 pt-2 border-t border-border-subtle">
@@ -552,6 +580,14 @@ export default function VideoAssembly() {
                             mergeVerification={mergeVerification}
                             onSaveSettings={handleSaveExportSettings}
                             onRunPrecheck={handleRunPrecheck}
+                            onInspectShot={frameId => { setSelectedFrameId(frameId); setPhase("takes"); }}
+                            onReviewShot={async (frameId, videoId, fingerprint) => {
+                                if (!currentProject) return;
+                                const updated = await api.selectVideo(currentProject.id, frameId, videoId, true, fingerprint);
+                                updateProject(currentProject.id, updated);
+                                await handleRunPrecheck();
+                            }}
+                            shotNumbers={Object.fromEntries((currentProject?.frames ?? []).map((frame, index) => [frame.id, index + 1]))}
                             onMerge={handleMerge}
                             onDownload={handleDownload}
                             onDismissError={() => setMergeError(null)}
@@ -816,6 +852,9 @@ export function ExportPhase({
     mergeVerification,
     onSaveSettings,
     onRunPrecheck,
+    onInspectShot,
+    onReviewShot,
+    shotNumbers = {},
     onMerge,
     onDownload,
     onDismissError,
@@ -833,6 +872,9 @@ export function ExportPhase({
     mergeVerification: MergeVerification | null;
     onSaveSettings: (settings: Record<string, unknown>) => Promise<void>;
     onRunPrecheck: () => Promise<void>;
+    onInspectShot?: (frameId: string) => void;
+    onReviewShot?: (frameId: string, videoId: string, fingerprint?: string) => Promise<void>;
+    shotNumbers?: Record<string, number>;
     onMerge: () => void;
     onDownload: () => void;
     onDismissError: () => void;
@@ -842,6 +884,8 @@ export function ExportPhase({
     const [draftSettings, setDraftSettings] = useState<ExportSettingsDraft>(() => toExportSettingsDraft(exportSettings));
     const [isSavingSettings, setIsSavingSettings] = useState(false);
     const [isPrechecking, setIsPrechecking] = useState(false);
+    const [reviewing, setReviewing] = useState<string | null>(null);
+    const [reviewError, setReviewError] = useState<string | null>(null);
 
     useEffect(() => {
         setDraftSettings(toExportSettingsDraft(exportSettings));
@@ -946,9 +990,9 @@ export function ExportPhase({
                         <div>
                             <h3 className="text-display font-medium text-foreground">{ta("precheckTitle")}</h3>
                             {precheckReport && (
-                                <span className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold ${precheckReport.ok ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}`}>
-                                    {precheckReport.ok ? <Check size={12} /> : <AlertTriangle size={12} />}
-                                    {precheckReport.ok ? ta("precheckOk") : ta("precheckWarn")}
+                                <span className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold ${precheckReport.ok && !precheckReport.content_issues?.length ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-amber-500/30 bg-amber-500/10 text-amber-300"}`}>
+                                    {precheckReport.ok && !precheckReport.content_issues?.length ? <Check size={12} /> : <AlertTriangle size={12} />}
+                                    {precheckReport.ok && !precheckReport.content_issues?.length ? ta("precheckOk") : ta("precheckWarn")}
                                 </span>
                             )}
                         </div>
@@ -996,6 +1040,20 @@ export function ExportPhase({
                                 </div>
                             </div>
                         )}
+                        {(precheckReport.content_issues ?? []).map((item, index) => <div key={`${item.frame_id}-${index}`} className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-sm">
+                            <p>{ta("reviewShotLabel", { number: shotNumbers[item.frame_id ?? ""] ?? index + 1 })} · {item.reason}</p>
+                            <div className="mt-2 flex flex-wrap gap-3">
+                                <Button variant="quiet" isDisabled={isMerging || !onInspectShot} onPress={() => item.frame_id && onInspectShot?.(item.frame_id)}>{ta("reviewInspect")}</Button>
+                                {item.reviewable && onReviewShot && <Button variant="secondary" isDisabled={isMerging || !!reviewing} isPending={reviewing === item.frame_id} onPress={async () => {
+                                    if (!item.frame_id || !item.video_id) return;
+                                    setReviewing(item.frame_id); setReviewError(null);
+                                    try { await onReviewShot(item.frame_id, item.video_id, item.review_fingerprint); }
+                                    catch (error) { setReviewError(extractErrorDetail(error, ta("precheckFailed"))); }
+                                    finally { setReviewing(null); }
+                                }}>{ta("reviewKeep")}</Button>}
+                            </div>
+                        </div>)}
+                        {reviewError && <p role="alert" className="text-red-400">{reviewError}</p>}
                     </div>
                 )}
             </section>
