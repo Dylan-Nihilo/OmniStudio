@@ -1,7 +1,7 @@
 import base64
 import mimetypes
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
@@ -61,7 +61,7 @@ def _mode_for_modality(family_config, backend: str, modality: str) -> str:
     )
 
 
-def _encode_image_as_data_uri(local_path: str) -> str:
+def _encode_file_as_data_uri(local_path: str) -> str:
     mime_type, _ = mimetypes.guess_type(local_path)
     if not mime_type:
         mime_type = "image/png"
@@ -105,12 +105,14 @@ def _resolved(value: str, *, source_ref: str, media_ref_type: str, headers: Opti
     )
 
 
-def _resolve_dashscope_image(
+def _resolve_inline_media(
     ref: str,
     ref_type: str,
     *,
     uploader,
     local_path: Optional[str],
+    provider_label: str = "DashScope",
+    modality: str = "image",
 ) -> ResolvedMediaInput:
     if ref_type == MEDIA_REF_REMOTE_URL:
         return _resolved(ref, source_ref=ref, media_ref_type=ref_type)
@@ -121,8 +123,8 @@ def _resolve_dashscope_image(
         if signed_url:
             return _resolved(signed_url, source_ref=ref, media_ref_type=ref_type)
         raise ValueError(
-            "DashScope image input received an OSS object key but OSS is not configured. "
-            "Configure OSS or pass a local/remote image reference."
+            f"{provider_label} {modality} input received an OSS object key but OSS is not configured. "
+            "Configure OSS or pass a local/remote media reference."
         )
     if ref_type == MEDIA_REF_LOCAL_PATH:
         if not local_path:
@@ -130,7 +132,7 @@ def _resolve_dashscope_image(
         signed_url = _upload_then_sign(local_path, uploader)
         if signed_url:
             return _resolved(signed_url, source_ref=ref, media_ref_type=ref_type)
-        return _resolved(_encode_image_as_data_uri(local_path), source_ref=ref, media_ref_type=ref_type)
+        return _resolved(_encode_file_as_data_uri(local_path), source_ref=ref, media_ref_type=ref_type)
     if ref_type == MEDIA_REF_BLOB_URL:
         raise ValueError("Blob URLs are ephemeral and unsupported for backend media resolution.")
     # Fallback: treat unknown ref types as local file paths if the file exists on disk.
@@ -138,8 +140,8 @@ def _resolve_dashscope_image(
         signed_url = _upload_then_sign(ref, uploader)
         if signed_url:
             return _resolved(signed_url, source_ref=ref, media_ref_type=MEDIA_REF_LOCAL_PATH)
-        return _resolved(_encode_image_as_data_uri(ref), source_ref=ref, media_ref_type=MEDIA_REF_LOCAL_PATH)
-    raise ValueError(f"Unsupported media reference for DashScope image input: '{ref}'")
+        return _resolved(_encode_file_as_data_uri(ref), source_ref=ref, media_ref_type=MEDIA_REF_LOCAL_PATH)
+    raise ValueError(f"Unsupported media reference for {provider_label} {modality} input: '{ref}'")
 
 
 def _resolve_dashscope_temp_url(
@@ -278,13 +280,37 @@ def resolve_media_input(
     )
     local_path = resolve_local_media_path(ref, project_root=project_root)
 
-    if mode in {"dashscope_multimodal_message", "dashscope_image_to_video"}:
-        return _resolve_dashscope_image(
+    if mode in {"dashscope_multimodal_message", "dashscope_image_to_video", "moma_content_image_url", "moma_content_audio_url"}:
+        if mode == "moma_content_image_url" and local_path and os.path.getsize(local_path) > 30 * 1024 * 1024:
+            raise ValueError("MiniMax reference images must be 30 MB or smaller.")
+        if mode == "moma_content_audio_url":
+            if local_path:
+                if os.path.splitext(local_path)[1].lower() not in {".wav", ".mp3"}:
+                    raise ValueError("MiniMax reference audio must be WAV or MP3.")
+                if os.path.getsize(local_path) > 15 * 1024 * 1024:
+                    raise ValueError("MiniMax reference audio must be 15 MB or smaller.")
+            elif ref_type == MEDIA_REF_DATA_URI:
+                if ref.split(";", 1)[0] not in {"data:audio/mpeg", "data:audio/mp3", "data:audio/wav", "data:audio/x-wav"}:
+                    raise ValueError("MiniMax reference audio must be WAV or MP3.")
+                try:
+                    content = base64.b64decode(ref.split(";base64,", 1)[1], validate=True)
+                except (ValueError, IndexError) as exc:
+                    raise ValueError("Invalid audio data URI.") from exc
+                if len(content) > 15 * 1024 * 1024:
+                    raise ValueError("MiniMax reference audio must be 15 MB or smaller.")
+        resolved = _resolve_inline_media(
             ref,
             ref_type,
             uploader=uploader,
             local_path=local_path,
+            provider_label="MOMA" if mode.startswith("moma_") else "DashScope",
+            modality=normalized_modality,
         )
+        if mode == "moma_content_audio_url":
+            # MOMA derives the file extension from the MIME subtype and rejects .mpeg.
+            value = resolved.value.replace("data:audio/mpeg;", "data:audio/mp3;", 1).replace("data:audio/x-wav;", "data:audio/wav;", 1)
+            return replace(resolved, value=value)
+        return resolved
     if mode == "dashscope_temp_file_url":
         return _resolve_dashscope_temp_url(
             ref,

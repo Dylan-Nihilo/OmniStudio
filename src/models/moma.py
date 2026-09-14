@@ -8,6 +8,7 @@ the generated media URL.  Authentication is workspace-scoped via
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -63,12 +64,6 @@ class MomaVideoModel(VideoGenModel):
         response.raise_for_status()
 
     @staticmethod
-    def _optional_content_item(kind: str, value: str | None) -> Dict[str, str] | None:
-        if not value:
-            return None
-        return {"type": kind, kind: value}
-
-    @staticmethod
     def _content_values(kind: str, kwargs: Dict[str, Any]) -> List[str]:
         values: List[str] = []
         singular = kwargs.get(kind)
@@ -83,12 +78,22 @@ class MomaVideoModel(VideoGenModel):
         return values
 
     def _build_payload(self, prompt: str, model_name: str, **kwargs: Any) -> Dict[str, Any]:
-        content: list[Dict[str, str]] = [{"type": "text", "text": prompt}]
+        content: list[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+        media = {kind: self._content_values(kind, kwargs) for kind in ("image_url", "video_url", "audio_url")}
+        reference_mode = (
+            kwargs.get("generation_mode") == "r2v"
+            or len(media["image_url"]) > 1
+            or bool(media["video_url"] or media["audio_url"])
+        )
+        last_frames = self._content_values("last_frame_url", kwargs)
+        if last_frames and (reference_mode or len(last_frames) > 1):
+            raise ValueError("MiniMax accepts one last frame and cannot mix it with reference media")
         for kind in ("image_url", "video_url", "audio_url"):
-            for value in self._content_values(kind, kwargs):
-                item = self._optional_content_item(kind, value)
-                if item:
-                    content.append(item)
+            role = f"reference_{kind.removesuffix('_url')}" if reference_mode else "first_frame"
+            for value in media[kind]:
+                content.append({"type": kind, kind: {"url": value}, "role": role})
+        for value in last_frames:
+            content.append({"type": "image_url", "image_url": {"url": value}, "role": "last_frame"})
 
         payload: Dict[str, Any] = {"model": model_name, "content": content}
         for key in ("resolution", "duration", "ratio"):
@@ -102,6 +107,7 @@ class MomaVideoModel(VideoGenModel):
         uploader = OSSImageUploader()
         modality_by_kind = {
             "image_url": "image",
+            "last_frame_url": "image",
             "video_url": "video",
             "audio_url": "audio",
         }
@@ -138,6 +144,8 @@ class MomaVideoModel(VideoGenModel):
         submit_url = f"{base_url}/videos"
         resolved_kwargs = self._resolve_media_kwargs(model_name, kwargs)
         payload = self._build_payload(prompt, model_name, **resolved_kwargs)
+        if len(json.dumps(payload).encode("utf-8")) > 64 * 1024 * 1024:
+            raise ValueError("MiniMax request exceeds 64 MB. Reduce the reference media size.")
         start_time = time.time()
 
         response = requests.post(
