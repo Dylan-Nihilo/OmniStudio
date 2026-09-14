@@ -512,3 +512,34 @@ def test_every_tier_routes_to_a_distinct_upstream_model(recorder, tmp_path):
     assert all(line == "cn" and dialect == "seedance" for line, _, dialect in routes.values())
     # MiniMax is the one family on the USD line, and the one that needs the other dialect.
     assert model._resolve_route("minimax/minimax-h3", {}) == ("overseas", "minimax-A", "minimax_a")
+
+
+@pytest.mark.parametrize("key,expectation", [
+    ("task-123", "task-123"),
+    ("镜头一", None),                    # all non-ASCII: falls back to a bare hash
+    ("shot-镜头一", None),                # mixed: keeps the ASCII run, appends a hash
+])
+def test_a_non_ascii_idempotency_key_does_not_lose_the_generation(recorder, tmp_path, key, expectation):
+    """HTTP headers are latin-1, so a key with Chinese in it used to raise before the request
+    left the process. The key is caller-supplied; losing a job to an encoding error is worse
+    than reshaping the key."""
+    JojoKeyVideoModel({}).generate(
+        "a shot", str(tmp_path / f"out.mp4"), model="seedance-2.0-mini-t2v",
+        resolution="720p", idempotency_key=key)
+    sent = next(post["headers"]["Idempotency-Key"] for post in recorder.posts
+                if post["url"].endswith("/videos"))
+    assert sent.isascii() and sent
+    if expectation:
+        assert sent == expectation
+
+
+def test_different_non_ascii_keys_stay_different(recorder, tmp_path):
+    """Collapsing both to the same ASCII string would make two distinct jobs idempotent with
+    each other, and the second would silently return the first one's video."""
+    model = JojoKeyVideoModel({})
+    keys = []
+    for raw in ("镜头一", "镜头二"):
+        model.generate("a shot", str(tmp_path / "out.mp4"), model="seedance-2.0-mini-t2v",
+                       resolution="720p", idempotency_key=raw)
+        keys.append(recorder.posts[-1]["headers"]["Idempotency-Key"])
+    assert keys[0] != keys[1]

@@ -121,13 +121,28 @@ class JojoKeyVideoModel(VideoGenModel):
 
     # ---- HTTP plumbing -----------------------------------------------------------
 
+    @staticmethod
+    def _header_safe_key(value: str) -> str:
+        """Reduce an idempotency key to something a header can carry.
+
+        HTTP headers are latin-1, so a key with any non-ASCII in it raises before the request
+        leaves. Job ids are ASCII today, but a key is caller-supplied and losing a generation
+        to an encoding error is a bad trade. Non-ASCII runs collapse to a hash of the original
+        so two different keys still cannot converge on one.
+        """
+        if value.isascii():
+            return value[:128]
+        digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:20]
+        ascii_part = "".join(char for char in value if char.isascii() and char.isprintable())
+        return f"{ascii_part[:80]}-{digest}".lstrip("-")
+
     def _headers(self, *, idempotency_key: Optional[str] = None) -> Dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
         if idempotency_key:
-            headers["Idempotency-Key"] = idempotency_key
+            headers["Idempotency-Key"] = self._header_safe_key(str(idempotency_key))
         return headers
 
     def _base(self, line: str) -> str:
