@@ -33,7 +33,6 @@ export type CastKind = "character" | "scene" | "prop";
 
 // Module-level poll registry — survives modal close/reopen.
 export const activePolls = new Map<string, ReturnType<typeof setInterval>>();
-const ASSET_POLL_TIMEOUT_MS = 45_000;
 type BatchSummary = { requested: number; pending: number; succeeded: number; failed: number; canceled: number };
 
 export const getCastPromptTextareaClasses = () =>
@@ -55,10 +54,8 @@ function startAssetPoll(
     requestedCount = 1,
 ) {
     if (activePolls.has(entityId)) return;
-    let timeout: ReturnType<typeof setTimeout>;
     const stopPolling = (interval: ReturnType<typeof setInterval>) => {
         clearInterval(interval);
-        clearTimeout(timeout);
         activePolls.delete(entityId);
         if (progressToastId) toast.dismiss(progressToastId);
         getStore().removeGeneratingTask(entityId, generationType);
@@ -74,8 +71,7 @@ function startAssetPoll(
             return;
         }
 
-        // A timed-out poll may still resolve later. Ignore it if a newer poll
-        // now owns this entity or the watchdog already released the UI state.
+        // Ignore an old response after cancellation or a newer task takes ownership.
         if (activePolls.get(entityId) !== interval) return;
 
         if (status?.status === "completed") {
@@ -99,12 +95,6 @@ function startAssetPoll(
         }
     }, 2500);
     activePolls.set(entityId, interval);
-    timeout = setTimeout(() => {
-        if (activePolls.get(entityId) !== interval) return;
-        stopPolling(interval);
-        onBatchUpdate?.({ requested: requestedCount, pending: 0, succeeded: 0, failed: requestedCount, canceled: 0 });
-        toast.error(t("toastGenErr"), { body: t("toastGenTimeout") });
-    }, ASSET_POLL_TIMEOUT_MS);
 }
 
 interface CastWorkbenchModalProps {
@@ -158,16 +148,16 @@ const CHARACTER_TEMPLATES: Record<CharacterTemplate, {
 function buildTemplate(kind: CastKind, entity: any, template?: CharacterTemplate): string {
     const name = entity?.name || "";
     const desc = entity?.description || "";
-    const charDesc = `${name}${desc ? "，" + desc : ""}`;
+    const charDesc = [name, entity?.age, entity?.gender, desc, entity?.clothing].filter(Boolean).join("，");
 
     if (kind === "character") {
         const tpl = CHARACTER_TEMPLATES[template || "simple"];
         return `${charDesc}\n\n${tpl.compositionEn}`;
     }
     if (kind === "scene") {
-        return `${name}${desc ? "：" + desc : ""}\n\nComposition: wide establishing shot of the environment on neutral gray background, single unified image, no figures in foreground. Emphasize atmosphere, architecture and terrain structure. Lighting and color palette match the scene mood. Soft volumetric lighting, depth of field.`;
+        return `${name}${desc ? "：" + desc : ""}\n\nComposition: wide establishing shot, environment fills the entire frame, single continuous space, no borders or neutral backdrop, no people. Emphasize atmosphere, architecture and terrain structure. Lighting and color palette match the scene mood. Soft volumetric lighting, depth of field.`;
     }
-    return `${name}${desc ? "：" + desc : ""}\n\nComposition: product photography style on neutral gray background, single unified image, seamless layout without borders. Main view: object centered at slight angle. Secondary views: detail close-ups of material and texture. Clean even studio lighting, subtle shadow beneath object.`;
+    return `${name}${desc ? "：" + desc : ""}\n\nComposition: object reference sheet on neutral gray background, single unified image, seamless layout without borders. Main view: object centered at slight angle. Secondary views: detail close-ups of material and texture. Clean even studio lighting, subtle shadow beneath object.`;
 }
 
 function getTemplateNegative(kind: CastKind, template?: CharacterTemplate): string {

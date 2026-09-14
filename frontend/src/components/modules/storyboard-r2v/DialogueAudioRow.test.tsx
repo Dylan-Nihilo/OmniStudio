@@ -12,6 +12,26 @@ const props = { scriptId: 'dialogue-project', frameId: 'dialogue-frame', dialogu
 describe('Dialogue audio workbench', () => {
     beforeEach(() => { generate.mockReset(); previewSfx.mockReset(); applySfx.mockReset(); revertSfx.mockReset(); });
 
+    it('uploads the speaker reference and requests lip sync without applying the preview', async () => {
+        const preview = vi.fn().mockResolvedValue(undefined), upload = vi.fn().mockResolvedValue(undefined), apply = vi.fn();
+        const dub = { ...props, frameId: 'lip-sync', videoUrl: 'take.mp4', videoTaskId: 'take', allowLipSync: true,
+            speakerName: 'Sue', onUploadSpeakerFace: upload, onPreviewDub: preview, onApplyDub: apply };
+        const view = render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        const file = new File(['face'], 'sue.png', { type: 'image/png' });
+        fireEvent.change(dialog.querySelector('input[type=file]')!, { target: { files: [file] } });
+        await waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+        const video = dialog.querySelector('video')!;
+        Object.defineProperty(video, 'duration', { value: 8 }); fireEvent.loadedMetadata(video);
+        await waitFor(() => expect(screen.getByRole('button', { name: 'matchLips' })).toBeEnabled());
+        fireEvent.click(screen.getByRole('button', { name: 'matchLips' }));
+        await waitFor(() => expect(preview).toHaveBeenCalledWith('take', 0, true));
+        view.rerender(<DialogueAudioRow {...dub} dubGenerationStatus="pending" />);
+        expect(screen.getByRole('button', { name: 'matchLips' })).toBeDisabled();
+        expect(apply).not.toHaveBeenCalled();
+    });
+
     it('previews SFX before applying it and can discard the preview', async () => {
         previewSfx.mockResolvedValueOnce({ frames: [{ id: 'sfx-frame', sfx_url: 'old.wav', preview_sfx_url: 'preview.wav' }] });
         applySfx.mockResolvedValueOnce({ frames: [{ id: 'sfx-frame', sfx_url: 'preview.wav', preview_sfx_url: null }] });

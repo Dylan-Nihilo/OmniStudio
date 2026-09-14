@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+from types import SimpleNamespace
+
+import pytest
 
 import src.apps.comic_gen.api as api_module
 from src.apps.comic_gen.models import VideoTask
 from src.storage.job_repository import JobRepository
 from tests.test_w2_project_api import _create_project
 from tests.test_w2_project_api import api_client
+
+
+@pytest.mark.parametrize("owns_claim", [True, False])
+def test_stale_lip_sync_job_cannot_fail_a_new_preview(monkeypatch, owns_claim):
+    frame = SimpleNamespace(id="frame", audio_url="new.mp3", dub_generation_id="old-job" if owns_claim else "new-job")
+    task = SimpleNamespace(id="take", video_url="source.mp4")
+    item = SimpleNamespace(id="old-job", kind="video", project_id="project", payload={
+        "operation": "lip_sync", "frame_id": "frame", "video_task_id": "take", "audio_url": "old.mp3", "video_url": "source.mp4"})
+    monkeypatch.setattr(api_module.pipeline, "get_script", lambda _: SimpleNamespace(frames=[frame], video_tasks=[task]))
+    with patch.object(api_module.pipeline, "_save_fields") as save:
+        with pytest.raises(ValueError, match="Source media changed"):
+            api_module._dispatch_production_item(item)
+        assert save.call_count == int(owns_claim)
 
 
 def _job_for_response(api_client, response):
@@ -118,14 +134,21 @@ def test_dialogue_line_routes_through_unified_production_job(api_client):
     def generate(script_id, frame_id, speed, pitch, volume, instructions=None):
         script = pipeline.scripts[script_id]
         assert frame_id == frame["id"]
+        script.frames[0].audio_generation_id = str(api_module.uuid.uuid4())
         script.frames[0].audio_url = "audio/line-entrypoint.wav"
         return script
 
-    with patch.object(pipeline, "generate_dialogue_line", side_effect=generate):
+    with patch.object(pipeline, "generate_dialogue_line", side_effect=generate) as dispatch:
         item = _job_for_response(
             api_client,
             api_client.post(route + f"/frames/{frame['id']}/audio", json={"speed": 1.1, "pitch": 0.9, "volume": 70}),
         )
+        regenerated = _job_for_response(
+            api_client,
+            api_client.post(route + f"/frames/{frame['id']}/audio", json={"speed": 1.1, "pitch": 0.9, "volume": 70}),
+        )
+        assert regenerated.id != item.id
+        assert dispatch.call_count == 2
 
     assert item.kind == "audio"
     assert item.payload["operation"] == "dialogue_line"

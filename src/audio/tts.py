@@ -12,6 +12,7 @@ from threading import Lock
 from typing import Optional, Tuple
 
 from ..utils.workspace_env import workspace_getenv
+from ..utils.endpoints import get_provider_base_url
 
 logger = logging.getLogger(__name__)
 _DASHSCOPE_KEY_LOCK = Lock()
@@ -21,6 +22,12 @@ _DASHSCOPE_KEY_LOCK = Lock()
 # model_id must match the model version (v2 voices for cosyvoice-v2, v3 for cosyvoice-v3-*)
 # Reference: https://help.aliyun.com/zh/model-studio/cosyvoice-voice-list
 VOICES = {
+    # Qwen Audio 3.0 Plus system voices; use the WebSocket synthesis API.
+    'longanlingxin': {'model_id': 'longanlingxin', 'name': '龙安灵心 (知心温暖女声)', 'gender': 'Female', 'model': 'qwen-audio-3.0-tts-plus', 'family': 'qwen_audio', 'supports_instruction': True},
+    'longanlufeng': {'model_id': 'longanlufeng', 'name': '龙安鲁风 (明亮开朗男声)', 'gender': 'Male', 'model': 'qwen-audio-3.0-tts-plus', 'family': 'qwen_audio', 'supports_instruction': True},
+    # Official Qwen Audio Plus basic voices: distinct dramatic roles, same transport.
+    'qwen-audio-3.0-tts-plus-longyujunxuan': {'model_id': 'qwen-audio-3.0-tts-plus-longyujunxuan', 'name': '龙羽珺萱 (温柔坚韧女声)', 'gender': 'Female', 'model': 'qwen-audio-3.0-tts-plus', 'family': 'qwen_audio', 'supports_instruction': True},
+    'qwen-audio-3.0-tts-plus-longlingzhixing': {'model_id': 'qwen-audio-3.0-tts-plus-longlingzhixing', 'name': '龙岭芷杏 (浑厚沉稳男声)', 'gender': 'Male', 'model': 'qwen-audio-3.0-tts-plus', 'family': 'qwen_audio', 'supports_instruction': True},
     # === cosyvoice-v2 voices ===
     'longxiaochun': {'model_id': 'longxiaochun_v2', 'name': '龙小淳 (知性女)', 'gender': 'Female', 'model': 'cosyvoice-v2'},
     'longxiaoxia': {'model_id': 'longxiaoxia_v2', 'name': '龙小夏 (沉稳女)', 'gender': 'Female', 'model': 'cosyvoice-v2'},
@@ -177,6 +184,17 @@ class TTSProcessor:
         """
         voice = voice or self.voice
         family = family_override or self._resolve_family_for_voice(voice)
+        billing_model = model_override or self._resolve_model_for_voice(voice)
+        from ..billing.metering import billing_enabled, current_workspace_id
+
+        if billing_enabled() and current_workspace_id.get():
+            from ..billing import BillingServices
+            from ..billing.metering import TextMeter
+            from ..storage.db import create_engine
+
+            meter = _text_meter or TextMeter(BillingServices.build(create_engine()))
+            quote = meter.services.runtime.quote(f"tts/{billing_model}", {}, len(text) / 1000)
+            meter.ensure_available(current_workspace_id.get(), quote.credits)
 
         if family == 'qwen3':
             result = self._synthesize_qwen3(
@@ -191,7 +209,7 @@ class TTSProcessor:
                 speech_rate=speech_rate, pitch_rate=pitch_rate, volume=volume,
                 instructions=instructions, model_override=model_override,
             )
-        _charge_tts_usage(model_override or self._resolve_model_for_voice(voice), text, result)
+        _charge_tts_usage(billing_model, text, result)
         return result
 
     def _synthesize_cosyvoice(
@@ -200,7 +218,7 @@ class TTSProcessor:
         instructions: Optional[str] = None,
         model_override: Optional[str] = None,
     ) -> Tuple[str, float, str]:
-        """Synthesize using CosyVoice SpeechSynthesizer (dashscope.audio.tts_v2)."""
+        """Synthesize CosyVoice or Qwen Audio through the shared WebSocket SDK."""
         import time
         from dashscope.audio.tts_v2 import SpeechSynthesizer
 
@@ -226,7 +244,11 @@ class TTSProcessor:
         # Pass instructions only if voice supports it (v3-flash / v3.5-*).
         # SDK will reject unknown kwargs, so gate explicitly.
         if instructions and self._voice_supports_instruction(voice):
-            synth_kwargs['instructions'] = instructions
+            synth_kwargs['instruction'] = instructions
+        if model.startswith('qwen-audio-'):
+            from dashscope.audio.tts_v2 import AudioFormat
+            synth_kwargs['url'] = get_provider_base_url('QWEN_AUDIO_TTS')
+            synth_kwargs['format'] = AudioFormat.MP3_24000HZ_MONO_256KBPS
 
         logger.info(
             f"CosyVoice synth: model={model}, voice='{voice}' "

@@ -57,6 +57,11 @@ def _normalize_gpt_image_size(size: str) -> str:
         w, h = [int(d) for d in normalized.split("x")]
     except (ValueError, AttributeError):
         return "1024x1024"
+    if w > 0 and h > 0 and w % 16 == 0 and h % 16 == 0 and max(w, h) <= 3 * min(w, h):
+        if w * h < 655360:
+            w, h = w * 2, h * 2
+        if max(w, h) <= 3840 and 655360 <= w * h <= 8294400:
+            return f"{w}x{h}"
     if w > h:
         return "1536x1024"
     elif h > w:
@@ -565,7 +570,7 @@ class MuleRouterImageModel(ImageGenModel):
                     "POST",
                     f"{config['base_url']}/images/edits",
                     headers=headers,
-                    data={"model": config["model"], "prompt": prompt, "size": size},
+                    data={"model": config["model"], "prompt": prompt, "size": size, "quality": kwargs.get("quality", "high")},
                     files=files,
                     timeout=300,
                 )
@@ -577,7 +582,7 @@ class MuleRouterImageModel(ImageGenModel):
                 "POST",
                 f"{config['base_url']}/images/generations",
                 headers={**headers, "Content-Type": "application/json"},
-                json={"model": config["model"], "prompt": prompt, "size": size, "n": kwargs.get("n", 1)},
+                json={"model": config["model"], "prompt": prompt, "size": size, "quality": kwargs.get("quality", "high"), "n": kwargs.get("n", 1)},
                 timeout=300,
             )
 

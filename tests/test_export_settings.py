@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import threading
 
 import src.apps.comic_gen.pipeline as pipeline_module
 from src.apps.comic_gen.pipeline import ComicGenPipeline
@@ -16,6 +17,7 @@ def merge_harness(tmp_path, monkeypatch):
     source_path.write_bytes(b"source")
 
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     pipeline.scripts = {}
     pipeline._save_data = lambda: None
     pipeline._verify_merged_video = lambda output_path, **kwargs: {"ok": True, "duration": 1.0, "checks": {"has_audio": True}, "video": {}}
@@ -75,7 +77,7 @@ def merge_harness(tmp_path, monkeypatch):
 
 
 def _final_ffmpeg_command(commands):
-    return next(command for command in commands if "concat" in command)
+    return next(command for command in commands if "-movflags" in command)
 
 
 def test_ffmpeg_version_probe_decodes_output_portably(merge_harness):

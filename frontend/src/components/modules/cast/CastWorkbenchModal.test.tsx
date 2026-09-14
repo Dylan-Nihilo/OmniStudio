@@ -35,6 +35,8 @@ const project = {
         id: "character-1",
         name: "林默",
         description: "测试角色",
+        age: "65岁",
+        clothing: "旧蓝衬衫和棕色马甲",
         reference_sheet: { selected_image_id: null, image_variants: [] },
     }],
     scenes: [],
@@ -87,7 +89,7 @@ describe("CastWorkbenchModal asset generation", () => {
         vi.useRealTimers();
     });
 
-    it("fails a generation that is still processing after 45 seconds", async () => {
+    it("retains a running generation past 45 seconds and waits for its real outcome", async () => {
         render(
             <CastWorkbenchModal
                 isOpen
@@ -98,6 +100,8 @@ describe("CastWorkbenchModal asset generation", () => {
         );
 
         await act(async () => {});
+        expect(screen.getByRole("textbox").getAttribute("value") || (screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("65岁");
+        expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("旧蓝衬衫和棕色马甲");
         await act(async () => {
             fireEvent.click(screen.getByRole("button", { name: "generateFirst" }));
             await Promise.resolve();
@@ -111,12 +115,10 @@ describe("CastWorkbenchModal asset generation", () => {
             await vi.advanceTimersByTimeAsync(47_500);
         });
 
+        expect(useProjectStore.getState().generatingTasks).toHaveLength(1);
+        expect(useToastStore.getState().toasts.some(toast => toast.kind === "error")).toBe(false);
+        api.getTaskStatus.mockResolvedValue({ status: "completed" });
+        await act(async () => { await vi.advanceTimersByTimeAsync(2_500); });
         expect(useProjectStore.getState().generatingTasks).toHaveLength(0);
-        expect(useToastStore.getState().toasts).toContainEqual(expect.objectContaining({
-            kind: "error",
-            title: "toastGenErr",
-            body: "toastGenTimeout",
-        }));
-        expect(screen.getByRole("button", { name: "generateFirst" })).toBeEnabled();
     });
 });

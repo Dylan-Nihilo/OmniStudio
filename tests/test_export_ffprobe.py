@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import threading
 
 from src.apps.comic_gen.models import Script, StoryboardFrame, VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
@@ -18,7 +19,7 @@ FFPROBE = get_ffprobe_path() or shutil.which("ffprobe")
 pytestmark = pytest.mark.skipif(not FFMPEG or not FFPROBE, reason="ffmpeg and ffprobe are required")
 
 
-def _generate_clip(path: Path, color: str, duration: int = 2) -> None:
+def _generate_clip(path: Path, color: str, duration: float = 2, *, sample_rate: int = 48000, fps: int = 30) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         [
@@ -27,11 +28,11 @@ def _generate_clip(path: Path, color: str, duration: int = 2) -> None:
             "-f",
             "lavfi",
             "-i",
-            f"color=c={color}:s=96x64:r=30:d={duration}",
+            f"color=c={color}:s=96x64:r={fps}:d={duration}",
             "-f",
             "lavfi",
             "-i",
-            f"sine=frequency=440:sample_rate=48000:duration={duration}",
+            f"sine=frequency=440:sample_rate={sample_rate}:duration={duration}",
             "-shortest",
             "-c:v",
             "libx264",
@@ -73,6 +74,7 @@ def _probe(path: Path) -> dict:
 
 def _pipeline(script: Script) -> ComicGenPipeline:
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
     pipeline.scripts = {script.id: script}
     pipeline._save_data = lambda: None
     return pipeline
@@ -89,6 +91,30 @@ def _task(task_id: str, frame_id: str, relative_path: str, duration: int) -> Vid
         video_url=relative_path,
         duration=duration,
     )
+
+
+def test_cut_merge_preserves_fractional_second_frame_counts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    frames, tasks, expected = [], [], []
+    for index, (color, count) in enumerate(zip(("red", "green", "blue"), (158, 175, 124))):
+        path = Path(f"output/video/{color}.mp4")
+        _generate_clip(path, color, count / 24, sample_rate=32000, fps=24)
+        frame = StoryboardFrame(id=f"frame-{index}", scene_id="scene", action_description=color,
+            selected_video_id=f"take-{index}", duration=7, in_point=0, out_point=count / 24,
+            transition_hint="cut")
+        frames.append(frame)
+        tasks.append(_task(frame.selected_video_id, frame.id, f"video/{color}.mp4", 7))
+        expected.extend([index] * count)
+    script = Script(id="ffprobe-project", title="Exact cuts", original_text="test", frames=frames,
+        video_tasks=tasks, export_settings={"fps": 24, "preset": "fast"}, created_at=0, updated_at=0)
+    result = _pipeline(script).merge_videos(script.id)
+    output = Path("output", result.merged_video_url)
+    raw = subprocess.check_output([str(FFMPEG), "-v", "error", "-i", str(output),
+        "-vf", "scale=1:1", "-pix_fmt", "rgb24", "-fps_mode", "passthrough", "-f", "rawvideo", "-"])
+    colors = [max(range(3), key=lambda channel: raw[offset + channel]) for offset in range(0, len(raw), 3)]
+    assert colors == expected
+    audio = next(stream for stream in _probe(output)["streams"] if stream["codec_type"] == "audio")
+    assert abs(float(audio["duration"]) - len(expected) / 24) < 1 / 24
 
 
 def test_real_merge_applies_trim_video_audio_fps_and_soft_subtitles(tmp_path, monkeypatch):
@@ -186,3 +212,64 @@ def test_real_merge_applies_crossfade_transition(tmp_path, monkeypatch):
     assert audio["codec_name"] == "aac"
     assert result.merge_verification["ok"] is True
     assert not os.path.exists(f"output/merge_list_{script.id}.txt")
+
+
+def test_export_captions_follow_spoken_audio_offsets_trims_and_crossfades(tmp_path, monkeypatch):
+    """Captions follow the applied voice, including edits to the final timeline."""
+    import math
+    import struct
+    import wave
+
+    monkeypatch.chdir(tmp_path)
+    voice = Path("output/audio/line.wav")
+    voice.parent.mkdir(parents=True)
+    with wave.open(str(voice), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(b"".join(struct.pack("<h", int(12000 * math.sin(i * 2 * math.pi * 440 / 16000))
+            if 3200 <= i < 16000 else 0) for i in range(24000)))
+    frames, tasks = [], []
+    for i, offset in enumerate((400, 200)):
+        rel = f"video/clip-{i}.mp4"
+        _generate_clip(Path("output") / rel, "red", 2)
+        frames.append(StoryboardFrame(id=f"frame-{i}", scene_id="scene", duration=2,
+            dialogue=f"Line {i + 1}", audio_url="audio/line.wav", dub_offset_ms=offset,
+            selected_video_id=f"take-{i}", dubbed_video_task_id=f"take-{i}", dubbed_video_url=rel,
+            in_point=0.2 if i == 0 else 0, out_point=1.7 if i == 0 else None,
+            transition_hint="fade" if i == 0 else None))
+        tasks.append(_task(f"take-{i}", f"frame-{i}", rel, 2))
+    script = Script(id="ffprobe-project", title="Caption timing", original_text="test",
+        frames=frames, video_tasks=tasks, export_settings={"subtitles": "soft", "fps": 24},
+        created_at=0, updated_at=0)
+
+    result = _pipeline(script).merge_videos(script.id)
+
+    captions = subprocess.check_output([str(FFMPEG), "-v", "error", "-i",
+        str(Path("output") / result.merged_video_url), "-map", "0:s:0", "-f", "srt", "-"], text=True)
+    assert "00:00:00,400 --> 00:00:01,200" in captions
+    assert "00:00:01,550 --> 00:00:02,350" in captions
+
+
+@pytest.mark.parametrize("transition", ["硬切", "叠化"])
+def test_real_merge_fits_mixed_provider_tracks_to_shot_timeline(tmp_path, monkeypatch, transition):
+    monkeypatch.chdir(tmp_path)
+    frames, tasks = [], []
+    for i, (rate, fps, duration) in enumerate([(24000, 24, 2.6), (44100, 30, 1.6), (32000, 24, 2.2)]):
+        relative = f"video/source-{i}.mp4"
+        _generate_clip(Path("output") / relative, ["red", "green", "blue"][i], duration, sample_rate=rate, fps=fps)
+        frame = StoryboardFrame(id=f"frame-{i}", scene_id="scene", action_description="test",
+                                selected_video_id=f"take-{i}", duration=2,
+                                transition_hint="硬切" if i == 0 else transition)
+        frames.append(frame)
+        tasks.append(_task(f"take-{i}", frame.id, relative, 2))
+    script = Script(id="ffprobe-project", title="Mixed provider tracks", original_text="test",
+                    frames=frames, video_tasks=tasks, export_settings={"resolution": "160x120", "fps": 24},
+                    created_at=0, updated_at=0)
+    result = _pipeline(script).merge_videos(script.id)
+    output = Path("output") / result.merged_video_url
+    streams = _probe(output)["streams"]
+    durations = [float(s["duration"]) for s in streams if s["codec_type"] in {"video", "audio"}]
+    expected = 6 if transition == "硬切" else 5.65
+    assert all(abs(d - expected) < 0.12 for d in durations)
+    assert abs(durations[0] - durations[1]) < 0.08
+    decoded = subprocess.run([str(FFMPEG), "-v", "error", "-i", str(output), "-f", "null", "-"], capture_output=True)
+    assert decoded.returncode == 0 and not decoded.stderr

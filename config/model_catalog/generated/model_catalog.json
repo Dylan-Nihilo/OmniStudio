@@ -16,6 +16,7 @@
       "pixverse/pixverse-v6-video": "pixverse/pixverse/pixverse-v6-video#i2v",
       "qwen-image-2.0": "qwen/qwen-image-2.0#image",
       "qwen-image-2.0-pro": "qwen/qwen-image-2.0-pro#image",
+      "qwen-image-3.0-pro": "qwen/qwen-image-3.0-pro#image",
       "seedance-2.0-fast-i2v": "seedance/seedance-2.0-fast#i2v",
       "seedance-2.0-fast-r2v": "seedance/seedance-2.0-fast#r2v",
       "seedance-2.0-fast-t2v": "seedance/seedance-2.0-fast#t2v",
@@ -243,13 +244,16 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "jojokey": "jojokey_content_audio_url"
+          "jojokey": "jojokey_content_audio_url",
+          "moma": "moma_content_audio_url"
         },
         "image_input_mode": {
-          "jojokey": "jojokey_content_image_url"
+          "jojokey": "jojokey_content_image_url",
+          "moma": "moma_content_image_url"
         },
         "reference_video_input_mode": {
-          "jojokey": "jojokey_content_video_url"
+          "jojokey": "jojokey_content_video_url",
+          "moma": "moma_content_video_url"
         }
       }
     },
@@ -317,7 +321,8 @@
       "family": "qwen",
       "models": [
         "qwen-image-2.0",
-        "qwen-image-2.0-pro"
+        "qwen-image-2.0-pro",
+        "qwen-image-3.0-pro"
       ],
       "provider": "aliyun",
       "routing_prefixes": [
@@ -867,13 +872,16 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "jojokey": "jojokey_content_audio_url"
+          "jojokey": "jojokey_content_audio_url",
+          "moma": "moma_content_audio_url"
         },
         "image_input_mode": {
-          "jojokey": "jojokey_content_image_url"
+          "jojokey": "jojokey_content_image_url",
+          "moma": "moma_content_image_url"
         },
         "reference_video_input_mode": {
-          "jojokey": "jojokey_content_video_url"
+          "jojokey": "jojokey_content_video_url",
+          "moma": "moma_content_video_url"
         }
       }
     },
@@ -1200,6 +1208,63 @@
       "runtime": {
         "dashscope": {
           "api_model_id": "qwen-image-2.0-pro",
+          "gateway": "dashscope"
+        }
+      },
+      "status": "deprecated",
+      "supported_backends": [
+        "dashscope"
+      ],
+      "supported_modalities": [
+        "t2i",
+        "i2i"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "dashscope": "dashscope_temp_file_url"
+        },
+        "image_input_mode": {
+          "dashscope": "dashscope_multimodal_message"
+        },
+        "reference_video_input_mode": {
+          "dashscope": "dashscope_temp_file_url"
+        }
+      }
+    },
+    "qwen/qwen-image-3.0-pro": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "dashscope": [
+          "DASHSCOPE_API_KEY"
+        ]
+      },
+      "default_backend": "dashscope",
+      "description": "Image generation and editing with detailed composition and precise text rendering",
+      "display_name": "Qwen Image 3.0 Pro",
+      "docs": {
+        "context_hub_doc_ids": [
+          "aliyun/qwen-image"
+        ],
+        "official_snapshot_ids": [
+          "aliyun/qwen-image/2026-04-22"
+        ]
+      },
+      "family": "qwen",
+      "id": "qwen/qwen-image-3.0-pro",
+      "legacy_model_ids": [
+        "qwen-image-3.0-pro"
+      ],
+      "modes": [
+        "qwen/qwen-image-3.0-pro#image"
+      ],
+      "provider": "aliyun",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "qwen-image-"
+      ],
+      "runtime": {
+        "dashscope": {
+          "api_model_id": "qwen-image-3.0-pro",
           "gateway": "dashscope"
         }
       },
@@ -3138,13 +3203,16 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "jojokey": "jojokey_content_audio_url"
+          "jojokey": "jojokey_content_audio_url",
+          "moma": "moma_content_audio_url"
         },
         "image_input_mode": {
-          "jojokey": "jojokey_content_image_url"
+          "jojokey": "jojokey_content_image_url",
+          "moma": "moma_content_image_url"
         },
         "reference_video_input_mode": {
-          "jojokey": "jojokey_content_video_url"
+          "jojokey": "jojokey_content_video_url",
+          "moma": "moma_content_video_url"
         }
       },
       "ui": {
@@ -3589,7 +3657,11 @@
       "duration": null,
       "family": "qwen",
       "id": "qwen-image-2.0",
-      "inputs": {},
+      "inputs": {
+        "reference_images": {
+          "max": 3
+        }
+      },
       "params": {
         "negativePrompt": true,
         "promptExtend": true,
@@ -3664,7 +3736,11 @@
       "duration": null,
       "family": "qwen",
       "id": "qwen-image-2.0-pro",
-      "inputs": {},
+      "inputs": {
+        "reference_images": {
+          "max": 3
+        }
+      },
       "params": {
         "negativePrompt": true,
         "promptExtend": true,
@@ -3707,6 +3783,87 @@
           "new"
         ],
         "order": 100,
+        "recommended": false,
+        "selection_group": "image",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "qwen-image-3.0-pro": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2i",
+        "i2i"
+      ],
+      "credential_sources": {
+        "dashscope": [
+          "DASHSCOPE_API_KEY"
+        ]
+      },
+      "default_backend": "dashscope",
+      "description": "Image generation and editing with detailed composition and precise text rendering",
+      "display_name": "Qwen Image 3.0 Pro",
+      "docs": {
+        "context_hub_doc_ids": [
+          "aliyun/qwen-image"
+        ],
+        "official_snapshot_ids": [
+          "aliyun/qwen-image/2026-04-22"
+        ]
+      },
+      "duration": null,
+      "family": "qwen",
+      "id": "qwen-image-3.0-pro",
+      "inputs": {
+        "reference_images": {
+          "max": 3
+        }
+      },
+      "params": {
+        "negativePrompt": true,
+        "promptExtend": true,
+        "seed": true,
+        "size": {
+          "default": "1280*1280",
+          "options": [
+            "1024*1024",
+            "1280*1280",
+            "1440*1440",
+            "2048*2048",
+            "1280*720",
+            "720*1280"
+          ]
+        },
+        "watermark": true
+      },
+      "provider": "aliyun",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "qwen-image-"
+      ],
+      "status": "deprecated",
+      "supported_backends": [
+        "dashscope"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "dashscope": "dashscope_temp_file_url"
+        },
+        "image_input_mode": {
+          "dashscope": "dashscope_multimodal_message"
+        },
+        "reference_video_input_mode": {
+          "dashscope": "dashscope_temp_file_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 110,
         "recommended": false,
         "selection_group": "image",
         "visible_in": [
@@ -7101,13 +7258,16 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "jojokey": "jojokey_content_audio_url"
+          "jojokey": "jojokey_content_audio_url",
+          "moma": "moma_content_audio_url"
         },
         "image_input_mode": {
-          "jojokey": "jojokey_content_image_url"
+          "jojokey": "jojokey_content_image_url",
+          "moma": "moma_content_image_url"
         },
         "reference_video_input_mode": {
-          "jojokey": "jojokey_content_video_url"
+          "jojokey": "jojokey_content_video_url",
+          "moma": "moma_content_video_url"
         }
       },
       "ui": {
@@ -7592,7 +7752,11 @@
       "duration": null,
       "family": "qwen",
       "id": "qwen/qwen-image-2.0#image",
-      "inputs": {},
+      "inputs": {
+        "reference_images": {
+          "max": 3
+        }
+      },
       "legacy_model_id": "qwen-image-2.0",
       "mode": "image",
       "model_line_id": "qwen/qwen-image-2.0",
@@ -7676,7 +7840,11 @@
       "duration": null,
       "family": "qwen",
       "id": "qwen/qwen-image-2.0-pro#image",
-      "inputs": {},
+      "inputs": {
+        "reference_images": {
+          "max": 3
+        }
+      },
       "legacy_model_id": "qwen-image-2.0-pro",
       "mode": "image",
       "model_line_id": "qwen/qwen-image-2.0-pro",
@@ -7728,6 +7896,96 @@
           "new"
         ],
         "order": 100,
+        "recommended": false,
+        "selection_group": "image",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "qwen/qwen-image-3.0-pro#image": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2i",
+        "i2i"
+      ],
+      "credential_sources": {
+        "dashscope": [
+          "DASHSCOPE_API_KEY"
+        ]
+      },
+      "default_backend": "dashscope",
+      "description": "Image generation and editing with detailed composition and precise text rendering",
+      "display_name": "Qwen Image 3.0 Pro",
+      "docs": {
+        "context_hub_doc_ids": [
+          "aliyun/qwen-image"
+        ],
+        "official_snapshot_ids": [
+          "aliyun/qwen-image/2026-04-22"
+        ]
+      },
+      "duration": null,
+      "family": "qwen",
+      "id": "qwen/qwen-image-3.0-pro#image",
+      "inputs": {
+        "reference_images": {
+          "max": 3
+        }
+      },
+      "legacy_model_id": "qwen-image-3.0-pro",
+      "mode": "image",
+      "model_line_id": "qwen/qwen-image-3.0-pro",
+      "params": {
+        "negativePrompt": true,
+        "promptExtend": true,
+        "seed": true,
+        "size": {
+          "default": "1280*1280",
+          "options": [
+            "1024*1024",
+            "1280*1280",
+            "1440*1440",
+            "2048*2048",
+            "1280*720",
+            "720*1280"
+          ]
+        },
+        "watermark": true
+      },
+      "provider": "aliyun",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "qwen-image-"
+      ],
+      "runtime": {
+        "dashscope": {
+          "api_model_id": "qwen-image-3.0-pro",
+          "gateway": "dashscope"
+        }
+      },
+      "status": "deprecated",
+      "supported_backends": [
+        "dashscope"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "dashscope": "dashscope_temp_file_url"
+        },
+        "image_input_mode": {
+          "dashscope": "dashscope_multimodal_message"
+        },
+        "reference_video_input_mode": {
+          "dashscope": "dashscope_temp_file_url"
+        }
+      },
+      "ui": {
+        "badges": [
+          "new"
+        ],
+        "order": 110,
         "recommended": false,
         "selection_group": "image",
         "visible_in": [

@@ -241,18 +241,20 @@ def test_overseas_line_passes_urls_straight_through(recorder, tmp_path):
     assert "/video-cn/" not in next(post["url"] for post in recorder.posts if "/videos" in post["url"])
 
 
-def test_minimax_a_uses_its_own_flat_payload_not_seedance_content(recorder, tmp_path):
+@pytest.mark.parametrize("last_frame", [None, "https://oss.example.com/ending.png"])
+def test_minimax_a_uses_its_own_flat_payload_not_seedance_content(recorder, tmp_path, last_frame):
     """minimax-A shares the endpoint but not the schema, and its contract says it rejects
     `content` and the other Seedance-only fields outright."""
     JojoKeyVideoModel({}).generate(
         "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.com/frame.png",
         model="minimax/minimax-h3", generation_mode="i2v", resolution="960P",
-        duration=5, ratio="16:9")
+        duration=5, ratio="16:9", last_frame=last_frame)
     body = _submit_body(recorder)
     assert "content" not in body and "metadata" not in body
     assert body["model"] == "minimax-A"
     assert body["mode"] == "keyframe"
     assert body["first_frame"] == "https://oss.example.com/frame.png"
+    assert body.get("last_frame") == last_frame
     # It wants seconds/size, not the duration/resolution Seedance takes.
     assert body["seconds"] == 5 and body["size"] == "960P"
     assert "duration" not in body and "resolution" not in body
@@ -276,6 +278,18 @@ def test_minimax_a_without_references_is_text_to_video(recorder, tmp_path):
     body = _submit_body(recorder)
     assert body["mode"] == "text"
     assert "first_frame" not in body and "images" not in body
+
+
+def test_minimax_a_audio_driven_mode_keeps_the_storyboard_image(recorder, tmp_path):
+    JojoKeyVideoModel({}).generate(
+        "use this picture and voice", str(tmp_path / "out.mp4"),
+        model="minimax/minimax-h3", generation_mode="i2v",
+        img_url="https://oss.example.com/first.png", audio_url="https://oss.example.com/voice.mp3")
+    body = _submit_body(recorder)
+    assert body["mode"] == "reference"
+    assert body["images"] == ["https://oss.example.com/first.png"]
+    assert body["audios"] == ["https://oss.example.com/voice.mp3"]
+    assert "first_frame" not in body
 
 
 def test_the_video_is_downloaded_rather_than_stored_as_a_link(recorder, tmp_path):
@@ -390,6 +404,16 @@ def test_pipeline_dispatches_a_seedance_task_to_jojokey(monkeypatch):
     assert calls["kwargs"]["model"] == "seedance-2.0-i2v"
     # The CN line dedupes on this, so a resubmitted task cannot be billed twice.
     assert calls["kwargs"]["idempotency_key"] == "task-seedance"
+
+
+def test_pipeline_forwards_minimax_last_frame_to_the_active_provider(monkeypatch):
+    task = VideoTask(id="task-minimax", project_id="script-1", image_url="https://example.com/first.png",
+        last_frame_url="https://example.com/last.png", prompt="demo", model="minimax/minimax-h3")
+    pipeline, calls = _pipeline_with(task, monkeypatch)
+    monkeypatch.setattr(pipeline, "_download_temp_image", lambda _: "first-frame.png")
+    pipeline.process_video_task("script-1", task.id)
+    assert task.status == "completed"
+    assert calls["kwargs"]["last_frame"] == task.last_frame_url
 
 
 def test_pipeline_forwards_every_reference_image_for_a_direct_r2v_task(monkeypatch):

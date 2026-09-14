@@ -201,10 +201,12 @@ class VideoTask(BaseModel):
     frame_id: Optional[str] = Field(None, description="ID of the storyboard frame this video belongs to")
     asset_id: Optional[str] = Field(None, description="ID of the asset this video belongs to")
     image_url: str
+    last_frame_url: Optional[str] = Field(None, description="Optional ending image for MiniMax H3 first/last-frame I2V")
     prompt: str
     status: str = "pending"  # pending, processing, completed, failed
     error: Optional[str] = Field(None, description="Failure reason, if any (set by pipeline / cancel / orphan recovery)")
     retry_of_task_id: Optional[str] = Field(None, description="Failed task whose saved inputs were retried")
+    input_fingerprint: Optional[str] = None
     video_url: Optional[str] = None
     duration: int = Field(5, description="Video duration in seconds (model-specific range)")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
@@ -395,6 +397,7 @@ class StoryboardFrame(BaseModel):
     facial_expression: Optional[str] = Field(None, description="Specific facial expression")
     dialogue: Optional[str] = Field(None, description="Dialogue text content")
     speaker: Optional[str] = Field(None, description="Name of the speaker")
+    dialogue_mode: Literal["on_screen", "voiceover"] = "on_screen"
     
     # === NEW: Visual Atoms (Storyboard Dramatization v2) ===
     visual_atmosphere: Optional[str] = Field(None, description="Environment atmosphere: lighting, mood, volumetric effects")
@@ -416,6 +419,8 @@ class StoryboardFrame(BaseModel):
     in_point: Optional[float] = Field(None, ge=0, description="Assembly trim in point in seconds")
     out_point: Optional[float] = Field(None, gt=0, description="Assembly trim out point in seconds")
     visual_description: Optional[str] = Field(None, description="画面描述：环境氛围 + 角色表演 + 物理动作的综合自然语言描述")
+    prompt_mode: Literal["structured", "complete"] = "structured"
+    reviewed_video_fingerprint: Optional[str] = None
     dialogue_structured: Optional[DialogueStructured] = Field(None, description="结构化对白（speaker + line + emotion + delivery）")
     camera_movement_structured: Optional[CameraMovementData] = Field(None, description="结构化运镜（primary + secondary + speed + description）")
     blocking: Optional[Blocking] = Field(None, description="空间站位")
@@ -425,7 +430,7 @@ class StoryboardFrame(BaseModel):
     assembled_prompt: Optional[str] = Field(None, description="由 visual_description + 结构化字段自动拼装的最终 prompt（只读）")
 
     # === Prompts ===
-    image_prompt: Optional[str] = Field(None, description="Optimized prompt for T2I/I2I (Legacy)")
+    image_prompt: Optional[str] = Field(None, description="Editable first-frame prompt, independent of video action; generated variants retain prompt_used")
     image_prompt_cn: Optional[str] = Field(None, description="Polished Chinese prompt for user confirmation")
     image_prompt_en: Optional[str] = Field(None, description="Polished English prompt for Wan model generation")
     
@@ -469,8 +474,11 @@ class StoryboardFrame(BaseModel):
     preview_video_task_id: Optional[str] = None
     preview_source_video_url: Optional[str] = None
     preview_offset_ms: Optional[int] = None
+    preview_lip_sync: bool = False
+    dub_lip_sync: bool = False
     dub_generation_status: Optional[GenerationStatus] = None
     dub_generation_id: Optional[str] = None
+    dub_provider_task_id: Optional[str] = None
     dub_error: Optional[str] = None
 
     selected_video_id: Optional[str] = Field(None, description="ID of the selected VideoTask for this frame")

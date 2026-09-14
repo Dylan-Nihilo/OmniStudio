@@ -115,11 +115,13 @@ class TestExtractLastFramePathContainment:
         video_path = tmp_path / "output" / "video" / "tiny.mp4"
         video_path.write_bytes(b"video")
         script = _make_script_with_video_task("video/tiny.mp4")
+        script.frames[0].selected_video_id = script.video_tasks[0].id
+        script.frames[0].out_point = 1.2
         pipeline.scripts[script.id] = script
         calls = []
 
         def fake_run(cmd, **kwargs):
-            calls.append(kwargs)
+            calls.append({**kwargs, "cmd": cmd})
             Path(cmd[-1]).write_bytes(b"jpg")
             return SimpleNamespace(returncode=0, stderr="")
 
@@ -132,6 +134,9 @@ class TestExtractLastFramePathContainment:
         assert calls[0]["text"] is True
         assert calls[0]["encoding"] == "utf-8"
         assert calls[0]["errors"] == "replace"
+        assert calls[0]["cmd"][1:3] == ["-ss", str(1.2 - 0.1)]
+        assert script.frames[0].t2i_image_urls == [script.frames[0].rendered_image_url]
+        assert script.frames[0].t2i_selected_index == 0
 
     def test_absolute_path_outside_output_is_rejected(self, pipeline, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)

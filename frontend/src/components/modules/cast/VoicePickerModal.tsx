@@ -245,10 +245,11 @@ export default function VoicePickerModal({
     const groups = useMemo(() => {
         const systemVoices = voices.filter((v) => v.origin === "system");
         const cosy = systemVoices.filter((v) => v.family === "cosyvoice");
+        const qwenAudio = systemVoices.filter((v) => v.family === "qwen_audio");
         const qwenStandard = systemVoices.filter((v) => v.family === "qwen3" && !v.dialect && !v.lang_primary);
         const qwenDialect = systemVoices.filter((v) => v.family === "qwen3" && v.dialect);
         const qwenIntl = systemVoices.filter((v) => v.family === "qwen3" && v.lang_primary);
-        return { cosy, qwenStandard, qwenDialect, qwenIntl };
+        return { cosy, qwenAudio, qwenStandard, qwenDialect, qwenIntl };
     }, [voices]);
 
     if (!isOpen) return null;
@@ -342,6 +343,7 @@ export default function VoicePickerModal({
                             )}
 
                             {/* Grouped catalog */}
+                            <VoiceGroup label="Qwen Audio 3.0 Plus" voices={groups.qwenAudio} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
                             <VoiceGroup label={t("groupCosyvoice")} voices={groups.cosy} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
                             <VoiceGroup label={t("groupStandardZh")} voices={groups.qwenStandard} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
                             <VoiceGroup label={t("groupDialect")} voices={groups.qwenDialect} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />

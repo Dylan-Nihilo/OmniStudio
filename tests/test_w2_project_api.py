@@ -473,7 +473,7 @@ def test_first_frame_render_survives_project_refresh_and_keeps_candidate_history
             assert api_client.delete(route + f"/frames/{frame_id}").status_code == 200
         Path(output_path).write_bytes(b"image-provider-fixture")
 
-    with patch("src.apps.comic_gen.storyboard.WanxImageModel") as model, patch("src.utils.oss_utils.OSSImageUploader") as uploader:
+    with patch("src.models.mulerouter.MuleRouterImageModel") as model, patch("src.utils.oss_utils.OSSImageUploader") as uploader:
         model.return_value.generate.side_effect = generate
         uploader.return_value.is_configured = False
         api_module.pipeline.storyboard_generator = StoryboardGenerator()
@@ -508,6 +508,87 @@ def test_first_frame_start_storage_failure_does_not_dispatch_or_leave_a_pending_
     api_module.pipeline.storyboard_generator.generate_frame.assert_not_called()
     assert api_module.pipeline.scripts[project["id"]].frames[0].image_generation_status is None
     assert api_client.get(route).json()["frames"][0] == frame
+
+
+@pytest.mark.parametrize("edit_during_render", [False, True])
+def test_first_frame_prompt_is_authoritative_and_keeps_newer_edits(api_client, edit_during_render):
+    from src.apps.comic_gen.storyboard import StoryboardGenerator
+
+    project = _create_project(api_client, "Independent shot prompts")
+    route = f"/projects/{project['id']}"
+    character = api_client.post(route + "/characters", json={"name": "沈照", "description": "腰间佩戴红色腰带"}).json()["characters"][0]
+    frame_id = api_client.post(route + "/frames", json={"action_description": "甩带、抓带、拉上岸"}).json()["frames"][0]["id"]
+    prompt = "全景。沈照双手握着解下的红腰带，腰间没有红腰带。"
+    draft = "[character1:沈照] " + prompt
+    saved = api_client.post(route + "/frames/update", json={"frame_id": frame_id, "image_prompt": draft,
+        "character_ids": [character["id"]], "prompt_mode": "complete"})
+    assert saved.status_code == 200
+
+    def generate(sent_prompt, output_path, **kwargs):
+        assert sent_prompt == prompt
+        if edit_during_render:
+            api_client.post(route + "/frames/update", json={"frame_id": frame_id, "image_prompt": "下一次首帧：已经抓住腰带。"})
+        Path(output_path).write_bytes(b"isolated-image")
+
+    with patch("src.models.mulerouter.MuleRouterImageModel") as model, patch("src.utils.oss_utils.OSSImageUploader") as uploader:
+        model.return_value.generate.side_effect = generate
+        uploader.return_value.is_configured = False
+        api_module.pipeline.storyboard_generator = StoryboardGenerator()
+        response = api_client.post(route + "/storyboard/render", json={"frame_id": frame_id, "prompt": draft})
+    assert response.status_code == 200, response.text
+    api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
+    restored = api_client.get(route).json()["frames"][0]
+    assert restored["image_prompt"] == ("下一次首帧：已经抓住腰带。" if edit_during_render else draft)
+    assert restored["action_description"] == "甩带、抓带、拉上岸"
+    assert restored["rendered_image_asset"]["variants"][-1]["prompt_used"] == prompt
+
+
+@pytest.mark.parametrize("explicit_empty", [True, False])
+def test_first_frame_empty_references_do_not_inherit_video_assets(api_client, explicit_empty):
+    from src.apps.comic_gen.storyboard import StoryboardGenerator
+
+    project = _create_project(api_client, "Independent image references")
+    route = f"/projects/{project['id']}"
+    character = api_client.post(route + "/characters", json={"name": "Old costume"}).json()["characters"][0]
+    frame_id = api_client.post(route + "/frames", json={"action_description": "New empty room"}).json()["frames"][0]["id"]
+    api_client.post(route + "/frames/update", json={"frame_id": frame_id, "character_ids": [character["id"]]})
+    ref = Path("output/uploads/old-costume.png")
+    ref.parent.mkdir(parents=True, exist_ok=True)
+    ref.write_bytes(b"reference-fixture")
+    script = api_module.pipeline.scripts[project["id"]]
+    script.characters[0].headshot_image_url = "uploads/old-costume.png"
+    api_module.pipeline._save_data()
+
+    def generate(prompt, output_path, **kwargs):
+        assert bool(kwargs["ref_image_paths"]) is (not explicit_empty)
+        Path(output_path).write_bytes(b"isolated-image")
+
+    payload = {"frame_id": frame_id, "prompt": "An empty room"}
+    if explicit_empty:
+        payload["composition_data"] = {"reference_image_urls": []}
+    with patch("src.models.mulerouter.MuleRouterImageModel") as model, patch("src.utils.oss_utils.OSSImageUploader") as uploader:
+        model.return_value.generate.side_effect = generate
+        uploader.return_value.is_configured = False
+        api_module.pipeline.storyboard_generator = StoryboardGenerator()
+        response = api_client.post(route + "/storyboard/render", json=payload)
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("status", ["pending", "processing"])
+def test_restart_preserves_durable_lip_sync_claim(api_client, monkeypatch, status):
+    from types import SimpleNamespace
+
+    project = _create_project(api_client, "Durable lip sync")
+    route = f"/projects/{project['id']}"
+    api_client.post(route + "/frames", json={"action_description": "A speaking character"})
+    frame = api_module.pipeline.scripts[project["id"]].frames[0]
+    frame.dub_generation_status = status
+    frame.dub_generation_id = "durable-lip-sync"
+    monkeypatch.setattr("src.storage.job_repository.JobRepository.list_inflight", lambda _: [
+        SimpleNamespace(kind="video", id="durable-lip-sync", payload={"operation": "lip_sync"})])
+    api_module.pipeline._recover_orphan_tasks()
+    assert frame.dub_generation_status == status
+    assert frame.dub_generation_id == "durable-lip-sync"
 
 
 def test_first_frame_restart_recovery_does_not_treat_audio_processing_as_image_generation(api_client):
@@ -1892,6 +1973,7 @@ def test_video_retry_preserves_saved_inputs_and_recovers_without_duplicate_dispa
     frame_id = api_client.post(route + "/frames", json={"scene_id": "", "action_description": "Original shot"}).json()["frames"][0]["id"]
     script = api_module.pipeline.scripts[project["id"]]
     script.frames[0].dialogue = "Original dialogue"
+    script.frames[0].character_ids = ["visible-speaker"]
     api_module.pipeline._save_data()
     with patch.object(api_module.pipeline, "process_video_task") as process:
         created = api_client.post(route + "/video_tasks", json={
@@ -2074,3 +2156,33 @@ def test_video_retry_reports_processing_failure_and_keeps_original_task(api_clie
     assert generate.call_args.kwargs["prompt"] == "Saved camera move"
     assert generate.call_args.kwargs["seed"] == 0
     assert generate.call_args.kwargs["prompt_extend"] is False
+
+
+@pytest.mark.parametrize("endpoint,body", [("merge", None), ("export", {"resolution": "720p", "format": "mp4", "subtitles": "none"})])
+def test_new_export_request_can_run_after_a_failed_attempt(api_client, endpoint, body):
+    project = _create_project(api_client, "Retry export")
+    attempts = []
+
+    def merge(script_id):
+        attempts.append(script_id)
+        if len(attempts) == 1:
+            raise RuntimeError("FFmpeg failed")
+        script = api_module.pipeline.scripts[script_id]
+        script.merged_video_url = "video/retried.mp4"
+        return script
+
+    with patch.object(api_module.pipeline, "precheck_merge", return_value={"ok": True}), patch.object(api_module.pipeline, "merge_videos", side_effect=merge):
+        first = api_client.post(f"/projects/{project['id']}/{endpoint}", json=body)
+        second = api_client.post(f"/projects/{project['id']}/{endpoint}", json=body)
+    assert first.status_code == 500
+    assert second.status_code == 200, second.text
+    assert len(attempts) == 2
+
+
+def test_export_settings_keeps_the_web_subtitle_choice(api_client):
+    project = _create_project(api_client, "Web subtitles")
+    route = f"/projects/{project['id']}/export_settings"
+    response = api_client.put(route, json={"subtitles": "soft", "fps": 24})
+    assert response.status_code == 200, response.text
+    assert api_client.get(f"/projects/{project['id']}").json()["export_settings"]["subtitles"] == "soft"
+    assert api_client.put(route, json={"subtitles": "burn"}).status_code == 400

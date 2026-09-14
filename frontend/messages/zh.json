@@ -96,6 +96,10 @@
     "previewTextDefault": "你好，这是音色试听。今天遇到件有趣的事，让我慢慢说给你听。"
   },
   "dialogueAudio": {
+    "matchLips": "匹配口型",
+    "speakerFace": "{name} · 指定说话人头像",
+    "speakerFaceInvalid": "请上传不超过 10 MB 的 PNG、JPEG 或 WebP 单人正脸图。",
+    "matchLipsHint": "用当前配音修正口型。多人镜头需先为说话角色上传单人正脸头像。百炼按视频时长计费；请先预览再应用。",
     "checkingPreview": "正在确认配音预听状态…",
     "checking": "正在确认语音生成状态…",
     "statusUnavailable": "暂时无法读取生成状态，原音频已保留，连接恢复后将继续查询。",
@@ -452,6 +456,10 @@
       "locked": "已锁定"
   },
   "common": {
+    "polishInheritProject": "沿用系列 / 工作区模型",
+    "polishInheritWorkspace": "沿用工作区模型",
+    "polishInheritProjectHint": "未单独选择时沿用系列或工作区的文本模型。",
+    "polishInheritWorkspaceHint": "未单独选择时沿用工作区的文本模型。",
     "save": "保存",
     "cancel": "取消",
     "create": "创建",
@@ -1488,6 +1496,16 @@
     "unknown": "未知"
   },
   "assembly": {
+    "nextTransition": "转到下一镜",
+    "transitionCut": "直接切换",
+    "transitionMatch": "动作匹配切换",
+    "transitionDissolve": "交叉叠化",
+    "transitionBlack": "淡经黑场",
+    "transitionSaveFailed": "转场保存失败，请重试。",
+    "reviewShotLabel": "镜头 {number}",
+    "reviewInspect": "查看镜头",
+    "reviewKeep": "已复核，保留此版本",
+
     "assemblyTimeline": "组装时间线",
     "framesReady": "帧已就绪",
     "selectVideo": "选择视频",
@@ -1561,9 +1579,9 @@
     "diskOk": "空间充足",
     "diskInsufficient": "空间不足",
     "mergeProgressStage": "导出进度：{stage}",
-    "verificationTitle": "成片验收报告",
-    "verificationOk": "验收通过",
-    "verificationFail": "验收失败",
+    "verificationTitle": "导出文件检查",
+    "verificationOk": "文件检查通过",
+    "verificationFail": "文件检查失败",
     "videoStream": "视频流",
     "audioStream": "音频流",
     "durationSeconds": "时长（秒）",
@@ -1734,6 +1752,20 @@
     "noRefVideosAvailable": "暂无参考视频，请先在素材步骤中生成动态参考。"
   },
   "storyboardR2V": {
+    "tooManyFirstFrameRefs": "当前有 {count} 张参考图，此模型最多支持 {limit} 张。请先合成场景状态图，或减少提示词中的素材引用。",
+    "promptModeLabel": "提示词方式",
+    "promptModeStructured": "画面描述 + 镜头参数",
+    "promptModeComplete": "完整提示词",
+    "firstFramePromptLabel": "首帧画面",
+    "firstFramePromptPlaceholder": "描述动作开始前的站位、持物和构图。",
+    "firstFrameUseShotPrompt": "从镜头描述填入",
+    "dialogueModeLabel": "对白形式",
+    "dialogueModeOnScreen": "画内对白",
+    "dialogueModeVoiceover": "画外音",
+    "editCurrentFirstFrame": "参考当前首帧重绘",
+    "usePreviousCutFrame": "沿用上一镜尾帧",
+    "h3DialogueReferenceHint": "后期混音可保留首帧构图，生成后在配音工作台匹配口型。选择参考音频时，首帧会改为参考图，构图可能变化。",
+
     "saveNow": "立即保存",
     "saveStatus": "保存状态",
     "saved": "已保存",

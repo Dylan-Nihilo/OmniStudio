@@ -5,10 +5,23 @@ import T2ISubsection from './T2ISubsection';
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string, values?: Record<string, unknown>) => values?.index ? `${key} ${values.index}` : key }));
 
 describe('First-frame controls', () => {
+    it('edits a still-image description while allowing upload without one', () => {
+        const onPromptChange = vi.fn(), onUseShotPrompt = vi.fn();
+        render(<T2ISubsection imageUrls={[]} selectedIndex={0} prompt="" onPromptChange={onPromptChange}
+            onUseShotPrompt={onUseShotPrompt} generating={false} onGenerate={vi.fn()}
+            onSelect={vi.fn()} onRemove={vi.fn()} onUpload={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 't2iHeroGenerateLabel' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 't2iHeroUploadLabel' })).toBeEnabled();
+        fireEvent.change(screen.getByRole('textbox', { name: 'firstFramePromptLabel' }), { target: { value: 'A still frame before the rescue.' } });
+        expect(onPromptChange).toHaveBeenCalledWith('A still frame before the rescue.');
+        fireEvent.click(screen.getByRole('button', { name: 'firstFrameUseShotPrompt' }));
+        expect(onUseShotPrompt).toHaveBeenCalledOnce();
+    });
+
     it('retains the image and keyboard focus while retrying, and exposes removal without hover', () => {
         const onGenerate = vi.fn();
         const onRemove = vi.fn();
-        const props = { imageUrls: ['old.png'], selectedIndex: 0, promptIsEmpty: false, generating: false,
+        const props = { imageUrls: ['old.png'], selectedIndex: 0, prompt: 'A still frame', onPromptChange: vi.fn(), generating: false,
             errorMessage: 'Image provider unavailable', onGenerate, onRemove, onSelect: vi.fn(), onUpload: vi.fn() };
         const view = render(<T2ISubsection {...props} />);
         expect(screen.getByRole('alert')).toHaveTextContent('Image provider unavailable');

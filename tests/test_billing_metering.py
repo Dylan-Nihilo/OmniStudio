@@ -116,12 +116,15 @@ def test_insufficient_credits_blocks_item_creation(env):
     assert services.wallets.balance(wallet_id)["frozen"] == 0
 
 
-def test_unpriced_model_is_rejected_not_free(env):
+@pytest.mark.parametrize("model_id", ["wan2.7-i2v", "videoretalk"])
+def test_unpriced_model_is_rejected_not_free(env, model_id):
     services, hook, repo, wallet_id = env
     with pytest.raises(BillingError) as error:
         repo.create_item(_job(repo), "video", "video:x", payload={
-            "billing": {"model_id": "wan2.7-i2v", "stage": "video", "params": {"resolution": "480p"}, "quantity": 5}})
+            "billing": {"model_id": model_id, "stage": "video", "params": {"resolution": "480p"}, "quantity": 5}})
     assert error.value.code == "PRICING_ITEM_NOT_FOUND"
+    assert repo.find_item_by_idempotency("ws1", "video:x") is None
+    assert services.wallets.balance(wallet_id)["frozen"] == 0
 
 
 def test_items_without_billing_spec_and_disabled_hook_are_untouched(env):

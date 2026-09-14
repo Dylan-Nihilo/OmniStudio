@@ -10,6 +10,7 @@ LOCAL_MEDIA_PREFIXES = (
     "assets/",
     "storyboard/",
     "video/",
+    "video_inputs/",
     "audio/",
     "cache/",
     "export/",
@@ -40,8 +41,8 @@ class MediaRef:
 def _project_root(project_root: Optional[str] = None) -> Path:
     if project_root:
         return Path(project_root).resolve()
-    # src/utils/media_refs.py -> repo root
-    return Path(__file__).resolve().parents[2]
+    # Match the API and generators: runtime output may live outside the source checkout.
+    return Path(os.getenv("OMNI_STUDIO_MEDIA_PROJECT_ROOT") or os.getcwd()).resolve()
 
 
 def _output_root(project_root: Optional[str] = None) -> Path:

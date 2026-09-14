@@ -222,6 +222,8 @@ export function frameToShotNode(
     return migrateShotNode({
         id: frame.id,
         prompt: frame.visual_description ?? frame.action_description ?? "",
+        imagePrompt: frame.image_prompt ?? "",
+        promptMode: frame.prompt_mode ?? "structured",
         tabMode: (frame.workbench_tab_mode as "t2i_i2v" | "direct_r2v" | undefined) ?? defaultTabMode,
         modelSettingsOverrides: frame.model_settings_overrides ?? {},
         videoUrl,

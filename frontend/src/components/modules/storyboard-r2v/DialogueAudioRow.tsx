@@ -54,7 +54,11 @@ interface DialogueAudioRowProps {
     dubbedVideoUrl?: string;
     dubbedVideoTaskId?: string;
     dubOffsetMs?: number;
-    onPreviewDub?: (videoTaskId: string, offsetMs: number) => Promise<void>;
+    allowLipSync?: boolean;
+    speakerName?: string;
+    speakerFaceUrl?: string | null;
+    onUploadSpeakerFace?: (file: File) => Promise<void>;
+    onPreviewDub?: (videoTaskId: string, offsetMs: number, lipSync?: boolean) => Promise<void>;
     onApplyDub?: () => Promise<void>;
     onRevertDub?: () => Promise<void>;
     onPreviewSfx?: () => Promise<void>;
@@ -88,7 +92,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
 function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, snapshotSpeed = 1, snapshotPitch = 1, snapshotVolume = 50, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
-    dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
+    dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
 }: DialogueAudioRowProps & { scope: string }) {
     const t = useTranslations("dialogueAudio");
     const dialogue = savedDialogue ?? "";
@@ -113,9 +117,10 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
     const [starting, setStarting] = useState(false);
     const [playError, setPlayError] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const faceInputRef = useRef<HTMLInputElement | null>(null);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const playRequest = useRef(0);
-    const previewing = request?.operation === "preview" || (request?.recovering && request.recoveryKind === "dub") || dubGenerationStatus === "processing";
+    const previewing = request?.operation === "preview" || (request?.recovering && request.recoveryKind === "dub") || dubGenerationStatus === "processing" || dubGenerationStatus === "pending";
     const busy = !!batchPending || !!request?.operation || !!request?.recovering || generationStatus === "processing" || !!previewing;
     const generating = request?.operation === "generate" || request?.recovering || generationStatus === "processing" || previewing;
     const instructions = [emotion, freeText.trim()].filter(Boolean).join("; ");
@@ -298,11 +303,25 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
                     <div className="flex flex-wrap gap-2">
                         <Button variant="secondary" isPending={request?.operation === "preview"} isDisabled={stale || (busy && request?.operation !== "preview")}
                             onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset); }); }}><Film size={16} aria-hidden="true" />{t("preview")}</Button>
+                        {allowLipSync && <Button variant="secondary" isDisabled={stale || busy || !duration}
+                            onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset, true); }); }}>{t("matchLips")}</Button>}
                         {previewVideoUrl && onApplyDub && <Button variant="primary" isPending={request?.operation === "apply"} isDisabled={previewChanged || (busy && request?.operation !== "apply")}
                             onPress={() => { void run("apply", onApplyDub); }}>{t("applyOverride")}</Button>}
                         {dubbedVideoUrl && !previewVideoUrl && onRevertDub && <Button variant="secondary" isPending={request?.operation === "revert"} isDisabled={busy && request?.operation !== "revert"}
                             onPress={() => { void run("revert", onRevertDub); }}><Undo2 size={16} aria-hidden="true" />{t("undoOverride")}</Button>}
                     </div>
+                    {allowLipSync && onUploadSpeakerFace && <div className="flex items-center gap-3">
+                        {speakerFaceUrl && <img src={getAssetUrl(speakerFaceUrl)} alt={speakerName ?? ""} className="h-16 w-16 rounded-lg object-cover" />}
+                        <Button variant="quiet" isDisabled={busy} onPress={() => faceInputRef.current?.click()}>{t("speakerFace", { name: speakerName ?? "" })}</Button>
+                        <input ref={faceInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" aria-label={t("speakerFace", { name: speakerName ?? "" })}
+                            onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
+                                void run("save", async () => {
+                                    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 10 * 1024 * 1024) throw new Error(t("speakerFaceInvalid"));
+                                    await onUploadSpeakerFace(file);
+                                });
+                            }} />
+                    </div>}
+                    {allowLipSync && <p className="text-xs text-text-secondary">{t("matchLipsHint")}</p>}
                     {previewVideoUrl && <p className="text-xs text-text-secondary">{t(previewChanged ? "previewChanged" : "previewHintBody")}</p>}
                 </section>}
                 {busy && <LoadingState inline label={t(batchPending ? "batchRunning" : request?.recovering ? (request.recoveryKind === "dub" ? "checkingPreview" : "checking") : previewing ? "generatingPreview" : generating ? "state.generating" : "saving")} />}

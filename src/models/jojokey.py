@@ -285,6 +285,8 @@ class JojoKeyVideoModel(VideoGenModel):
         rather than duration/resolution.
         """
         references = bool(reference_images or reference_videos or reference_audio)
+        if references and first_frame and first_frame not in reference_images:
+            reference_images = [first_frame, *reference_images]
         generation_mode = (kwargs.get("generation_mode") or "").strip().lower()
         if references:
             mode = "reference"
@@ -414,6 +416,11 @@ class JojoKeyVideoModel(VideoGenModel):
         resolved_first_frame = image_urls[0] if first_frame and image_urls else None
         resolved_references = image_urls if not first_frame else []
         if dialect == DIALECT_MINIMAX_A:
+            if kwargs.get("last_frame"):
+                if not resolved_first_frame or resolved_references or video_urls or audio_urls:
+                    raise ValueError("MiniMax last frame requires keyframe mode without reference media")
+                kwargs = {**kwargs, "last_frame": self._resolved_urls(
+                    [kwargs["last_frame"]], model_id=model_id, modality="image")[0]}
             payload = self._build_minimax_a_payload(
                 prompt, upstream_model, first_frame=resolved_first_frame,
                 reference_images=resolved_references, reference_videos=video_urls,

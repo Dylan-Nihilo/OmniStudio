@@ -4,7 +4,7 @@ import threading
 import pytest
 
 from src.apps.comic_gen import pipeline as pipeline_module
-from src.apps.comic_gen.models import Script, StoryboardFrame, VideoTask
+from src.apps.comic_gen.models import Character, Script, StoryboardFrame, VideoTask
 from src.apps.comic_gen.audio import _compute_dialogue_hash
 from src.apps.comic_gen.pipeline import (
     ComicGenPipeline,
@@ -136,3 +136,46 @@ def test_preview_dub_rejects_out_of_range_offset_before_project_lookup():
 
     with pytest.raises(ValueError, match=r"-10000.*10000"):
         pipeline.preview_dub("script-1", "frame-1", "video-1", offset_ms=15000)
+
+
+@pytest.mark.parametrize("status,provider_task_id", [("pending", None), ("processing", "existing-provider-task"), ("processing", None)])
+def test_lip_sync_preview_changes_picture_and_retains_review_before_apply(monkeypatch, status, provider_task_id):
+    frame = StoryboardFrame(id="frame-1", scene_id="scene-1", audio_url="audio/voice.mp3",
+        speaker="Sue", character_ids=["joan", "sue"], dialogue="你好", dialogue_text_hash=_compute_dialogue_hash("你好", None, None))
+    task = VideoTask(id="video-1", project_id="script-1", frame_id=frame.id, status="completed",
+        image_url="", prompt="", model="minimax/minimax-h3", video_url="video/source.mp4")
+    script = Script(id="script-1", title="Local", original_text="", created_at=0, updated_at=0,
+        frames=[frame], video_tasks=[task])
+    pipeline = object.__new__(ComicGenPipeline)
+    pipeline._save_lock = threading.RLock()
+    pipeline.scripts = {script.id: script}
+    pipeline.resolve_episode_assets = lambda script: {"characters": [Character(id="joan", name="Joan", description=""), Character(id="sue", name="Sue", description="", headshot_image_url="assets/sue.png")]}
+    pipeline._save_data = lambda: None
+    frame.dub_generation_status = status
+    frame.dub_generation_id = "durable-job"
+    frame.dub_provider_task_id = provider_task_id
+    calls = []
+    def render(source, video, offset, on_submitted, face_reference_url):
+        assert face_reference_url == "assets/sue.png"
+        assert source.dub_provider_task_id == provider_task_id
+        calls.append((source.audio_url, video, offset))
+        # Web polling refreshes the cached project while the provider runs.
+        pipeline.scripts[script.id] = script.model_copy(deep=True)
+        on_submitted("provider-task-1")
+        return "video/synced.mp4"
+    monkeypatch.setattr(pipeline, "_render_lip_sync_preview", render)
+    monkeypatch.setattr(pipeline, "_render_dub_preview", lambda *args: pytest.fail("Audio-only replacement cannot repair lip sync"))
+
+    if status == "processing" and provider_task_id is None:
+        with pytest.raises(ValueError, match="Interrupted before a provider task ID"):
+            pipeline.preview_dub(script.id, frame.id, task.id, offset_ms=600, lip_sync=True, generation_id="durable-job")
+        assert calls == []
+        return
+    pipeline.preview_dub(script.id, frame.id, task.id, offset_ms=600, lip_sync=True, generation_id="durable-job")
+
+    frame = pipeline.scripts[script.id].frames[0]
+    assert calls == [("audio/voice.mp3", "video/source.mp4", 600)]
+    assert frame.dub_provider_task_id == "provider-task-1"
+    assert frame.preview_video_url == "video/synced.mp4"
+    assert frame.preview_lip_sync is True
+    assert frame.dubbed_video_url is None

@@ -46,3 +46,16 @@ it('shows explainable voice recommendations without binding before Apply', async
   fireEvent.click(screen.getByRole('button', { name: 'apply' }));
   expect(apply).toHaveBeenCalledWith('voice-female', 'Female');
 });
+
+it('lets creators select a Qwen Audio voice from the system catalog', async () => {
+  const { api } = await import('@/lib/api');
+  vi.mocked(api.getVoices).mockResolvedValueOnce([{
+    id: 'longanlingxin', name: '龙安灵心', gender: 'Female', model: 'qwen-audio-3.0-tts-plus',
+    family: 'qwen_audio', supports_instruction: true, origin: 'system',
+  }]);
+  const apply = vi.fn();
+  render(<VoicePickerModal isOpen onClose={vi.fn()} characterName="Joan" onApply={apply} />);
+  fireEvent.click((await screen.findByText('龙安灵心')).closest('div.relative')!);
+  fireEvent.click(screen.getByRole('button', { name: 'apply' }));
+  expect(apply).toHaveBeenCalledWith('longanlingxin', '龙安灵心');
+});

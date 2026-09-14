@@ -71,7 +71,7 @@ class WanxImageModel(ImageGenModel):
             all_ref_paths.extend(ref_image_paths)
             
         # Remove duplicates
-        all_ref_paths = list(set(all_ref_paths))
+        all_ref_paths = list(dict.fromkeys(all_ref_paths))
         # Model selection priority: explicit model_name > config params > defaults
         if model_name:
             final_model_name = model_name
@@ -94,15 +94,14 @@ class WanxImageModel(ImageGenModel):
         kwargs.pop('model_name', None)
         
         # Determine reference image limit based on model
-        if final_model_name.startswith('wan2.7-image') or final_model_name.startswith('qwen-image'):
+        if final_model_name.startswith('wan2.7-image'):
             ref_limit = 9
         elif final_model_name == 'wan2.6-image':
             ref_limit = 4
         else:
             ref_limit = 3
         if len(all_ref_paths) > ref_limit:
-            logger.warning(f"Limiting reference images from {len(all_ref_paths)} to {ref_limit} for model {final_model_name}")
-            all_ref_paths = all_ref_paths[:ref_limit]
+            raise ValueError(f"{final_model_name} 最多支持 {ref_limit} 张参考图，当前为 {len(all_ref_paths)} 张。请先合成场景状态图，或减少参考图后再生成。")
         
         logger.info(f"Starting image generation...")
         logger.info(f"Prompt: {prompt}")
@@ -117,7 +116,7 @@ class WanxImageModel(ImageGenModel):
                 # wan2.6-image for I2I (requires reference images)
                 image_url = self._generate_wan26_image_http(prompt, size, n, negative_prompt, all_ref_paths)
             elif final_model_name.startswith('wan2.7-image') or final_model_name.startswith('qwen-image'):
-                # Wan2.7-image / Qwen-image via DashScope async HTTP API
+                # Wan uses async tasks; Qwen returns the generated image directly.
                 image_url = self._generate_dashscope_image_http(
                     prompt=prompt,
                     model_name=final_model_name,
@@ -162,15 +161,18 @@ class WanxImageModel(ImageGenModel):
         prompt_extend: bool = True,
         watermark: bool = False,
     ) -> str:
-        """Generate image using Wan2.7-image / Qwen-image via DashScope async HTTP API."""
+        """Generate with Wan async tasks or Qwen's synchronous multimodal API."""
         base = get_provider_base_url("DASHSCOPE")
-        create_url = f"{base}/api/v1/services/aigc/image-generation/generation"
+        is_qwen = model_name.startswith("qwen-image")
+        service = "multimodal-generation" if is_qwen else "image-generation"
+        create_url = f"{base}/api/v1/services/aigc/{service}/generation"
 
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
-            "X-DashScope-Async": "enable",
         }
+        if not is_qwen:
+            headers["X-DashScope-Async"] = "enable"
 
         # Build content array with optional reference images and prompt text
         content = []
@@ -201,14 +203,14 @@ class WanxImageModel(ImageGenModel):
 
         if negative_prompt:
             payload["parameters"]["negative_prompt"] = negative_prompt
-        if seed:
+        if seed is not None:
             payload["parameters"]["seed"] = seed
 
-        logger.info(f"Calling {model_name} HTTP API (async)...")
-        logger.info(f"Payload: {payload}")
+        logger.info("Calling %s HTTP API (%s), references=%s, size=%s",
+                    model_name, "sync" if is_qwen else "async", len(content) - 1, size)
 
         # Step 1: Create task
-        response = requests.post(create_url, headers=headers, json=payload, timeout=120)
+        response = requests.post(create_url, headers=headers, json=payload, timeout=(10, 600) if is_qwen else 120)
 
         logger.info(f"Create task response status: {response.status_code}")
         logger.info(f"Create task response body: {response.text[:500]}")
@@ -219,6 +221,17 @@ class WanxImageModel(ImageGenModel):
             raise RuntimeError(f"{model_name} task creation failed: {error_msg}")
 
         result = response.json()
+        if is_qwen:
+            image_url = next((
+                item["image"]
+                for choice in result.get("output", {}).get("choices", [])
+                for item in choice.get("message", {}).get("content", [])
+                if item.get("image")
+            ), None)
+            if not image_url:
+                raise RuntimeError(f"{model_name} returned no image: {result}")
+            return image_url
+
         task_id = result.get('output', {}).get('task_id')
         if not task_id:
             raise RuntimeError(f"No task_id in response: {result}")
@@ -367,7 +380,7 @@ class WanxImageModel(ImageGenModel):
         
         # Add reference images (upload to OSS first if local paths)
         if ref_image_paths:
-            # Limit is already handled in generate(), but we keep a safety slice here
+            # Direct SDK callers must not silently lose referenced subjects either.
             # This method is specifically for wan2.6-image which supports 4 images
             ref_limit = 4
             for path in ref_image_paths[:ref_limit]:
@@ -604,8 +617,7 @@ class WanxImageModel(ImageGenModel):
             # Limit is already handled in generate(), but we keep a safety slice here
             ref_limit = 4 if model_name == 'wan2.6-image' else 3
             if len(ref_image_urls) > ref_limit:
-                logger.warning(f"Limiting reference images from {len(ref_image_urls)} to {ref_limit}")
-                ref_image_urls = ref_image_urls[:ref_limit]
+                raise ValueError(f"{model_name} supports at most {ref_limit} reference images; received {len(ref_image_urls)}.")
             
             call_args['images'] = ref_image_urls
 

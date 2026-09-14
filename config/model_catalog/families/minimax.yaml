@@ -18,10 +18,13 @@ supported_modalities:
 transport:
   image_input_mode:
     jojokey: jojokey_content_image_url
+    moma: moma_content_image_url
   audio_input_mode:
     jojokey: jojokey_content_audio_url
+    moma: moma_content_audio_url
   reference_video_input_mode:
     jojokey: jojokey_content_video_url
+    moma: moma_content_video_url
 docs:
   official_snapshot_ids:
     - jojokey/minimax-a/2026-09-14

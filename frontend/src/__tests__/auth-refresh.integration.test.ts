@@ -42,3 +42,18 @@ it('coordinates JSON and stream recovery across independent tab clients', async 
     vi.resetModules();
   }
 });
+
+
+it('sends the editing tab identity on mutating stream requests', async () => {
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('ok'));
+  vi.stubGlobal('fetch', fetchMock);
+  const { apiStreamRequest, CLIENT_INSTANCE_KEY } = await import('@/lib/apiClient');
+  window.sessionStorage.setItem(CLIENT_INSTANCE_KEY, 'editing-tab');
+  try {
+    await apiStreamRequest('/projects/one/storyboard/refine_batch', { method: 'POST' });
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('X-Client-Instance-ID')).toBe('editing-tab');
+  } finally {
+    window.sessionStorage.removeItem(CLIENT_INSTANCE_KEY);
+    vi.unstubAllGlobals();
+  }
+});
