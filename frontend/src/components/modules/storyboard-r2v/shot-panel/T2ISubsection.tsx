@@ -27,7 +27,9 @@ interface T2ISubsectionProps {
     imageUrls: string[];
     selectedIndex: number;
     storyboardFrameUrl?: string;
-    promptIsEmpty: boolean;
+    prompt: string;
+    onPromptChange: (value: string) => void;
+    onUseShotPrompt?: () => void;
     generating: boolean;
     uploading?: boolean;
     operation?: "generate" | "upload";
@@ -43,7 +45,7 @@ interface T2ISubsectionProps {
 }
 
 export default function T2ISubsection({
-    imageUrls, selectedIndex, storyboardFrameUrl, promptIsEmpty, generating, uploading: externalUploading = false, operation, errorMessage,
+    imageUrls, selectedIndex, storyboardFrameUrl, prompt, onPromptChange, onUseShotPrompt, generating, uploading: externalUploading = false, operation, errorMessage,
     checking, refreshFailed, refreshing, onRefresh, onSelect, onRemove, onGenerate, onUpload,
 }: T2ISubsectionProps) {
     const t = useTranslations("storyboardR2V");
@@ -60,6 +62,7 @@ export default function T2ISubsection({
     const removedIndex = useRef<number | null>(null);
     const activeIndex = Math.max(0, Math.min(selectedIndex, imageUrls.length - 1));
     const activeUrl = imageUrls[activeIndex] || storyboardFrameUrl;
+    const promptIsEmpty = !prompt.trim();
     const busy = generating || uploading;
     const error = uploadError ? formatUploadError(uploadError, t) : errorMessage;
 
@@ -115,7 +118,13 @@ export default function T2ISubsection({
                         {uploading ? t("t2iHeroUploadingLabel") : t("t2iHeroUploadLabel")}
                     </Button>
                 </>}>
-                {promptIsEmpty && <p className="mb-2 text-xs text-text-muted">{t("t2iHeroGenerateDisabledTooltip")}</p>}
+                <label className="mb-3 block text-sm text-text-secondary">
+                    {t("firstFramePromptLabel")}
+                    <textarea value={prompt} onChange={event => onPromptChange(event.target.value)} rows={4}
+                        placeholder={t("firstFramePromptPlaceholder")}
+                        className="mt-2 w-full resize-y rounded-lg border border-glass-border bg-surface p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
+                </label>
+                {onUseShotPrompt && <Button variant="quiet" className="mb-3" onPress={onUseShotPrompt}>{t("firstFrameUseShotPrompt")}</Button>}
                 {activeUrl ? (
                     <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-glass-border bg-surface">
                         <PreviewImage src={activeUrl} alt={t("t2iActiveFrame")} className="h-full w-full" alwaysShowMagnify clickToLightbox />

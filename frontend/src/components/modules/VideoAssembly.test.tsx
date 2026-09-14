@@ -47,6 +47,23 @@ it('offers an explicit retry action after a merge failure', () => {
   expect(onMerge).toHaveBeenCalledTimes(1);
 });
 
+it('opens a flagged shot and keeps review retryable after a save error', async () => {
+  const inspect = vi.fn();
+  const review = vi.fn().mockRejectedValueOnce(new Error('Review was not saved')).mockResolvedValue(undefined);
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError={null} framesReady={1} framesTotal={1}
+    exportSettings={{}} precheckReport={{ ok: false, total_frames: 1, frames_with_video: 1,
+      content_issues: [{ frame_id: 'shot', video_id: 'take', blocking: true, reviewable: true, reason: 'Reference changed' }] }} mergeProgress={null} mergeVerification={null}
+    onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()}
+    onInspectShot={inspect} onReviewShot={review} />);
+  fireEvent.click(screen.getByRole('button', { name: 'reviewInspect' }));
+  expect(inspect).toHaveBeenCalledWith('shot');
+  fireEvent.click(screen.getByRole('button', { name: 'reviewKeep' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Review was not saved');
+  fireEvent.click(screen.getByRole('button', { name: 'reviewKeep' }));
+  await waitFor(() => expect(review).toHaveBeenCalledTimes(2));
+  expect(review).toHaveBeenLastCalledWith('shot', 'take', undefined);
+});
+
 it('shows retained intermediate export context after a failed merge', () => {
   render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError="ffmpeg failed" mergeFailure={{ stage: 'transcoding', intermediate_dir: 'tmp/export-1' }} framesReady={1} framesTotal={1}
     exportSettings={{}} precheckReport={null} mergeProgress={null} mergeVerification={null}

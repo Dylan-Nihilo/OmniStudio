@@ -341,6 +341,7 @@ export function useShotDrafts(projectId: string | undefined) {
         const imageIndex = w.t2i_selected_index ?? shot.t2iSelectedIndex ?? 0;
         return {
             ...shot,
+            ...(f.image_prompt !== undefined ? { imagePrompt: f.image_prompt } : {}),
             ...(f.dialogue !== undefined ? { dialogueStructured: { speaker: shot.dialogueStructured?.speaker ?? "", ...shot.dialogueStructured, line: f.dialogue } } : {}),
             ...(f.visual_description !== undefined ? { prompt: f.visual_description, visualDescription: f.visual_description }
                 : f.action_description !== undefined ? { prompt: f.action_description } : {}),
@@ -348,6 +349,7 @@ export function useShotDrafts(projectId: string | undefined) {
             ...(f.shot_size !== undefined ? { shotSize: f.shot_size } : {}),
             ...(f.camera_angle !== undefined ? { cameraAngle: f.camera_angle } : {}),
             ...(f.transition_hint !== undefined ? { transitionHint: f.transition_hint } : {}),
+            ...(f.prompt_mode !== undefined ? { promptMode: f.prompt_mode } : {}),
             ...(f.camera_movement_description !== undefined ? { cameraMovementStructured: {
                 ...shot.cameraMovementStructured, primary: f.camera_movement_description,
                 description: f.camera_movement_description, speed: shot.cameraMovementStructured?.speed ?? 'normal',

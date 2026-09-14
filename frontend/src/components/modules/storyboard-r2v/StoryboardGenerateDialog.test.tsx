@@ -20,18 +20,12 @@ it('gates replacement on project inputs and requires an explicit confirmation', 
     expect(confirm).toHaveBeenCalledOnce();
 });
 
-it('blocks generation when the persisted storyboard readiness report has blockers', () => {
+it('allows creating the first storyboard from valid source inputs without existing frames', () => {
     const confirm = vi.fn();
     render(<StoryboardGenerateDialog
-        isOpen
-        existingShotCount={0}
-        onClose={vi.fn()}
-        onConfirm={confirm}
-        readiness={{ ready: false, blockers: [{ code: 'SCENE_NOT_FOUND', message: 'Missing scene' }] }}
-        project={{ id: 'project', originalText: 'A radio operator listens for a distant signal in the dark.'.repeat(2), characters: [{ id: 'speaker' }] }}
+        isOpen existingShotCount={0} onClose={vi.fn()} onConfirm={confirm}
+        project={{ id: 'project', originalText: 'A radio operator listens for a distant signal in the dark.'.repeat(2), characters: [{ id: 'speaker' }], frames: [] }}
     />);
-
-    expect(screen.getByText('Missing scene')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'generate' })).toBeDisabled();
-    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'generate' }));
+    expect(confirm).toHaveBeenCalledOnce();
 });

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
-import { Button, EmptyState } from "@omnistudio/ui";
+import { Button, EmptyState, SelectField } from "@omnistudio/ui";
 import styles from "./StoryboardR2V.module.css";
 import { Plus, Film, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -14,7 +14,7 @@ import { getAssetUrl } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
 import { debugLog } from "@/lib/debugLog";
 import type { BatchSummary } from "./storyboard-r2v/shot-panel/CandidatesSection";
-import { getR2vRouteModelId, isR2vImageBased, VIDEO_I2V_MODELS, VIDEO_R2V_MODELS, DEFAULT_I2V_MODEL_ID, DEFAULT_R2V_MODEL_ID } from "@/lib/modelCatalog";
+import { getMaxReferenceImages, getR2vRouteModelId, isR2vImageBased, VIDEO_I2V_MODELS, VIDEO_R2V_MODELS, DEFAULT_I2V_MODEL_ID, DEFAULT_R2V_MODEL_ID } from "@/lib/modelCatalog";
 import ShotCard, { type ShotNode } from "./storyboard-r2v/ShotCard";
 import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
 import DialogueAudioRow, { useDialogueAudioRequests } from "./storyboard-r2v/DialogueAudioRow";
@@ -361,28 +361,6 @@ function StoryboardWorkbench() {
     }, [currentProject, t, queueDraft, materializeShot, beginStructure, endStructure]);
 
     const [genDialogOpen, setGenDialogOpen] = useState(false);
-    const [storyboardReadiness, setStoryboardReadiness] = useState<Awaited<ReturnType<typeof api.getStoryboardReadiness>> | null>(null);
-    const [storyboardReadinessLoading, setStoryboardReadinessLoading] = useState(false);
-    useEffect(() => {
-        if (!genDialogOpen || !currentProject?.id) return;
-        let active = true;
-        // Older test clients and embedded shells may not expose the optional
-        // readiness endpoint yet; preserve the pre-readiness flow there.
-        if (typeof api.getStoryboardReadiness !== "function") {
-            setStoryboardReadiness(null);
-            setStoryboardReadinessLoading(false);
-            return () => { active = false; };
-        }
-        setStoryboardReadinessLoading(true);
-        void api.getStoryboardReadiness(currentProject.id).then(report => {
-            if (active) setStoryboardReadiness(report);
-        }).catch(() => {
-            if (active) setStoryboardReadiness(null);
-        }).finally(() => {
-            if (active) setStoryboardReadinessLoading(false);
-        });
-        return () => { active = false; };
-    }, [genDialogOpen, currentProject?.id]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
@@ -727,6 +705,8 @@ function StoryboardWorkbench() {
         if (field === "duration" && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) return;
         setShots(prev => prev.map((s, i) => {
             if (i !== index) return s;
+            if (field === "promptMode") return { ...s, promptMode: value === "complete" ? "complete" : "structured" };
+            if (field === "imagePrompt") return { ...s, imagePrompt: typeof value === "string" ? value : "" };
             if (field === "duration") return { ...s, duration: typeof value === "number" ? value : null };
             if (field === "shotSize") return { ...s, shotSize: typeof value === "string" ? value : null };
             if (field === "cameraAngle") return { ...s, cameraAngle: typeof value === "string" ? value : null };
@@ -748,6 +728,8 @@ function StoryboardWorkbench() {
         const shotId = shots[index]?.id;
         if (!shotId) return;
         const backendField: Record<string, any> = {};
+        if (field === "promptMode") backendField.prompt_mode = value;
+        if (field === "imagePrompt") backendField.image_prompt = value;
         if (field === "duration") backendField.duration = typeof value === "number" ? value : undefined;
         if (field === "shotSize") backendField.shot_size = typeof value === "string" ? value : "";
         if (field === "cameraAngle") backendField.camera_angle = typeof value === "string" ? value : "";
@@ -856,11 +838,6 @@ function StoryboardWorkbench() {
         return unresolved;
     }, [characters, scenes, props]);
 
-    // Strip tags from prompt for clean text
-    const cleanPrompt = (prompt: string): string => {
-        return prompt.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
-    };
-
     const mergeAudioResult = (frameId: string, result: any, fields: readonly string[]) => {
         const auth = useAuthStore.getState();
         const current = useProjectStore.getState().currentProject;
@@ -892,10 +869,10 @@ function StoryboardWorkbench() {
     }, [currentProject?.frames, firstFrameRequests, firstFrameKey, restoreDraft]);
 
     // storyboard/render is a long synchronous request; its Script id is never a task id.
-    const submitFirstFrame = useCallback(async (index: number, file?: File): Promise<T2IUploadError | void> => {
+    const submitFirstFrame = useCallback(async (index: number, file?: File, previousTaskId?: string, referenceImageUrl?: string): Promise<T2IUploadError | void> => {
         const shot = shotsRef.current[index];
-        if (!currentProject || !shot || (!file && !shot.prompt.trim())) return;
-        const operation = file ? "upload" : "generate";
+        if (!currentProject || !shot || (!file && !previousTaskId && !shot.imagePrompt?.trim())) return;
+        const operation = file || previousTaskId ? "upload" : "generate";
         let key = firstFrameKey(shot.id);
         if (useFirstFrameRequests.getState()[key]?.pending || currentProject.frames.find(frame => frame.id === shot.id)?.image_generation_status === "processing") return;
         const isCurrentScope = () => useAuthStore.getState().user?.id === firstFrameContext.userId
@@ -920,9 +897,14 @@ function StoryboardWorkbench() {
             // A queued history edit must settle before the server appends a new candidate.
             if (!await flushDrafts()) throw new Error(t("saveFailed"));
             if (!isCurrentScope()) { clearRequest(key); return; }
+            const referenceUrls = [...new Set([...(referenceImageUrl ? [referenceImageUrl] : []), ...parseAssetTags(shot.imagePrompt || "")])];
+            const imageModel = shot.modelSettingsOverrides?.i2i_model as string | undefined ?? currentProject.model_settings?.i2i_model;
+            const referenceLimit = getMaxReferenceImages(imageModel);
+            if (operation === "generate" && referenceUrls.length > referenceLimit) throw new Error(t("tooManyFirstFrameRefs", { count: referenceUrls.length, limit: referenceLimit }));
             dispatched = true;
-            const result = file ? await api.uploadT2IFrame(currentProject.id, frameId, file)
-                : await api.renderFrame(currentProject.id, frameId, {}, cleanPrompt(shot.prompt), 1);
+            const result = previousTaskId ? await api.extractLastFrame(currentProject.id, frameId, previousTaskId)
+                : file ? await api.uploadT2IFrame(currentProject.id, frameId, file)
+                : await api.renderFrame(currentProject.id, frameId, { reference_image_urls: referenceUrls }, shot.imagePrompt || "", 1);
             received = true;
             const rendered = file ? result : result?.frames?.find((frame: { id: string }) => frame.id === frameId);
             const imageUrl = file ? rendered?.t2i_image_urls?.[rendered.t2i_selected_index ?? 0] : extractT2IImageUrl(result, frameId);
@@ -945,7 +927,7 @@ function StoryboardWorkbench() {
             useFirstFrameRequests.setState({ [key]: { ...requestState, pending: recovering, recovering, error: String(detail) } });
             if (file) return { code: "network", detail: String(detail) };
         }
-    }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, t]);
+    }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, parseAssetTags, t]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
@@ -1195,13 +1177,13 @@ function StoryboardWorkbench() {
                     const imageBased = isR2vImageBased(routeModelId);
                     const tasks = await api.createVideoTask(
                         currentProject.id,
-                        params?.audioUrl ?? videoConfig.audioUrl ?? "",
+                        "",
                         promptText,
                         params?.duration ?? videoConfig.duration,
                         params?.seed,
                         params?.resolution ?? videoConfig.resolution,
                         false,
-                        "",
+                        params?.audioUrl ?? videoConfig.audioUrl ?? "",
                         params?.promptExtend ?? videoConfig.promptExtend,
                         params?.negativePrompt ?? videoConfig.negativePrompt,
                         1,
@@ -1388,7 +1370,7 @@ function StoryboardWorkbench() {
                         const recovering = request?.recovering && (request.recoveryKind ?? "audio") === kind;
                         const batchAudio = kind === "audio" && watchBatch && batchReadSafe
                             && (fresh.dialogue_audio_batch?.frame_ids.includes(frame.id) || batchObserved?.frame_ids.includes(frame.id));
-                        if (before?.[statusField] !== "processing" && request?.operation !== (kind === "audio" ? "generate" : "preview") && !recovering && !batchAudio) continue;
+                        if (before?.[statusField] !== "processing" && before?.[statusField] !== "pending" && request?.operation !== (kind === "audio" ? "generate" : "preview") && !recovering && !batchAudio) continue;
                         if (audioAtStart[key] !== useDialogueAudioRequests.getState()[key] || fields.some(field => before?.[field] !== frame[field])) {
                             selectionReadNeeded = true;
                         } else if (!saved) {
@@ -1492,7 +1474,7 @@ function StoryboardWorkbench() {
     });
     const hasPendingImages = currentProject?.frames.some(frame => frame.image_generation_status === "processing")
         || shots.some(shot => firstFrameRequests[firstFrameKey(shot.id)]?.pending);
-    const hasPendingDialogueMedia = batchPending || currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing")
+    const hasPendingDialogueMedia = batchPending || currentProject?.frames.some(frame => frame.audio_generation_status === "processing" || frame.dub_generation_status === "processing" || frame.dub_generation_status === "pending")
         || shots.some(shot => dialogueRequests[firstFrameKey(shot.id)]?.operation === "generate" || dialogueRequests[firstFrameKey(shot.id)]?.operation === "preview" || dialogueRequests[firstFrameKey(shot.id)]?.recovering);
     useEffect(() => {
         if (!hasPendingVideoTasks && !hasPendingImages && !hasPendingDialogueMedia && !generating && !taskRefreshNeeded) return;
@@ -1739,6 +1721,8 @@ function StoryboardWorkbench() {
         const modelId = typeof shot.modelSettingsOverrides?.[modelField] === "string"
             ? String(shot.modelSettingsOverrides[modelField])
             : inheritedModel;
+        const model = (isR2v ? VIDEO_R2V_MODELS : VIDEO_I2V_MODELS).find(candidate => candidate.id === modelId);
+        const resolutions = model?.params.resolution;
         return {
             model: modelId,
             duration: shot.duration ?? videoConfig.duration,
@@ -1746,7 +1730,8 @@ function StoryboardWorkbench() {
             // Per-shot seed override (Sweep G fix); undefined means
             // "random per generation".
             seed: shotSeeds[shot.id],
-            resolution: videoConfig.resolution,
+            resolution: resolutions && !resolutions.options.includes(videoConfig.resolution)
+                ? resolutions.default : videoConfig.resolution,
             ratio: undefined,
             negativePrompt: videoConfig.negativePrompt,
             audioMode: videoConfig.audioMode,
@@ -2126,6 +2111,11 @@ function StoryboardWorkbench() {
                             const speaker = resolveDialogueSpeaker(frame, characters);
                             return (
                                 <div className="mx-5 mb-4">
+                                    <SelectField label={t("dialogueModeLabel")} value={frame.dialogue_mode ?? "on_screen"}
+                                        onChange={value => queueDraft(frame.id, "fields", { dialogue_mode: String(value) as "on_screen" | "voiceover" }, 300)}
+                                        options={[{ id: "on_screen", label: t("dialogueModeOnScreen") }, { id: "voiceover", label: t("dialogueModeVoiceover") }]} />
+                                    {(videoConfig.model === "minimax/minimax-h3" || videoConfig.r2vModel === "minimax/minimax-h3") && dialogueText?.trim() && frame.dialogue_mode !== "voiceover" &&
+                                        <p className="my-2 text-xs text-text-secondary">{t("h3DialogueReferenceHint")}</p>}
                                     <DialogueAudioRow key={frame.id}
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
@@ -2182,8 +2172,22 @@ function StoryboardWorkbench() {
                                         dubbedVideoTaskId={frame.dubbed_video_task_id}
                                         dubbedVideoUrl={frame.dubbed_video_url}
                                         dubOffsetMs={frame.dub_offset_ms ?? 0}
-                                        onPreviewDub={async (videoTaskId: string, offsetMs: number) => {
-                                            const result = await api.previewDub(currentProject!.id, frame.id, videoTaskId, offsetMs);
+                                        allowLipSync={frame.dialogue_mode !== "voiceover"}
+                                        speakerName={speaker?.name}
+                                        speakerFaceUrl={speaker?.headshot_image_url}
+                                        onUploadSpeakerFace={speaker ? async file => {
+                                            const projectId = currentProject!.id;
+                                            const scope = firstFrameKey(frame.id);
+                                            const result = await api.uploadAsset(projectId, "character", speaker.id, file, "head_shot");
+                                            const current = useProjectStore.getState().currentProject;
+                                            const uploaded = result.characters?.find((character: { id: string }) => character.id === speaker.id);
+                                            if (current?.id === projectId && scope === JSON.stringify([useAuthStore.getState().user?.id, useAuthStore.getState().activeWorkspace?.id, projectId, frame.id]) && uploaded) {
+                                                updateProject(projectId, { characters: current.characters.map(character => character.id === speaker.id ? { ...character,
+                                                    headshot_image_url: uploaded.headshot_image_url, headshot_asset: uploaded.headshot_asset, head_shot: uploaded.head_shot } : character) });
+                                            }
+                                        } : undefined}
+                                        onPreviewDub={async (videoTaskId: string, offsetMs: number, lipSync = false) => {
+                                            const result = await api.previewDub(currentProject!.id, frame.id, videoTaskId, offsetMs, lipSync);
                                             mergeAudioResult(frame.id, result, dubFields);
                                         }}
                                         onApplyDub={async () => {
@@ -2216,7 +2220,9 @@ function StoryboardWorkbench() {
                                         imageUrls={shot.t2iImageUrls ?? []}
                                         selectedIndex={shot.t2iSelectedIndex ?? 0}
                                         storyboardFrameUrl={shot.imageUrl || undefined}
-                                        promptIsEmpty={!shot.prompt.trim()}
+                                        prompt={shot.imagePrompt ?? ""}
+                                        onPromptChange={value => handleUpdateField(index, "imagePrompt", value)}
+                                        onUseShotPrompt={shot.prompt.trim() ? () => handleUpdateField(index, "imagePrompt", shot.prompt) : undefined}
                                         generating={shot.t2iOperation !== "upload" && (shot.t2iStatus === "pending" || shot.t2iStatus === "processing")}
                                         uploading={shot.t2iOperation === "upload" && shot.t2iStatus === "processing"}
                                         operation={shot.t2iOperation}
@@ -2230,6 +2236,16 @@ function StoryboardWorkbench() {
                                         onGenerate={() => submitFirstFrame(index)}
                                         onUpload={file => submitFirstFrame(index, file)}
                                     />
+                                    {index > 0 && <Button variant="quiet" className="mx-5 mb-3"
+                                        isDisabled={!currentProject?.video_tasks?.some(task => task.id === currentProject.frames[index - 1]?.selected_video_id && task.status === "completed") || shot.t2iStatus === "processing" || shot.t2iStatus === "pending"}
+                                        onPress={() => { void submitFirstFrame(index, undefined, currentProject?.frames[index - 1]?.selected_video_id ?? undefined); }}>
+                                        {t("usePreviousCutFrame")}
+                                    </Button>}
+                                    {shot.t2iImageUrls?.length ? <Button variant="quiet" className="mx-5 mb-3"
+                                        isDisabled={!shot.imagePrompt?.trim() || shot.t2iStatus === "processing" || shot.t2iStatus === "pending"}
+                                        onPress={() => { void submitFirstFrame(index, undefined, undefined, shot.t2iImageUrls?.[shot.t2iSelectedIndex ?? 0]); }}>
+                                        {t("editCurrentFirstFrame")}
+                                    </Button> : null}
                                 </div>
                             ) : null}
                             {/* Step 2 · 生成视频 (ParamsSection) — always shown
@@ -2319,8 +2335,6 @@ function StoryboardWorkbench() {
             project={currentProject as any}
             existingShotCount={shots.length}
             onConfirm={handleSmartGenerate}
-            readiness={storyboardReadinessLoading ? null : storyboardReadiness}
-            readinessLoading={storyboardReadinessLoading}
             onJumpToScript={() => {
                 setGenDialogOpen(false);
                 document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "script" }));

@@ -62,6 +62,21 @@ def test_export_and_audio_are_not_job_billed(pipeline):
     assert api_module._billing_spec("audio", "p1", {"project_id": "p1"}) is None
 
 
+@pytest.mark.parametrize("duration,offset,quantity", [(5.5, -600, 6.1), (5.5, 600, 5.5), (None, 0, None)])
+def test_lip_sync_prices_its_own_model_and_measured_duration(pipeline, monkeypatch, duration, offset, quantity):
+    pipeline._script.video_tasks = [VideoTask(id="v1", project_id="p1", image_url="", prompt="",
+        model="seedance-2.0-i2v", duration=4, resolution="1080p")]
+    monkeypatch.setattr("src.billing.metering.probe_duration_seconds", lambda uri: duration)
+    payload = {"operation": "lip_sync", "video_task_id": "v1", "video_url": "video/source.mp4", "offset_ms": offset}
+    if duration is None:
+        with pytest.raises(api_module.HTTPException) as blocked:
+            api_module._billing_spec("video", "p1", payload)
+        assert blocked.value.status_code == 422
+    else:
+        spec = api_module._billing_spec("video", "p1", payload)
+        assert spec == {"model_id": "videoretalk", "stage": "video", "params": {}, "quantity": quantity}
+
+
 def test_missing_workspace_blocks_generation_only_when_billing_is_on(pipeline, monkeypatch):
     class _Repo:
         def workspace_for_script(self, _):

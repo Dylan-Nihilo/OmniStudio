@@ -3,6 +3,7 @@ from .workspace_env import workspace_getenv
 # Provider endpoint registry: {provider_key: default_base_url}
 PROVIDER_DEFAULTS = {
     "DASHSCOPE": "https://dashscope.aliyuncs.com",
+    "QWEN_AUDIO_TTS": "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
     "KLING": "https://api-beijing.klingai.com/v1",
     "VIDU": "https://api.vidu.cn/ent/v2",
     "MULEROUTER": "https://api.mulerouter.ai",

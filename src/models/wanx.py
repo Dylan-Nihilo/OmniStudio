@@ -3,6 +3,7 @@ import mimetypes
 import os
 import time
 import requests
+from urllib.parse import urlsplit
 from http import HTTPStatus
 from dashscope import VideoSynthesis
 from .base import VideoGenModel
@@ -1086,6 +1087,9 @@ class WanxModel(VideoGenModel):
 
     def _download_video(self, url: str, path: str):
         logger.info(f"Downloading video to {path}...")
+        parts = urlsplit(url)
+        if parts.scheme == "http" and (parts.hostname or "").endswith(".aliyuncs.com"):
+            url = parts._replace(scheme="https").geturl()
 
         from requests.adapters import HTTPAdapter
         from requests.packages.urllib3.util.retry import Retry

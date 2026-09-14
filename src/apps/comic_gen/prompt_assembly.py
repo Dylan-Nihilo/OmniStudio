@@ -127,6 +127,8 @@ def assemble_prompt(
 
     Priority: subject/action first → scene/lighting → camera → style/constraints.
     """
+    if frame.prompt_mode == "complete":
+        return frame.visual_description if frame.visual_description is not None else frame.action_description
     parts: List[str] = []
 
     # 1. Visual description (core narrative)
@@ -180,8 +182,10 @@ def enrich_prompt_with_dialogue(
     of the prompt so it reads as part of the visual narrative — NOT as a
     separate labelled metadata section.
 
-    Returns the original prompt unmodified when there is no dialogue.
+    Voiceover and shots without visible characters must not acquire lip movement.
     """
+    if frame.prompt_mode == "complete":
+        return prompt
     line = None
     speaker = None
     emotion = None
@@ -194,7 +198,7 @@ def enrich_prompt_with_dialogue(
         line = frame.dialogue.strip()
         speaker = frame.speaker
 
-    if not line:
+    if not line or frame.dialogue_mode == "voiceover" or not frame.character_ids:
         return prompt
 
     # Build a visual speaking cue

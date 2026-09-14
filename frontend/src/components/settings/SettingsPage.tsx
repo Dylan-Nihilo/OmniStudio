@@ -59,6 +59,7 @@ type EnvConfig = EnvConfigPayload & {
 
 const ENDPOINT_PROVIDERS = [
   { key: "DASHSCOPE_BASE_URL", label: "DashScope", placeholder: "https://dashscope.aliyuncs.com" },
+  { key: "QWEN_AUDIO_TTS_BASE_URL", label: "Qwen Audio TTS WebSocket", placeholder: "wss://dashscope.aliyuncs.com/api-ws/v1/inference" },
   { key: "KLING_BASE_URL", label: "Kling", placeholder: "https://api-beijing.klingai.com/v1" },
   { key: "VIDU_BASE_URL", label: "Vidu", placeholder: "https://api.vidu.cn/ent/v2" },
   { key: "MULEROUTER_BASE_URL", label: "MuleRouter", placeholder: "https://api.mulerouter.ai" },

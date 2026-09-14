@@ -59,6 +59,21 @@ def test_dashscope_image_local_without_oss_uses_data_uri(tmp_path):
     assert ref == "uploads/ref.png"
 
 
+@pytest.mark.parametrize("configured_root", [False, True])
+@pytest.mark.parametrize("reference", ["assets/scene.png", "video_inputs/shot.png"])
+def test_moma_resolves_runtime_images_outside_source_checkout(tmp_path, monkeypatch, configured_root, reference):
+    runtime = tmp_path / "runtime"
+    _write_output_png(runtime, reference)
+    monkeypatch.chdir(tmp_path if configured_root else runtime)
+    if configured_root:
+        monkeypatch.setenv("OMNI_STUDIO_MEDIA_PROJECT_ROOT", str(runtime))
+    else:
+        monkeypatch.delenv("OMNI_STUDIO_MEDIA_PROJECT_ROOT", raising=False)
+    resolved = resolve_media_input(reference, model_name="minimax/minimax-h3",
+                                   backend="moma", modality="image", uploader=FakeUploader(False))
+    assert resolved.value == "data:image/png;base64," + PNG_1X1_BASE64
+
+
 @pytest.mark.parametrize("modality", ["audio", "video", "reference_video"])
 def test_dashscope_non_image_local_without_oss_uses_temp_url_and_header(tmp_path, modality):
     _write_output_png(tmp_path, "video/ref.mp4")
@@ -196,6 +211,35 @@ def test_jojokey_local_image_without_oss_fails_before_remote_submission(tmp_path
             uploader=uploader,
             project_root=str(tmp_path),
         )
+
+
+def test_moma_local_image_without_oss_uses_data_uri(tmp_path):
+    _write_output_png(tmp_path, "storyboard/ref.png")
+    uploader = FakeUploader(configured=False)
+
+    resolved = resolve_media_input(
+        "storyboard/ref.png",
+        model_name="minimax/minimax-h3",
+        backend="moma",
+        modality="image",
+        uploader=uploader,
+        project_root=str(tmp_path),
+    )
+    assert resolved.value == f"data:image/png;base64,{PNG_1X1_BASE64}"
+    assert not uploader.uploaded_paths
+
+
+def test_moma_local_dialogue_audio_does_not_require_a_bucket(tmp_path):
+    audio = tmp_path / "output/audio/line.mp3"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"voice reference")
+    uploader = FakeUploader(configured=False)
+
+    resolved = resolve_media_input("audio/line.mp3", model_name="minimax/minimax-h3",
+        backend="moma", modality="audio", uploader=uploader, project_root=str(tmp_path))
+
+    assert resolved.value == "data:audio/mp3;base64,dm9pY2UgcmVmZXJlbmNl"
+    assert not uploader.uploaded_paths
 
 
 def test_resolver_does_not_mutate_input_refs(tmp_path):

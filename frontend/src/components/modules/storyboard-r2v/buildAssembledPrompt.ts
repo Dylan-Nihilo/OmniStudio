@@ -18,6 +18,7 @@ export function buildAssembledPrompt(shot: ShotNode): string {
     // Strip existing reference tags from the display — they're handled
     // separately as reference_image URLs in the API call
     base = base.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
+    if (shot.promptMode === "complete") return base;
 
     const suffixes: string[] = [];
 

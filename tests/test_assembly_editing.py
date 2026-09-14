@@ -35,8 +35,24 @@ def test_frame_trim_is_persisted_without_mutating_video_task(tmp_path):
 @pytest.mark.parametrize("in_point,out_point", [(3, 2), (0, 6)])
 def test_frame_trim_rejects_invalid_ranges(tmp_path, in_point, out_point):
     pipeline = _pipeline_with_selected_video(tmp_path)
+    before = pipeline.scripts["project-1"].frames[0].model_dump()
     with pytest.raises(ValueError):
         pipeline.update_frame("project-1", "frame-1", in_point=in_point, out_point=out_point)
+    assert pipeline.scripts["project-1"].frames[0].model_dump() == before
+
+
+def test_trim_uses_returned_media_duration_instead_of_requested_duration(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    pipeline = _pipeline_with_selected_video(tmp_path)
+    task = pipeline.scripts["project-1"].video_tasks[0]
+    task.video_url = "video/returned.mp4"
+    media = tmp_path / "returned.mp4"
+    media.touch()
+    monkeypatch.setattr("src.apps.comic_gen.pipeline._safe_resolve_path", lambda *_: str(media))
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: SimpleNamespace(stdout='{"format":{"duration":"5.584"}}'))
+    script = pipeline.update_frame("project-1", "frame-1", in_point=0, out_point=5.584)
+    assert script.frames[0].out_point == 5.584
+    assert task.duration == 5
 
 
 def test_split_frame_creates_ordered_non_destructive_segments(tmp_path):

@@ -12,6 +12,7 @@ const DEV_DIST_DIR = process.env.NEXT_DEV_DIST_DIR || '.next';
 // Default prod: output to ../static/ with /static basePath
 const nextConfig = {
     devIndicators: false,
+    experimental: { proxyTimeout: 180_000 },
     transpilePackages: ["@omnistudio/ui"],
     experimental: {
         proxyTimeout: 120_000,

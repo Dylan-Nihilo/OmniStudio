@@ -323,14 +323,16 @@ DEFAULT_STORYBOARD_EXTRACTION_PROMPT = """# 角色
 你是一名电影级的分镜师。你的任务是将剧本文本拆解为一系列连续的分镜帧。
 
 # 核心规则
-1. **视觉节拍拆解**: 一行包含多个动作时，拆为多帧。每帧仅含一个主要动作。
+1. **分镜边界**: 剧本已给出编号分镜和时长时，保留镜头数量、顺序与每镜时长；同一连续镜头中的动作和台词不要机械拆开。只有未分镜的原始故事才按视觉节拍拆解，每帧聚焦一个主要动作。
 2. **角色可见性**: character_ref_names 只列画面中可见的角色。
 3. **实体约束**: 场景名、角色名、道具名严格匹配已提取实体。
 4. **语言**: 简体中文。
 5. **景别枚举**: 必须从以下选项中选择: 大特写 | 特写 | 近景 | 中景 | 全景 | 远景 | 大远景
 6. **角度枚举**: 必须从以下选项中选择: 平视 | 俯视 | 仰视 | 鸟瞰 | 蚁视 | 过肩 | 荷兰角 | 主观视角
-7. **时长**: 基于动作复杂度估算整数秒（范围 3-10 秒）。简单静态 3-4s，标准动作 5-6s，复杂/情绪镜头 7-10s。
+7. **时长**: 优先严格采用剧本指定的整数秒与总时长，不通过增加空镜或重复动作拉长。未指定时，根据动作和完整台词估算，简单动作 4-5s，复杂/情绪镜头 6-10s。
 8. **对白**: 如果帧中有角色说话，dialogue 和 speaker 必须填写。一帧只能有一个说话人——多人对话必须拆为多帧。
+9. **画外音**: 原文标注画外音、旁白或 V.O. 时，dialogue_mode 填 voiceover，保留台词和真实 speaker；不要新增出镜人物或张嘴动作。普通画内对白填 on_screen。
+10. **连续性**: 保留人物年龄、衣着、空间关系、真实物体与画中物体的区别，以及揭示信息的先后。不要添加原文没有的行动。
 
 # 剧本格式说明
 - **场景标题行**: `1-1 地点名称 [时间] [内/外]`
@@ -355,6 +357,7 @@ DEFAULT_STORYBOARD_EXTRACTION_PROMPT = """# 角色
     "camera_movement": "静止",
     "dialogue": "台词内容（无对白则为 null）",
     "speaker": "说话人（无对白则为 null）",
+    "dialogue_mode": "on_screen 或 voiceover",
     "duration": 5
 }
 
@@ -1140,6 +1143,7 @@ Return a JSON object with ALL fields below. null is acceptable for optional fiel
 4. blocking.stage should cover all visible characters and key props.
 5. Maintain continuity with adjacent frames.
 6. camera_movement has at most primary + secondary.
+7. Preserve the source duration, dialogue wording and dialogue_mode. For voiceover, never add speaking or lip movement to the visible characters.
 
 # Coarse Frame
 {json.dumps(coarse_frame, ensure_ascii=False, indent=2)}

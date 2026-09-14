@@ -62,7 +62,7 @@ class AssetGenerator:
             return self._mulerouter_image_model
         return self.model
 
-    def generate_character(self, character: Character, generation_type: str = "all", prompt: str = "", positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, i2i_model_name: str = None, size: str = None, candidate_type: str = None) -> Character:
+    def generate_character(self, character: Character, generation_type: str = "all", prompt: str = "", positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, i2i_model_name: str = None, size: str = None, candidate_type: str = None, reference_image_path: str = None) -> Character:
         """
         Generates character assets based on generation_type.
         Types: 'full_body', 'three_view', 'headshot', 'all'
@@ -94,6 +94,7 @@ class AssetGenerator:
 
                         self._get_model_for(model_name).generate(
                             effective_prompt, sheet_path,
+                            ref_image_path=reference_image_path,
                             negative_prompt=negative_prompt,
                             model_name=model_name,
                             size=effective_size
@@ -171,8 +172,8 @@ class AssetGenerator:
                 generation_prompt = f"{base_prompt}, {style_suffix}" if style_suffix and style_suffix not in base_prompt else base_prompt
                 
                 # Check for base character reference (for variants)
-                ref_image_path = None
-                if character.base_character_id:
+                ref_image_path = reference_image_path
+                if not ref_image_path and character.base_character_id:
                     base_fullbody_path = os.path.join(self.output_dir, 'characters', f"{character.base_character_id}_fullbody.png")
                     if os.path.exists(base_fullbody_path):
                         ref_image_path = base_fullbody_path
@@ -233,7 +234,7 @@ class AssetGenerator:
                             
                             # Enhance prompt for reverse generation to emphasize reference consistency (only if not already present)
                             reverse_enhancement = "STRICTLY MAINTAIN the SAME character appearance, face, hairstyle, skin tone, and clothing as the reference image. "
-                            if reverse_enhancement.strip() not in effective_generation_prompt:
+                            if not prompt and reverse_enhancement.strip() not in effective_generation_prompt:
                                 effective_generation_prompt = f"{reverse_enhancement}{generation_prompt}"
                                 logger.debug(f"Reverse generation enhanced prompt: {effective_generation_prompt[:100]}...")
                         
@@ -251,7 +252,7 @@ class AssetGenerator:
                             id=variant_id,
                             url=rel_fullbody_path,
                             created_at=time.time(),
-                            prompt_used=generation_prompt,
+                            prompt_used=effective_generation_prompt,
                             model_name=effective_model_name,
                             params={
                                 "size": effective_size,
@@ -350,12 +351,12 @@ class AssetGenerator:
                             uploaded_reference_url = uploaded_variant.url
                             logger.debug(f"Reverse generation: Will use own uploaded image as reference")
 
-            if generation_type in ["three_view", "headshot"] and not current_full_body_url and not uploaded_reference_url:
+            if generation_type in ["three_view", "headshot"] and not reference_image_path and not current_full_body_url and not uploaded_reference_url:
                 raise ValueError("Full body image is required to generate derived assets. Upload an image or generate a full body first.")
             
             # Handle reference image path: could be OSS Object Key or local path
             # Prioritize full body, fall back to uploaded reference
-            reference_url = current_full_body_url or uploaded_reference_url
+            reference_url = reference_image_path or current_full_body_url or uploaded_reference_url
             if reference_url:
                 if is_object_key(reference_url):
                     # OSS Object Key - pass directly, image.py will handle signing
@@ -556,7 +557,7 @@ class AssetGenerator:
             
         return character
 
-    def generate_scene(self, scene: Scene, positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, size: str = None) -> Scene:
+    def generate_scene(self, scene: Scene, positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, size: str = None, prompt: str = None, reference_image_path: str = None) -> Scene:
         """Generates a scene reference image."""
         scene.status = GenerationStatus.PROCESSING
         
@@ -567,7 +568,9 @@ class AssetGenerator:
         # Default size for scenes (landscape)
         effective_size = size or "1024*576"
         
-        prompt = f"Scene Concept Art: {scene.name}. {scene.description}. High quality, detailed. {positive_prompt}"
+        prompt = prompt or f"Scene Concept Art: {scene.name}. {scene.description}. High quality, detailed."
+        if positive_prompt and positive_prompt not in prompt:
+            prompt = f"{prompt}. {positive_prompt}"
         
         try:
             for _ in range(batch_size):
@@ -575,7 +578,7 @@ class AssetGenerator:
                 output_path = os.path.join(self.output_dir, 'scenes', f"{scene.id}_{variant_id}.png")
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 
-                image_path, _ = self._get_model_for(model_name).generate(prompt, output_path, negative_prompt=negative_prompt, model_name=model_name, size=effective_size)
+                image_path, _ = self._get_model_for(model_name).generate(prompt, output_path, ref_image_path=reference_image_path, negative_prompt=negative_prompt, model_name=model_name, size=effective_size)
                 
                 rel_path = os.path.relpath(output_path, "output")
                 
@@ -625,7 +628,7 @@ class AssetGenerator:
             
         return scene
 
-    def generate_prop(self, prop: Prop, positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, size: str = None) -> Prop:
+    def generate_prop(self, prop: Prop, positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, size: str = None, prompt: str = None, reference_image_path: str = None) -> Prop:
         """Generates a prop reference image."""
         prop.status = GenerationStatus.PROCESSING
         
@@ -636,7 +639,9 @@ class AssetGenerator:
         # Default size for props (square)
         effective_size = size or "1024*1024"
         
-        prompt = f"Prop Design: {prop.name}. {prop.description}. Isolated on white background, high quality, detailed. {positive_prompt}"
+        prompt = prompt or f"Prop Design: {prop.name}. {prop.description}. Isolated on white background, high quality, detailed."
+        if positive_prompt and positive_prompt not in prompt:
+            prompt = f"{prompt}. {positive_prompt}"
         
         try:
             for _ in range(batch_size):
@@ -644,7 +649,7 @@ class AssetGenerator:
                 output_path = os.path.join(self.output_dir, 'props', f"{prop.id}_{variant_id}.png")
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 
-                image_path, _ = self._get_model_for(model_name).generate(prompt, output_path, negative_prompt=negative_prompt, model_name=model_name, size=effective_size)
+                image_path, _ = self._get_model_for(model_name).generate(prompt, output_path, ref_image_path=reference_image_path, negative_prompt=negative_prompt, model_name=model_name, size=effective_size)
                 
                 rel_path = os.path.relpath(output_path, "output")
                 

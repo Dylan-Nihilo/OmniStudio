@@ -63,6 +63,7 @@ from .models import (
     VideoTask,
     AudioMode,
     ModelSettings,
+    GenerationStatus,
 )
 from .model_settings import MODEL_SETTING_FIELDS, WORKSPACE_MODEL_SETTINGS_KEY, load_workspace_model_settings
 from .llm import ScriptProcessor, DEFAULT_STORYBOARD_POLISH_PROMPT, DEFAULT_VIDEO_POLISH_PROMPT, DEFAULT_R2V_POLISH_PROMPT, DEFAULT_ENTITY_EXTRACTION_PROMPT, DEFAULT_STYLE_ANALYSIS_PROMPT, DEFAULT_STORYBOARD_EXTRACTION_PROMPT
@@ -464,6 +465,25 @@ def _dispatch_production_item(item):
             raise RuntimeError("asset generation did not produce media")
         return refs
     if kind == "video":
+        if payload.get("operation") == "lip_sync":
+            script = pipeline.get_script(item.project_id)
+            frame = next((frame for frame in script.frames if frame.id == payload["frame_id"]), None) if script else None
+            task = next((task for task in script.video_tasks if task.id == payload["video_task_id"]), None) if script else None
+            if not frame or not task or frame.audio_url != payload["audio_url"] or task.video_url != payload["video_url"]:
+                if frame and frame.dub_generation_id == item.id:
+                    pipeline._save_fields(frame, dub_generation_status=GenerationStatus.FAILED, dub_error="Source media changed; request a new lip-sync preview")
+                raise ValueError("Source media changed; request a new lip-sync preview")
+            try:
+                updated = pipeline.preview_dub(item.project_id, frame.id, task.id, offset_ms=payload["offset_ms"],
+                    lip_sync=True, generation_id=item.id)
+            except Exception as error:
+                current = pipeline.get_script(item.project_id)
+                target = next((candidate for candidate in current.frames if candidate.id == frame.id), None) if current else None
+                if target and target.dub_generation_id == item.id:
+                    pipeline._save_fields(target, dub_generation_status=GenerationStatus.FAILED, dub_error=str(error))
+                raise
+            output = next(frame for frame in updated.frames if frame.id == payload["frame_id"])
+            return [_production_media_ref(output.preview_video_url, kind="video", item_id=item.id)]
         if payload.get("operation") == "project_video":
             script = pipeline.generate_video(item.project_id)
             urls = [
@@ -672,6 +692,14 @@ def _billing_spec(kind: str, project_id: str | None, payload: dict[str, Any]) ->
     if kind == "asset":
         return _asset_billing_spec(payload.get("legacy_task") or pipeline.asset_generation_tasks.get(payload.get("legacy_task_id")))
     if kind == "video":
+        if payload.get("operation") == "lip_sync":
+            from ...billing.metering import probe_duration_seconds
+
+            duration = probe_duration_seconds(payload.get("video_url", ""))
+            if duration is None:
+                raise HTTPException(status_code=422, detail="无法读取口型修复视频时长，请重新选择本地视频")
+            return {"model_id": "videoretalk", "stage": "video", "params": {},
+                    "quantity": duration + max(0, -int(payload.get("offset_ms") or 0)) / 1000}
         return _video_billing_spec(project_id, payload.get("video_task_id") or payload.get("legacy_task_id"))
     return None
 
@@ -695,6 +723,10 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
             # Falling back to un-ledgered execution would hand out free generations.
             raise HTTPException(status_code=409, detail="无法确定该项目所属的 Workspace，已阻止未计费的生成")
         return None
+    if payload.get("legacy_task_id"):
+        # Each legacy task is a new generation intent, even when its prompt is unchanged.
+        # Re-dispatching that same task still resolves to the same durable item.
+        idempotency_key = f"{kind}:{payload['legacy_task_id']}"
     if kind == "asset" and payload.get("legacy_task_id"):
         payload = {**payload, "legacy_task": deepcopy(pipeline.asset_generation_tasks.get(payload["legacy_task_id"]))}
     spec = _billing_spec(kind, project_id, payload)
@@ -4552,6 +4584,7 @@ def generate_audio(script_id: str):
 
 class CreateVideoTaskRequest(BaseModel):
     image_url: str
+    last_frame_url: Optional[str] = None
     prompt: str
     frame_id: Optional[str] = None
     duration: int = 5
@@ -4746,6 +4779,7 @@ def create_video_task(script_id: str, request: CreateVideoTaskRequest, backgroun
             script, task_id = pipeline.create_video_task(
                 script_id=script_id,
                 image_url=request.image_url,
+                last_frame_url=request.last_frame_url,
                 prompt=request.prompt,
                 frame_id=request.frame_id,
                 duration=request.duration,
@@ -5365,6 +5399,7 @@ class UpdatePromptConfigRequest(BaseModel):
     entity_extraction: str = ""
     style_analysis: str = ""
     storyboard_extraction: str = ""
+    polish_model: Optional[str] = Field(None, max_length=200)
 
 
 @app.get("/projects/{script_id}/prompt_config")
@@ -5406,7 +5441,7 @@ def update_prompt_config(script_id: str, request: UpdatePromptConfigRequest):
             entity_extraction=request.entity_extraction,
             style_analysis=request.style_analysis,
             storyboard_extraction=request.storyboard_extraction,
-            polish_model=preserved_polish_model,
+            polish_model=request.polish_model if request.polish_model is not None else preserved_polish_model,
         )
         pipeline._save_data()
         return {"prompt_config": script.prompt_config.model_dump()}
@@ -5738,11 +5773,21 @@ class GenerateLineAudioRequest(BaseModel):
 def generate_line_audio(script_id: str, frame_id: str, request: GenerateLineAudioRequest):
     """Generates audio for a specific frame with parameters."""
     try:
+        script = pipeline.get_script(script_id)
+        if script is None:
+            raise LookupError("Script not found")
+        frame = next((frame for frame in script.frames if frame.id == frame_id), None)
+        if frame is None:
+            raise LookupError("Frame not found")
+        if frame.audio_generation_status in {"pending", "processing"}:
+            raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
+        # A completed generation is the baseline for a new request, including unchanged-text regenerations.
+        previous_generation_id = frame.audio_generation_id or "none"
         job_item = _create_production_item(
             "audio", script_id, None,
             {"operation": "dialogue_line", "frame_id": frame_id, "speed": request.speed, "pitch": request.pitch,
              "volume": request.volume, "instructions": request.instructions},
-            f"dialogue_line:{script_id}:{frame_id}:{request.speed}:{request.pitch}:{request.volume}:{request.instructions or ''}",
+            f"dialogue_line:{script_id}:{frame_id}:{previous_generation_id}:{request.speed}:{request.pitch}:{request.volume}:{request.instructions or ''}",
         )
         if job_item is not None and job_item.idempotent and job_item.status in {"pending", "processing"}:
             raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
@@ -5816,6 +5861,7 @@ def update_audio_mix(script_id: str, request: AudioMixRequest):
 
 
 class ExportSettingsRequest(BaseModel):
+    subtitles: Optional[str] = None
     resolution: Optional[str] = None
     fps: Optional[int] = None
     crf: Optional[int] = None
@@ -5856,19 +5902,46 @@ def update_export_settings(script_id: str, request: ExportSettingsRequest):
 
 class DubPreviewRequest(BaseModel):
     video_task_id: str
-    offset_ms: int = 0
+    offset_ms: int = Field(0, ge=-10000, le=10000)
+    lip_sync: bool = False
 
 
 @app.post("/projects/{script_id}/frames/{frame_id}/dub/preview")
-def preview_dub(script_id: str, frame_id: str, request: DubPreviewRequest):
+def preview_dub(script_id: str, frame_id: str, request: DubPreviewRequest, background_tasks: BackgroundTasks):
     """Generate a preview dub (cached Demucs + fast adelay+amix+mux)."""
     try:
+        if request.lip_sync:
+            with pipeline._save_lock:
+                script = pipeline.get_script(script_id)
+                frame = next((frame for frame in script.frames if frame.id == frame_id), None) if script else None
+                if frame is None:
+                    raise LookupError("Frame not found")
+                pipeline._validate_dub_audio(script, frame)
+                task = next((task for task in script.video_tasks if task.id == request.video_task_id), None)
+                if not task or task.frame_id != frame_id or task.status != "completed" or not task.video_url:
+                    raise ValueError("Select a completed video belonging to this shot")
+                if frame.dub_generation_status in {"pending", "processing"}:
+                    raise GenerationInProgressError("A dub preview is already being generated")
+                job_item = _create_production_item("video", script_id, None,
+                    {"operation": "lip_sync", "frame_id": frame_id, "video_task_id": task.id,
+                     "video_url": task.video_url, "audio_url": frame.audio_url, "offset_ms": request.offset_ms},
+                    f"lip_sync:{script_id}:{frame_id}:{task.id}:{frame.audio_url}:{request.offset_ms}:{frame.dub_generation_id or 'none'}")
+                if job_item is None:
+                    raise ValueError("Lip-sync previews require a workspace project")
+                if job_item.idempotent and job_item.status in {"pending", "processing"}:
+                    raise GenerationInProgressError("A lip-sync preview is already being generated")
+                pipeline._save_fields(frame, dub_generation_status=GenerationStatus.PENDING,
+                    dub_generation_id=job_item.id, dub_provider_task_id=None, dub_error=None)
+                background_tasks.add_task(_start_production_item, job_item.id)
+                return signed_response(script)
         updated_script = pipeline.preview_dub(
             script_id, frame_id,
             video_task_id=request.video_task_id,
             offset_ms=request.offset_ms,
         )
         return signed_response(updated_script)
+    except (HTTPException, BillingError):
+        raise
     except GenerationInProgressError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except LookupError as e:
@@ -6056,6 +6129,8 @@ class UpdateFrameRequest(BaseModel):
     image_prompt: Optional[str] = None
     action_description: Optional[str] = None
     visual_description: Optional[str] = None
+    prompt_mode: Optional[Literal["structured", "complete"]] = None
+    dialogue_mode: Optional[Literal["on_screen", "voiceover"]] = None
     dialogue: Optional[str] = None
     camera_angle: Optional[str] = None
     scene_id: Optional[str] = None
@@ -6077,6 +6152,8 @@ def update_frame(script_id: str, request: UpdateFrameRequest):
             image_prompt=request.image_prompt,
             action_description=request.action_description,
             visual_description=request.visual_description,
+            prompt_mode=request.prompt_mode,
+            dialogue_mode=request.dialogue_mode,
             dialogue=request.dialogue,
             camera_angle=request.camera_angle,
             scene_id=request.scene_id,
@@ -6224,13 +6301,15 @@ def render_frame(script_id: str, request: RenderFrameRequest):
 
 class SelectVideoRequest(BaseModel):
     video_id: str
+    confirm_review: bool = False
+    review_fingerprint: Optional[str] = None
 
 
 @app.post("/projects/{script_id}/frames/{frame_id}/select_video", response_model=Script)
 def select_video(script_id: str, frame_id: str, request: SelectVideoRequest):
     """Selects a video variant for a specific frame."""
     try:
-        updated_script = pipeline.select_video_for_frame(script_id, frame_id, request.video_id)
+        updated_script = pipeline.select_video_for_frame(script_id, frame_id, request.video_id, confirm_review=request.confirm_review, review_fingerprint=request.review_fingerprint)
         return signed_response(updated_script)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e.args[0]))
@@ -6442,7 +6521,7 @@ def merge_videos(script_id: str):
         precheck = pipeline.precheck_merge(script_id)
         if not precheck.get("ok"):
             reasons = list(precheck.get("errors") or [])
-            for key in ("missing", "unreadable", "no_video_available"):
+            for key in ("missing", "unreadable", "no_video_available", "content_issues"):
                 reasons.extend(
                     str(item.get("reason") or item.get("expected") or item.get("path") or key)
                     for item in (precheck.get(key) or [])
@@ -6454,7 +6533,7 @@ def merge_videos(script_id: str):
         job_item = _create_production_item(
             "export", script_id, None,
             {"project_id": script_id, "export": True},
-            f"export:{script_id}:current",
+            f"export:{script_id}:{uuid.uuid4()}",
         )
         merged_script = pipeline.merge_videos(script_id) if job_item is None else (
             _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)
@@ -6676,7 +6755,7 @@ def export_project(script_id: str, request: ExportRequest):
         job_item = _create_production_item(
             "export", script_id, None,
             {"project_id": script_id, "resolution": request.resolution, "format": request.format, "subtitles": request.subtitles},
-            f"export:{script_id}:{request.resolution}:{request.format}:{request.subtitles}",
+            f"export:{script_id}:{uuid.uuid4()}",
         )
         merged_script = pipeline.merge_videos(script_id) if job_item is None else (
             _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)

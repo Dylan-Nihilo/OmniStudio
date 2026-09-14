@@ -326,6 +326,11 @@ export const apiStreamRequest = async (url: string, init: RequestInit = {}): Pro
     if (workspaceId && !headers.has("X-Workspace-ID")) {
       headers.set("X-Workspace-ID", workspaceId);
     }
+    const clientInstanceId =
+      typeof window === "undefined" ? null : window.sessionStorage.getItem(CLIENT_INSTANCE_KEY);
+    if (clientInstanceId && !headers.has("X-Client-Instance-ID")) {
+      headers.set("X-Client-Instance-ID", clientInstanceId);
+    }
 
     return fetch(url, {
       ...init,

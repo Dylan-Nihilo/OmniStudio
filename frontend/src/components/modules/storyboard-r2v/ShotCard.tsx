@@ -36,6 +36,8 @@ import { selectedVariantUrl } from "@/lib/characterImage";
 export interface ShotNode {
     id: string;
     prompt: string;
+    imagePrompt?: string;
+    promptMode?: "structured" | "complete";
     tabMode: "t2i_i2v" | "direct_r2v";
     modelSettingsOverrides?: Record<string, unknown>;
 
@@ -293,7 +295,7 @@ export default function ShotCard({
     }, [shot.prompt, characters])();
 
     const assembledPromptPreview = useMemo(() => buildAssembledPrompt(shot), [
-        shot.prompt, shot.shotSize, shot.cameraAngle, shot.cameraMovementStructured, shot.transitionHint,
+        shot.prompt, shot.promptMode, shot.shotSize, shot.cameraAngle, shot.cameraMovementStructured, shot.transitionHint,
     ]);
 
     useEffect(() => {
@@ -379,6 +381,7 @@ export default function ShotCard({
                         <span className="text-[0.6875rem] text-status-failed-fg font-medium">{t("generationFailed")}</span>
                         <button
                             onClick={onGenerateT2I}
+                            disabled={!shot.imagePrompt?.trim()}
                             className="text-[0.6875rem] text-primary hover:text-primary/80 transition-colors font-medium"
                         >
                             {t("retry")}
@@ -611,6 +614,9 @@ export default function ShotCard({
                         ) : null}
 
                         {/* Prompt Editor wrapper — with left accent line */}
+                        <SelectField label={t("promptModeLabel")} value={shot.promptMode ?? "structured"}
+                            onChange={value => onUpdateField("promptMode", String(value))}
+                            options={[{ id: "structured", label: t("promptModeStructured") }, { id: "complete", label: t("promptModeComplete") }]} />
                         <div className="relative">
                             <textarea
                                 ref={textareaRef}
@@ -668,6 +674,7 @@ export default function ShotCard({
                                 onChange={(v) => onUpdateField("duration", v)}
                             />
                             {/* Shot size: visible when has value */}
+                            {shot.promptMode !== "complete" && <>
                             {shot.shotSize !== undefined && shot.shotSize !== null && (
                                 <FieldTagChip
                                     field="shotSize"
@@ -713,6 +720,7 @@ export default function ShotCard({
                                     }
                                 }}
                             />
+                            </>}
                         </div>
 
                         {/* Dialogue text display (read-only — editing via 配音工作台 modal) */}
