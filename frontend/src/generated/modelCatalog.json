@@ -56,16 +56,16 @@
   "defaults": {
     "canonical_model_settings": {
       "i2i_model": "gpt-image/gpt-image-2#image",
-      "i2v_model": "seedance/seedance-2.0-video#i2v",
+      "i2v_model": "wan/wan2.7-video#i2v",
       "image_model": "gpt-image/gpt-image-2#image",
-      "r2v_model": "seedance/seedance-2.0-video#r2v",
+      "r2v_model": "wan/wan2.7-video#r2v",
       "t2i_model": "gpt-image/gpt-image-2#image"
     },
     "model_settings": {
       "i2i_model": "gpt-image-2",
-      "i2v_model": "seedance-2.0-i2v",
+      "i2v_model": "wan2.7-i2v",
       "image_model": "gpt-image-2",
-      "r2v_model": "seedance-2.0-r2v",
+      "r2v_model": "wan2.7-r2v",
       "t2i_model": "gpt-image-2"
     }
   },
@@ -2509,7 +2509,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "deprecated",
+      "status": "active",
       "supported_backends": [
         "dashscope"
       ],
@@ -6121,7 +6121,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "deprecated",
+      "status": "active",
       "supported_backends": [
         "dashscope"
       ],
@@ -6378,7 +6378,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "deprecated",
+      "status": "active",
       "supported_backends": [
         "dashscope"
       ],
@@ -10675,7 +10675,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "deprecated",
+      "status": "active",
       "supported_backends": [
         "dashscope"
       ],
@@ -10770,7 +10770,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "deprecated",
+      "status": "active",
       "supported_backends": [
         "dashscope"
       ],
