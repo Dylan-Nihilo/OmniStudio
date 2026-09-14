@@ -13,7 +13,7 @@ describe('frontend dev runtime', () => {
     });
 
     it('keeps the development proxy alive for long-running AI requests', () => {
-        expect(nextConfig.experimental?.proxyTimeout).toBeGreaterThanOrEqual(120_000);
+        expect(nextConfig.experimental?.proxyTimeout).toBeGreaterThanOrEqual(300_000);
     });
 
     it('routes npm run dev through the repo-controlled wrapper script', () => {

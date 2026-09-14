@@ -1668,7 +1668,10 @@ export const api = {
     analyzeToStoryboard: async (scriptId: string, text: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/analyze`, {
             text: text
-        }, { timeout: 180000 });
+        // Storyboard analysis performs a synchronous LLM call. Keep the
+        // client timeout within the development proxy budget so a slow but
+        // successful backend request is not reported as an unknown failure.
+        }, { timeout: 300_000 });
         return res.data;
     },
 
