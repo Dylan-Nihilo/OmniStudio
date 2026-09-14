@@ -3325,10 +3325,7 @@ _PROVIDER_TEST_CREDENTIALS = {
     "pixverse": ("DASHSCOPE_API_KEY",),
     "mulerouter": ("MULEROUTER_API_KEY",),
     "moma": ("MOMA_API_KEY",),
-<<<<<<< ours
-=======
     "jojokey": ("JOJOKEY_API_KEY",),
->>>>>>> theirs
 }
 
 
