@@ -151,14 +151,51 @@ def test_cn_line_registers_assets_before_submitting(recorder, tmp_path):
 def test_overseas_line_passes_urls_straight_through(recorder, tmp_path):
     JojoKeyVideoModel({}).generate(
         "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.com/frame.png",
-        model="minimax/minimax-h3", generation_mode="i2v", resolution="720p")
+        model="seedance-2.0-i2v", line="overseas", generation_mode="i2v", resolution="720p")
     assert not [post for post in recorder.posts if "/assets/from-url" in post["url"]]
     body = _submit_body(recorder)
     assert body["content"][1]["image_url"]["url"] == "https://oss.example.com/frame.png"
-    assert body["model"] == "minimax-h3-reference-to-video"
+    assert body["model"] == "video-pro"
     # A bare face URL is likelier to trip upstream privacy checks without pre-registration.
     assert body["metadata"]["audit_image"] is True
     assert "/video-cn/" not in next(post["url"] for post in recorder.posts if "/videos" in post["url"])
+
+
+def test_minimax_a_uses_its_own_flat_payload_not_seedance_content(recorder, tmp_path):
+    """minimax-A shares the endpoint but not the schema, and its contract says it rejects
+    `content` and the other Seedance-only fields outright."""
+    JojoKeyVideoModel({}).generate(
+        "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.com/frame.png",
+        model="minimax/minimax-h3", generation_mode="i2v", resolution="960P",
+        duration=5, ratio="16:9")
+    body = _submit_body(recorder)
+    assert "content" not in body and "metadata" not in body
+    assert body["model"] == "minimax-A"
+    assert body["mode"] == "keyframe"
+    assert body["first_frame"] == "https://oss.example.com/frame.png"
+    # It wants seconds/size, not the duration/resolution Seedance takes.
+    assert body["seconds"] == 5 and body["size"] == "960P"
+    assert "duration" not in body and "resolution" not in body
+
+
+def test_minimax_a_reference_mode_sends_flat_image_arrays(recorder, tmp_path):
+    JojoKeyVideoModel({}).generate(
+        "use picture 1", str(tmp_path / "out.mp4"),
+        model="minimax/minimax-h3", generation_mode="r2v", resolution="2K",
+        ref_image_urls=["https://oss.example.com/a.png", "https://oss.example.com/b.png"])
+    body = _submit_body(recorder)
+    assert body["mode"] == "reference"
+    assert body["images"] == ["https://oss.example.com/a.png", "https://oss.example.com/b.png"]
+    assert "first_frame" not in body
+
+
+def test_minimax_a_without_references_is_text_to_video(recorder, tmp_path):
+    JojoKeyVideoModel({}).generate(
+        "a shot", str(tmp_path / "out.mp4"),
+        model="minimax/minimax-h3", generation_mode="t2v", resolution="720P")
+    body = _submit_body(recorder)
+    assert body["mode"] == "text"
+    assert "first_frame" not in body and "images" not in body
 
 
 def test_the_video_is_downloaded_rather_than_stored_as_a_link(recorder, tmp_path):
@@ -237,8 +274,8 @@ def test_catalog_routes_both_families_to_jojokey():
     minimax = catalog["models"]["minimax/minimax-h3"]
     assert minimax["capabilities"] == ["i2v", "r2v", "t2v", "v2v"]
     assert "video_sidebar" in minimax["ui"]["visible_in"]
-    # MiniMax only sells 480p/720p on the route that carries a price for our account.
-    assert minimax["params"]["resolution"]["options"] == ["480p", "720p"]
+    # minimax-A's own size names, used verbatim as both price key and upstream value.
+    assert minimax["params"]["resolution"]["options"] == ["720P", "960P", "2K"]
     assert get_provider_base_url("JOJOKEY") == "https://video.jojokey.com/v1"
 
 
@@ -292,9 +329,9 @@ def test_every_tier_routes_to_a_distinct_upstream_model(recorder, tmp_path):
     """Three tiers that resolved to the same upstream model would price differently for
     identical output, which is the one way this ladder can be wrong and still work."""
     model = JojoKeyVideoModel({})
-    routes = {}
-    for tier in ("seedance-2.0-mini-i2v", "seedance-2.0-fast-i2v", "seedance-2.0-i2v"):
-        line, upstream = model._resolve_route(tier, {})
-        routes[tier] = (line, upstream)
+    routes = {tier: model._resolve_route(tier, {})
+              for tier in ("seedance-2.0-mini-i2v", "seedance-2.0-fast-i2v", "seedance-2.0-i2v")}
     assert len(set(routes.values())) == 3, routes
-    assert all(line == "cn" for line, _ in routes.values())
+    assert all(line == "cn" and dialect == "seedance" for line, _, dialect in routes.values())
+    # MiniMax is the one family on the USD line, and the one that needs the other dialect.
+    assert model._resolve_route("minimax/minimax-h3", {}) == ("overseas", "minimax-A", "minimax_a")

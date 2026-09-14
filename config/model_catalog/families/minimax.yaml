@@ -24,12 +24,12 @@ transport:
     jojokey: jojokey_content_video_url
 docs:
   official_snapshot_ids:
-    - jojokey/minimax-h3/2026-09-14
+    - jojokey/minimax-a/2026-09-14
 models:
   - id: minimax/minimax-h3
     model_line_id: minimax/minimax-h3
-    display_name: MiniMax H3 Video
-    description: MiniMax H3 multimodal video generation through the JojoKey relay
+    display_name: MiniMax A Video
+    description: MiniMax A text, keyframe and multimodal reference video via the JojoKey relay
     status: active
     release_stage: preview
     capabilities: [i2v, r2v, t2v, v2v]
@@ -37,13 +37,17 @@ models:
       jojokey:
         gateway: jojokey
         # MiniMax is not on JojoKey's CN line, so this one family settles in USD.
-        # minimax-h3-official would match our old 1K/2K rows, but it carries no price on
-        # our account and the API refuses an unpriced model outright.
+        #
+        # minimax-A rather than the H3 workflow: H3 lives on its own multipart endpoint and
+        # explicitly cannot lock a first frame, which is exactly what our i2v slot means.
+        # minimax-A sits on the same /v1/videos endpoint, does keyframe and reference modes,
+        # and is cheaper at every tier. It takes its own flat payload shape, hence `dialect`.
         line: overseas
-        overseas_model: minimax-h3-reference-to-video
+        overseas_model: minimax-A
+        dialect: minimax_a
     docs:
       context_hub_doc_ids:
-        - jojokey/minimax-h3-api
+        - jojokey/minimax-a-api
     ui:
       selection_group: i2v
       visible_in: [project_settings, series_settings, video_sidebar, global_settings]
@@ -51,17 +55,18 @@ models:
       badges: [new]
     duration:
       type: slider
-      min: 2
-      max: 15
+      min: 4
+      max: 12
       step: 1
       default: 5
     params:
       resolution:
-        # The resolutions the JojoKey route actually sells for this model.
-        options: [480p, 720p]
-        default: 720p
+        # minimax-A's own size names, passed through verbatim as both the price match key
+        # and the upstream value.
+        options: [720P, 960P, 2K]
+        default: 720P
       ratio:
-        options: ["16:9", "9:16", "1:1", "4:3", "3:4"]
+        options: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
         default: "16:9"
       negativePrompt: false
       promptExtend: false

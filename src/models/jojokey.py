@@ -42,6 +42,16 @@ DEFAULT_LINE = "cn"
 DEFAULT_MAX_WAIT_SECONDS = 1800
 DEFAULT_POLL_INTERVAL_SECONDS = 8       # the API asks for one poll every 5-8 seconds
 
+# Two request shapes share the /v1/videos endpoint. Seedance takes an OpenAI-style
+# ``content[]`` with a role per reference; MiniMax A takes flat ``first_frame`` / ``images[]``
+# fields plus an explicit ``mode``, and the contract says it rejects ``content`` outright.
+# Which one a model wants comes from runtime.jojokey.dialect in the catalog.
+DIALECT_SEEDANCE = "seedance"
+DIALECT_MINIMAX_A = "minimax_a"
+
+# Our generation mode -> MiniMax A's `mode`.
+MINIMAX_A_MODES = {"t2v": "text", "i2v": "keyframe", "r2v": "reference", "v2v": "reference"}
+
 # Asset kinds on the CN line's registration endpoint.
 CN_ASSET_TYPES = {"image": 1, "video": 2, "audio": 3}
 
@@ -79,7 +89,7 @@ class JojoKeyVideoModel(VideoGenModel):
             return {}
         return dict(runtime.get("jojokey") or {})
 
-    def _resolve_route(self, model_id: str, kwargs: Dict[str, Any]) -> Tuple[str, str]:
+    def _resolve_route(self, model_id: str, kwargs: Dict[str, Any]) -> Tuple[str, str, str]:
         route = self._route_for(model_id)
         line = (kwargs.get("line") or route.get("line") or DEFAULT_LINE).strip().lower()
         if line not in ("cn", "overseas"):
@@ -93,7 +103,10 @@ class JojoKeyVideoModel(VideoGenModel):
                 f"No JojoKey upstream model configured for {model_id} on the {line} line; "
                 "set runtime.jojokey in the model catalog."
             )
-        return line, str(upstream)
+        dialect = (kwargs.get("dialect") or route.get("dialect") or DIALECT_SEEDANCE).strip().lower()
+        if dialect not in (DIALECT_SEEDANCE, DIALECT_MINIMAX_A):
+            raise ValueError(f"Unknown JojoKey dialect '{dialect}' for model {model_id}")
+        return line, str(upstream), dialect
 
     # ---- HTTP plumbing -----------------------------------------------------------
 
@@ -202,6 +215,49 @@ class JojoKeyVideoModel(VideoGenModel):
                             "role": "reference_audio"})
         return content
 
+    def _build_minimax_a_payload(self, prompt: str, upstream_model: str, *,
+                                 first_frame: Optional[str], reference_images: List[str],
+                                 reference_videos: List[str], reference_audio: List[str],
+                                 kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """MiniMax A's own shape: flat reference fields and an explicit mode.
+
+        It shares the Seedance endpoint but not the schema — the contract states it rejects
+        `content`, `extra_body` and the other Seedance-only fields, and it wants seconds/size
+        rather than duration/resolution.
+        """
+        references = bool(reference_images or reference_videos or reference_audio)
+        generation_mode = (kwargs.get("generation_mode") or "").strip().lower()
+        if references:
+            mode = "reference"
+        elif first_frame:
+            mode = "keyframe"
+        else:
+            mode = MINIMAX_A_MODES.get(generation_mode, "text")
+
+        payload: Dict[str, Any] = {"model": upstream_model, "prompt": prompt, "mode": mode}
+        if kwargs.get("resolution"):
+            payload["size"] = kwargs["resolution"]
+        duration = kwargs.get("duration")
+        if duration is not None:
+            payload["seconds"] = duration
+        ratio = kwargs.get("ratio") or kwargs.get("aspect_ratio")
+        if ratio:
+            payload["aspect_ratio"] = ratio
+        if kwargs.get("seed") is not None:
+            payload["seed"] = kwargs["seed"]
+        if mode == "keyframe":
+            payload["first_frame"] = first_frame
+            if kwargs.get("last_frame"):
+                payload["last_frame"] = kwargs["last_frame"]
+        elif mode == "reference":
+            if reference_images:
+                payload["images"] = reference_images
+            if reference_videos:
+                payload["videos"] = reference_videos
+            if reference_audio:
+                payload["audios"] = reference_audio
+        return payload
+
     def _build_payload(self, prompt: str, upstream_model: str, line: str,
                        content: List[Dict[str, Any]], kwargs: Dict[str, Any]) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"model": upstream_model, "content": content}
@@ -234,7 +290,7 @@ class JojoKeyVideoModel(VideoGenModel):
             raise ValueError("JOJOKEY_API_KEY is not configured")
 
         model_id = kwargs.get("model") or ""
-        line, upstream_model = self._resolve_route(model_id, kwargs)
+        line, upstream_model, dialect = self._resolve_route(model_id, kwargs)
         start_time = time.time()
 
         generation_mode = (kwargs.get("generation_mode") or "").strip().lower()
@@ -271,14 +327,22 @@ class JojoKeyVideoModel(VideoGenModel):
             audio_urls = [self._register_cn_asset(url, modality="audio", group_id=group_id)
                           for url in audio_urls]
 
-        content = self._build_content(
-            prompt,
-            first_frame=image_urls[0] if first_frame and image_urls else None,
-            reference_images=image_urls if not first_frame else [],
-            reference_videos=video_urls,
-            reference_audio=audio_urls,
-        )
-        payload = self._build_payload(prompt, upstream_model, line, content, kwargs)
+        resolved_first_frame = image_urls[0] if first_frame and image_urls else None
+        resolved_references = image_urls if not first_frame else []
+        if dialect == DIALECT_MINIMAX_A:
+            payload = self._build_minimax_a_payload(
+                prompt, upstream_model, first_frame=resolved_first_frame,
+                reference_images=resolved_references, reference_videos=video_urls,
+                reference_audio=audio_urls, kwargs=kwargs)
+        else:
+            content = self._build_content(
+                prompt,
+                first_frame=resolved_first_frame,
+                reference_images=resolved_references,
+                reference_videos=video_urls,
+                reference_audio=audio_urls,
+            )
+            payload = self._build_payload(prompt, upstream_model, line, content, kwargs)
 
         submit_url = self._base(line)
         response = requests.post(
@@ -292,7 +356,8 @@ class JojoKeyVideoModel(VideoGenModel):
         task_id = task.get("id")
         if not task_id:
             raise RuntimeError(f"JojoKey submit returned no task id: {task}")
-        logger.info("[JojoKey] Task %s submitted (line=%s, model=%s)", task_id, line, upstream_model)
+        logger.info("[JojoKey] Task %s submitted (line=%s, model=%s, dialect=%s)",
+                    task_id, line, upstream_model, dialect)
 
         video_url = self._await_video(submit_url, task_id)
         self._download(video_url, output_path)

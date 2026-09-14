@@ -49,7 +49,7 @@ class _Catalog:
 
 def test_seed_publishes_and_every_row_clears_the_margin_target(published):
     table = published.runtime.require_current().table()
-    assert len(table) == 52
+    assert len(table) == 53
     assert [row["item_id"] for row in table if not row["meets_target"]] == []
 
 
@@ -61,8 +61,9 @@ def test_seed_publishes_and_every_row_clears_the_margin_target(published):
         ({"model_id": "seedance-2.0-r2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 215),
         # the cheap tier is a different model line, not a different spec on the same one
         ({"model_id": "seedance-2.0-mini-i2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 45),
-        ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "720p"}, "quantity": 5}, 65),
-        ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "480p"}, "quantity": 10}, 70),
+        # MiniMax A keys on its own size names, uppercase P and all
+        ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "720P"}, "quantity": 5}, 45),
+        ({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "params": {"resolution": "2K"}, "quantity": 10}, 180),
         # image: gpt-image-2 is tiered by resolution, and quality must not block the match
         ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "1024*1024"}, "quantity": 1}, 3),
         ({"model_id": "gpt-image-2", "stage": "image", "params": {"size": "2048*2048", "quality": "high"}, "quantity": 4}, 20),

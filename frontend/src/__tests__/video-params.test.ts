@@ -263,10 +263,11 @@ describe('模型切换参数重置逻辑', () => {
         expect(result.promptExtend).toBe(false);
     });
 
-    it('切换到 MiniMax H3 → resolution 默认 720p', () => {
-        // 1K/2K were the MOMA route's names; the JojoKey route sells 480p/720p.
+    it('切换到 MiniMax A → resolution 默认 720P', () => {
+        // 1K/2K were the MOMA route's names. minimax-A uses 720P/960P/2K, passed through
+        // verbatim as both the price match key and the upstream value — hence the capital P.
         const result = simulateModelSwitch('minimax/minimax-h3');
-        expect(result.resolution).toBe('720p');
+        expect(result.resolution).toBe('720P');
         expect(result.promptExtend).toBe(false);
     });
 

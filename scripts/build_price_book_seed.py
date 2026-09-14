@@ -62,9 +62,10 @@ SEEDANCE_20_TIERS = [
 # Seedance 2.5 prices by whether the input contains video. Our r2v passes images, so every
 # row uses the dearer no-video-reference column and can never undercharge.
 SEEDANCE_25 = {"480p": 0.108370, "720p": 0.233046, "1080p": 0.412818}
-# MiniMax: minimax-h3-official would have matched our old 1K/2K rows, but it carries no price
-# on our account and the API refuses an unpriced model, so this is the route that works.
-MINIMAX = {"480p": 0.020, "720p": 0.040}
+# MiniMax A, keyed by its own size names. The H3 workflow is cheaper-looking on paper but
+# cannot lock a first frame at all, so it cannot serve our i2v slot; minimax-A can, and comes
+# in under H3 at every tier anyway. Confirmed against POST /v1/videos/estimate.
+MINIMAX = {"720P": 0.025, "960P": 0.040, "2K": 0.055}
 
 
 def per_second_cny(usd_per_second: float) -> float:
@@ -87,7 +88,7 @@ for mode in ("t2v", "i2v", "r2v"):
 for resolution, usd in MINIMAX.items():
     video.append({"model_id": "minimax/minimax-h3#i2v", "stage": "video", "billing_unit": "second",
                   "match": {"resolution": resolution}, "purchase_price_cny": per_second_cny(usd),
-                  "display_name": "MiniMax H3"})
+                  "display_name": "MiniMax A"})
 
 # --- text -----------------------------------------------------------------
 # Cost = newapi list price x the multiplier we are charged for that vendor's pool.
