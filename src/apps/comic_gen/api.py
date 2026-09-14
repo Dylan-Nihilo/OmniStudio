@@ -3396,8 +3396,6 @@ def test_provider_connection(request: ProviderConnectionTestRequest, http_reques
 
     started = time.perf_counter()
     try:
-<<<<<<< ours
-=======
         if provider == "jojokey":
             # /v1/models answers 200 for an account with no balance and a disabled CN line,
             # so the generic probe would report a green light for something that cannot
@@ -3415,12 +3413,7 @@ def test_provider_connection(request: ProviderConnectionTestRequest, http_reques
             )
             record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": base_payload["success"], "category": base_payload["category"], "latency_ms": base_payload["latency_ms"]})
             return base_payload
->>>>>>> theirs
-        response = requests.get(
-            base_payload["host"],
-            headers={"Authorization": f"Bearer {secret}"},
-            timeout=request.timeout_seconds,
-        )
+        response = requests.get(base_payload["host"], headers={"Authorization": f"Bearer {secret}"}, timeout=request.timeout_seconds)
         response.raise_for_status()
         base_payload.update(success=True, category=None, message="Provider is reachable", latency_ms=max(0, int((time.perf_counter() - started) * 1000)))
     except Exception as exc:
