@@ -5,6 +5,7 @@ import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
 import { useBillingStore } from "@/store/billingStore";
+import { withCreditLabel } from "@/lib/modelCost";
 import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
@@ -205,6 +206,11 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   // spend credits, so these two categories are root-only. A desktop build has no root at
   // all and its owner must still be able to enter their own keys, hence the second clause.
   const platformManaged = useBillingStore((state) => state.wallet?.platform_managed ?? false);
+  // Users on a hosted plan pick a tier and spend credits; showing the rate at the point of
+  // choice is what makes the tiers legible. Absent a published price book this adds nothing.
+  const pricing = useBillingStore((state) => state.pricing);
+  const unitLabels = { second: t("unitSecond"), image: t("unitImage"), chars_1k: t("unitChars1k") };
+  const withCost = (id: string, description: string) => withCreditLabel(description, pricing, id, unitLabels);
   const canSeeCredentials = !platformManaged || billingRole === "root";
   const refreshBilling = useBillingStore((state) => state.refresh);
   // Load the wallet here rather than relying on the sidebar badge having mounted first:
@@ -582,7 +588,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const renderModels = () => <Section id="models" title={t("secModelsTitle")} desc={t("secModelsDesc")}>
     <FormRow label={t("imageModelLabel")} hint={t("imageModelHint")}>
-      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>
     <FormRow label={t("assetAspectLabel")} hint={t("assetAspectHint")}>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -593,10 +599,10 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     </FormRow>
     <FormRow label={t("storyboardAspectLabel")} hint={t("storyboardAspectHint")}>{ratioField("storyboard_aspect_ratio", t("storyboardAspectLabel"))}</FormRow>
     <FormRow label={t("i2vModelLabel")} hint={t("i2vModelHint")}>
-      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>
     <FormRow label={t("r2vModelLabel")} hint={t("r2vModelHint")}>
-      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>
   </Section>;
 
