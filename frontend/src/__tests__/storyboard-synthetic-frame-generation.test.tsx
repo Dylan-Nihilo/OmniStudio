@@ -627,6 +627,9 @@ describe("StoryboardR2V synthetic frame generation", () => {
         await waitFor(() => expect(renderFrame).toHaveBeenCalledWith('project-1', frame.id, { reference_image_urls: [] }, '全景，双手握着解下的腰带。', 1));
         expect(updateFrame).toHaveBeenCalledWith('project-1', frame.id, { image_prompt: '全景，双手握着解下的腰带。' });
         expect(screen.getByRole('textbox', { name: 'shot prompt' })).toHaveValue(frame.action_description);
+        // renderFrame having been called is not the same as its result having landed. Without
+        // this the next click reads the pre-render image and the assertion below sees old.png.
+        await waitFor(() => expect(useProjectStore.getState().currentProject!.frames[0].t2i_selected_index).toBe(1));
         fireEvent.click(screen.getByRole('button', { name: 'generate video' }));
         await waitFor(() => expect(createVideoTask).toHaveBeenCalled());
         expect(createVideoTask.mock.calls[0][1]).toBe('new.png');
