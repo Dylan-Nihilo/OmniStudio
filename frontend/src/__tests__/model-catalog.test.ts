@@ -267,20 +267,14 @@ describe('model catalog phase 2 canonical helpers', () => {
 });
 
 describe('text tiers', () => {
-    it('offers the script tiers keyed by the name that goes upstream', () => {
+    it('offers the three script tiers keyed by the name that goes upstream', () => {
         // The stored value must stay the provider's model name: it is handed to the LLM
         // adapter and billing charges against exactly that string.
         const tiers = getTextTiers();
-        expect(tiers.map((tier) => tier.name)).toEqual(['极致', '高级']);
-        expect(tiers.map((tier) => tier.id)).toEqual(['claude-opus-5', 'gpt-5.6-sol']);
-    });
-
-    it('does not offer a tier whose upstream cannot answer', () => {
-        // 标准 (self-hosted DeepSeek) is priced and declared, but the relay reports no
-        // channel behind it. Listing it would hand users a tier that fails on first call,
-        // so it stays out of the picker until the upstream is back — at which point the
-        // only change needed is its catalog status.
-        expect(getTextTiers().map((tier) => tier.id)).not.toContain('DeepSeek-V4.1-Flash');
+        expect(tiers.map((tier) => tier.name)).toEqual(['极致', '高级', '标准']);
+        expect(tiers.map((tier) => tier.id)).toEqual([
+            'claude-opus-5', 'gpt-5.6-sol', 'DeepSeek-V4.1-Flash',
+        ]);
     });
 
     it('marks one tier as the recommended default', () => {

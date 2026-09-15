@@ -82,7 +82,12 @@ class LLMAdapter:
         """
         provider = self.provider
         if provider == "openai":
-            env_key = self._credential_env_for(model or "") or "OPENAI_API_KEY"
+            # Resolve against the model that will actually be sent, not the argument: a
+            # caller that names no model still gets the default one, and that default has a
+            # key of its own. Reading the argument alone looked up "" and fell through to
+            # OPENAI_API_KEY, which no tier uses — the vision route, which never names a
+            # model, failed with "Missing credentials" while its key sat configured.
+            env_key = self._credential_env_for(model or self._get_default_model()) or "OPENAI_API_KEY"
             api_key = workspace_getenv(env_key)
             base_url = workspace_getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1"
         else:

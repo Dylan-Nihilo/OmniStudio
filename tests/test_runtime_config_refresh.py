@@ -247,3 +247,23 @@ def test_an_unrelated_upstream_error_is_not_swallowed():
 
     with pytest.raises(RuntimeError, match="invalid api key"):
         LLMAdapter._open_stream(client, {"model": "x", "messages": []})
+
+
+def test_a_caller_that_names_no_model_still_gets_the_default_tiers_key(monkeypatch):
+    """The vision route never names a model — it relies on OPENAI_MODEL. Resolving the
+    credential from the argument alone looked up "" and fell through to OPENAI_API_KEY,
+    which no tier uses, so prompt optimisation failed with "Missing credentials" while the
+    key it needed sat configured all along."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("KAIZO_GPT_API_KEY", "sk-gpt")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    created = []
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None, base_url=None):
+            created.append(api_key)
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    LLMAdapter()._get_client()
+    assert created == ["sk-gpt"]

@@ -40,9 +40,9 @@ models:
   - id: text/deepseek-v4.1-flash
     display_name: 标准
     description: DeepSeek V4.1 Flash — 自部署，速度快、成本最低，适合量产分镜与常规改写
-    # Verified 2026-09-15: the relay answers "分组 自建DS 无可用渠道" — the key is fine, the
-    # self-hosted upstream is down. Offering a tier that always fails is worse than hiding it.
-    status: planned
+    # Hidden for a day while the self-hosted upstream was down (the relay answered "分组 自建DS
+    # 无可用渠道" — the key was never the problem). Verified answering again 2026-09-15.
+    status: active
     release_stage: stable
     docs:
       context_hub_doc_ids:
@@ -60,7 +60,7 @@ models:
         capabilities: [text]
         ui:
           selection_group: text
-          visible_in: []
+          visible_in: [project_settings, series_settings, global_settings]
           order: 40
 
   - id: text/gpt-5.6-sol
