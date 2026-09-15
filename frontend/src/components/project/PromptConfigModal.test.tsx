@@ -28,10 +28,13 @@ it.each(['project', 'series'])('preserves the inherited %s model and saves an ex
     fireEvent.click(select);
     // Options are catalog tiers now, not one hardcoded model name. What gets stored is still
     // the provider's own model id, because that string goes upstream and billing charges it.
-    for (const tier of ['标准', '高级', '卓越', '极致']) {
+    // Only the tiers the relay can actually serve are listed — 标准 is priced but its
+    // self-hosted upstream is down, so offering it would hand over a guaranteed failure.
+    for (const tier of ['高级', '极致']) {
         expect(await screen.findByRole('option', { name: tier })).toBeInTheDocument();
     }
-    fireEvent.click(await screen.findByRole('option', { name: '卓越' }));
+    expect(screen.queryByRole('option', { name: '标准' })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('option', { name: '高级' }));
     fireEvent.click(screen.getByRole('button', { name: 'save' }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(scope, expect.objectContaining({ polish_model: 'gpt-5.6-sol' })));
 });
