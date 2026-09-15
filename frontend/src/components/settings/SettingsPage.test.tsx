@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
 import { useAuthStore } from '@/store/authStore';
 import { useBillingStore } from '@/store/billingStore';
+import { billingAdminApi } from '@/lib/billing';
 
 const mocks = vi.hoisted(() => ({
   getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), getGlobalModelSettings: vi.fn(), saveGlobalModelSettings: vi.fn(), testProviderConnection: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
@@ -336,5 +337,35 @@ describe('credentials grouped by model type', () => {
     render(<SettingsPage initialCategory="apikeys" />);
     expect(await screen.findByRole('group', {name:'groupUnusedLabel'})).toBeInTheDocument();
     expect(screen.getByLabelText('MOMA API Key')).toBeInTheDocument();
+  });
+});
+
+describe('configured model list', () => {
+  const PROVIDERS = [
+    { family: 'seedance', backend: 'jojokey', stages: ['video'], credential_keys: ['JOJOKEY_API_KEY'],
+      missing_credentials: [], configured: true, model_count: 2,
+      models: ['Seedance 2.0 标准 I2V', 'Seedance 2.5 I2V'] },
+    { family: 'gpt-image', backend: 'open302', stages: ['image'], credential_keys: ['OPEN302_API_KEY'],
+      missing_credentials: ['OPEN302_API_KEY'], configured: false, model_count: 1,
+      models: ['GPT Image 2'] },
+  ];
+
+  beforeEach(() => {
+    useBillingStore.setState({ wallet: { enabled: false, role: 'root', platform_managed: true } } as never);
+    vi.spyOn(billingAdminApi, 'listProviders').mockResolvedValue(PROVIDERS as never);
+  });
+  afterEach(() => useBillingStore.setState({ wallet: null } as never));
+
+  it('names the models each credential unlocks, not just how many', async () => {
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByText('Seedance 2.0 标准 I2V')).toBeInTheDocument();
+    expect(screen.getByText('Seedance 2.5 I2V')).toBeInTheDocument();
+    expect(screen.getByText('GPT Image 2')).toBeInTheDocument();
+  });
+
+  it('says which credential is missing for the group that cannot run', async () => {
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByText('stageBlocked')).toBeInTheDocument();
+    expect(screen.getByText('stageReady')).toBeInTheDocument();
   });
 });

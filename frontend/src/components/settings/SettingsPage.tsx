@@ -230,9 +230,21 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const stageStatus = (stage: "text" | "image" | "video") => {
     const info = readiness(stage);
     if (!info) return null;
-    return <p role="status" className={`text-xs ${info.ready ? "text-status-completed-fg" : "text-status-failed-fg"}`}>
-      {info.ready ? t("stageReady", { count: info.models }) : t("stageBlocked", { count: info.models, keys: info.missing.join(", ") })}
-    </p>;
+    // The count alone does not tell you what you can call. Listing the models is what makes
+    // this page usable as a reference rather than just a status light.
+    const names = providers.filter(provider => provider.stages.includes(stage)).flatMap(provider => provider.models);
+    return <div className="space-y-1">
+      <p role="status" className={`text-xs ${info.ready ? "text-status-completed-fg" : "text-status-failed-fg"}`}>
+        {info.ready ? t("stageReady", { count: info.models }) : t("stageBlocked", { count: info.models, keys: info.missing.join(", ") })}
+      </p>
+      {names.length > 0 && <ul className="flex flex-wrap gap-1.5">
+        {names.map(name => (
+          <li key={name} className={`rounded px-1.5 py-0.5 text-[0.625rem] ${info.ready ? "bg-surface text-text-secondary" : "bg-surface text-text-muted line-through"}`}>
+            {name}
+          </li>
+        ))}
+      </ul>}
+    </div>;
   };
   const canSeeCredentials = !platformManaged || billingRole === "root";
   const refreshBilling = useBillingStore((state) => state.refresh);
