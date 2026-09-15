@@ -200,6 +200,12 @@ export default function SettingsPage(props: SettingsPageProps = {}) {
 function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
   const billingRole = useBillingStore((state) => state.wallet?.role ?? null);
+  // Provider credentials and storage belong to whoever operates the deployment. On a
+  // centrally operated platform the operator holds them and users only pick models and
+  // spend credits, so these two categories are root-only. A desktop build has no root at
+  // all and its owner must still be able to enter their own keys, hence the second clause.
+  const platformManaged = useBillingStore((state) => state.wallet?.platform_managed ?? false);
+  const canSeeCredentials = !platformManaged || billingRole === "root";
   const refreshBilling = useBillingStore((state) => state.refresh);
   // Load the wallet here rather than relying on the sidebar badge having mounted first:
   // the Billing tab is gated on the platform role and must not depend on render order.
@@ -712,26 +718,31 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const tabs: { id: SettingsCategory; label: string }[] = [
     {id:"general", label:t("tabGeneral")}, {id:"models", label:t("tabModels")}, {id:"prompts", label:t("tabPrompts")},
-    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")},
+    ...(canSeeCredentials ? [{id:"apikeys" as SettingsCategory, label:t("tabApikeys")},
+                             {id:"storage" as SettingsCategory, label:t("tabStorage")}] : []),
     ...(billingRole === "root" || billingRole === "admin" ? [{id:"billing" as SettingsCategory, label:t("tabBilling")}] : []),
     {id:"about", label:t("tabAbout")},
   ];
+  // A hidden category can still be reached through initialCategory, or be left selected when
+  // the role loads in after first paint. Hiding the tab is not enough — the panel underneath
+  // has to stop rendering too.
+  const visible: SettingsCategory = tabs.some(tab => tab.id === active) ? active : "general";
   const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), billing:t("eyebrowBilling"), about:t("eyebrowAbout")};
   const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, billing:() => <BillingAdminPanel />, about:renderAbout};
-  const saveAction = active === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
-  const remoteConfig = active === "apikeys" || active === "storage";
+  const saveAction = visible === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : visible === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : visible === "apikeys" ? handleSaveApiConfig : visible === "storage" ? handleSaveStorage : undefined;
+  const remoteConfig = visible === "apikeys" || visible === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };
   return <div className="relative flex h-full min-w-0 flex-col bg-background text-foreground">
     <header className="flex min-h-24 shrink-0 items-center justify-between gap-4 border-b border-glass-border px-4 py-4 md:px-8">
-      <div className="min-w-0"><p className="text-xs text-text-muted">{t("title")}</p><h1 className="mt-1 text-xl font-semibold tracking-tight">{titles[active]}</h1></div>
-      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving || (active === "models" && modelSettingsLoading)} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
+      <div className="min-w-0"><p className="text-xs text-text-muted">{t("title")}</p><h1 className="mt-1 text-xl font-semibold tracking-tight">{titles[visible]}</h1></div>
+      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving || (visible === "models" && modelSettingsLoading)} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
     </header>
     {saveError && <p role="alert" className="shrink-0 bg-status-failed-bg px-4 py-3 text-sm text-status-failed-fg md:px-8">{saveError}</p>}
     {saved && <p role="status" className="flex shrink-0 items-center gap-2 px-4 py-3 text-sm text-status-completed-fg md:px-8"><Check size={16} />{t("saved")}</p>}
-    <div className="shrink-0 px-4 pt-4 md:px-8 sm:hidden"><SelectField label={t("tabsAria")} value={active} onChange={value => selectCategory(String(value))} options={tabs} isDisabled={saving} /></div>
-    <Tabs aria-label={t("tabsAria")} selectedKey={active} onSelectionChange={key => selectCategory(String(key))} className={`${styles.tabs} px-4 md:px-8`} items={tabs.map(tab => ({...tab, isDisabled:saving, content:active === tab.id ? <div className="max-w-6xl">
+    <div className="shrink-0 px-4 pt-4 md:px-8 sm:hidden"><SelectField label={t("tabsAria")} value={visible} onChange={value => selectCategory(String(value))} options={tabs} isDisabled={saving} /></div>
+    <Tabs aria-label={t("tabsAria")} selectedKey={visible} onSelectionChange={key => selectCategory(String(key))} className={`${styles.tabs} px-4 md:px-8`} items={tabs.map(tab => ({...tab, isDisabled:saving, content:visible === tab.id ? <div className="max-w-6xl">
       {!online && <div role="status" className="mb-5 flex items-center gap-3 rounded-lg border border-glass-border bg-surface p-4 text-sm"><WifiOff size={18} /><div><p>{t("offlineTitle")}</p><p className="mt-1 text-xs text-text-muted">{t("offlineSettingsBody")}</p></div></div>}
-      {renderers[active]()}
+      {renderers[visible]()}
     </div> : null}))} />
   </div>;
 }

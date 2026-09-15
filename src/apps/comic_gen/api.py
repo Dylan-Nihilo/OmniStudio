@@ -968,6 +968,46 @@ def _is_workspace_viewer(context) -> bool:
     return getattr(getattr(context, "membership", None), "access_role", "member") == "viewer"
 
 
+# Provider credentials and the probes that use them. On a centrally operated deployment the
+# platform holds these and users only pick models and spend credits, so they belong to root
+# rather than to every workspace owner. Model defaults stay out of this list: those are a
+# creative choice, not infrastructure.
+_ROOT_REQUIRED_PATHS = frozenset({("config", "env"), ("config", "provider-test")})
+
+
+def _root_required_for_request(path: str) -> bool:
+    parts = tuple(part for part in path.strip("/").split("/") if part)
+    return parts in _ROOT_REQUIRED_PATHS
+
+
+def _role_service(request: Request):
+    """Role lookups for the credential gate, straight off the request's engine.
+
+    Deliberately not the app-scoped BillingServices: that one caches itself on app.state,
+    and this gate runs on plain /config traffic, so it would pin a services object to
+    whichever engine happened to be current — which leaks across tests that swap the engine
+    under the module-level app. The gate only needs roles, which is a thin wrapper anyway.
+    """
+    from ...billing.roles import RoleService
+
+    engine = getattr(request.app.state, "storage_engine", None)
+    return RoleService(engine) if engine is not None else None
+
+
+def _platform_is_root_managed(request: Request) -> bool:
+    """Whether anyone holds root, i.e. whether credentials are centrally operated.
+
+    A desktop build has no platform roles at all and its owner must be able to enter their
+    own keys, so the gate below only applies once a root exists. An unprovisioned deployment
+    with no role table yet is treated the same way.
+    """
+    try:
+        service = _role_service(request)
+        return bool(service and service.has_root())
+    except Exception:
+        return False
+
+
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
@@ -1064,10 +1104,13 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                 and _is_workspace_owner(context)
                 and getattr(context.workspace, "slug", None) == "default"
             ):
+                # Only carry over values that are actually set. Copying empty strings wrote
+                # "configured as blank" into the override layer, which used to shadow the
+                # platform value for good; the workspace should simply inherit it instead.
                 inherited = {
                     key: value
                     for key in _WORKSPACE_PROVIDER_CONFIG_KEYS
-                    if (value := os.getenv(key)) is not None
+                    if (value := os.getenv(key))
                 }
                 if inherited:
                     workspace_config = service.repository.update_workspace_provider_config(
@@ -1086,6 +1129,14 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                     "只有 Workspace Owner 可以执行此操作",
                     status_code=403,
                 )
+            if _root_required_for_request(request.url.path) and _platform_is_root_managed(request):
+                roles = _role_service(request)
+                if not roles or roles.role_of(context.user.id) != "root":
+                    raise AuthError(
+                        "AUTH_ROOT_REQUIRED",
+                        "模型凭据由平台统一管理，只有超级管理员可以查看和修改",
+                        status_code=403,
+                    )
             if request.method.upper() in _MUTATING_METHODS and _is_workspace_viewer(context):
                 raise AuthError(
                     "AUTH_VIEWER_READ_ONLY",

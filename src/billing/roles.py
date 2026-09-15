@@ -24,6 +24,19 @@ class RoleService:
                 select(PlatformRole.role).where(PlatformRole.user_id == user_id)
             ).scalar_one_or_none()
 
+    def has_root(self) -> bool:
+        """Whether anyone holds root, i.e. whether this deployment is centrally operated.
+
+        A user's own role cannot answer that: an ordinary user on the hosted platform and
+        the sole user of a desktop build both read back None. This distinguishes the two, so
+        the hosted platform can hide credential settings while a desktop build still lets
+        its owner enter their own keys.
+        """
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(PlatformRole.user_id).where(PlatformRole.role == "root").limit(1)
+            ).first() is not None
+
     def list_roles(self) -> list[dict[str, object]]:
         with self.engine.connect() as connection:
             rows = connection.execute(select(PlatformRole.__table__).order_by(PlatformRole.granted_at)).mappings().all()

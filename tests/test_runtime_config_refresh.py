@@ -13,13 +13,45 @@ from src.apps.comic_gen.llm_adapter import LLMAdapter
 from src.utils.workspace_env import current_workspace_config, workspace_getenv
 
 
-def test_workspace_config_does_not_fall_back_to_process_secrets(monkeypatch):
+def test_a_workspace_inherits_platform_credentials_it_has_not_overridden(monkeypatch):
+    """Deliberate reversal of the previous rule.
+
+    This used to assert the opposite — a workspace config, even an empty one, answered every
+    lookup and never fell back to the process environment. That suited a product where each
+    workspace brought its own keys. It does not suit the one we now run: the platform holds
+    the credentials, users only pick models and spend credits, and per-workspace metering
+    (not credential isolation) is what keeps usage accountable.
+
+    Under the old rule a single saved setting blanked every platform credential the workspace
+    had not restated, which is how production ended up reading an empty OSS bucket while the
+    value sat in .env the whole time.
+    """
     monkeypatch.setenv("DASHSCOPE_API_KEY", "process-secret")
     assert workspace_getenv("DASHSCOPE_API_KEY") == "process-secret"
 
     token = current_workspace_config.set({})
     try:
-        assert workspace_getenv("DASHSCOPE_API_KEY") is None
+        assert workspace_getenv("DASHSCOPE_API_KEY") == "process-secret"
+    finally:
+        current_workspace_config.reset(token)
+
+
+def test_a_workspace_value_still_wins_over_the_platform_one(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "process-secret")
+    token = current_workspace_config.set({"DASHSCOPE_API_KEY": "workspace-secret"})
+    try:
+        assert workspace_getenv("DASHSCOPE_API_KEY") == "workspace-secret"
+    finally:
+        current_workspace_config.reset(token)
+
+
+def test_a_blank_workspace_value_does_not_shadow_the_platform_one(monkeypatch):
+    """Saving a form with a field left empty must not wipe out the platform credential;
+    clearing a setting on purpose means removing the key, not storing an empty string."""
+    monkeypatch.setenv("OSS_BUCKET_NAME", "platform-bucket")
+    token = current_workspace_config.set({"OSS_BUCKET_NAME": ""})
+    try:
+        assert workspace_getenv("OSS_BUCKET_NAME") == "platform-bucket"
     finally:
         current_workspace_config.reset(token)
 

@@ -125,4 +125,7 @@ def test_wallet_hides_itself_while_billing_is_switched_off(tmp_path: Path, monke
 
         _invite_member(client, me["workspace_id"], "member")
         member = client.get("/billing/wallet").json()
-        assert member == {"enabled": False, "role": None}
+        # A member learns nothing about the wallet, but does learn the deployment is
+        # centrally operated — that is what tells the UI to hide the credential settings,
+        # and this is the response an ordinary user gets while billing is still off.
+        assert member == {"enabled": False, "role": None, "platform_managed": True}

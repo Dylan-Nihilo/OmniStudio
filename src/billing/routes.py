@@ -72,11 +72,15 @@ def wallet(context: CurrentUser, billing: Billing) -> dict[str, Any]:
     """
     role = billing.roles.role_of(context.user.id)
     enabled = billing_enabled()
+    # Reported on both paths: an ordinary user on a centrally operated deployment takes the
+    # early return below, and that is exactly the case the UI needs the flag for.
+    platform_managed = billing.roles.has_root()
     if not enabled and role not in ("root", "admin"):
-        return {"enabled": False, "role": None}
+        return {"enabled": False, "role": None, "platform_managed": platform_managed}
     w = billing.wallets.for_workspace(context.workspace.id)
     return {"enabled": enabled, "wallet_id": w["id"], "workspace_id": context.workspace.id,
-            **billing.wallets.balance(w["id"]), "role": role}
+            **billing.wallets.balance(w["id"]), "role": role,
+            "platform_managed": platform_managed}
 
 
 @router.get("/ledger")

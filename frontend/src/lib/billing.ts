@@ -11,6 +11,12 @@ export interface WalletSummary {
     frozen?: number;
     available?: number;
     role: PlatformRole;
+    /**
+     * True when somebody holds root, i.e. the deployment is centrally operated and the
+     * platform supplies the provider credentials. A user's own role cannot tell the two
+     * apart: an ordinary user here and the sole user of a desktop build both read null.
+     */
+    platform_managed?: boolean;
 }
 
 export interface LedgerEntry {

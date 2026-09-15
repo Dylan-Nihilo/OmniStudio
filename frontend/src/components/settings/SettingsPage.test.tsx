@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
 import { useAuthStore } from '@/store/authStore';
+import { useBillingStore } from '@/store/billingStore';
 
 const mocks = vi.hoisted(() => ({
   getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), getGlobalModelSettings: vi.fn(), saveGlobalModelSettings: vi.fn(), testProviderConnection: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
@@ -255,5 +256,44 @@ describe('workspace configuration boundaries', () => {
     await act(async () => finish());
     expect(saved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', {name:'saveConfig'})).toBeEnabled();
+  });
+});
+
+describe('credential visibility', () => {
+  const setWallet = (wallet: Record<string, unknown> | null) =>
+    useBillingStore.setState({ wallet } as never);
+  afterEach(() => setWallet(null));
+
+  it('hides provider and storage config on a centrally operated deployment', async () => {
+    // The platform holds the credentials there; users only pick models and spend credits.
+    setWallet({ enabled: false, role: null, platform_managed: true });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabGeneral'})).toBeInTheDocument());
+    expect(screen.queryByRole('tab', {name:'tabApikeys'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name:'tabStorage'})).not.toBeInTheDocument();
+    // Model defaults are a creative choice and stay with the people creating.
+    expect(screen.getByRole('tab', {name:'tabModels'})).toBeInTheDocument();
+  });
+
+  it('still shows them to root', async () => {
+    setWallet({ enabled: false, role: 'root', platform_managed: true });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabApikeys'})).toBeInTheDocument());
+    expect(screen.getByRole('tab', {name:'tabStorage'})).toBeInTheDocument();
+  });
+
+  it('still shows them when no root exists at all', async () => {
+    // Desktop build: nobody operates this for anyone else, so the owner needs their own keys.
+    setWallet({ enabled: false, role: null, platform_managed: false });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabApikeys'})).toBeInTheDocument());
+  });
+
+  it('does not render a hidden panel even when it is the requested category', async () => {
+    // Hiding the tab is not enough: initialCategory can point straight at it.
+    setWallet({ enabled: false, role: null, platform_managed: true });
+    render(<SettingsPage initialCategory="apikeys" />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabGeneral'})).toBeInTheDocument());
+    expect(screen.queryByLabelText('DashScope API Key')).not.toBeInTheDocument();
   });
 });
