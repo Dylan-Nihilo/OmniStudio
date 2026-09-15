@@ -34,6 +34,7 @@ from .base import VideoGenModel
 from ..utils.endpoints import get_provider_base_url
 from ..utils.model_catalog import get_catalog_accessor
 from ..utils.oss_utils import OSSImageUploader
+from ..utils.media_refs import resolve_local_media_path
 from ..utils.provider_media import resolve_media_inputs
 from ..utils.workspace_env import workspace_getenv
 
@@ -177,7 +178,12 @@ class JojoKeyVideoModel(VideoGenModel):
     # ---- reference assets --------------------------------------------------------
 
     def _resolved_urls(self, refs: List[str], *, model_id: str, modality: str) -> List[str]:
-        """Turn project-side refs into public URLs JojoKey can fetch."""
+        """Turn project-side refs into public URLs JojoKey can fetch.
+
+        Only used for the overseas line, which reads the URL itself, and for CN-line audio,
+        which has no upload endpoint. CN images and videos go up as files instead — see
+        `_cn_asset_for`, which needs no object storage of ours at all.
+        """
         if not refs:
             return []
         resolved = resolve_media_inputs(
@@ -188,6 +194,77 @@ class JojoKeyVideoModel(VideoGenModel):
             uploader=OSSImageUploader(),
         )
         return [item.value for item in resolved]
+
+    def _cn_asset_for(self, ref: str, *, model_id: str, modality: str,
+                      group_id: Optional[str]) -> str:
+        """Get a CN-line ``asset://`` handle for one project reference.
+
+        A local file is uploaded directly. That matters more than it sounds: registering by
+        URL requires a URL the vendor's upstream can reach, which would have made our own
+        object storage a hard prerequisite for every i2v and r2v shot. Uploading sidesteps
+        that entirely — JojoKey stores the file on their side and hands back the handle.
+
+        Audio is the exception: it has no upload endpoint and must be registered from an
+        HTTPS URL, so it still goes through media resolution.
+        """
+        if modality != "audio":
+            local_path = resolve_local_media_path(ref, project_root=None) or (
+                ref if os.path.isfile(ref) else None)
+            if local_path:
+                return self._upload_cn_asset(local_path, modality=modality, group_id=group_id,
+                                             cache_key=ref)
+        # Already a URL, an OSS object key, or audio: resolve to something fetchable first.
+        url = self._resolved_urls([ref], model_id=model_id, modality=modality)[0]
+        return self._register_cn_asset(url, modality=modality, group_id=group_id)
+
+    def _upload_cn_asset(self, local_path: str, *, modality: str, group_id: Optional[str],
+                         cache_key: str) -> str:
+        cached = self._asset_cache.get((modality, cache_key))
+        if cached:
+            return cached
+
+        base = get_provider_base_url("JOJOKEY")
+        digest = self._file_digest(local_path)
+        data = {"asset_type": str(CN_ASSET_TYPES[modality]),
+                "asset_name": os.path.basename(local_path) or f"omni-{modality}"}
+        if group_id:
+            data["group_id"] = group_id
+        with open(local_path, "rb") as handle:
+            response = requests.post(
+                f"{base}/video-cn/assets",
+                headers=self._upload_headers(f"omni-asset:{modality}:{digest}"),
+                files={"file": (os.path.basename(local_path), handle)},
+                data=data,
+                timeout=180,
+            )
+        self._ensure_success(response, "asset upload")
+        asset_url = self._asset_url_from(response.json(), phase="upload")
+        self._asset_cache[(modality, cache_key)] = asset_url
+        return asset_url
+
+    @staticmethod
+    def _file_digest(path: str) -> str:
+        """Content hash, so the same image is uploaded — and billed — once however it is
+        reached. Registration costs ¥0.10 an asset, and a storyboard reuses references
+        across many shots."""
+        digest = hashlib.sha1()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()[:20]
+
+    def _upload_headers(self, idempotency_key: str) -> Dict[str, str]:
+        # requests sets the multipart Content-Type with its boundary; setting it here breaks it.
+        return {"Authorization": f"Bearer {self.api_key}",
+                "Idempotency-Key": self._header_safe_key(idempotency_key)}
+
+    def _asset_url_from(self, body: Dict[str, Any], *, phase: str) -> str:
+        asset_url = body.get("asset_url") or body.get("url")
+        if not asset_url:
+            raise RuntimeError(f"JojoKey asset {phase} returned no asset_url: {body}")
+        if not self._asset_is_ready(body):
+            self._await_asset(get_provider_base_url("JOJOKEY"), str(body.get("id")), body)
+        return str(asset_url)
 
     def _register_cn_asset(self, url: str, *, modality: str, group_id: Optional[str]) -> str:
         """Register a public URL as a CN-line ``asset://`` handle.
@@ -223,15 +300,9 @@ class JojoKeyVideoModel(VideoGenModel):
             timeout=60,
         )
         self._ensure_success(response, "asset registration")
-        body = response.json()
-        asset_url = body.get("asset_url") or body.get("url")
-        asset_id = body.get("id")
-        if not asset_url:
-            raise RuntimeError(f"JojoKey asset registration returned no asset_url: {body}")
-        if not self._asset_is_ready(body):
-            self._await_asset(base, str(asset_id), body)
-        self._asset_cache[(modality, url)] = str(asset_url)
-        return str(asset_url)
+        asset_url = self._asset_url_from(response.json(), phase="registration")
+        self._asset_cache[(modality, url)] = asset_url
+        return asset_url
 
     @staticmethod
     def _asset_is_ready(body: Dict[str, Any]) -> bool:
@@ -409,24 +480,26 @@ class JojoKeyVideoModel(VideoGenModel):
             first_frame = primary
             ref_images = []
 
-        image_urls = self._resolved_urls(
-            ([first_frame] if first_frame else []) + ref_images,
-            model_id=model_id, modality="image")
-        video_urls = self._resolved_urls(
-            [url for url in (kwargs.get("ref_video_urls") or []) if url],
-            model_id=model_id, modality="video")
-        audio_urls = self._resolved_urls(
-            [url for url in ([kwargs.get("audio_url")] if kwargs.get("audio_url") else []) if url],
-            model_id=model_id, modality="audio")
+        image_refs = ([first_frame] if first_frame else []) + ref_images
+        video_refs = [url for url in (kwargs.get("ref_video_urls") or []) if url]
+        audio_refs = [url for url in ([kwargs.get("audio_url")] if kwargs.get("audio_url") else []) if url]
 
         if line == "cn":
+            # The CN line wants asset:// handles, and a local file can be uploaded straight
+            # to it — so a storyboard frame reaches the model without our own object storage
+            # being configured at all.
             group_id = kwargs.get("asset_group_id")
-            image_urls = [self._register_cn_asset(url, modality="image", group_id=group_id)
-                          for url in image_urls]
-            video_urls = [self._register_cn_asset(url, modality="video", group_id=group_id)
-                          for url in video_urls]
-            audio_urls = [self._register_cn_asset(url, modality="audio", group_id=group_id)
-                          for url in audio_urls]
+            image_urls = [self._cn_asset_for(ref, model_id=model_id, modality="image", group_id=group_id)
+                          for ref in image_refs]
+            video_urls = [self._cn_asset_for(ref, model_id=model_id, modality="video", group_id=group_id)
+                          for ref in video_refs]
+            audio_urls = [self._cn_asset_for(ref, model_id=model_id, modality="audio", group_id=group_id)
+                          for ref in audio_refs]
+        else:
+            # The overseas line fetches the URL itself, so the reference has to be reachable.
+            image_urls = self._resolved_urls(image_refs, model_id=model_id, modality="image")
+            video_urls = self._resolved_urls(video_refs, model_id=model_id, modality="video")
+            audio_urls = self._resolved_urls(audio_refs, model_id=model_id, modality="audio")
 
         resolved_first_frame = image_urls[0] if first_frame and image_urls else None
         resolved_references = image_urls if not first_frame else []

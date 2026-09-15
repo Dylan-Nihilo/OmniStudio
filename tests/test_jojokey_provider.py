@@ -543,3 +543,78 @@ def test_different_non_ascii_keys_stay_different(recorder, tmp_path):
                        resolution="720p", idempotency_key=raw)
         keys.append(recorder.posts[-1]["headers"]["Idempotency-Key"])
     assert keys[0] != keys[1]
+
+
+def test_a_local_storyboard_frame_is_uploaded_and_needs_no_object_storage(monkeypatch, tmp_path):
+    """The reason this path exists.
+
+    Registering a CN asset by URL needs a URL the vendor's upstream can fetch, which would
+    have made our own object storage a hard prerequisite for every i2v and r2v shot — and
+    production has none configured. Uploading the file sidesteps that: JojoKey stores it and
+    hands back the handle.
+    """
+    frame = tmp_path / "frame.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+
+    class _UploadRecorder(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+            if url.endswith("/video-cn/assets"):
+                self.posts.append({"url": url, "headers": dict(headers or {}),
+                                   "files": sorted((files or {}).keys()), "data": dict(data or {})})
+                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://uploaded",
+                                          "sync_status": 2, "ready": True})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    rec = _UploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+
+    def _no_object_storage(*_args, **_kwargs):
+        raise AssertionError("the CN line must not need our object storage for a local file")
+
+    monkeypatch.setattr("src.models.jojokey.resolve_media_inputs", _no_object_storage)
+
+    JojoKeyVideoModel({}).generate(
+        "the character looks up", str(tmp_path / "out.mp4"), img_path=str(frame),
+        model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+    upload = next(post for post in rec.posts if post["url"].endswith("/video-cn/assets"))
+    assert upload["files"] == ["file"]
+    assert upload["data"]["asset_type"] == "1"                 # 1 = image
+    # requests must set the multipart boundary itself, so we may not send a Content-Type.
+    assert "Content-Type" not in upload["headers"]
+    assert upload["headers"]["Idempotency-Key"].startswith("omni-asset:image:")
+    assert _submit_body(rec)["content"][1]["image_url"]["url"] == "asset://uploaded"
+
+
+def test_the_same_frame_is_uploaded_once_however_it_is_reached(monkeypatch, tmp_path):
+    """Upload is billed per asset, and a storyboard points many shots at one reference. The
+    key is a content hash, so two paths to the same bytes still pay once."""
+    frame = tmp_path / "hero.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 64)
+    twin = tmp_path / "hero-copy.png"
+    twin.write_bytes(frame.read_bytes())
+
+    uploads: list[str] = []
+
+    class _UploadRecorder(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+            if url.endswith("/video-cn/assets"):
+                uploads.append((headers or {}).get("Idempotency-Key", ""))
+                return _Response(payload={"id": "a", "asset_url": "asset://uploaded",
+                                          "sync_status": 2, "ready": True})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    rec = _UploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+
+    model = JojoKeyVideoModel({})
+    for shot, path in enumerate((frame, twin, frame)):
+        model.generate("a shot", str(tmp_path / f"out{shot}.mp4"), img_path=str(path),
+                       model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+    # Three shots, two distinct paths, one set of bytes: the vendor dedupes on the key.
+    assert len(set(uploads)) == 1, uploads
