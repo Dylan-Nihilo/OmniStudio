@@ -31,9 +31,8 @@
       "seedance-2.5-i2v": "seedance/seedance-2.5-video#i2v",
       "seedance-2.5-r2v": "seedance/seedance-2.5-video#r2v",
       "seedance-2.5-t2v": "seedance/seedance-2.5-video#t2v",
-      "text-advanced": "text/gemini-3.7-flash#text",
+      "text-advanced": "text/gpt-5.6-sol#text",
       "text-standard": "text/deepseek-v4.1-flash#text",
-      "text-superior": "text/gpt-5.6-sol#text",
       "text-ultimate": "text/claude-opus-5#text",
       "viduq3-pro-i2v": "vidu/viduq3-pro-video#i2v",
       "viduq3-pro-r2v": "vidu/viduq3-pro-video#r2v",
@@ -415,21 +414,22 @@
       "backend_env_key": null,
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
       "display_name": "剧本文本模型",
       "docs": {
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "family": "text",
       "models": [
         "text-advanced",
         "text-standard",
-        "text-superior",
         "text-ultimate"
       ],
       "provider": "newapi",
@@ -1726,7 +1726,9 @@
       "backend_env_key": null,
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
@@ -1737,7 +1739,7 @@
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "family": "text",
@@ -1755,6 +1757,7 @@
       ],
       "runtime": {
         "newapi": {
+          "api_key_env": "KAIZO_CLAUDE_API_KEY",
           "api_model_id": "claude-opus-5",
           "gateway": "newapi"
         }
@@ -1782,7 +1785,9 @@
       "backend_env_key": null,
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
@@ -1793,7 +1798,7 @@
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "family": "text",
@@ -1811,67 +1816,12 @@
       ],
       "runtime": {
         "newapi": {
+          "api_key_env": "KAIZO_DEEPSEEK_API_KEY",
           "api_model_id": "DeepSeek-V4.1-Flash",
           "gateway": "newapi"
         }
       },
-      "status": "active",
-      "supported_backends": [
-        "newapi"
-      ],
-      "supported_modalities": [
-        "text"
-      ],
-      "transport": {
-        "audio_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "image_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "reference_video_input_mode": {
-          "newapi": "newapi_unsupported"
-        }
-      }
-    },
-    "text/gemini-3.7-flash": {
-      "backend_env_key": null,
-      "credential_sources": {
-        "newapi": [
-          "OPENAI_API_KEY"
-        ]
-      },
-      "default_backend": "newapi",
-      "description": "Gemini 3.7 Flash — 长文理解与结构化输出更稳",
-      "display_name": "高级",
-      "docs": {
-        "context_hub_doc_ids": [
-          "newapi/text-tiers"
-        ],
-        "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
-        ]
-      },
-      "family": "text",
-      "id": "text/gemini-3.7-flash",
-      "legacy_model_ids": [
-        "text-advanced"
-      ],
-      "modes": [
-        "text/gemini-3.7-flash#text"
-      ],
-      "provider": "newapi",
-      "release_stage": "stable",
-      "routing_prefixes": [
-        "text/"
-      ],
-      "runtime": {
-        "newapi": {
-          "api_model_id": "gemini-3.7-flash",
-          "gateway": "newapi"
-        }
-      },
-      "status": "active",
+      "status": "planned",
       "supported_backends": [
         "newapi"
       ],
@@ -1894,24 +1844,26 @@
       "backend_env_key": null,
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
       "description": "GPT 5.6 Sol — 文本与视觉兼备，适合需要读图的润色",
-      "display_name": "卓越",
+      "display_name": "高级",
       "docs": {
         "context_hub_doc_ids": [
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "family": "text",
       "id": "text/gpt-5.6-sol",
       "legacy_model_ids": [
-        "text-superior"
+        "text-advanced"
       ],
       "modes": [
         "text/gpt-5.6-sol#text"
@@ -1923,6 +1875,7 @@
       ],
       "runtime": {
         "newapi": {
+          "api_key_env": "KAIZO_GPT_API_KEY",
           "api_model_id": "gpt-5.6-sol",
           "gateway": "newapi"
         }
@@ -5450,139 +5403,25 @@
       ],
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
-      "description": "长文理解与结构化输出更稳，适合整集拆解",
+      "description": "文本与视觉兼备，适合需要读图的润色与分镜校对",
       "display_name": "高级",
       "docs": {
         "context_hub_doc_ids": [
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "duration": null,
       "family": "text",
       "id": "text-advanced",
-      "inputs": {},
-      "params": {},
-      "provider": "newapi",
-      "release_stage": "stable",
-      "routing_prefixes": [
-        "text/"
-      ],
-      "status": "active",
-      "supported_backends": [
-        "newapi"
-      ],
-      "transport": {
-        "audio_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "image_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "reference_video_input_mode": {
-          "newapi": "newapi_unsupported"
-        }
-      },
-      "ui": {
-        "badges": [],
-        "order": 50,
-        "recommended": false,
-        "selection_group": "text",
-        "visible_in": [
-          "project_settings",
-          "series_settings",
-          "global_settings"
-        ]
-      }
-    },
-    "text-standard": {
-      "backend_env_key": null,
-      "capabilities": [
-        "text"
-      ],
-      "credential_sources": {
-        "newapi": [
-          "OPENAI_API_KEY"
-        ]
-      },
-      "default_backend": "newapi",
-      "description": "速度快、成本最低，适合量产分镜与常规改写",
-      "display_name": "标准",
-      "docs": {
-        "context_hub_doc_ids": [
-          "newapi/text-tiers"
-        ],
-        "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
-        ]
-      },
-      "duration": null,
-      "family": "text",
-      "id": "text-standard",
-      "inputs": {},
-      "params": {},
-      "provider": "newapi",
-      "release_stage": "stable",
-      "routing_prefixes": [
-        "text/"
-      ],
-      "status": "active",
-      "supported_backends": [
-        "newapi"
-      ],
-      "transport": {
-        "audio_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "image_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "reference_video_input_mode": {
-          "newapi": "newapi_unsupported"
-        }
-      },
-      "ui": {
-        "badges": [],
-        "order": 40,
-        "recommended": false,
-        "selection_group": "text",
-        "visible_in": [
-          "project_settings",
-          "series_settings",
-          "global_settings"
-        ]
-      }
-    },
-    "text-superior": {
-      "backend_env_key": null,
-      "capabilities": [
-        "text"
-      ],
-      "credential_sources": {
-        "newapi": [
-          "OPENAI_API_KEY"
-        ]
-      },
-      "default_backend": "newapi",
-      "description": "文本与视觉兼备，适合需要读图的润色与分镜校对",
-      "display_name": "卓越",
-      "docs": {
-        "context_hub_doc_ids": [
-          "newapi/text-tiers"
-        ],
-        "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
-        ]
-      },
-      "duration": null,
-      "family": "text",
-      "id": "text-superior",
       "inputs": {},
       "params": {},
       "provider": "newapi",
@@ -5617,6 +5456,62 @@
         ]
       }
     },
+    "text-standard": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "速度快、成本最低，适合量产分镜与常规改写",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text-standard",
+      "inputs": {},
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "status": "planned",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 40,
+        "recommended": false,
+        "selection_group": "text",
+        "visible_in": []
+      }
+    },
     "text-ultimate": {
       "backend_env_key": null,
       "capabilities": [
@@ -5624,7 +5519,9 @@
       ],
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
@@ -5635,7 +5532,7 @@
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "duration": null,
@@ -10127,7 +10024,9 @@
       ],
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
@@ -10138,7 +10037,7 @@
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "duration": null,
@@ -10156,6 +10055,7 @@
       ],
       "runtime": {
         "newapi": {
+          "api_key_env": "KAIZO_CLAUDE_API_KEY",
           "api_model_id": "claude-opus-5",
           "gateway": "newapi"
         }
@@ -10196,7 +10096,9 @@
       ],
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
@@ -10207,7 +10109,7 @@
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "duration": null,
@@ -10225,11 +10127,12 @@
       ],
       "runtime": {
         "newapi": {
+          "api_key_env": "KAIZO_DEEPSEEK_API_KEY",
           "api_model_id": "DeepSeek-V4.1-Flash",
           "gateway": "newapi"
         }
       },
-      "status": "active",
+      "status": "planned",
       "supported_backends": [
         "newapi"
       ],
@@ -10249,78 +10152,7 @@
         "order": 40,
         "recommended": false,
         "selection_group": "text",
-        "visible_in": [
-          "project_settings",
-          "series_settings",
-          "global_settings"
-        ]
-      }
-    },
-    "text/gemini-3.7-flash#text": {
-      "backend_env_key": null,
-      "capabilities": [
-        "text"
-      ],
-      "credential_sources": {
-        "newapi": [
-          "OPENAI_API_KEY"
-        ]
-      },
-      "default_backend": "newapi",
-      "description": "长文理解与结构化输出更稳，适合整集拆解",
-      "display_name": "高级",
-      "docs": {
-        "context_hub_doc_ids": [
-          "newapi/text-tiers"
-        ],
-        "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
-        ]
-      },
-      "duration": null,
-      "family": "text",
-      "id": "text/gemini-3.7-flash#text",
-      "inputs": {},
-      "legacy_model_id": "text-advanced",
-      "mode": "text",
-      "model_line_id": "text/gemini-3.7-flash",
-      "params": {},
-      "provider": "newapi",
-      "release_stage": "stable",
-      "routing_prefixes": [
-        "text/"
-      ],
-      "runtime": {
-        "newapi": {
-          "api_model_id": "gemini-3.7-flash",
-          "gateway": "newapi"
-        }
-      },
-      "status": "active",
-      "supported_backends": [
-        "newapi"
-      ],
-      "transport": {
-        "audio_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "image_input_mode": {
-          "newapi": "newapi_unsupported"
-        },
-        "reference_video_input_mode": {
-          "newapi": "newapi_unsupported"
-        }
-      },
-      "ui": {
-        "badges": [],
-        "order": 50,
-        "recommended": false,
-        "selection_group": "text",
-        "visible_in": [
-          "project_settings",
-          "series_settings",
-          "global_settings"
-        ]
+        "visible_in": []
       }
     },
     "text/gpt-5.6-sol#text": {
@@ -10330,25 +10162,27 @@
       ],
       "credential_sources": {
         "newapi": [
-          "OPENAI_API_KEY"
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
         ]
       },
       "default_backend": "newapi",
       "description": "文本与视觉兼备，适合需要读图的润色与分镜校对",
-      "display_name": "卓越",
+      "display_name": "高级",
       "docs": {
         "context_hub_doc_ids": [
           "newapi/text-tiers"
         ],
         "official_snapshot_ids": [
-          "newapi/text/2026-09-15"
+          "kaizo/text/2026-09-15"
         ]
       },
       "duration": null,
       "family": "text",
       "id": "text/gpt-5.6-sol#text",
       "inputs": {},
-      "legacy_model_id": "text-superior",
+      "legacy_model_id": "text-advanced",
       "mode": "text",
       "model_line_id": "text/gpt-5.6-sol",
       "params": {},
@@ -10359,6 +10193,7 @@
       ],
       "runtime": {
         "newapi": {
+          "api_key_env": "KAIZO_GPT_API_KEY",
           "api_model_id": "gpt-5.6-sol",
           "gateway": "newapi"
         }

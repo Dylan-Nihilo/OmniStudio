@@ -667,9 +667,23 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           {stageStatus("text")}
           <SelectField label={t("llmProviderLabel")} value={config.LLM_PROVIDER} onChange={value => handleChange("LLM_PROVIDER", String(value))} isDisabled={saving} options={[{id:"dashscope", label:"DashScope"}, {id:"openai", label:t("openaiCompatible")}]} />
           {config.LLM_PROVIDER === "openai" ? <>
-            {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
             {envField("OPENAI_BASE_URL", t("openaiBaseUrlLabel"), "https://api.openai.com/v1", "url")}
-            {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
+            {/* Three keys, not one: the relay scopes a key to a single model group, so each
+                tier can only be reached by its own credential. Filling one does not enable
+                the others — the tier whose key is missing fails on its first call. */}
+            <p className="text-xs text-text-muted">{t("textKeyPerTier")}</p>
+            {keyField("KAIZO_DEEPSEEK_API_KEY", t("textKeyStandard"), "sk-...")}
+            {keyField("KAIZO_GPT_API_KEY", t("textKeyAdvanced"), "sk-...")}
+            {keyField("KAIZO_CLAUDE_API_KEY", t("textKeyUltimate"), "sk-...")}
+            <details>
+              <summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandTextFallback")}</summary>
+              <div className="mt-4 space-y-4">
+                {/* Used only by a model the catalog gives no key of its own — a custom
+                    endpoint, or a tier added upstream before it is declared here. */}
+                {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
+                {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
+              </div>
+            </details>
           </> : <>
             {/* DashScope is one credential serving two stages, so it gets one input — under
                 配音, where it is always needed — and a pointer here rather than a second
@@ -707,8 +721,22 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
       <FormRow label={t("groupImageLabel")} hint={t("groupImageHint")}>
         <div className="space-y-4">
           {stageStatus("image")}
-          <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
-          {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
+          {/* One key serves all three image tiers — unlike text, this relay scopes by
+              account rather than by model group. Setting it also selects the route, so no
+              provider switch is needed. */}
+          {keyField("OPEN302_API_KEY", t("imageKeyLabel"), "sk-...")}
+          <details>
+            <summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandImageFallback")}</summary>
+            <div className="mt-4 space-y-4">
+              {/* The generic OpenAI-image route, used only when the key above is empty. No
+                  catalog model points at MuleRouter any more; the option stays for
+                  self-hosted deployments that still route there. */}
+              <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
+              {keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}
+              {envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}
+              {envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}
+            </div>
+          </details>
         </div>
       </FormRow>
       <FormRow label={t("groupUnusedLabel")} hint={t("groupUnusedHint")}>

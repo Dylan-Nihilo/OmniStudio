@@ -6,9 +6,13 @@ routing_prefixes:
 supported_backends:
   - newapi
 default_backend: newapi
+# The relay scopes each key to one model group — a key can only see its own models — so the
+# tiers do not share a credential. Which one a tier uses is `api_key_env` on its runtime.
 credential_sources:
   newapi:
-    - OPENAI_API_KEY
+    - KAIZO_DEEPSEEK_API_KEY
+    - KAIZO_GPT_API_KEY
+    - KAIZO_CLAUDE_API_KEY
 supported_modalities:
   - text
 # Text has no media inputs, but the transport block is part of the family contract, so the
@@ -22,20 +26,23 @@ transport:
     newapi: newapi_unsupported
 docs:
   official_snapshot_ids:
-    - newapi/text/2026-09-15
+    - kaizo/text/2026-09-15
 
-# Four tiers, same naming as the price book. `api_model_id` is the string the LLM adapter
+# Three tiers, same naming as the price book. `api_model_id` is the string the LLM adapter
 # sends upstream, and billing charges against exactly that string — it must stay equal to
 # whatever follows `text/` in config/pricing/price_book.seed.json, or a generation fails
 # with PRICING_ITEM_NOT_FOUND the moment billing is switched on.
 #
-# They reach us through newapi, which speaks the OpenAI protocol: LLM_PROVIDER=openai with
-# OPENAI_BASE_URL pointed at it. One credential covers all four.
+# They reach us through kaizo.top, which speaks the OpenAI protocol: LLM_PROVIDER=openai with
+# OPENAI_BASE_URL pointed at it, and a key per tier as noted above. A Gemini tier is not
+# offered: none of the three keys can see a Gemini model on this relay.
 models:
   - id: text/deepseek-v4.1-flash
     display_name: 标准
     description: DeepSeek V4.1 Flash — 自部署，速度快、成本最低，适合量产分镜与常规改写
-    status: active
+    # Verified 2026-09-15: the relay answers "分组 自建DS 无可用渠道" — the key is fine, the
+    # self-hosted upstream is down. Offering a tier that always fails is worse than hiding it.
+    status: planned
     release_stage: stable
     docs:
       context_hub_doc_ids:
@@ -44,6 +51,7 @@ models:
       newapi:
         gateway: newapi
         api_model_id: DeepSeek-V4.1-Flash
+        api_key_env: KAIZO_DEEPSEEK_API_KEY
     modes:
       text:
         legacy_id: text-standard
@@ -52,34 +60,11 @@ models:
         capabilities: [text]
         ui:
           selection_group: text
-          visible_in: [project_settings, series_settings, global_settings]
+          visible_in: []
           order: 40
 
-  - id: text/gemini-3.7-flash
-    display_name: 高级
-    description: Gemini 3.7 Flash — 长文理解与结构化输出更稳
-    status: active
-    release_stage: stable
-    docs:
-      context_hub_doc_ids:
-        - newapi/text-tiers
-    runtime:
-      newapi:
-        gateway: newapi
-        api_model_id: gemini-3.7-flash
-    modes:
-      text:
-        legacy_id: text-advanced
-        display_name: 高级
-        description: 长文理解与结构化输出更稳，适合整集拆解
-        capabilities: [text]
-        ui:
-          selection_group: text
-          visible_in: [project_settings, series_settings, global_settings]
-          order: 50
-
   - id: text/gpt-5.6-sol
-    display_name: 卓越
+    display_name: 高级
     description: GPT 5.6 Sol — 文本与视觉兼备，适合需要读图的润色
     status: active
     release_stage: stable
@@ -90,10 +75,11 @@ models:
       newapi:
         gateway: newapi
         api_model_id: gpt-5.6-sol
+        api_key_env: KAIZO_GPT_API_KEY
     modes:
       text:
-        legacy_id: text-superior
-        display_name: 卓越
+        legacy_id: text-advanced
+        display_name: 高级
         description: 文本与视觉兼备，适合需要读图的润色与分镜校对
         capabilities: [text]
         ui:
@@ -114,6 +100,7 @@ models:
       newapi:
         gateway: newapi
         api_model_id: claude-opus-5
+        api_key_env: KAIZO_CLAUDE_API_KEY
     modes:
       text:
         legacy_id: text-ultimate

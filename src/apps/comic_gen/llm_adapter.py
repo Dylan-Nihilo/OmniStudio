@@ -42,11 +42,48 @@ class LLMAdapter:
             return bool(workspace_getenv("OPENAI_API_KEY"))
         return bool(workspace_getenv("DASHSCOPE_API_KEY"))
 
-    def _get_client(self):
-        """Get or create the OpenAI-compatible client (lazy, cached)."""
+    @staticmethod
+    def _credential_env_for(model: str) -> Optional[str]:
+        """Which environment variable holds the key for this model, per the catalog.
+
+        The relay scopes a key to one model group, so the tiers do not share a credential —
+        each key can only see its own models. The mapping lives on the catalog mode rather
+        than in code so adding or re-pointing a tier stays a YAML edit.
+        """
+        if not model:
+            return None
+        try:
+            from ...utils.model_catalog import get_catalog_accessor
+
+            accessor = get_catalog_accessor()
+            for candidate in (model, f"text/{model}"):
+                canonical = accessor.resolve_legacy_to_canonical(candidate)
+                if canonical:
+                    runtime = accessor.get_mode_runtime(canonical) or {}
+                    env_key = (runtime.get("newapi") or {}).get("api_key_env")
+                    if env_key:
+                        return str(env_key)
+            # Fall back to matching on the name actually sent upstream.
+            for mode in (accessor.get_mode_entry(mode_id) or {}
+                         for mode_id in accessor.all_canonical_mode_ids()):
+                runtime = (mode.get("runtime") or {}).get("newapi") or {}
+                if runtime.get("api_model_id") == model and runtime.get("api_key_env"):
+                    return str(runtime["api_key_env"])
+        except Exception as error:               # catalog problems must not block a call
+            logger.warning("Could not resolve a credential for text model %s: %s", model, error)
+        return None
+
+    def _get_client(self, model: Optional[str] = None):
+        """Get or create the OpenAI-compatible client (lazy, cached).
+
+        The key depends on the model when the relay scopes credentials per group, so the
+        cache is keyed by it too — otherwise a second tier would reuse the first tier's
+        client and be refused.
+        """
         provider = self.provider
         if provider == "openai":
-            api_key = workspace_getenv("OPENAI_API_KEY")
+            env_key = self._credential_env_for(model or "") or "OPENAI_API_KEY"
+            api_key = workspace_getenv(env_key)
             base_url = workspace_getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1"
         else:
             api_key = workspace_getenv("DASHSCOPE_API_KEY")
@@ -97,7 +134,7 @@ class LLMAdapter:
         Raises:
             RuntimeError: If the API call fails.
         """
-        client = self._get_client()
+        client = self._get_client(model)
 
         # 显式 model override 路径：单次尝试，失败就抛。
         if model:
@@ -131,6 +168,25 @@ class LLMAdapter:
         # 理论上不可达（最后一次失败已 raise），保留兜底
         raise last_err if last_err else RuntimeError("DashScope: no models available")
 
+    @staticmethod
+    def _open_stream(client, kwargs: Dict[str, Any]):
+        """Open the stream, asking for usage totals but not insisting on them.
+
+        `stream_options` is how the usage numbers arrive, and they go into the ledger for
+        audit. Some relay channels reject the field outright — kaizo.top's Claude group
+        answers "stream_options: Extra inputs are not permitted" — and a tier that cannot
+        run is a worse outcome than a ledger entry without a token count, since text is
+        charged per character anyway. Only that specific rejection is retried.
+        """
+        try:
+            return client.chat.completions.create(**kwargs, stream=True,
+                                                  stream_options={"include_usage": True})
+        except Exception as error:
+            if "stream_options" not in str(error):
+                raise
+            logger.info("Upstream rejects stream_options; retrying without usage reporting")
+            return client.chat.completions.create(**kwargs, stream=True)
+
     def _chat_once(
         self,
         client,
@@ -152,7 +208,7 @@ class LLMAdapter:
                 parts = []
                 finish_reason = None
                 usage_response = None
-                with client.chat.completions.create(**kwargs, stream=True, stream_options={"include_usage": True}) as stream:
+                with self._open_stream(client, kwargs) as stream:
                     for chunk in stream:
                         if getattr(chunk, "usage", None) is not None:
                             usage_response = chunk

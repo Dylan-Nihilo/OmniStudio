@@ -361,28 +361,6 @@
       "display_name": "标准"
     },
     {
-      "model_id": "text/gemini-3.7-flash",
-      "stage": "text",
-      "billing_unit": "chars_1k",
-      "match": {
-        "direction": "in"
-      },
-      "purchase_price_cny": 0.0012,
-      "credits_override": 2,
-      "display_name": "高级"
-    },
-    {
-      "model_id": "text/gemini-3.7-flash",
-      "stage": "text",
-      "billing_unit": "chars_1k",
-      "match": {
-        "direction": "out"
-      },
-      "purchase_price_cny": 0.0045,
-      "credits_override": 4,
-      "display_name": "高级"
-    },
-    {
       "model_id": "text/gpt-5.6-sol",
       "stage": "text",
       "billing_unit": "chars_1k",
@@ -390,8 +368,8 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.004,
-      "credits_override": 3,
-      "display_name": "卓越"
+      "credits_override": 2,
+      "display_name": "高级"
     },
     {
       "model_id": "text/gpt-5.6-sol",
@@ -401,8 +379,8 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.032,
-      "credits_override": 6,
-      "display_name": "卓越"
+      "credits_override": 4,
+      "display_name": "高级"
     },
     {
       "model_id": "text/claude-opus-5",
@@ -412,7 +390,7 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.009,
-      "credits_override": 4,
+      "credits_override": 3,
       "display_name": "极致"
     },
     {
@@ -423,7 +401,7 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.045,
-      "credits_override": 8,
+      "credits_override": 6,
       "display_name": "极致"
     },
     {

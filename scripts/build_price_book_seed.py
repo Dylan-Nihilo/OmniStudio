@@ -119,23 +119,22 @@ for resolution, usd in MINIMAX.items():
 # --- text -----------------------------------------------------------------
 # Cost = newapi list price x the multiplier we are charged for that vendor's pool.
 # Model ids must equal the name the LLM adapter sends upstream, i.e. the newapi model name.
-TEXT_MULTIPLIER = {"deepseek": 0.6, "gemini": 0.8, "gpt": 0.8, "claude": 1.8}
+TEXT_MULTIPLIER = {"deepseek": 0.6, "gpt": 0.8, "claude": 1.8}
 # Vendors bill tokens, users are charged characters. Chinese runs 0.6-0.8 tokens per character
 # on every tokenizer these models use, so 1.0 deliberately over-states it: we can never end up
 # charging less than the tokens actually cost, and the gap is extra margin.
 TOKENS_PER_CHAR = 1.0
 TEXT = [
-    # tier, newapi model name, vendor, list price in, list price out
+    # tier, relay model name, vendor, list price in, list price out
     ("标准", "DeepSeek-V4.1-Flash", "deepseek", 1.5, 6.0),
-    ("高级", "gemini-3.7-flash", "gemini", 1.5, 5.625),
-    ("卓越", "gpt-5.6-sol", "gpt", 5.0, 40.0),
+    ("高级", "gpt-5.6-sol", "gpt", 5.0, 40.0),
     ("极致", "claude-opus-5", "claude", 5.0, 25.0),
 ]
 # Text is priced by tier rather than by cost. Cost alone puts three of the four tiers at the
 # 1-credit floor, so a user upgrading from 标准 to 卓越 sees the same bill and cannot tell the
 # tiers apart. The ladder is one credit per tier for input, double that for output — the
 # cheapest useful scale, and still far above cost on every row (see the margins printed below).
-TEXT_INPUT_CREDITS = {"标准": 1, "高级": 2, "卓越": 3, "极致": 4}
+TEXT_INPUT_CREDITS = {"标准": 1, "高级": 2, "极致": 3}
 
 
 def per_1k_chars(price_per_million_tokens: float, vendor: str) -> float:

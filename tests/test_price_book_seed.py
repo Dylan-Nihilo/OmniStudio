@@ -49,7 +49,7 @@ class _Catalog:
 
 def test_seed_publishes_and_every_row_clears_the_margin_target(published):
     table = published.runtime.require_current().table()
-    assert len(table) == 55
+    assert len(table) == 53
     assert [row["item_id"] for row in table if not row["meets_target"]] == []
 
 
@@ -82,8 +82,8 @@ def test_text_and_tts_quote_through_their_own_entry_points(published):
     # quantities are characters, billed per 1000 at whole-credit rates
     # 标准 is 1 credit in / 2 out per 1000 chars: 20 x 1 + 5 x 2
     assert published.runtime.quote_text("text/DeepSeek-V4.1-Flash", 20_000, 5_000).credits == 30
-    # 极致 is 4 in / 8 out: 20 x 4 + 5 x 8
-    assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 120
+    # 极致 is 3 in / 6 out: 20 x 3 + 5 x 6
+    assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 90
     # 600 characters of dialogue at 9 credits per 1000
     assert published.runtime.quote("tts/cosyvoice-v2", {}, 600 / 1000).credits == 6
 
@@ -97,14 +97,18 @@ def test_a_spec_outside_the_price_book_is_refused_rather_than_free(published):
 
 
 def test_each_text_tier_costs_one_more_credit_than_the_one_below(published):
-    """Cost alone puts three of the four tiers at the 1-credit floor, which makes an upgrade
-    invisible on the bill. The tiers are priced as a ladder instead: 1/2/3/4 credits per 1000
-    characters of input, and double that for output."""
+    """Cost alone puts every tier at or near the 1-credit floor, which makes an upgrade
+    invisible on the bill. The tiers are priced as a ladder instead: 1/2/3 credits per 1000
+    characters of input, and double that for output.
+
+    Three tiers, not four: the relay we buy text from scopes each key to one model group, and
+    no key we hold can see a Gemini model, so that tier was dropped rather than sold as a
+    model nobody can run."""
     snapshot = published.runtime.require_current()
-    tiers = ("DeepSeek-V4.1-Flash", "gemini-3.7-flash", "gpt-5.6-sol", "claude-opus-5")
+    tiers = ("DeepSeek-V4.1-Flash", "gpt-5.6-sol", "claude-opus-5")
     rate = lambda name, direction: snapshot.quote(f"text/{name}", {"direction": direction}, 1).credits
-    assert [rate(name, "in") for name in tiers] == [1, 2, 3, 4]
-    assert [rate(name, "out") for name in tiers] == [2, 4, 6, 8]
+    assert [rate(name, "in") for name in tiers] == [1, 2, 3]
+    assert [rate(name, "out") for name in tiers] == [2, 4, 6]
 
 
 def test_every_image_stays_inside_the_price_band_we_promised(published):

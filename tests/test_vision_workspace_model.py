@@ -13,7 +13,8 @@ def test_vision_uses_workspace_model_and_preserves_image_input(monkeypatch):
     )])
     create = Mock(return_value=nullcontext(iter([result])))
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    monkeypatch.setattr(LLMAdapter, "_get_client", lambda self: client)
+    # The client is chosen per model now: each text tier carries its own relay key.
+    monkeypatch.setattr(LLMAdapter, "_get_client", lambda self, model=None: client)
     token = current_workspace_config.set({"LLM_PROVIDER": "openai", "OPENAI_MODEL": "gpt-5.6-sol"})
     try:
         text, _ = QwenVLModel({}).optimize_prompt("https://example.com/frame.png", "Right hand holds one sword.")

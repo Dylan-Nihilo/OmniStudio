@@ -184,3 +184,66 @@ def test_moma_video_env_config_is_explicit_and_secret_is_masked():
     assert config.MOMA_API_KEY == "moma-secret"
     assert "MOMA_API_KEY" in SECRET_FIELDS
     assert _mask_secret(config.MOMA_API_KEY) == "••••••••cret"
+
+
+def test_each_text_tier_resolves_its_own_credential():
+    """The relay scopes a key to one model group, so the tiers cannot share a credential —
+    a key can only see its own models. Reusing one key for another tier gets refused."""
+    adapter = LLMAdapter()
+    assert adapter._credential_env_for("gpt-5.6-sol") == "KAIZO_GPT_API_KEY"
+    assert adapter._credential_env_for("claude-opus-5") == "KAIZO_CLAUDE_API_KEY"
+    assert adapter._credential_env_for("DeepSeek-V4.1-Flash") == "KAIZO_DEEPSEEK_API_KEY"
+    # An unknown model falls back to the generic key rather than failing to resolve.
+    assert adapter._credential_env_for("something-else") is None
+
+
+def test_the_client_cache_is_keyed_by_the_model_not_just_the_provider(monkeypatch):
+    """Without this a second tier reuses the first tier's client, and its key cannot see the
+    model it is being asked for."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("KAIZO_GPT_API_KEY", "sk-gpt")
+    monkeypatch.setenv("KAIZO_CLAUDE_API_KEY", "sk-claude")
+    created = []
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None, base_url=None):
+            created.append(api_key)
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    adapter = LLMAdapter()
+    adapter._get_client("gpt-5.6-sol")
+    adapter._get_client("claude-opus-5")
+    adapter._get_client("gpt-5.6-sol")
+    assert created == ["sk-gpt", "sk-claude", "sk-gpt"]
+
+
+def test_a_relay_that_rejects_stream_options_still_runs(monkeypatch):
+    """kaizo.top's Claude group answers "stream_options: Extra inputs are not permitted".
+    Usage totals are an audit nicety — text is charged per character — so losing them beats
+    losing the tier."""
+    attempts = []
+
+    class FakeStream:
+        def __enter__(self): return iter(())
+        def __exit__(self, *exc): return False
+
+    def create(**kwargs):
+        attempts.append("stream_options" in kwargs)
+        if "stream_options" in kwargs:
+            raise RuntimeError("Error code: 400 - stream_options: Extra inputs are not permitted")
+        return FakeStream()
+
+    client = type("C", (), {"chat": type("Ch", (), {"completions": type("Co", (), {"create": staticmethod(create)})()})()})()
+    LLMAdapter._open_stream(client, {"model": "claude-opus-5", "messages": []})
+    assert attempts == [True, False], "usage is asked for first, then dropped on refusal"
+
+
+def test_an_unrelated_upstream_error_is_not_swallowed():
+    def create(**kwargs):
+        raise RuntimeError("Error code: 401 - invalid api key")
+
+    client = type("C", (), {"chat": type("Ch", (), {"completions": type("Co", (), {"create": staticmethod(create)})()})()})()
+    import pytest
+
+    with pytest.raises(RuntimeError, match="invalid api key"):
+        LLMAdapter._open_stream(client, {"model": "x", "messages": []})
