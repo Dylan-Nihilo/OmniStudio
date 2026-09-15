@@ -16,6 +16,7 @@ import {
     getCanonicalModeId,
     getLegacyModelId,
     getMaxReferenceImages,
+    getTextTiers,
     getModelLineEntry,
     getModeGateway,
     isR2vImageBased,
@@ -263,5 +264,25 @@ describe('model catalog phase 2 canonical helpers', () => {
         for (const model of GLOBAL_I2I_MODELS) {
             expect(model.id).not.toContain('#');
         }
+    });
+});
+
+describe('text tiers', () => {
+    it('offers the four script tiers keyed by the name that goes upstream', () => {
+        // The stored value must stay the provider's model name: it is handed to the LLM
+        // adapter and billing charges against exactly that string.
+        const tiers = getTextTiers();
+        expect(tiers.map((tier) => tier.name)).toEqual(['极致', '卓越', '高级', '标准']);
+        expect(tiers.map((tier) => tier.id)).toEqual([
+            'claude-opus-5', 'gpt-5.6-sol', 'gemini-3.7-flash', 'DeepSeek-V4.1-Flash',
+        ]);
+    });
+
+    it('marks one tier as the recommended default', () => {
+        expect(getTextTiers().filter((tier) => tier.recommended).map((t) => t.id)).toEqual(['gpt-5.6-sol']);
+    });
+
+    it('does not offer text models in the video sidebar', () => {
+        expect(getTextTiers('video_sidebar')).toEqual([]);
     });
 });

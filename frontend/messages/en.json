@@ -3050,7 +3050,10 @@
       },
       "actualCost": "true cost {credits}",
       "retired": "retired",
-      "retiredHint": "{count} price rows point at retired models that users can no longer pick; they can be deleted."
+      "retiredHint": "{count} price rows point at retired models that users can no longer pick; they can be deleted.",
+      "providerModels": "{count} models",
+      "providerReady": "credential set",
+      "providerMissingKey": "missing {keys}"
     }
   }
 }

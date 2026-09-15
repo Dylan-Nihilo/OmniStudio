@@ -133,13 +133,35 @@ def test_every_model_a_user_can_pick_has_a_price():
         (Path(__file__).resolve().parents[1] / "config" / "model_catalog" / "generated" / "model_catalog.json")
         .read_text(encoding="utf-8"))
     priced = {item["model_id"] for item in json.loads(SEED.read_text(encoding="utf-8"))["items"]}
+    generation_groups = {"i2v", "r2v", "t2v", "v2v", "image", "t2i", "i2i"}
     selectable = {
         mode_id for mode_id, mode in catalog["modes"].items()
         if mode.get("status") == "active"
         and (mode.get("ui") or {}).get("visible_in")
-        and (mode.get("ui") or {}).get("selection_group") in {"i2v", "r2v", "t2v", "v2v", "image", "t2i", "i2i"}
+        and (mode.get("ui") or {}).get("selection_group") in generation_groups
     }
     assert sorted(selectable - priced) == []
+
+
+def test_every_text_tier_a_user_can_pick_has_a_price():
+    """Text is keyed differently from image and video: the price book keys on the model name
+    the adapter sends upstream (`text/<api_model_id>`), not on the catalog's own mode id,
+    because billing charges against whatever string actually went to the provider. A tier
+    whose api_model_id drifts from the price book bills nothing and then fails outright.
+    """
+    catalog = json.loads(
+        (Path(__file__).resolve().parents[1] / "config" / "model_catalog" / "generated" / "model_catalog.json")
+        .read_text(encoding="utf-8"))
+    priced = {item["model_id"] for item in json.loads(SEED.read_text(encoding="utf-8"))["items"]
+              if item["stage"] == "text"}
+    tiers = {
+        mode["display_name"]: f'text/{((mode.get("runtime") or {}).get("newapi") or {}).get("api_model_id")}'
+        for mode in catalog["modes"].values()
+        if (mode.get("ui") or {}).get("selection_group") == "text"
+        and mode.get("status") == "active" and (mode.get("ui") or {}).get("visible_in")
+    }
+    assert tiers, "the catalog should offer text tiers"
+    assert sorted(set(tiers.values()) - priced) == [], tiers
 
 
 def test_seedance_25_is_priced_above_what_it_actually_costs(published):

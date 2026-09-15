@@ -3050,7 +3050,10 @@
       },
       "actualCost": "实际成本 {credits}",
       "retired": "已下架",
-      "retiredHint": "有 {count} 条价格对应已下架的模型，用户已经选不到，可以删掉。"
+      "retiredHint": "有 {count} 条价格对应已下架的模型，用户已经选不到，可以删掉。",
+      "providerModels": "{count} 个模型",
+      "providerReady": "凭据已配",
+      "providerMissingKey": "缺 {keys}"
     }
   }
 }

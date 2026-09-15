@@ -240,6 +240,54 @@ def rollback(version: int, request: Request, context: RootUser, billing: Billing
     return {"version": result.version, "changes": result.changes}
 
 
+@admin_router.get("/providers")
+def list_providers(context: RootUser) -> list[dict[str, Any]]:
+    """Which provider each model family routes through, and whether its credential is set.
+
+    The price book answers "what do we charge"; this answers "can it actually run", which is
+    the question that keeps coming up — a model can be priced, visible and picked and still
+    fail because nobody filled in a key. Never returns a credential, only whether each one
+    has a value.
+    """
+    from ..utils.model_catalog import load_generated_model_catalog
+    from ..utils.workspace_env import workspace_getenv
+
+    catalog = load_generated_model_catalog()
+    stage_of = {"text": "text", "image": "image", "t2i": "image", "i2i": "image",
+                "i2v": "video", "r2v": "video", "t2v": "video", "v2v": "video"}
+    families: dict[str, dict[str, Any]] = {}
+    for mode in catalog["modes"].values():
+        ui = mode.get("ui") or {}
+        if mode.get("status") != "active" or not ui.get("visible_in"):
+            continue
+        stage = stage_of.get(ui.get("selection_group"))
+        if not stage:
+            continue
+        backend = mode.get("default_backend") or ""
+        entry = families.setdefault(f"{mode['family']}:{backend}", {
+            "family": mode["family"], "backend": backend, "stages": set(),
+            "credential_keys": list((mode.get("credential_sources") or {}).get(backend, [])),
+            "models": [],
+        })
+        entry["stages"].add(stage)
+        entry["models"].append(mode["display_name"])
+
+    payload = []
+    for entry in families.values():
+        missing = [key for key in entry["credential_keys"] if not (workspace_getenv(key, "") or "").strip()]
+        payload.append({
+            "family": entry["family"],
+            "backend": entry["backend"],
+            "stages": sorted(entry["stages"]),
+            "credential_keys": entry["credential_keys"],
+            "missing_credentials": missing,
+            "configured": not missing,
+            "model_count": len(entry["models"]),
+            "models": sorted(entry["models"]),
+        })
+    return sorted(payload, key=lambda row: (row["stages"], row["family"]))
+
+
 @admin_router.get("/roles")
 def list_roles(context: RootUser, billing: Billing) -> list[dict[str, Any]]:
     return billing.roles.list_roles()

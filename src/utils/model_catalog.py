@@ -6,9 +6,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import yaml
 
 
-SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma", "jojokey")
+SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma", "jojokey", "newapi")
 SUPPORTED_MODEL_STATUSES = ("active", "planned", "deprecated", "hidden")
-SUPPORTED_SELECTION_GROUPS = ("t2i", "i2i", "image", "i2v", "r2v", "t2v")
+# `text` joins the generation groups so script models are picked the same way image and
+# video models are, instead of being hardcoded in whichever modal happens to offer them.
+SUPPORTED_SELECTION_GROUPS = ("t2i", "i2i", "image", "i2v", "r2v", "t2v", "v2v", "text")
 VISIBLE_MODEL_SURFACES = ("project_settings", "series_settings", "video_sidebar", "global_settings")
 DEFAULT_MODEL_SURFACE_REQUIREMENTS = {
     "t2i_model": ("project_settings", "series_settings", "global_settings"),

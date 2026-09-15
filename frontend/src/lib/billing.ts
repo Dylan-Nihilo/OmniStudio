@@ -132,7 +132,23 @@ export const billingApi = {
     },
 };
 
+/** Whether a model family can actually run, independent of what we charge for it. */
+export interface ProviderReadiness {
+    family: string;
+    backend: string;
+    stages: ("text" | "image" | "video")[];
+    credential_keys: string[];
+    missing_credentials: string[];
+    configured: boolean;
+    model_count: number;
+    models: string[];
+}
+
 export const billingAdminApi = {
+    listProviders: async (): Promise<ProviderReadiness[]> => {
+        const res = await apiClient.get<ProviderReadiness[]>(`${API_URL}/admin/providers`);
+        return res.data;
+    },
     getRule: async (): Promise<CreditRule> => {
         const res = await apiClient.get<CreditRule>(`${API_URL}/admin/pricing/rule`);
         return res.data;
