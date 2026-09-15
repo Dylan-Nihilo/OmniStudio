@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
 import { useBillingStore } from "@/store/billingStore";
 import { withCreditLabel } from "@/lib/modelCost";
+import { billingAdminApi, type ProviderReadiness } from "@/lib/billing";
 import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
@@ -211,6 +212,28 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const pricing = useBillingStore((state) => state.pricing);
   const unitLabels = { second: t("unitSecond"), image: t("unitImage"), chars_1k: t("unitChars1k") };
   const withCost = (id: string, description: string) => withCreditLabel(description, pricing, id, unitLabels);
+  // Credentials are per provider family, but they are only meaningful as "which models does
+  // this let people use". The readiness endpoint answers that, so the groups below can say
+  // it rather than leaving root to map key names onto model names by hand.
+  const [providers, setProviders] = useState<ProviderReadiness[]>([]);
+  useEffect(() => {
+    if (billingRole !== "root") return;
+    void billingAdminApi.listProviders().then(setProviders).catch(() => setProviders([]));
+  }, [billingRole]);
+  const readiness = (stage: "text" | "image" | "video") => {
+    const rows = providers.filter(provider => provider.stages.includes(stage));
+    if (!rows.length) return null;
+    const models = rows.reduce((total, row) => total + row.model_count, 0);
+    const missing = [...new Set(rows.flatMap(row => row.missing_credentials))];
+    return { models, missing, ready: missing.length === 0 };
+  };
+  const stageStatus = (stage: "text" | "image" | "video") => {
+    const info = readiness(stage);
+    if (!info) return null;
+    return <p role="status" className={`text-xs ${info.ready ? "text-status-completed-fg" : "text-status-failed-fg"}`}>
+      {info.ready ? t("stageReady", { count: info.models }) : t("stageBlocked", { count: info.models, keys: info.missing.join(", ") })}
+    </p>;
+  };
   const canSeeCredentials = !platformManaged || billingRole === "root";
   const refreshBilling = useBillingStore((state) => state.refresh);
   // Load the wallet here rather than relying on the sidebar badge having mounted first:
@@ -625,16 +648,28 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const vendorOptions = [{id:"dashscope", label:"DashScope"}, {id:"vendor", label:t("vendorDirect")}];
   const renderApiKeys = () => <Section id="apikeys" title={t("secApiTitle")} desc={t("secApiDesc")}>
     {configGuard || <>
-      <FormRow label={t("llmProviderLabel")} hint={t("llmProviderHint")}>
-        <SelectField label={t("llmProviderLabel")} className="[&>.label]:sr-only" value={config.LLM_PROVIDER} onChange={value => handleChange("LLM_PROVIDER", String(value))} isDisabled={saving} options={[{id:"dashscope", label:"DashScope"}, {id:"openai", label:t("openaiCompatible")}]} />
-      </FormRow>
-      {config.LLM_PROVIDER === "openai" ? <FormRow label={t("openaiKeyLabel")} hint={t("openaiKeyHint")}>
+      {/* Grouped by what the credential buys, because that is how root thinks about it:
+          which models can people use. Key names alone leave that mapping to be done by hand. */}
+      <FormRow label={t("groupTextLabel")} hint={t("groupTextHint")}>
         <div className="space-y-4">
-          {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
-          {envField("OPENAI_BASE_URL", t("openaiBaseUrlLabel"), "https://api.openai.com/v1", "url")}
-          {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
+          {stageStatus("text")}
+          <SelectField label={t("llmProviderLabel")} value={config.LLM_PROVIDER} onChange={value => handleChange("LLM_PROVIDER", String(value))} isDisabled={saving} options={[{id:"dashscope", label:"DashScope"}, {id:"openai", label:t("openaiCompatible")}]} />
+          {config.LLM_PROVIDER === "openai" ? <>
+            {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
+            {envField("OPENAI_BASE_URL", t("openaiBaseUrlLabel"), "https://api.openai.com/v1", "url")}
+            {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
+          </> : <>
+            {/* DashScope is one credential serving two stages, so it gets one input — under
+                配音, where it is always needed — and a pointer here rather than a second
+                field writing the same value. */}
+            <p className="text-xs text-text-muted">{t("textUsesVoiceKey")}</p>
+            {/* The four script tiers are newapi models; DashScope cannot serve them, and an
+                explicit model override is a single attempt with no fallback, so picking a
+                tier on this route fails outright rather than quietly degrading. */}
+            <p className="text-xs text-status-failed-fg">{t("textTiersNeedOpenai")}</p>
+          </>}
         </div>
-      </FormRow> : <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>{keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}</FormRow>}
+      </FormRow>
       <FormRow label={t("providerTestLabel")} hint={t("providerTestHint")}>
         <div className="space-y-2">
           <Button variant="secondary" onPress={testActiveProvider} isPending={providerTesting} isDisabled={providerTesting || loading || Boolean(loadError) || !online}>
@@ -646,25 +681,37 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           </p>}
         </div>
       </FormRow>
-      <FormRow label={t("imageProviderLabel")} hint={t("imageProviderHint")}>
+      <FormRow label={t("groupVideoLabel")} hint={t("groupVideoHint")}>
         <div className="space-y-4">
+          {stageStatus("video")}
+          {keyField("JOJOKEY_API_KEY", "JojoKey Relay API Key", "sk-...")}
+        </div>
+      </FormRow>
+      <FormRow label={t("groupVoiceLabel")} hint={t("groupVoiceHint")}>
+        {/* 百炼 serves the TTS voices, and the same key serves text when the route above is
+            DashScope — one credential, shown wherever it is actually used. */}
+        {keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}
+      </FormRow>
+      <FormRow label={t("groupImageLabel")} hint={t("groupImageHint")}>
+        <div className="space-y-4">
+          {stageStatus("image")}
           <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
           {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
         </div>
       </FormRow>
-      <FormRow label="JojoKey" hint={t("jojokeyHint")}>{keyField("JOJOKEY_API_KEY", "JojoKey Relay API Key", "sk-...")}</FormRow>
-      <FormRow label="MOMA / MiniMax H3" hint={t("momaHint")}>{keyField("MOMA_API_KEY", "MOMA API Key")}</FormRow>
-      <FormRow label={t("klingLabel")} hint={t("klingHint")}>
-        <div className="space-y-4">
-          <SelectField label={t("klingProvider")} value={config.KLING_PROVIDER_MODE} onChange={value => handleChange("KLING_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
-          {config.KLING_PROVIDER_MODE === "vendor" && <>{keyField("KLING_ACCESS_KEY", "Kling Access Key")}{keyField("KLING_SECRET_KEY", "Kling Secret Key")}</>}
-        </div>
-      </FormRow>
-      <FormRow label="Vidu" hint={t("viduHint")}>
-        <div className="space-y-4">
-          <SelectField label={t("viduProvider")} value={config.VIDU_PROVIDER_MODE} onChange={value => handleChange("VIDU_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
-          {config.VIDU_PROVIDER_MODE === "vendor" && keyField("VIDU_API_KEY", "Vidu API Key")}
-        </div>
+      <FormRow label={t("groupUnusedLabel")} hint={t("groupUnusedHint")}>
+        {/* Providers no active model routes to. Kept rather than removed: the families are
+            still in the catalog for historical projects, and a route may come back. */}
+        <details>
+          <summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandUnused")}</summary>
+          <div className="mt-4 space-y-4">
+            {keyField("MOMA_API_KEY", "MOMA API Key")}
+            <SelectField label={t("klingProvider")} value={config.KLING_PROVIDER_MODE} onChange={value => handleChange("KLING_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
+            {config.KLING_PROVIDER_MODE === "vendor" && <>{keyField("KLING_ACCESS_KEY", "Kling Access Key")}{keyField("KLING_SECRET_KEY", "Kling Secret Key")}</>}
+            <SelectField label={t("viduProvider")} value={config.VIDU_PROVIDER_MODE} onChange={value => handleChange("VIDU_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
+            {config.VIDU_PROVIDER_MODE === "vendor" && keyField("VIDU_API_KEY", "Vidu API Key")}
+          </div>
+        </details>
       </FormRow>
       <FormRow label={t("mulerunLabel")} hint={t("mulerunHint")}>
         <div className="space-y-4">

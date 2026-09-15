@@ -104,7 +104,8 @@ describe('settings controls and recovery', () => {
     render(<SettingsPage />);
     choose('tabApikeys');
     const key = await screen.findByLabelText('DashScope API Key');
-    const group = within(screen.getByRole('group', {name:'dashscopeKeyLabel'}));
+    // Credentials are grouped by what they buy now, so the DashScope key lives under 配音.
+    const group = within(screen.getByRole('group', {name:'groupVoiceLabel'}));
     expect(group.getByRole('button', {name:'copyKey'})).toBeDisabled();
     expect(group.getByRole('button', {name:'showKey'})).toBeDisabled();
     key.focus();
@@ -295,5 +296,45 @@ describe('credential visibility', () => {
     render(<SettingsPage initialCategory="apikeys" />);
     await waitFor(() => expect(screen.getByRole('tab', {name:'tabGeneral'})).toBeInTheDocument());
     expect(screen.queryByLabelText('DashScope API Key')).not.toBeInTheDocument();
+  });
+});
+
+describe('credentials grouped by model type', () => {
+  const asRoot = () => useBillingStore.setState({
+    wallet: { enabled: false, role: 'root', platform_managed: true },
+  } as never);
+  afterEach(() => useBillingStore.setState({ wallet: null } as never));
+
+  it('groups credentials by what they buy rather than by vendor', async () => {
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    for (const group of ['groupTextLabel', 'groupImageLabel', 'groupVideoLabel', 'groupVoiceLabel']) {
+      expect(await screen.findByRole('group', {name:group})).toBeInTheDocument();
+    }
+  });
+
+  it('warns that the script tiers cannot run on the DashScope route', async () => {
+    // The four tiers are newapi models; an explicit override is a single attempt with no
+    // fallback, so this combination fails outright and the page has to say so.
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByText('textTiersNeedOpenai')).toBeInTheDocument();
+  });
+
+  it('keeps one input for a credential that serves two stages', async () => {
+    // DashScope serves voice always and text on one route; two controlled inputs writing the
+    // same config key is a bug waiting to happen.
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    await screen.findByRole('group', {name:'groupVoiceLabel'});
+    expect(screen.getAllByLabelText('DashScope API Key')).toHaveLength(1);
+    expect(screen.getByText('textUsesVoiceKey')).toBeInTheDocument();
+  });
+
+  it('keeps unrouted providers reachable instead of deleting them', async () => {
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByRole('group', {name:'groupUnusedLabel'})).toBeInTheDocument();
+    expect(screen.getByLabelText('MOMA API Key')).toBeInTheDocument();
   });
 });
