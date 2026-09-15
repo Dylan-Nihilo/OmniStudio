@@ -21,6 +21,7 @@ import requests
 
 from .base import VideoGenModel
 from .image import ImageGenModel
+from ..utils.endpoints import get_provider_base_url
 from ..utils.workspace_env import workspace_config_active, workspace_getenv
 
 logger = logging.getLogger(__name__)
@@ -209,12 +210,44 @@ def _get_api_key() -> str:
     return key
 
 
-def _get_openai_image_config() -> Dict[str, str]:
-    """Return workspace-scoped OpenAI-compatible image settings."""
+def _open302_model_for(model_id: str) -> Optional[str]:
+    """Resolve one of our image model ids to the name the relay expects.
+
+    Image tiers differ only by model name on the same relay, so the name has to come from
+    the catalog per request. The env default stays as the fallback for a caller that does
+    not name a model, and for deployments pointing this path at plain OpenAI.
+    """
+    if not model_id:
+        return None
+    try:
+        from ..utils.model_catalog import get_catalog_accessor
+
+        accessor = get_catalog_accessor()
+        canonical = accessor.resolve_legacy_to_canonical(model_id) or model_id
+        runtime = accessor.get_mode_runtime(canonical) or {}
+    except Exception as error:                      # catalog problems must not block a call
+        logger.warning("Could not read catalog routing for image model %s: %s", model_id, error)
+        return None
+    for backend in ("open302", "mulerouter"):
+        api_model_id = (runtime.get(backend) or {}).get("api_model_id")
+        if api_model_id:
+            return str(api_model_id)
+    return None
+
+
+def _get_openai_image_config(model_id: str = "") -> Dict[str, str]:
+    """Return workspace-scoped OpenAI-compatible image settings.
+
+    OPEN302_API_KEY takes precedence when set: the relay is the configured image route, and
+    OPENAI_IMAGE_* remains for a deployment pointing this path somewhere else.
+    """
+    relay_key = (workspace_getenv("OPEN302_API_KEY", "") or "").strip()
+    default_base = get_provider_base_url("OPEN302") if relay_key else "https://api.openai.com/v1"
     return {
-        "api_key": (workspace_getenv("OPENAI_IMAGE_API_KEY", "") or "").strip(),
-        "base_url": (workspace_getenv("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1").rstrip("/"),
-        "model": (workspace_getenv("OPENAI_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2").strip(),
+        "api_key": relay_key or (workspace_getenv("OPENAI_IMAGE_API_KEY", "") or "").strip(),
+        "base_url": (workspace_getenv("OPENAI_IMAGE_BASE_URL", "") or default_base).rstrip("/"),
+        "model": (_open302_model_for(model_id)
+                  or (workspace_getenv("OPENAI_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2").strip()),
     }
 
 
@@ -233,6 +266,13 @@ def _extract_openai_image_url(result: Dict[str, Any]) -> str:
 
 
 def _openai_image_selected() -> bool:
+    """The OpenAI image protocol is the route whenever the relay key is set.
+
+    open302 is now the configured image provider and speaks that protocol, so having its
+    key is enough — nobody should have to also flip IMAGE_PROVIDER to make images work.
+    """
+    if (workspace_getenv("OPEN302_API_KEY", "") or "").strip():
+        return True
     return (workspace_getenv("IMAGE_PROVIDER", "mulerouter") or "").strip().lower() == "openai"
 
 
@@ -549,9 +589,9 @@ class MuleRouterImageModel(ImageGenModel):
     def _generate_via_openai_compatible(self, prompt: str, output_path: str, **kwargs) -> Tuple[str, float]:
         """Generate/edit through a standard OpenAI images API."""
         start_time = time.time()
-        config = _get_openai_image_config()
+        config = _get_openai_image_config(kwargs.get("model") or "")
         if not config["api_key"]:
-            raise RuntimeError("OPENAI_IMAGE_API_KEY is not configured for IMAGE_PROVIDER=openai")
+            raise RuntimeError("OPEN302_API_KEY (or OPENAI_IMAGE_API_KEY) is not configured for the image route")
         headers = {"Authorization": f"Bearer {config['api_key']}"}
         size = _normalize_gpt_image_size(kwargs.get("size", "1024x1024"))
         ref_image_paths = list(kwargs.get("ref_image_paths") or [])

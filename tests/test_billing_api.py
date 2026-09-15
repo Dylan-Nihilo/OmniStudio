@@ -138,7 +138,7 @@ def test_provider_readiness_answers_whether_a_model_can_actually_run(tmp_path: P
     which is the failure root keeps having to diagnose by hand.
     """
     monkeypatch.setenv("JOJOKEY_API_KEY", "sk-configured")
-    monkeypatch.delenv("MULEROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPEN302_API_KEY", raising=False)
     app, _, _ = _make_app(tmp_path)
     with make_client(app, local=True) as client:
         _setup_owner(client)
@@ -151,10 +151,12 @@ def test_provider_readiness_answers_whether_a_model_can_actually_run(tmp_path: P
         assert seedance["configured"] is True and seedance["missing_credentials"] == []
         assert seedance["model_count"] >= 12
 
-        # gpt-image-2 is priced and pickable but has no key, so image generation cannot run.
+        # The image tiers are priced and pickable but have no key, so images cannot run.
         image = by_family["gpt-image"]
+        assert image["backend"] == "open302"
         assert image["configured"] is False
-        assert image["missing_credentials"] == ["MULEROUTER_API_KEY"]
+        assert image["missing_credentials"] == ["OPEN302_API_KEY"]
+        assert image["model_count"] == 3
 
         # Credentials themselves never cross the wire, only whether each one is set.
         assert "sk-configured" not in rows.text

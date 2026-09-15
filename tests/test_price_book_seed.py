@@ -49,7 +49,7 @@ class _Catalog:
 
 def test_seed_publishes_and_every_row_clears_the_margin_target(published):
     table = published.runtime.require_current().table()
-    assert len(table) == 53
+    assert len(table) == 55
     assert [row["item_id"] for row in table if not row["meets_target"]] == []
 
 

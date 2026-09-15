@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import yaml
 
 
-SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma", "jojokey", "newapi")
+SUPPORTED_PROVIDER_BACKENDS = ("dashscope", "vendor", "mulerouter", "moma", "jojokey", "newapi", "open302")
 SUPPORTED_MODEL_STATUSES = ("active", "planned", "deprecated", "hidden")
 # `text` joins the generation groups so script models are picked the same way image and
 # video models are, instead of being hardcoded in whichever modal happens to offer them.

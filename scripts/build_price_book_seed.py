@@ -151,25 +151,31 @@ text = [{"model_id": f"text/{name}", "stage": "text", "billing_unit": "chars_1k"
         for direction, price, factor in (("in", price_in, 1), ("out", price_out, 2))]
 
 # --- image -----------------------------------------------------------------
-# Supplier cost per image in CNY. The Gemini models bill one price at every size; gpt-image-2
-# is tiered, plus a catch-all at the top tier so a request whose size we cannot read is charged
-# the most rather than refused.
+# Supplier cost per image in CNY, three tiers on the open302 relay (verified 2026-09-15:
+# all three return a downloadable image). The Gemini tier bills one price at every size —
+# it ignores the requested size and returns its own resolution — while the GPT tiers are
+# priced by size, plus a catch-all at the top tier so a request whose size we cannot read
+# is charged the most rather than refused.
+IMAGE_GEMINI_FLAT = 0.08                                   # 标准
+IMAGE_GPT2 = {"1K": 0.06, "2K": 0.10, "4K": 0.12}          # 高级
+# 卓越 is 3 fen dearer than 高级 at every size.
+IMAGE_GPT25_PREMIUM = 0.03
+
 image = [
-    {"model_id": "gemini/gemini-image-lite#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": 0.06, "display_name": "标准"},
-    {"model_id": "gemini/gemini-image-flash#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": 0.08, "display_name": "高级"},
-    {"model_id": "gemini/gemini-image-pro#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": 0.16, "display_name": "卓越"},
-    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
-     "match": {"size_tier": "1K"}, "purchase_price_cny": 0.06, "display_name": "GPT Image 2"},
-    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
-     "match": {"size_tier": "2K"}, "purchase_price_cny": 0.10, "display_name": "GPT Image 2"},
-    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
-     "match": {"size_tier": "4K"}, "purchase_price_cny": 0.12, "display_name": "GPT Image 2"},
-    {"model_id": "gpt-image/gpt-image-2#image", "stage": "image", "billing_unit": "image",
-     "match": {}, "purchase_price_cny": 0.12, "display_name": "GPT Image 2 (尺寸未知)"},
+    {"model_id": "gpt-image/gemini-3.1-flash-image#image", "stage": "image",
+     "billing_unit": "image", "match": {}, "purchase_price_cny": IMAGE_GEMINI_FLAT,
+     "display_name": "标准"},
 ]
+for tier, model_line, premium in (("高级", "gpt-image/gpt-image-2", 0.0),
+                                  ("卓越", "gpt-image/gpt-image-2.5-sunburst", IMAGE_GPT25_PREMIUM)):
+    for size_tier, price in IMAGE_GPT2.items():
+        image.append({"model_id": f"{model_line}#image", "stage": "image",
+                      "billing_unit": "image", "match": {"size_tier": size_tier},
+                      "purchase_price_cny": round(price + premium, 4), "display_name": tier})
+    # Size we cannot read falls back to the dearest tier rather than being refused.
+    image.append({"model_id": f"{model_line}#image", "stage": "image", "billing_unit": "image",
+                  "match": {}, "purchase_price_cny": round(max(IMAGE_GPT2.values()) + premium, 4),
+                  "display_name": f"{tier}（尺寸未知）"})
 
 # --- voice -----------------------------------------------------------------
 # 百炼 quotes per 10k characters; divided by ten so voice shares the text unit.
@@ -191,7 +197,7 @@ def main() -> int:
                  "文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），"
                  "进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）"
                  "按 1 字=1 token 折成每千字，用于核对利润；"
-                 "图片=供应商每张成本；配音=百炼官方价折成每千字。"
+                 "图片=open302 每张成本（标准不分尺寸，高级/卓越按尺寸分档，卓越每档 +¥0.03）；配音=百炼官方价折成每千字。"
                  "计费单位：视频每秒、图片每张、文本与配音每千字。"
                  "match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。"),
         "rule": RULE,
