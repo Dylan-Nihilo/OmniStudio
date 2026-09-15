@@ -98,7 +98,11 @@ from .collaboration_context import (
     current_workspace_role,
 )
 from .audit import record_request_event
-from ...utils.workspace_env import current_workspace_config, workspace_getenv
+from ...utils.workspace_env import (
+    current_platform_config,
+    current_workspace_config,
+    workspace_getenv,
+)
 from ... import audio as _audio_pkg  # noqa: F401 - ensures src.audio is importable before use
 from ...audio import tts as _tts_module
 from ...billing import BillingServices
@@ -1013,6 +1017,17 @@ def _platform_is_root_managed(request: Request) -> bool:
         return False
 
 
+def _config_scope(request: Request) -> str:
+    """Which layer this caller's provider settings belong in: "platform" or "workspace".
+
+    Decided by the deployment rather than by a field in the request, because each kind of
+    deployment only has one sensible answer. On a centrally operated platform the route gate
+    has already refused everyone but root, and root's settings are the platform's settings.
+    A desktop build has no root at all, so its owner keeps writing their own workspace.
+    """
+    return "platform" if _platform_is_root_managed(request) else "workspace"
+
+
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
@@ -1054,6 +1069,7 @@ def _apply_security_headers(response):
 async def enforce_auth_and_security_headers(request: Request, call_next):
     role_token = None
     config_token = None
+    platform_token = None
     workspace_token = None
     actor_token = None
     try:
@@ -1104,28 +1120,17 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             workspace_config = service.repository.get_workspace_provider_config(
                 context.workspace.id
             )
-            if (
-                not workspace_config
-                and _is_workspace_owner(context)
-                and getattr(context.workspace, "slug", None) == "default"
-            ):
-                # Only carry over values that are actually set. Copying empty strings wrote
-                # "configured as blank" into the override layer, which used to shadow the
-                # platform value for good; the workspace should simply inherit it instead.
-                inherited = {
-                    key: value
-                    for key in _WORKSPACE_PROVIDER_CONFIG_KEYS
-                    if (value := os.getenv(key))
-                }
-                if inherited:
-                    workspace_config = service.repository.update_workspace_provider_config(
-                        workspace_id=context.workspace.id,
-                        user_id=context.user.id,
-                        values=inherited,
-                        removed_keys=[],
-                        now=time.time(),
-                    )
+            # The default workspace used to inherit a copy of .env on first access. With a
+            # platform layer that is precisely the bug to avoid: the copy is a workspace
+            # override, so it outranks the operator's settings for ever — rotate a key in the
+            # console and that workspace keeps using the copy. Nothing seeds the override
+            # layer any more; .env is read as the bottom layer instead of being duplicated.
+            #
+            # Loaded per request rather than cached: it is one row, and a process-local cache
+            # would go stale in every other worker the moment root saved.
+            platform_config = service.repository.get_platform_provider_config()
             config_token = current_workspace_config.set(workspace_config)
+            platform_token = current_platform_config.set(platform_config)
             workspace_token = current_workspace_id.set(context.workspace.id)
             actor_token = current_actor_user_id.set(context.user.id)
             if _owner_required_for_request(request.method.upper(), request.url.path) and not _is_workspace_owner(context):
@@ -1224,6 +1229,8 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             current_workspace_role.reset(role_token)
         if config_token is not None:
             current_workspace_config.reset(config_token)
+        if platform_token is not None:
+            current_platform_config.reset(platform_token)
         if workspace_token is not None:
             current_workspace_id.reset(workspace_token)
         if actor_token is not None:
@@ -3600,21 +3607,41 @@ def update_env_config(config: EnvConfig, request: Request):
                 # Clear override: remove from env and config file
                 keys_to_remove.append(env_key)
         context = request.state.auth_context
-        request.app.state.auth_service.repository.update_workspace_provider_config(
-            workspace_id=context.workspace.id,
-            user_id=context.user.id,
-            values=config_dict,
-            removed_keys=keys_to_remove,
-            now=time.time(),
-        )
+        repository = request.app.state.auth_service.repository
+        # Where the write lands follows the deployment, and the route above already decided
+        # who may write at all: on a centrally operated platform only root gets here, and
+        # what they configure has to reach every workspace, not just their own. A desktop
+        # build has no root and keeps its settings where it always did.
+        scope = _config_scope(request)
+        if scope == "platform":
+            repository.update_platform_provider_config(
+                user_id=context.user.id,
+                values=config_dict,
+                removed_keys=keys_to_remove,
+                now=time.time(),
+            )
+        else:
+            repository.update_workspace_provider_config(
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                values=config_dict,
+                removed_keys=keys_to_remove,
+                now=time.time(),
+            )
         record_request_event(
             request,
             action="provider.config.update",
-            object_type="workspace",
-            object_id=str(context.workspace.id),
-            metadata={"changed_keys": sorted(config_dict.keys()), "removed_keys": sorted(keys_to_remove)},
+            object_type="platform" if scope == "platform" else "workspace",
+            object_id="platform" if scope == "platform" else str(context.workspace.id),
+            metadata={"changed_keys": sorted(config_dict.keys()), "removed_keys": sorted(keys_to_remove),
+                      "scope": scope},
         )
-        return {"status": "success", "message": "Configuration saved to Workspace"}
+        return {
+            "status": "success",
+            "scope": scope,
+            "message": ("Configuration saved for the whole platform" if scope == "platform"
+                        else "Configuration saved to Workspace"),
+        }
     except Exception as e:
         logger.exception("Failed to save environment configuration")
         raise HTTPException(status_code=500, detail=str(e))
@@ -7261,7 +7288,7 @@ def _mask_secret(value: Optional[str]) -> str:
 
 
 @app.get("/config/env")
-def get_env_config():
+def get_env_config(request: Request):
     """Get current environment configuration.
 
     Secrets are masked (bullets + last 4 chars) and never returned in
@@ -7318,6 +7345,10 @@ def get_env_config():
             "PIXVERSE_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("PIXVERSE_PROVIDER_MODE")),
             "endpoint_overrides": endpoint_overrides,
             "secrets_configured": secrets_configured,
+            # Values above are the resolved ones — whatever the layers add up to. This says
+            # which layer a save would write, so root can tell "this applies to everybody"
+            # from "this applies to my machine" instead of inferring it from their role.
+            "config_scope": _config_scope(request),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

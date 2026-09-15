@@ -13,6 +13,8 @@ from sqlalchemy.engine import Engine
 
 from .db import begin_immediate
 from .schema import (
+    PLATFORM_PROVIDER_CONFIG_ID,
+    PlatformProviderConfig,
     Session,
     User,
     Workspace,
@@ -368,6 +370,63 @@ class AuthRepository:
                     connection.execute(
                         update(WorkspaceProviderConfig)
                         .where(WorkspaceProviderConfig.workspace_id == workspace_id)
+                        .values(
+                            config_json=payload,
+                            updated_by_user_id=user_id,
+                            updated_at=now,
+                        )
+                    )
+        return config
+
+    def get_platform_provider_config(self) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            raw = connection.execute(
+                select(PlatformProviderConfig.config_json).where(
+                    PlatformProviderConfig.id == PLATFORM_PROVIDER_CONFIG_ID
+                )
+            ).scalar_one_or_none()
+        return json.loads(raw) if raw else {}
+
+    def update_platform_provider_config(
+        self,
+        *,
+        user_id: str,
+        values: Mapping[str, str],
+        removed_keys: list[str],
+        now: float,
+    ) -> dict[str, Any]:
+        """Write the operator's shared settings.
+
+        Mirrors update_workspace_provider_config, including how a removal is stored: the key
+        is blanked rather than dropped, and the resolver treats an empty value as absent, so
+        clearing a platform setting means "fall through to the process environment" instead
+        of "configured as empty".
+        """
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                raw = connection.execute(
+                    select(PlatformProviderConfig.config_json).where(
+                        PlatformProviderConfig.id == PLATFORM_PROVIDER_CONFIG_ID
+                    )
+                ).scalar_one_or_none()
+                config = json.loads(raw) if raw else {}
+                config.update(values)
+                for key in removed_keys:
+                    config[key] = ""
+                payload = json.dumps(config, ensure_ascii=False, sort_keys=True)
+                if raw is None:
+                    connection.execute(
+                        PlatformProviderConfig.__table__.insert().values(
+                            id=PLATFORM_PROVIDER_CONFIG_ID,
+                            config_json=payload,
+                            updated_by_user_id=user_id,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    connection.execute(
+                        update(PlatformProviderConfig)
+                        .where(PlatformProviderConfig.id == PLATFORM_PROVIDER_CONFIG_ID)
                         .values(
                             config_json=payload,
                             updated_by_user_id=user_id,

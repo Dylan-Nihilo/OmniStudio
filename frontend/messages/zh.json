@@ -804,6 +804,7 @@
     "secPromptsDesc": "新建项目的默认系统提示词（留空使用内置默认）。",
     "promptPlaceholder": "留空使用系统默认…",
     "secApiTitle": "供应商凭证",
+    "configScopePlatform": "平台级配置：保存后对全部工作区生效，用户无需自行填写。",
     "secApiDesc": "DashScope 优先；按需开启供应商直连。",
     "loadingConfig": "加载配置中…",
     "llmProviderLabel": "LLM 服务商",

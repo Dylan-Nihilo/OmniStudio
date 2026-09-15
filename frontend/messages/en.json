@@ -804,6 +804,7 @@
     "secPromptsDesc": "Default system prompts for new projects (leave empty to use the built-in default).",
     "promptPlaceholder": "Leave empty to use the system default…",
     "secApiTitle": "Provider credentials",
+    "configScopePlatform": "Platform-level settings: saving applies to every workspace, so users never enter these themselves.",
     "secApiDesc": "DashScope first; enable direct provider connections as needed.",
     "loadingConfig": "Loading config…",
     "llmProviderLabel": "LLM provider",

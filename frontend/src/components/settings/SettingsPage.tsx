@@ -658,8 +658,16 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const ownerNotice = <p role="status" className="py-8 text-sm text-text-secondary">{t("ownerConfigOnly")}</p>;
   const configGuard = !canManageConfig ? ownerNotice : loading ? <LoadingState label={t("loadingConfig")} className="py-12" /> : loadError ? <div role="alert" className="flex flex-wrap items-center gap-4 py-8 text-sm text-status-failed-fg">{t(loadError)}<Button variant="secondary" onPress={loadConfig}>{t("retryLoad")}</Button></div> : null;
   const vendorOptions = [{id:"dashscope", label:"DashScope"}, {id:"vendor", label:t("vendorDirect")}];
+  // Root is editing credentials for every customer on the deployment, not for themselves.
+  // That is worth stating outright rather than leaving it to be inferred from a role badge —
+  // these settings used to save per workspace, so the distinction has bitten us already.
+  const scopeNotice = config.config_scope === "platform"
+    ? <p role="status" className="text-xs text-text-muted">{t("configScopePlatform")}</p>
+    : null;
+
   const renderApiKeys = () => <Section id="apikeys" title={t("secApiTitle")} desc={t("secApiDesc")}>
     {configGuard || <>
+      {scopeNotice}
       {/* Grouped by what the credential buys, because that is how root thinks about it:
           which models can people use. Key names alone leave that mapping to be done by hand. */}
       <FormRow label={t("groupTextLabel")} hint={t("groupTextHint")}>
@@ -780,6 +788,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const renderStorage = () => <Section id="storage" title={t("secStorageTitle")} desc={t("secStorageDesc")}>
     {configGuard || <>
+      {scopeNotice}
       <FormRow label={t("cloudStorageLabel")}>
         <Toggle checked={config.OSS_ENABLE} onChange={value => {clearFeedback(); setConfig(c => ({...c, OSS_ENABLE:value}));}} label={t("enableCloudStorage")} sub={t("enableCloudStorageSub")} ariaLabel={t("enableCloudStorageAria")} isDisabled={saving} />
       </FormRow>

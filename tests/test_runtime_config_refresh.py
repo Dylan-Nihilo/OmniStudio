@@ -10,7 +10,11 @@ from src.apps.comic_gen.api import (
     _mask_secret,
 )
 from src.apps.comic_gen.llm_adapter import LLMAdapter
-from src.utils.workspace_env import current_workspace_config, workspace_getenv
+from src.utils.workspace_env import (
+    current_platform_config,
+    current_workspace_config,
+    workspace_getenv,
+)
 
 
 def test_a_workspace_inherits_platform_credentials_it_has_not_overridden(monkeypatch):
@@ -267,3 +271,55 @@ def test_a_caller_that_names_no_model_still_gets_the_default_tiers_key(monkeypat
     monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
     LLMAdapter()._get_client()
     assert created == ["sk-gpt"]
+
+
+def test_the_platform_layer_sits_between_a_workspace_and_the_process(monkeypatch):
+    """Three layers, most specific first. The middle one is what the operator configures
+    once for everybody; without it their settings reached only their own workspace and
+    everyone else fell through to whatever was in .env on the server."""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "from-dotenv")
+    platform = current_platform_config.set({"DASHSCOPE_API_KEY": "from-platform"})
+    try:
+        assert workspace_getenv("DASHSCOPE_API_KEY") == "from-platform"
+        workspace = current_workspace_config.set({"DASHSCOPE_API_KEY": "from-workspace"})
+        try:
+            assert workspace_getenv("DASHSCOPE_API_KEY") == "from-workspace"
+        finally:
+            current_workspace_config.reset(workspace)
+    finally:
+        current_platform_config.reset(platform)
+
+
+def test_a_key_the_platform_layer_does_not_carry_falls_through(monkeypatch):
+    """The platform layer is an override, not a replacement — same rule the workspace layer
+    had to be taught after a single saved setting blanked every credential around it."""
+    monkeypatch.setenv("OSS_BUCKET_NAME", "platform-bucket")
+    token = current_platform_config.set({"OSS_ENDPOINT": "oss-cn-hangzhou.aliyuncs.com"})
+    try:
+        assert workspace_getenv("OSS_BUCKET_NAME") == "platform-bucket"
+    finally:
+        current_platform_config.reset(token)
+
+
+def test_clearing_a_platform_setting_falls_back_rather_than_blanking(monkeypatch):
+    """Removal is stored as a blank, and a blank counts as absent, so clearing a value in
+    the console means "use .env again" instead of "configured as empty"."""
+    monkeypatch.setenv("OSS_BASE_PATH", "from-dotenv")
+    token = current_platform_config.set({"OSS_BASE_PATH": ""})
+    try:
+        assert workspace_getenv("OSS_BASE_PATH") == "from-dotenv"
+    finally:
+        current_platform_config.reset(token)
+
+
+def test_with_no_platform_layer_resolution_is_unchanged(monkeypatch):
+    """Desktop regression: a packaged build never writes the platform layer, and must keep
+    resolving straight from its own environment and workspace config."""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "desktop-value")
+    assert current_platform_config.get() is None
+    assert workspace_getenv("DASHSCOPE_API_KEY") == "desktop-value"
+    token = current_workspace_config.set({"DASHSCOPE_API_KEY": "workspace-value"})
+    try:
+        assert workspace_getenv("DASHSCOPE_API_KEY") == "workspace-value"
+    finally:
+        current_workspace_config.reset(token)
