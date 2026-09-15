@@ -251,6 +251,10 @@ def _get_openai_image_config(model_id: str = "") -> Dict[str, str]:
     }
 
 
+IMAGE_TASK_POLL_INTERVAL_SECONDS = 5
+IMAGE_TASK_MAX_WAIT_SECONDS = 420      # the relay gives up on its own side at 300s
+
+
 def _extract_openai_image_url(result: Dict[str, Any]) -> str:
     """Extract a URL or data URI from an OpenAI-compatible image response."""
     images = result.get("data") or result.get("images") or []
@@ -263,6 +267,39 @@ def _extract_openai_image_url(result: Dict[str, Any]) -> str:
         if image.get("b64_json"):
             return f"data:image/png;base64,{image['b64_json']}"
     raise RuntimeError(f"OpenAI-compatible image API returned no image: {result}")
+
+
+def _await_openai_image_task(result: Dict[str, Any], config: Dict[str, str], headers: Dict[str, str]) -> Dict[str, Any]:
+    """Resolve an asynchronous image task into a finished response.
+
+    The relay answers the same request either way: usually an inline image, but under load
+    it hands back `{"object": "image.generation.task", "status": "running", "async": true}`
+    and expects a poll on GET /images/generations/{id}. It is genuinely intermittent — the
+    same model returned both shapes minutes apart — so both have to be handled rather than
+    whichever one a first test happened to see.
+    """
+    if result.get("object") != "image.generation.task":
+        return result
+    task_id = result.get("id")
+    if not task_id:
+        raise RuntimeError(f"Image task has no id to poll: {result}")
+
+    waited = 0
+    status = str(result.get("status") or "")
+    while waited < IMAGE_TASK_MAX_WAIT_SECONDS:
+        if status == "succeeded" or result.get("data"):
+            return result
+        if status == "failed":
+            error = (result.get("error") or {}).get("message") or result
+            raise RuntimeError(f"Image task failed: {error}")
+        time.sleep(IMAGE_TASK_POLL_INTERVAL_SECONDS)
+        waited += IMAGE_TASK_POLL_INTERVAL_SECONDS
+        response = _request_with_retry(
+            "GET", f"{config['base_url']}/images/generations/{task_id}", headers=headers, timeout=60)
+        result = response.json()
+        status = str(result.get("status") or "")
+        logger.info("[OpenAI-compatible image] task %s status=%s (%ss)", task_id, status or "unknown", waited)
+    raise RuntimeError(f"Image task {task_id} did not finish within {IMAGE_TASK_MAX_WAIT_SECONDS}s")
 
 
 def _openai_image_selected() -> bool:
@@ -626,7 +663,8 @@ class MuleRouterImageModel(ImageGenModel):
                 timeout=300,
             )
 
-        image_ref = _extract_openai_image_url(response.json())
+        image_ref = _extract_openai_image_url(
+            _await_openai_image_task(response.json(), config, headers))
         if image_ref.startswith("data:"):
             _, encoded = image_ref.split(",", 1)
             with open(output_path, "wb") as output:
