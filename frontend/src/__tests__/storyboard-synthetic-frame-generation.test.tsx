@@ -791,10 +791,12 @@ describe("StoryboardR2V synthetic frame generation", () => {
         expect(useProjectStore.getState().currentProject!.frames[0].t2i_image_urls).toEqual(["replacement.png"]);
     });
 
-    it("rejects excess Qwen references and sends the selected references in order after correction", async () => {
+    it("rejects references beyond the model's own limit and sends them in order after correction", async () => {
         const names = ['room', 'leaf', 'window', 'lamp'];
         useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!,
-            model_settings: { ...DEFAULT_MODEL_SETTINGS, i2i_model: 'qwen-image-2.0-pro' },
+            // The cheap image tier takes three references; the default tier takes nine, so
+            // the limit has to come from the selected model for this to mean anything.
+            model_settings: { ...DEFAULT_MODEL_SETTINGS, i2i_model: 'gemini-3.1-flash-image' },
             scenes: names.map(name => ({ id: name, name, description: name, image_asset: { selected_id: name, variants: [{ id: name, url: `${name}.png`, created_at: 0 }] } })),
             frames: [{ id: 'frame-refs', action_description: 'Keep video action', image_prompt: names.map((name, index) => `[character${index + 1}:${name}]`).join(' ') + ' Only one painted leaf.', workbench_tab_mode: 't2i_i2v', prompt_mode: 'complete' }],
         } }));
