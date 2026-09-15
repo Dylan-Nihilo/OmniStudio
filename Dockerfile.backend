@@ -14,6 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY src/ src/
 COPY config/ config/
+# Operational scripts run against the live database — granting the first root, seeding the
+# price book, clearing stale provider overrides. They were missing from the image, so every
+# one of them had to be improvised on the server; 252K is cheaper than doing that again.
+COPY scripts/ scripts/
 
 # Create output directories
 RUN mkdir -p output/uploads output/video output/assets output/storyboard \
