@@ -344,20 +344,35 @@ class JojoKeyVideoModel(VideoGenModel):
                 "Idempotency-Key": self._header_safe_key(idempotency_key)}
 
     def _asset_url_from(self, body: Dict[str, Any], *, phase: str) -> str:
-        """Pull the usable ``asset://`` handle out of a registration response.
+        """Get a reference the CN line will actually accept for a registered asset.
 
-        The handle is not always there on the first response: a registration that is still
-        being submitted upstream answers with an empty ``asset_url`` and fills it in later,
-        so an empty one means "poll", not "failed". Raising on it — which is what this did —
-        turned every slow registration into an error that dumped the whole response body.
+        Their own ``source_url`` is used in preference to the ``asset://`` handle, even
+        though the handle is what the docs tell you to put in ``content[]``. The handle is
+        currently refused: a freshly registered asset sitting at registration_state
+        "registered" with sync_status 2 comes back InvalidVideoCnAsset — "无权使用或无法供
+        目标上游读取" — for first_frame, for reference_image, and for the raw asset id, while
+        the same file submitted as its plain https source_url is accepted and renders
+        (verified end to end on 2026-09-16, task cnvid_89a20ed14f473c33). source_url points
+        at the supplier's own domestic bucket, so it needs no object storage of ours and is
+        reachable from inside China by construction. The handle stays as the fallback so
+        this reverts to the documented path the moment they fix it.
+
+        The reference is not always in the first response either: a registration still being
+        submitted answers with both fields empty and fills them in later, so empty means
+        "poll", not "failed" — raising on it turned every slow registration into an error
+        that dumped the whole response body.
         """
-        asset_url = body.get("asset_url") or body.get("url")
-        if asset_url and self._asset_is_ready(body):
-            return str(asset_url)
+        def reference(payload: Dict[str, Any]) -> Optional[str]:
+            return (payload.get("source_url") or payload.get("asset_url")
+                    or payload.get("url") or None)
+
+        direct = reference(body)
+        if direct and self._asset_is_ready(body):
+            return str(direct)
         synced = self._await_asset(get_provider_base_url("JOJOKEY"), str(body.get("id") or ""), body)
-        resolved = synced.get("asset_url") or synced.get("url") or asset_url
+        resolved = reference(synced) or direct
         if not resolved:
-            raise RuntimeError(f"JojoKey asset {phase} produced no asset_url: {synced or body}")
+            raise RuntimeError(f"JojoKey asset {phase} produced no usable reference: {synced or body}")
         return str(resolved)
 
     @staticmethod

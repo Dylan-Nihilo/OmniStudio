@@ -711,3 +711,29 @@ def test_a_registration_still_in_flight_is_polled_rather_than_failed(monkeypatch
     monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _s: None)
     monkeypatch.setattr("src.models.jojokey.requests.get", lambda *a, **k: _Response(200, ready))
     assert JojoKeyVideoModel({})._asset_url_from(first, phase="upload") == "asset://asset-ready"
+
+
+def test_the_suppliers_own_source_url_is_preferred_over_the_asset_handle():
+    """Deliberately not what the docs say to do.
+
+    The docs put the ``asset://`` handle into content[], but the CN line currently refuses
+    it: a registered asset at sync_status 2 answers InvalidVideoCnAsset for first_frame, for
+    reference_image and for the bare asset id, while the same file referenced by its plain
+    https source_url is accepted and renders. source_url is the supplier's own domestic
+    bucket, so it is reachable from inside China without any storage of ours.
+    """
+    ready = {
+        "id": "cnasset_z", "sync_status": 2, "ready": True,
+        "registration_state": "registered",
+        "asset_url": "asset://asset-20260916-refused",
+        "source_url": "https://jojocn.oss-cn-shanghai.aliyuncs.com/cn-materials/x/y.png",
+    }
+    assert JojoKeyVideoModel({})._asset_url_from(ready, phase="upload") == ready["source_url"]
+
+
+def test_the_asset_handle_is_still_used_when_there_is_no_source_url():
+    """So this reverts to the documented path on its own once the supplier fixes the handle,
+    rather than needing another release."""
+    ready = {"id": "cnasset_z", "sync_status": 2, "ready": True,
+             "asset_url": "asset://asset-20260916-ok"}
+    assert JojoKeyVideoModel({})._asset_url_from(ready, phase="upload") == "asset://asset-20260916-ok"
