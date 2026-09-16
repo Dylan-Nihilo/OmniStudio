@@ -618,3 +618,96 @@ def test_the_same_frame_is_uploaded_once_however_it_is_reached(monkeypatch, tmp_
 
     # Three shots, two distinct paths, one set of bytes: the vendor dedupes on the key.
     assert len(set(uploads)) == 1, uploads
+
+
+# --- reference image validation ------------------------------------------------------
+# The CN line refuses images outside its bounds without saying so: HTTP 200, an empty
+# asset_url, a ¥0.10 hold, and registration_state parked at "pending" for ever with
+# operation.error_code "submission_unknown". Bounds measured against the live line
+# (300x300 ok / 200x200 refused, 2.5:1 ok / 3.0:1 refused).
+
+def _image(tmp_path, size, fmt="PNG", name=None):
+    pytest.importorskip("PIL", reason="Pillow only writes the fixtures; the parser is stdlib")
+    from PIL import Image
+
+    path = tmp_path / (name or f"probe.{fmt.lower()}")
+    Image.new("RGB", size, (90, 120, 200)).save(path, fmt)
+    return str(path)
+
+
+# JPEG and WebP each have several encodings that store the dimensions differently, and the
+# offsets are easy to get wrong — the progressive and lossless cases below are exactly where
+# a hand-rolled parser goes astray (the first version of this one read the JPEG frame header
+# two bytes early and reported 769x640 for a 640x360 image).
+@pytest.mark.parametrize("label,kwargs,size", [
+    ("png", {"format": "PNG"}, (640, 360)),
+    ("jpeg-baseline", {"format": "JPEG"}, (641, 361)),
+    ("jpeg-progressive", {"format": "JPEG", "progressive": True}, (802, 455)),
+    ("webp-lossy", {"format": "WEBP", "lossless": False, "quality": 80}, (517, 289)),
+    ("webp-lossless", {"format": "WEBP", "lossless": True}, (413, 921)),
+])
+def test_dimensions_are_read_from_the_header_without_pillow(tmp_path, label, kwargs, size):
+    """Pillow is not a declared dependency here, so the parser must stand on its own —
+    otherwise the check silently disappears wherever Pillow is absent."""
+    pytest.importorskip("PIL", reason="Pillow only writes the fixtures; the parser is stdlib")
+    from PIL import Image
+
+    path = tmp_path / f"{label}.img"
+    Image.new("RGB", size, (30, 90, 160)).save(path, **kwargs)
+    assert JojoKeyVideoModel._image_size(str(path)) == size
+
+
+def test_a_file_we_cannot_parse_does_not_block_an_upload(tmp_path):
+    """Unknown header means "no opinion", not "refuse": guessing wrong here would reject
+    images the upstream would have accepted."""
+    path = tmp_path / "not-an-image.bin"
+    path.write_bytes(b"\x00\x01\x02\x03" * 16)
+    assert JojoKeyVideoModel._image_size(str(path)) is None
+    JojoKeyVideoModel({})._reject_unusable_image(str(path))
+
+
+def test_an_image_too_small_is_refused_before_it_is_paid_for(tmp_path):
+    model = JojoKeyVideoModel({})
+    with pytest.raises(ValueError, match="短边"):
+        model._reject_unusable_image(_image(tmp_path, (200, 200)))
+    # The boundary itself is allowed: 300 was measured as accepted.
+    model._reject_unusable_image(_image(tmp_path, (300, 300), name="ok.png"))
+
+
+def test_an_image_too_wide_is_refused_before_it_is_paid_for(tmp_path):
+    model = JojoKeyVideoModel({})
+    with pytest.raises(ValueError, match="长宽比"):
+        model._reject_unusable_image(_image(tmp_path, (1024, 341)))
+    model._reject_unusable_image(_image(tmp_path, (1024, 410), name="ok-aspect.png"))
+    # Tall images are bound by the same ratio, not just wide ones.
+    with pytest.raises(ValueError, match="长宽比"):
+        model._reject_unusable_image(_image(tmp_path, (341, 1024), name="tall.png"))
+
+
+def test_a_refused_registration_is_reported_not_waited_on():
+    """The failure is on the operation, not the asset, and no amount of polling clears it.
+    Before this, an empty asset_url raised immediately with the whole body dumped into the
+    message — which is how this reached a colleague as an unexplained failure."""
+    refused = {
+        "id": "cnasset_x", "asset_url": "", "registration_state": "pending",
+        "sync_status": None,
+        "operation": {"id": "cnmat_x", "state": "unknown", "billing_state": "reserved",
+                      "held_cny": 0.1, "error_code": "submission_unknown", "result": {}},
+    }
+    reason = JojoKeyVideoModel._registration_failure(refused)
+    assert reason and "submission_unknown" in reason and "短边" in reason
+    with pytest.raises(RuntimeError, match="素材登记失败"):
+        JojoKeyVideoModel({})._await_asset("https://example.invalid/v1", "cnasset_x", refused)
+
+
+def test_a_registration_still_in_flight_is_polled_rather_than_failed(monkeypatch):
+    """An empty asset_url on the first response means the handle has not been issued yet.
+    The direct-upload path fills it in a few seconds later."""
+    first = {"id": "cnasset_y", "asset_url": "", "registration_state": "pending",
+             "sync_status": 1, "operation": {"state": "succeeded", "error_code": ""}}
+    ready = {"id": "cnasset_y", "asset_url": "asset://asset-ready", "sync_status": 2,
+             "registration_state": "registered", "ready": True}
+
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _s: None)
+    monkeypatch.setattr("src.models.jojokey.requests.get", lambda *a, **k: _Response(200, ready))
+    assert JojoKeyVideoModel({})._asset_url_from(first, phase="upload") == "asset://asset-ready"

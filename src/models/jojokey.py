@@ -61,6 +61,22 @@ CN_ASSET_TYPES = {"image": 1, "video": 2, "audio": 3}
 
 _TERMINAL_FAILURES = {"failed", "cancelled", "expired"}
 
+# The upstream silently refuses images outside these bounds. Neither the bounds nor the
+# refusal are documented: a registration comes back HTTP 200 with an empty asset_url, holds
+# ¥0.10, parks at registration_state "pending" for ever, and reports nothing more useful
+# than operation.error_code "submission_unknown". Measured against the live CN line on
+# 2026-09-16, one ¥0.10 registration per data point:
+#
+#     300x300  ok        200x200  refused        (short side)
+#     1024x410 ok (2.5)  1024x341 refused (3.0)  (aspect)
+#
+# which lands exactly on the limits Volcengine publishes for Seedance — short side at least
+# 300px, aspect no wider than 5:2. Checking here costs nothing and turns an unexplained
+# failure into a message naming the actual image, so a storyboard frame that cannot work is
+# rejected before it is paid for.
+CN_IMAGE_MIN_SIDE = 300
+CN_IMAGE_MAX_ASPECT = 2.5
+
 
 class CnLineUnavailable(RuntimeError):
     """The CN line is switched off for this account, so the request never reached a model."""
@@ -223,6 +239,9 @@ class JojoKeyVideoModel(VideoGenModel):
         if cached:
             return cached
 
+        if modality == "image":
+            self._reject_unusable_image(local_path)
+
         base = get_provider_base_url("JOJOKEY")
         digest = self._file_digest(local_path)
         data = {"asset_type": str(CN_ASSET_TYPES[modality]),
@@ -243,6 +262,72 @@ class JojoKeyVideoModel(VideoGenModel):
         return asset_url
 
     @staticmethod
+    def _image_size(path: str) -> Optional[Tuple[int, int]]:
+        """Read (width, height) from an image header, for the three formats the CN line takes.
+
+        Done by hand rather than with Pillow: Pillow is not a declared dependency of this
+        project — it is commented out in requirements.txt and nothing else imports it — so
+        relying on it would make this check quietly vanish wherever it happens not to be
+        installed. Returns None for anything unrecognised, which skips the check rather than
+        blocking an upload over a header we cannot parse.
+        """
+        try:
+            with open(path, "rb") as handle:
+                head = handle.read(32)
+                if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+                    return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
+                if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+                    chunk = head[12:16]
+                    if chunk == b"VP8X":
+                        # 24-bit canvas width/height, stored minus one.
+                        return (int.from_bytes(head[24:27], "little") + 1,
+                                int.from_bytes(head[27:30], "little") + 1)
+                    if chunk == b"VP8 ":
+                        # Frame header: 3-byte tag, 3-byte start code, then 14-bit dimensions.
+                        return (int.from_bytes(head[26:28], "little") & 0x3FFF,
+                                int.from_bytes(head[28:30], "little") & 0x3FFF)
+                    if chunk == b"VP8L":
+                        bits = int.from_bytes(head[21:25], "little")
+                        return ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+                if head[:2] == b"\xff\xd8":
+                    handle.seek(2)
+                    while True:
+                        marker = handle.read(2)
+                        if len(marker) < 2 or marker[0] != 0xFF:
+                            return None
+                        if marker[1] in (0xD8, 0xD9) or 0xD0 <= marker[1] <= 0xD7:
+                            continue
+                        length = int.from_bytes(handle.read(2), "big")
+                        # Start-of-frame markers carry the dimensions; SOF4/SOF8/SOF12 do not.
+                        if marker[1] in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                                         0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+                            # Segment body: 1 byte sample precision, then height, then width.
+                            body = handle.read(5)
+                            return (int.from_bytes(body[3:5], "big"), int.from_bytes(body[1:3], "big"))
+                        handle.seek(length - 2, os.SEEK_CUR)
+        except OSError:
+            return None
+        return None
+
+    def _reject_unusable_image(self, path: str) -> None:
+        """Refuse an image the upstream will refuse anyway, while it is still free to do so."""
+        size = self._image_size(path)
+        if size is None:
+            return
+        width, height = size
+        if min(width, height) <= 0:
+            return
+        aspect = max(width, height) / min(width, height)
+        if min(width, height) < CN_IMAGE_MIN_SIDE:
+            raise ValueError(
+                f"参考图 {os.path.basename(path)} 为 {width}×{height}，短边不足 "
+                f"{CN_IMAGE_MIN_SIDE}px，Seedance 国内线会拒绝。请换用更大的分镜图。")
+        if aspect > CN_IMAGE_MAX_ASPECT:
+            raise ValueError(
+                f"参考图 {os.path.basename(path)} 为 {width}×{height}（{aspect:.2f}:1），"
+                f"长宽比超过 {CN_IMAGE_MAX_ASPECT}:1，Seedance 国内线会拒绝。请裁成更接近方形的比例。")
+
+    @staticmethod
     def _file_digest(path: str) -> str:
         """Content hash, so the same image is uploaded — and billed — once however it is
         reached. Registration costs ¥0.10 an asset, and a storyboard reuses references
@@ -259,12 +344,41 @@ class JojoKeyVideoModel(VideoGenModel):
                 "Idempotency-Key": self._header_safe_key(idempotency_key)}
 
     def _asset_url_from(self, body: Dict[str, Any], *, phase: str) -> str:
+        """Pull the usable ``asset://`` handle out of a registration response.
+
+        The handle is not always there on the first response: a registration that is still
+        being submitted upstream answers with an empty ``asset_url`` and fills it in later,
+        so an empty one means "poll", not "failed". Raising on it — which is what this did —
+        turned every slow registration into an error that dumped the whole response body.
+        """
         asset_url = body.get("asset_url") or body.get("url")
-        if not asset_url:
-            raise RuntimeError(f"JojoKey asset {phase} returned no asset_url: {body}")
-        if not self._asset_is_ready(body):
-            self._await_asset(get_provider_base_url("JOJOKEY"), str(body.get("id")), body)
-        return str(asset_url)
+        if asset_url and self._asset_is_ready(body):
+            return str(asset_url)
+        synced = self._await_asset(get_provider_base_url("JOJOKEY"), str(body.get("id") or ""), body)
+        resolved = synced.get("asset_url") or synced.get("url") or asset_url
+        if not resolved:
+            raise RuntimeError(f"JojoKey asset {phase} produced no asset_url: {synced or body}")
+        return str(resolved)
+
+    @staticmethod
+    def _registration_failure(body: Dict[str, Any]) -> Optional[str]:
+        """The reason a registration will never complete, if it has one.
+
+        The operation carries this, not the asset: a refused image sits at
+        registration_state "pending" with an operation in state "unknown" and error_code
+        "submission_unknown", and waiting longer does not change it.
+        """
+        operation = body.get("operation") or {}
+        code = operation.get("error_code") or ""
+        state = str(operation.get("state") or "").lower()
+        if not code and state not in _TERMINAL_FAILURES:
+            return None
+        if code == "submission_unknown":
+            # Measured cause: the upstream refuses the image and reports nothing specific.
+            return ("上游拒绝了这张参考图且未说明原因（submission_unknown）。已知触发条件是"
+                    f"短边小于 {CN_IMAGE_MIN_SIDE}px 或长宽比超过 {CN_IMAGE_MAX_ASPECT}:1。"
+                    f"本次登记已预扣 ¥{operation.get('held_cny', 0.1)}。")
+        return code or f"registration {state}"
 
     def _register_cn_asset(self, url: str, *, modality: str, group_id: Optional[str]) -> str:
         """Register a public URL as a CN-line ``asset://`` handle.
@@ -309,12 +423,21 @@ class JojoKeyVideoModel(VideoGenModel):
         # sync_status 2 is the vendor's "synced, safe to use"; `ready` mirrors it.
         return bool(body.get("ready")) or body.get("sync_status") == 2
 
-    def _await_asset(self, base: str, asset_id: str, first: Dict[str, Any]) -> None:
-        """Poll a freshly registered asset until the upstream can read it."""
+    def _await_asset(self, base: str, asset_id: str, first: Dict[str, Any]) -> Dict[str, Any]:
+        """Poll a freshly registered asset until the upstream can read it.
+
+        Returns the response that reported it ready, because that is where the handle is when
+        the first response came back without one.
+        """
         if not asset_id:
             raise RuntimeError(f"JojoKey asset is not synced and has no id to poll: {first}")
+        # A refusal is already visible in the first response, so check before waiting at all.
+        refused = self._registration_failure(first)
+        if refused:
+            raise RuntimeError(f"JojoKey 素材登记失败：{refused}")
         deadline = self._env_number("JOJOKEY_ASSET_SYNC_SECONDS", DEFAULT_ASSET_SYNC_SECONDS)
         waited = 0
+        body = first
         while waited < deadline:
             time.sleep(ASSET_POLL_INTERVAL_SECONDS)
             waited += ASSET_POLL_INTERVAL_SECONDS
@@ -324,13 +447,18 @@ class JojoKeyVideoModel(VideoGenModel):
             body = response.json()
             if self._asset_is_ready(body):
                 logger.info("[JojoKey] Asset %s synced after %ss", asset_id, waited)
-                return
+                return body
+            refused = self._registration_failure(body)
+            if refused:
+                raise RuntimeError(f"JojoKey 素材登记失败：{refused}")
             error = (body.get("operation") or {}).get("result", {}).get("sync_error") or ""
             if error:
                 raise RuntimeError(f"JojoKey asset {asset_id} failed to sync: {error}")
         raise RuntimeError(
-            f"JojoKey asset {asset_id} was still unsynced after {deadline}s. The CN line has to "
-            "fetch the source URL itself, so it must be reachable from inside China.")
+            f"JojoKey asset {asset_id} was still unsynced after {deadline}s "
+            f"(registration_state={body.get('registration_state')!r}). A registration by URL "
+            "needs the source reachable from inside China; an uploaded file should not stall, "
+            "so a stall here is worth reporting to the supplier.")
 
     # ---- payload -----------------------------------------------------------------
 
