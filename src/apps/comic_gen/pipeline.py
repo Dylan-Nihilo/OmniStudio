@@ -3096,6 +3096,11 @@ class ComicGenPipeline:
                 if model == "minimax/minimax-h3" and audio_mode == "driven" and frame.prompt_mode != "complete":
                     prompt += "。使用参考音频中的对白、音色和说话节奏；只在对应对白发声时说话，台词结束后自然闭口，不新增台词。"
 
+        # Seedance's I2V panel has no ratio control. Snapshot the effective shot/episode
+        # format now, rather than letting dispatch silently force a portrait into 16:9.
+        if ratio is None and model and model.startswith("seedance"):
+            ratio = self.resolve_model_settings(script_id, frame_id).settings.storyboard_aspect_ratio
+
         task = VideoTask(
             id=task_id,
             project_id=script_id,

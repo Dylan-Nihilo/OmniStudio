@@ -528,3 +528,19 @@ def test_create_video_task_workbench_tab_defaults_to_none(pipeline):
         )
     task = next(t for t in script.video_tasks if t.id == task_id)
     assert task.workbench_tab is None
+
+
+@pytest.mark.parametrize("mode", ["i2v", "r2v"])
+@pytest.mark.parametrize("explicit_ratio,expected", [(None, "9:16"), ("1:1", "1:1")])
+def test_seedance_snapshots_episode_ratio_unless_explicit(pipeline, mode, explicit_ratio, expected):
+    pipeline.scripts = {"p1": _script_with_tasks()}
+    settings = SimpleNamespace(settings=SimpleNamespace(storyboard_aspect_ratio="9:16"))
+    with patch.object(pipeline, "_save_data"), patch.object(pipeline, "resolve_model_settings", return_value=settings):
+        script, task_id = pipeline.create_video_task(
+            "p1", "https://example.com/portrait.png", "A continuous shot",
+            model=f"seedance-2.0-fast-{mode}", generation_mode=mode,
+            reference_image_urls=["https://example.com/portrait.png"] if mode == "r2v" else None,
+            ratio=explicit_ratio,
+        )
+    task = next(t for t in script.video_tasks if t.id == task_id)
+    assert task.ratio == expected
