@@ -407,9 +407,25 @@ class ScriptProcessor:
         return self.llm.is_configured
 
     def _missing_llm_credential(self) -> str:
-        """Return the credential name relevant to the active LLM provider."""
+        """Name the credential the active model would actually be called with.
+
+        Naming OPENAI_API_KEY here, as this used to, sends whoever reads the message to set
+        a variable nothing consults: the text tiers each carry their own key.
+        """
         provider = str(getattr(self.llm, "provider", "dashscope")).lower()
-        return "OPENAI_API_KEY" if provider == "openai" else "DASHSCOPE_API_KEY"
+        if provider != "openai":
+            return "DASHSCOPE_API_KEY"
+        resolve = getattr(self.llm, "credential_for", None)
+        if callable(resolve):
+            try:
+                name = resolve()[0]
+            except Exception:       # a message must never be the thing that fails
+                name = None
+            # Only a real variable name is worth printing; anything else (a stub, a mock)
+            # would put nonsense where the reader expects something to go and set.
+            if isinstance(name, str) and name:
+                return name
+        return "OPENAI_API_KEY"
 
     def parse_novel(self, title: str, text: str, custom_extraction_prompt: str = "") -> Script:
         """

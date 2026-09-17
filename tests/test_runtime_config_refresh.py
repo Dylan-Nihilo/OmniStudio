@@ -323,3 +323,54 @@ def test_with_no_platform_layer_resolution_is_unchanged(monkeypatch):
         assert workspace_getenv("DASHSCOPE_API_KEY") == "workspace-value"
     finally:
         current_workspace_config.reset(token)
+
+
+def test_readiness_agrees_with_what_a_call_would_actually_use(monkeypatch):
+    """The regression this replaces: script analysis refused to run with "LLM API Key 未配置"
+    on a platform where all three tiers answered. is_configured asked about OPENAI_API_KEY,
+    which no tier uses once the keys are per-model, so the gate contradicted the call path
+    standing right behind it."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("KAIZO_GPT_API_KEY", "sk-gpt")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    adapter = LLMAdapter()
+    assert adapter.credential_for() == ("KAIZO_GPT_API_KEY", "sk-gpt")
+    assert adapter.is_configured is True
+
+
+def test_readiness_is_false_when_the_default_tiers_key_is_missing(monkeypatch):
+    """The gate still has to close for real: a generic OPENAI_API_KEY lying around must not
+    make a tier look usable when its own key is absent, because the call would be refused by
+    the relay — that key cannot see this model."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "claude-opus-5")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-generic")
+    monkeypatch.delenv("KAIZO_CLAUDE_API_KEY", raising=False)
+
+    adapter = LLMAdapter()
+    assert adapter.credential_for() == ("KAIZO_CLAUDE_API_KEY", None)
+    assert adapter.is_configured is False
+
+
+def test_a_model_outside_the_catalog_still_falls_back_to_the_generic_key(monkeypatch):
+    """A custom endpoint configured by hand has no catalog entry and no per-model key."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "some-self-hosted-model")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-generic")
+
+    adapter = LLMAdapter()
+    assert adapter.credential_for() == ("OPENAI_API_KEY", "sk-generic")
+    assert adapter.is_configured is True
+
+
+def test_the_failure_message_names_the_variable_that_was_consulted(monkeypatch):
+    """Naming OPENAI_API_KEY sent whoever read the error to set a variable nothing reads."""
+    from src.apps.comic_gen.llm import ScriptProcessor
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "claude-opus-5")
+    processor = object.__new__(ScriptProcessor)
+    processor.llm = LLMAdapter()
+    assert processor._missing_llm_credential() == "KAIZO_CLAUDE_API_KEY"

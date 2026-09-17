@@ -3402,6 +3402,13 @@ def _provider_test_secret(provider: str, modality: str) -> tuple[str | None, boo
     keys = _PROVIDER_TEST_CREDENTIALS.get(provider, ())
     if provider == "openai" and modality == "image":
         keys = ("OPENAI_IMAGE_API_KEY",)
+    elif provider == "openai" and modality == "text":
+        # Text credentials are per model now, so the key to check depends on which tier is
+        # the default. Asked of the adapter rather than listed here, so the test keeps
+        # checking whatever generation actually reads when the tiers change.
+        from .llm_adapter import LLMAdapter
+
+        keys = (LLMAdapter().credential_for()[0],)
     values = [(key, (workspace_getenv(key, "") or "").strip()) for key in keys]
     if provider == "kling" and (workspace_getenv("KLING_PROVIDER_MODE", "") or "").strip().lower() == "vendor":
         values = [(key, (workspace_getenv(key, "") or "").strip()) for key in ("KLING_ACCESS_KEY", "KLING_SECRET_KEY")]
