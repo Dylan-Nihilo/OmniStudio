@@ -321,12 +321,12 @@ def _dialogue_audio_bounds(relative_path: str) -> Tuple[float, float]:
     audio_path = _safe_resolve_path("output", relative_path)
     probe = subprocess.run(
         [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration", "-of", "json", audio_path],
-        check=True, capture_output=True, text=True, timeout=30,
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
     )
     duration = float(json.loads(probe.stdout)["format"]["duration"])
     detection = subprocess.run(
         [get_ffmpeg_path(), "-nostdin", "-i", audio_path, "-af", "silencedetect=noise=-45dB:d=0.06",
-         "-f", "null", "-"], check=True, capture_output=True, text=True, timeout=30,
+         "-f", "null", "-"], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
     )
     # ponytail: fixed silence floor for generated voices; use relative loudness if quiet recordings are supported here.
     starts = [float(value) for value in re.findall(r"silence_start: ([\d.]+)", detection.stderr)]
