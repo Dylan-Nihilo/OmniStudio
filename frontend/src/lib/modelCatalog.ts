@@ -60,7 +60,7 @@ export interface FrontendModelSettings {
     storyboard_aspect_ratio: string;
 }
 
-type SelectionGroup = 't2i' | 'i2i' | 'image' | 'i2v' | 'r2v';
+type SelectionGroup = 't2i' | 'i2i' | 'image' | 'i2v' | 'r2v' | 't2v' | 'text';
 type ModelStatus = 'active' | 'planned' | 'deprecated' | 'hidden';
 type SettingsSurface = 'project_settings' | 'series_settings' | 'global_settings';
 type VisibilitySurface = SettingsSurface | 'video_sidebar';
@@ -72,6 +72,7 @@ interface CatalogModel {
     family: string;
     status: ModelStatus;
     capabilities: string[];
+    default_backend: string;
     duration?: DurationConfig | null;
     params?: ModelParamSupport;
     inputs?: {
@@ -281,6 +282,37 @@ function toI2VModel(model: CatalogModel): I2VModelConfig {
         family: model.family,
         status: model.status,
     };
+}
+
+/**
+ * Script model tiers, identified by the name that goes upstream rather than by catalog id.
+ *
+ * `polish_model` is handed straight to the LLM adapter and billing charges against exactly
+ * that string, so the option value has to stay the provider's own model name. Only the
+ * label becomes the tier — 标准/高级/卓越/极致 — which is what a writer actually chooses by.
+ */
+export interface TextTierOption {
+    /** The upstream model name, e.g. `gpt-5.6-sol`. Stored as `polish_model`. */
+    id: string;
+    name: string;
+    description: string;
+    recommended: boolean;
+}
+
+export function getTextTiers(surface: VisibilitySurface = 'project_settings'): TextTierOption[] {
+    return getVisibleModels('text', surface)
+        .map((model) => {
+            // Routing metadata lives on the canonical mode, not on the flat legacy entry.
+            const canonical = getCanonicalModeId(model.id);
+            const mode = canonical ? getCanonicalModeEntry(canonical) : null;
+            const runtime = (mode as { runtime?: Record<string, { api_model_id?: string }> } | null)?.runtime;
+            const upstream = runtime?.[model.default_backend]?.api_model_id;
+            return upstream
+                ? { id: upstream, name: model.display_name, description: model.description,
+                    recommended: !!model.ui.recommended }
+                : null;
+        })
+        .filter((tier): tier is TextTierOption => tier !== null);
 }
 
 function getConfiguredDefaultId(group: SelectionGroup): string {

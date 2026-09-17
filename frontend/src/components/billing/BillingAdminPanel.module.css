@@ -60,3 +60,10 @@
 
 .unit { margin-left: 3px; color: var(--color-text-secondary); font-size: 10px; font-weight: 400; }
 .headroom { display: block; margin-top: 1px; color: var(--color-text-muted, var(--color-text-secondary)); font-size: 10px; font-weight: 400; opacity: 0.75; }
+
+.providers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.provider { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--color-glass-border); border-radius: 999px; font-size: 11px; color: var(--color-text-secondary); }
+.providerMissing { border-color: var(--color-status-failed-fg, #b42318); }
+.providerCount { color: var(--color-text-muted); }
+.providerOk { color: var(--color-status-completed-fg, #067647); font-weight: 600; }
+.providerWarn { color: var(--color-status-failed-fg, #b42318); font-weight: 600; }

@@ -512,3 +512,228 @@ def test_every_tier_routes_to_a_distinct_upstream_model(recorder, tmp_path):
     assert all(line == "cn" and dialect == "seedance" for line, _, dialect in routes.values())
     # MiniMax is the one family on the USD line, and the one that needs the other dialect.
     assert model._resolve_route("minimax/minimax-h3", {}) == ("overseas", "minimax-A", "minimax_a")
+
+
+@pytest.mark.parametrize("key,expectation", [
+    ("task-123", "task-123"),
+    ("镜头一", None),                    # all non-ASCII: falls back to a bare hash
+    ("shot-镜头一", None),                # mixed: keeps the ASCII run, appends a hash
+])
+def test_a_non_ascii_idempotency_key_does_not_lose_the_generation(recorder, tmp_path, key, expectation):
+    """HTTP headers are latin-1, so a key with Chinese in it used to raise before the request
+    left the process. The key is caller-supplied; losing a job to an encoding error is worse
+    than reshaping the key."""
+    JojoKeyVideoModel({}).generate(
+        "a shot", str(tmp_path / f"out.mp4"), model="seedance-2.0-mini-t2v",
+        resolution="720p", idempotency_key=key)
+    sent = next(post["headers"]["Idempotency-Key"] for post in recorder.posts
+                if post["url"].endswith("/videos"))
+    assert sent.isascii() and sent
+    if expectation:
+        assert sent == expectation
+
+
+def test_different_non_ascii_keys_stay_different(recorder, tmp_path):
+    """Collapsing both to the same ASCII string would make two distinct jobs idempotent with
+    each other, and the second would silently return the first one's video."""
+    model = JojoKeyVideoModel({})
+    keys = []
+    for raw in ("镜头一", "镜头二"):
+        model.generate("a shot", str(tmp_path / "out.mp4"), model="seedance-2.0-mini-t2v",
+                       resolution="720p", idempotency_key=raw)
+        keys.append(recorder.posts[-1]["headers"]["Idempotency-Key"])
+    assert keys[0] != keys[1]
+
+
+def test_a_local_storyboard_frame_is_uploaded_and_needs_no_object_storage(monkeypatch, tmp_path):
+    """The reason this path exists.
+
+    Registering a CN asset by URL needs a URL the vendor's upstream can fetch, which would
+    have made our own object storage a hard prerequisite for every i2v and r2v shot — and
+    production has none configured. Uploading the file sidesteps that: JojoKey stores it and
+    hands back the handle.
+    """
+    frame = tmp_path / "frame.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+
+    class _UploadRecorder(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+            if url.endswith("/video-cn/assets"):
+                self.posts.append({"url": url, "headers": dict(headers or {}),
+                                   "files": sorted((files or {}).keys()), "data": dict(data or {})})
+                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://uploaded",
+                                          "sync_status": 2, "ready": True})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    rec = _UploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+
+    def _no_object_storage(*_args, **_kwargs):
+        raise AssertionError("the CN line must not need our object storage for a local file")
+
+    monkeypatch.setattr("src.models.jojokey.resolve_media_inputs", _no_object_storage)
+
+    JojoKeyVideoModel({}).generate(
+        "the character looks up", str(tmp_path / "out.mp4"), img_path=str(frame),
+        model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+    upload = next(post for post in rec.posts if post["url"].endswith("/video-cn/assets"))
+    assert upload["files"] == ["file"]
+    assert upload["data"]["asset_type"] == "1"                 # 1 = image
+    # requests must set the multipart boundary itself, so we may not send a Content-Type.
+    assert "Content-Type" not in upload["headers"]
+    assert upload["headers"]["Idempotency-Key"].startswith("omni-asset:image:")
+    assert _submit_body(rec)["content"][1]["image_url"]["url"] == "asset://uploaded"
+
+
+def test_the_same_frame_is_uploaded_once_however_it_is_reached(monkeypatch, tmp_path):
+    """Upload is billed per asset, and a storyboard points many shots at one reference. The
+    key is a content hash, so two paths to the same bytes still pay once."""
+    frame = tmp_path / "hero.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 64)
+    twin = tmp_path / "hero-copy.png"
+    twin.write_bytes(frame.read_bytes())
+
+    uploads: list[str] = []
+
+    class _UploadRecorder(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+            if url.endswith("/video-cn/assets"):
+                uploads.append((headers or {}).get("Idempotency-Key", ""))
+                return _Response(payload={"id": "a", "asset_url": "asset://uploaded",
+                                          "sync_status": 2, "ready": True})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    rec = _UploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+
+    model = JojoKeyVideoModel({})
+    for shot, path in enumerate((frame, twin, frame)):
+        model.generate("a shot", str(tmp_path / f"out{shot}.mp4"), img_path=str(path),
+                       model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+    # Three shots, two distinct paths, one set of bytes: the vendor dedupes on the key.
+    assert len(set(uploads)) == 1, uploads
+
+
+# --- reference image validation ------------------------------------------------------
+# The CN line refuses images outside its bounds without saying so: HTTP 200, an empty
+# asset_url, a ¥0.10 hold, and registration_state parked at "pending" for ever with
+# operation.error_code "submission_unknown". Bounds measured against the live line
+# (300x300 ok / 200x200 refused, 2.5:1 ok / 3.0:1 refused).
+
+def _image(tmp_path, size, fmt="PNG", name=None):
+    pytest.importorskip("PIL", reason="Pillow only writes the fixtures; the parser is stdlib")
+    from PIL import Image
+
+    path = tmp_path / (name or f"probe.{fmt.lower()}")
+    Image.new("RGB", size, (90, 120, 200)).save(path, fmt)
+    return str(path)
+
+
+# JPEG and WebP each have several encodings that store the dimensions differently, and the
+# offsets are easy to get wrong — the progressive and lossless cases below are exactly where
+# a hand-rolled parser goes astray (the first version of this one read the JPEG frame header
+# two bytes early and reported 769x640 for a 640x360 image).
+@pytest.mark.parametrize("label,kwargs,size", [
+    ("png", {"format": "PNG"}, (640, 360)),
+    ("jpeg-baseline", {"format": "JPEG"}, (641, 361)),
+    ("jpeg-progressive", {"format": "JPEG", "progressive": True}, (802, 455)),
+    ("webp-lossy", {"format": "WEBP", "lossless": False, "quality": 80}, (517, 289)),
+    ("webp-lossless", {"format": "WEBP", "lossless": True}, (413, 921)),
+])
+def test_dimensions_are_read_from_the_header_without_pillow(tmp_path, label, kwargs, size):
+    """Pillow is not a declared dependency here, so the parser must stand on its own —
+    otherwise the check silently disappears wherever Pillow is absent."""
+    pytest.importorskip("PIL", reason="Pillow only writes the fixtures; the parser is stdlib")
+    from PIL import Image
+
+    path = tmp_path / f"{label}.img"
+    Image.new("RGB", size, (30, 90, 160)).save(path, **kwargs)
+    assert JojoKeyVideoModel._image_size(str(path)) == size
+
+
+def test_a_file_we_cannot_parse_does_not_block_an_upload(tmp_path):
+    """Unknown header means "no opinion", not "refuse": guessing wrong here would reject
+    images the upstream would have accepted."""
+    path = tmp_path / "not-an-image.bin"
+    path.write_bytes(b"\x00\x01\x02\x03" * 16)
+    assert JojoKeyVideoModel._image_size(str(path)) is None
+    JojoKeyVideoModel({})._reject_unusable_image(str(path))
+
+
+def test_an_image_too_small_is_refused_before_it_is_paid_for(tmp_path):
+    model = JojoKeyVideoModel({})
+    with pytest.raises(ValueError, match="短边"):
+        model._reject_unusable_image(_image(tmp_path, (200, 200)))
+    # The boundary itself is allowed: 300 was measured as accepted.
+    model._reject_unusable_image(_image(tmp_path, (300, 300), name="ok.png"))
+
+
+def test_an_image_too_wide_is_refused_before_it_is_paid_for(tmp_path):
+    model = JojoKeyVideoModel({})
+    with pytest.raises(ValueError, match="长宽比"):
+        model._reject_unusable_image(_image(tmp_path, (1024, 341)))
+    model._reject_unusable_image(_image(tmp_path, (1024, 410), name="ok-aspect.png"))
+    # Tall images are bound by the same ratio, not just wide ones.
+    with pytest.raises(ValueError, match="长宽比"):
+        model._reject_unusable_image(_image(tmp_path, (341, 1024), name="tall.png"))
+
+
+def test_a_refused_registration_is_reported_not_waited_on():
+    """The failure is on the operation, not the asset, and no amount of polling clears it.
+    Before this, an empty asset_url raised immediately with the whole body dumped into the
+    message — which is how this reached a colleague as an unexplained failure."""
+    refused = {
+        "id": "cnasset_x", "asset_url": "", "registration_state": "pending",
+        "sync_status": None,
+        "operation": {"id": "cnmat_x", "state": "unknown", "billing_state": "reserved",
+                      "held_cny": 0.1, "error_code": "submission_unknown", "result": {}},
+    }
+    reason = JojoKeyVideoModel._registration_failure(refused)
+    assert reason and "submission_unknown" in reason and "短边" in reason
+    with pytest.raises(RuntimeError, match="素材登记失败"):
+        JojoKeyVideoModel({})._await_asset("https://example.invalid/v1", "cnasset_x", refused)
+
+
+def test_a_registration_still_in_flight_is_polled_rather_than_failed(monkeypatch):
+    """An empty asset_url on the first response means the handle has not been issued yet.
+    The direct-upload path fills it in a few seconds later."""
+    first = {"id": "cnasset_y", "asset_url": "", "registration_state": "pending",
+             "sync_status": 1, "operation": {"state": "succeeded", "error_code": ""}}
+    ready = {"id": "cnasset_y", "asset_url": "asset://asset-ready", "sync_status": 2,
+             "registration_state": "registered", "ready": True}
+
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _s: None)
+    monkeypatch.setattr("src.models.jojokey.requests.get", lambda *a, **k: _Response(200, ready))
+    assert JojoKeyVideoModel({})._asset_url_from(first, phase="upload") == "asset://asset-ready"
+
+
+def test_the_suppliers_own_source_url_is_preferred_over_the_asset_handle():
+    """Deliberately not what the docs say to do.
+
+    The docs put the ``asset://`` handle into content[], but the CN line currently refuses
+    it: a registered asset at sync_status 2 answers InvalidVideoCnAsset for first_frame, for
+    reference_image and for the bare asset id, while the same file referenced by its plain
+    https source_url is accepted and renders. source_url is the supplier's own domestic
+    bucket, so it is reachable from inside China without any storage of ours.
+    """
+    ready = {
+        "id": "cnasset_z", "sync_status": 2, "ready": True,
+        "registration_state": "registered",
+        "asset_url": "asset://asset-20260916-refused",
+        "source_url": "https://jojocn.oss-cn-shanghai.aliyuncs.com/cn-materials/x/y.png",
+    }
+    assert JojoKeyVideoModel({})._asset_url_from(ready, phase="upload") == ready["source_url"]
+
+
+def test_the_asset_handle_is_still_used_when_there_is_no_source_url():
+    """So this reverts to the documented path on its own once the supplier fixes the handle,
+    rather than needing another release."""
+    ready = {"id": "cnasset_z", "sync_status": 2, "ready": True,
+             "asset_url": "asset://asset-20260916-ok"}
+    assert JojoKeyVideoModel({})._asset_url_from(ready, phase="upload") == "asset://asset-20260916-ok"

@@ -97,6 +97,9 @@ export interface EnvConfigPayload {
     // Secrets from GET are masked (bullets + last 4 chars). This map reports
     // which credential fields are actually configured on the backend.
     secrets_configured?: Record<string, boolean>;
+    // Which layer a save writes: "platform" on a centrally operated deployment, where the
+    // settings apply to every workspace, or "workspace" on a desktop build.
+    config_scope?: "platform" | "workspace";
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
 }
 

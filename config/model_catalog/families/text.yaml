@@ -1,0 +1,114 @@
+family: text
+display_name: "剧本文本模型"
+provider: newapi
+routing_prefixes:
+  - text/
+supported_backends:
+  - newapi
+default_backend: newapi
+# The relay scopes each key to one model group — a key can only see its own models — so the
+# tiers do not share a credential. Which one a tier uses is `api_key_env` on its runtime.
+credential_sources:
+  newapi:
+    - KAIZO_DEEPSEEK_API_KEY
+    - KAIZO_GPT_API_KEY
+    - KAIZO_CLAUDE_API_KEY
+supported_modalities:
+  - text
+# Text has no media inputs, but the transport block is part of the family contract, so the
+# modes are declared and simply unused rather than left to fail a lookup at runtime.
+transport:
+  image_input_mode:
+    newapi: newapi_unsupported
+  audio_input_mode:
+    newapi: newapi_unsupported
+  reference_video_input_mode:
+    newapi: newapi_unsupported
+docs:
+  official_snapshot_ids:
+    - kaizo/text/2026-09-15
+
+# Three tiers, same naming as the price book. `api_model_id` is the string the LLM adapter
+# sends upstream, and billing charges against exactly that string — it must stay equal to
+# whatever follows `text/` in config/pricing/price_book.seed.json, or a generation fails
+# with PRICING_ITEM_NOT_FOUND the moment billing is switched on.
+#
+# They reach us through kaizo.top, which speaks the OpenAI protocol: LLM_PROVIDER=openai with
+# OPENAI_BASE_URL pointed at it, and a key per tier as noted above. A Gemini tier is not
+# offered: none of the three keys can see a Gemini model on this relay.
+models:
+  - id: text/deepseek-v4.1-flash
+    display_name: 标准
+    description: DeepSeek V4.1 Flash — 自部署，速度快、成本最低，适合量产分镜与常规改写
+    # Hidden for a day while the self-hosted upstream was down (the relay answered "分组 自建DS
+    # 无可用渠道" — the key was never the problem). Verified answering again 2026-09-15.
+    status: active
+    release_stage: stable
+    docs:
+      context_hub_doc_ids:
+        - newapi/text-tiers
+    runtime:
+      newapi:
+        gateway: newapi
+        api_model_id: DeepSeek-V4.1-Flash
+        api_key_env: KAIZO_DEEPSEEK_API_KEY
+    modes:
+      text:
+        legacy_id: text-standard
+        display_name: 标准
+        description: 速度快、成本最低，适合量产分镜与常规改写
+        capabilities: [text]
+        ui:
+          selection_group: text
+          visible_in: [project_settings, series_settings, global_settings]
+          order: 40
+
+  - id: text/gpt-5.6-sol
+    display_name: 高级
+    description: GPT 5.6 Sol — 文本与视觉兼备，适合需要读图的润色
+    status: active
+    release_stage: stable
+    docs:
+      context_hub_doc_ids:
+        - newapi/text-tiers
+    runtime:
+      newapi:
+        gateway: newapi
+        api_model_id: gpt-5.6-sol
+        api_key_env: KAIZO_GPT_API_KEY
+    modes:
+      text:
+        legacy_id: text-advanced
+        display_name: 高级
+        description: 文本与视觉兼备，适合需要读图的润色与分镜校对
+        capabilities: [text]
+        ui:
+          selection_group: text
+          visible_in: [project_settings, series_settings, global_settings]
+          order: 60
+          recommended: true
+
+  - id: text/claude-opus-5
+    display_name: 极致
+    description: Claude Opus 5 — 长篇叙事与人物一致性最强，成本最高
+    status: active
+    release_stage: stable
+    docs:
+      context_hub_doc_ids:
+        - newapi/text-tiers
+    runtime:
+      newapi:
+        gateway: newapi
+        api_model_id: claude-opus-5
+        api_key_env: KAIZO_CLAUDE_API_KEY
+    modes:
+      text:
+        legacy_id: text-ultimate
+        display_name: 极致
+        description: 长篇叙事与人物一致性最强，适合关键集数与定稿
+        capabilities: [text]
+        ui:
+          selection_group: text
+          visible_in: [project_settings, series_settings, global_settings]
+          order: 70
+          badges: [latest]

@@ -125,4 +125,46 @@ def test_wallet_hides_itself_while_billing_is_switched_off(tmp_path: Path, monke
 
         _invite_member(client, me["workspace_id"], "member")
         member = client.get("/billing/wallet").json()
-        assert member == {"enabled": False, "role": None}
+        # A member learns nothing about the wallet, but does learn the deployment is
+        # centrally operated — that is what tells the UI to hide the credential settings,
+        # and this is the response an ordinary user gets while billing is still off.
+        assert member == {"enabled": False, "role": None, "platform_managed": True}
+
+
+def test_provider_readiness_answers_whether_a_model_can_actually_run(tmp_path: Path, monkeypatch):
+    """The price book says what we charge; this says whether it can run at all.
+
+    A model can be priced, visible and picked and still fail because nobody filled in a key,
+    which is the failure root keeps having to diagnose by hand.
+    """
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-configured")
+    monkeypatch.delenv("OPEN302_API_KEY", raising=False)
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        _setup_owner(client)
+        rows = client.get("/admin/providers")
+        assert rows.status_code == 200, rows.text
+        by_family = {row["family"]: row for row in rows.json()}
+
+        seedance = by_family["seedance"]
+        assert seedance["backend"] == "jojokey" and seedance["stages"] == ["video"]
+        assert seedance["configured"] is True and seedance["missing_credentials"] == []
+        assert seedance["model_count"] >= 12
+
+        # The image tiers are priced and pickable but have no key, so images cannot run.
+        image = by_family["gpt-image"]
+        assert image["backend"] == "open302"
+        assert image["configured"] is False
+        assert image["missing_credentials"] == ["OPEN302_API_KEY"]
+        assert image["model_count"] == 3
+
+        # Credentials themselves never cross the wire, only whether each one is set.
+        assert "sk-configured" not in rows.text
+
+
+def test_provider_readiness_is_root_only(tmp_path: Path, monkeypatch):
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        me = _setup_owner(client)
+        _invite_member(client, me["workspace"]["id"], "member")
+        assert client.get("/admin/providers").status_code == 403

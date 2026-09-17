@@ -13,8 +13,9 @@ describe("describePriceItem", () => {
         expect(describePriceItem({ model_id: "seedance/seedance-2.0-video#r2v", stage: "video" })).toEqual({
             name: "Seedance 2.0 卓越 R2V", capability: "r2v", selectable: true, planned: false, retired: false, family: "seedance",
         });
+        // Image models carry tier names now, same as text and video.
         expect(describePriceItem({ model_id: "gpt-image/gpt-image-2#image", stage: "image" }).name)
-            .toBe("GPT Image 2");
+            .toBe("高级");
     });
 
     it("flags a generation model the catalog does not offer", () => {

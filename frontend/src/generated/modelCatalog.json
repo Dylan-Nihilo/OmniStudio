@@ -1,7 +1,9 @@
 {
   "compat": {
     "legacy_model_ids": {
+      "gemini-3.1-flash-image": "gpt-image/gemini-3.1-flash-image#image",
       "gpt-image-2": "gpt-image/gpt-image-2#image",
+      "gpt-image-2.5-sunburst": "gpt-image/gpt-image-2.5-sunburst#image",
       "happyhorse-1.0-video-edit": "happyhorse/happyhorse-1.0-video-edit#i2v",
       "happyhorse-1.1-i2v": "happyhorse/happyhorse-1.1-video#i2v",
       "happyhorse-1.1-r2v": "happyhorse/happyhorse-1.1-video#r2v",
@@ -29,6 +31,9 @@
       "seedance-2.5-i2v": "seedance/seedance-2.5-video#i2v",
       "seedance-2.5-r2v": "seedance/seedance-2.5-video#r2v",
       "seedance-2.5-t2v": "seedance/seedance-2.5-video#t2v",
+      "text-advanced": "text/gpt-5.6-sol#text",
+      "text-standard": "text/deepseek-v4.1-flash#text",
+      "text-ultimate": "text/claude-opus-5#text",
       "viduq3-pro-i2v": "vidu/viduq3-pro-video#i2v",
       "viduq3-pro-r2v": "vidu/viduq3-pro-video#r2v",
       "viduq3-turbo-i2v": "vidu/viduq3-turbo-video#i2v",
@@ -73,27 +78,30 @@
     "gpt-image": {
       "backend_env_key": null,
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "open302": [
+          "OPEN302_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "display_name": "GPT Image (OpenAI)",
+      "default_backend": "open302",
+      "display_name": "图片生成",
       "docs": {
         "official_snapshot_ids": [
-          "mulerouter/gpt-image-2/2026-06-03"
+          "open302/image/2026-09-15"
         ]
       },
       "family": "gpt-image",
       "models": [
-        "gpt-image-2"
+        "gemini-3.1-flash-image",
+        "gpt-image-2",
+        "gpt-image-2.5-sunburst"
       ],
-      "provider": "mulerouter",
+      "provider": "open302",
       "routing_prefixes": [
+        "gemini-image-",
         "gpt-image-"
       ],
       "supported_backends": [
-        "mulerouter"
+        "open302"
       ],
       "supported_modalities": [
         "t2i",
@@ -101,13 +109,13 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "open302": "open302_unsupported"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "open302": "open302_multipart_image"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "open302": "open302_unsupported"
         }
       }
     },
@@ -402,6 +410,50 @@
         }
       }
     },
+    "text": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "display_name": "剧本文本模型",
+      "docs": {
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "family": "text",
+      "models": [
+        "text-advanced",
+        "text-standard",
+        "text-ultimate"
+      ],
+      "provider": "newapi",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "supported_backends": [
+        "newapi"
+      ],
+      "supported_modalities": [
+        "text"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      }
+    },
     "vidu": {
       "backend_env_key": "VIDU_PROVIDER_MODE",
       "credential_sources": {
@@ -521,22 +573,80 @@
     }
   },
   "model_lines": {
+    "gpt-image/gemini-3.1-flash-image": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "open302": [
+          "OPEN302_API_KEY"
+        ]
+      },
+      "default_backend": "open302",
+      "description": "Gemini 3.1 Flash Image — 出图快、成本最低，适合量产分镜与草图",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "open302/image-tiers"
+        ],
+        "official_snapshot_ids": [
+          "open302/image/2026-09-15"
+        ]
+      },
+      "family": "gpt-image",
+      "id": "gpt-image/gemini-3.1-flash-image",
+      "legacy_model_ids": [
+        "gemini-3.1-flash-image"
+      ],
+      "modes": [
+        "gpt-image/gemini-3.1-flash-image#image"
+      ],
+      "provider": "open302",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "gemini-image-",
+        "gpt-image-"
+      ],
+      "runtime": {
+        "open302": {
+          "api_model_id": "gemini-3.1-flash-image",
+          "gateway": "open302"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "open302"
+      ],
+      "supported_modalities": [
+        "t2i",
+        "i2i"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "open302": "open302_unsupported"
+        },
+        "image_input_mode": {
+          "open302": "open302_multipart_image"
+        },
+        "reference_video_input_mode": {
+          "open302": "open302_unsupported"
+        }
+      }
+    },
     "gpt-image/gpt-image-2": {
       "backend_env_key": null,
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "open302": [
+          "OPEN302_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "description": "OpenAI GPT-Image-2 via MuleRouter (T2I + I2I editing)",
-      "display_name": "GPT Image 2",
+      "default_backend": "open302",
+      "description": "GPT Image 2 — 指令服从度高，支持文字渲染与参考图编辑",
+      "display_name": "高级",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/gpt-image-2"
+          "open302/image-tiers"
         ],
         "official_snapshot_ids": [
-          "mulerouter/gpt-image-2/2026-06-03"
+          "open302/image/2026-09-15"
         ]
       },
       "family": "gpt-image",
@@ -547,19 +657,21 @@
       "modes": [
         "gpt-image/gpt-image-2#image"
       ],
-      "provider": "mulerouter",
+      "provider": "open302",
       "release_stage": "stable",
       "routing_prefixes": [
+        "gemini-image-",
         "gpt-image-"
       ],
       "runtime": {
-        "mulerouter": {
-          "gateway": "mulerouter"
+        "open302": {
+          "api_model_id": "gpt-image-2",
+          "gateway": "open302"
         }
       },
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "open302"
       ],
       "supported_modalities": [
         "t2i",
@@ -567,13 +679,71 @@
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "open302": "open302_unsupported"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "open302": "open302_multipart_image"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "open302": "open302_unsupported"
+        }
+      }
+    },
+    "gpt-image/gpt-image-2.5-sunburst": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "open302": [
+          "OPEN302_API_KEY"
+        ]
+      },
+      "default_backend": "open302",
+      "description": "GPT Image 2.5 Sunburst — 最高画质档，适合关键镜头与定稿",
+      "display_name": "卓越",
+      "docs": {
+        "context_hub_doc_ids": [
+          "open302/image-tiers"
+        ],
+        "official_snapshot_ids": [
+          "open302/image/2026-09-15"
+        ]
+      },
+      "family": "gpt-image",
+      "id": "gpt-image/gpt-image-2.5-sunburst",
+      "legacy_model_ids": [
+        "gpt-image-2.5-sunburst"
+      ],
+      "modes": [
+        "gpt-image/gpt-image-2.5-sunburst#image"
+      ],
+      "provider": "open302",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "gemini-image-",
+        "gpt-image-"
+      ],
+      "runtime": {
+        "open302": {
+          "api_model_id": "gpt-image-2.5-sunburst",
+          "gateway": "open302"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "open302"
+      ],
+      "supported_modalities": [
+        "t2i",
+        "i2i"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "open302": "open302_unsupported"
+        },
+        "image_input_mode": {
+          "open302": "open302_multipart_image"
+        },
+        "reference_video_input_mode": {
+          "open302": "open302_unsupported"
         }
       }
     },
@@ -1549,6 +1719,183 @@
         },
         "reference_video_input_mode": {
           "jojokey": "jojokey_content_video_url"
+        }
+      }
+    },
+    "text/claude-opus-5": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "Claude Opus 5 — 长篇叙事与人物一致性最强，成本最高",
+      "display_name": "极致",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "family": "text",
+      "id": "text/claude-opus-5",
+      "legacy_model_ids": [
+        "text-ultimate"
+      ],
+      "modes": [
+        "text/claude-opus-5#text"
+      ],
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "runtime": {
+        "newapi": {
+          "api_key_env": "KAIZO_CLAUDE_API_KEY",
+          "api_model_id": "claude-opus-5",
+          "gateway": "newapi"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "supported_modalities": [
+        "text"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      }
+    },
+    "text/deepseek-v4.1-flash": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "DeepSeek V4.1 Flash — 自部署，速度快、成本最低，适合量产分镜与常规改写",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "family": "text",
+      "id": "text/deepseek-v4.1-flash",
+      "legacy_model_ids": [
+        "text-standard"
+      ],
+      "modes": [
+        "text/deepseek-v4.1-flash#text"
+      ],
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "runtime": {
+        "newapi": {
+          "api_key_env": "KAIZO_DEEPSEEK_API_KEY",
+          "api_model_id": "DeepSeek-V4.1-Flash",
+          "gateway": "newapi"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "supported_modalities": [
+        "text"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      }
+    },
+    "text/gpt-5.6-sol": {
+      "backend_env_key": null,
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "GPT 5.6 Sol — 文本与视觉兼备，适合需要读图的润色",
+      "display_name": "高级",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "family": "text",
+      "id": "text/gpt-5.6-sol",
+      "legacy_model_ids": [
+        "text-advanced"
+      ],
+      "modes": [
+        "text/gpt-5.6-sol#text"
+      ],
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "runtime": {
+        "newapi": {
+          "api_key_env": "KAIZO_GPT_API_KEY",
+          "api_model_id": "gpt-5.6-sol",
+          "gateway": "newapi"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "supported_modalities": [
+        "text"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
         }
       }
     },
@@ -2534,6 +2881,84 @@
     }
   },
   "models": {
+    "gemini-3.1-flash-image": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2i",
+        "i2i"
+      ],
+      "credential_sources": {
+        "open302": [
+          "OPEN302_API_KEY"
+        ]
+      },
+      "default_backend": "open302",
+      "description": "Gemini 3.1 Flash Image — 出图快、成本最低，适合量产分镜与草图",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "open302/image-tiers"
+        ],
+        "official_snapshot_ids": [
+          "open302/image/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "gpt-image",
+      "id": "gemini-3.1-flash-image",
+      "inputs": {
+        "reference_images": {
+          "max": 3,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "seed": false,
+        "size": {
+          "default": "1024x1024",
+          "options": [
+            "1024x1024",
+            "1536x1024",
+            "1024x1536"
+          ]
+        },
+        "watermark": false
+      },
+      "provider": "open302",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "gemini-image-",
+        "gpt-image-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "open302"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "open302": "open302_unsupported"
+        },
+        "image_input_mode": {
+          "open302": "open302_multipart_image"
+        },
+        "reference_video_input_mode": {
+          "open302": "open302_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "image",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
     "gpt-image-2": {
       "backend_env_key": null,
       "capabilities": [
@@ -2541,25 +2966,30 @@
         "i2i"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "open302": [
+          "OPEN302_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "description": "OpenAI GPT-Image-2 via MuleRouter (T2I + I2I editing)",
-      "display_name": "GPT Image 2",
+      "default_backend": "open302",
+      "description": "GPT Image 2 — 指令服从度高，支持文字渲染与参考图编辑",
+      "display_name": "高级",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/gpt-image-2"
+          "open302/image-tiers"
         ],
         "official_snapshot_ids": [
-          "mulerouter/gpt-image-2/2026-06-03"
+          "open302/image/2026-09-15"
         ]
       },
       "duration": null,
       "family": "gpt-image",
       "id": "gpt-image-2",
-      "inputs": {},
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
       "params": {
         "negativePrompt": false,
         "promptExtend": false,
@@ -2579,39 +3009,126 @@
             "1536x1024",
             "1024x1536",
             "2048x2048",
-            "2048x1152",
-            "3840x2160",
-            "2160x3840"
+            "3840x2160"
           ]
         },
         "watermark": false
       },
-      "provider": "mulerouter",
+      "provider": "open302",
       "release_stage": "stable",
       "routing_prefixes": [
+        "gemini-image-",
         "gpt-image-"
       ],
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "open302"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "open302": "open302_unsupported"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "open302": "open302_multipart_image"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "open302": "open302_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 80,
+        "recommended": true,
+        "selection_group": "image",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "gpt-image-2.5-sunburst": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2i",
+        "i2i"
+      ],
+      "credential_sources": {
+        "open302": [
+          "OPEN302_API_KEY"
+        ]
+      },
+      "default_backend": "open302",
+      "description": "GPT Image 2.5 Sunburst — 最高画质档，适合关键镜头与定稿",
+      "display_name": "卓越",
+      "docs": {
+        "context_hub_doc_ids": [
+          "open302/image-tiers"
+        ],
+        "official_snapshot_ids": [
+          "open302/image/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "gpt-image",
+      "id": "gpt-image-2.5-sunburst",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "quality": {
+          "default": "high",
+          "options": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "seed": false,
+        "size": {
+          "default": "1024x1024",
+          "options": [
+            "1024x1024",
+            "1536x1024",
+            "1024x1536",
+            "2048x2048",
+            "3840x2160"
+          ]
+        },
+        "watermark": false
+      },
+      "provider": "open302",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "gemini-image-",
+        "gpt-image-"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "open302"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "open302": "open302_unsupported"
+        },
+        "image_input_mode": {
+          "open302": "open302_multipart_image"
+        },
+        "reference_video_input_mode": {
+          "open302": "open302_unsupported"
         }
       },
       "ui": {
         "badges": [
-          "new"
+          "latest"
         ],
-        "order": 95,
-        "recommended": true,
+        "order": 90,
+        "recommended": false,
         "selection_group": "image",
         "visible_in": [
           "project_settings",
@@ -4879,6 +5396,188 @@
         ]
       }
     },
+    "text-advanced": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "文本与视觉兼备，适合需要读图的润色与分镜校对",
+      "display_name": "高级",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text-advanced",
+      "inputs": {},
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 60,
+        "recommended": true,
+        "selection_group": "text",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "text-standard": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "速度快、成本最低，适合量产分镜与常规改写",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text-standard",
+      "inputs": {},
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 40,
+        "recommended": false,
+        "selection_group": "text",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "text-ultimate": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "长篇叙事与人物一致性最强，适合关键集数与定稿",
+      "display_name": "极致",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text-ultimate",
+      "inputs": {},
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [
+          "latest"
+        ],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "text",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
     "viduq3-pro-i2v": {
       "backend_env_key": "VIDU_PROVIDER_MODE",
       "capabilities": [
@@ -6522,6 +7221,93 @@
     }
   },
   "modes": {
+    "gpt-image/gemini-3.1-flash-image#image": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2i",
+        "i2i"
+      ],
+      "credential_sources": {
+        "open302": [
+          "OPEN302_API_KEY"
+        ]
+      },
+      "default_backend": "open302",
+      "description": "Gemini 3.1 Flash Image — 出图快、成本最低，适合量产分镜与草图",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "open302/image-tiers"
+        ],
+        "official_snapshot_ids": [
+          "open302/image/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "gpt-image",
+      "id": "gpt-image/gemini-3.1-flash-image#image",
+      "inputs": {
+        "reference_images": {
+          "max": 3,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "gemini-3.1-flash-image",
+      "mode": "image",
+      "model_line_id": "gpt-image/gemini-3.1-flash-image",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "seed": false,
+        "size": {
+          "default": "1024x1024",
+          "options": [
+            "1024x1024",
+            "1536x1024",
+            "1024x1536"
+          ]
+        },
+        "watermark": false
+      },
+      "provider": "open302",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "gemini-image-",
+        "gpt-image-"
+      ],
+      "runtime": {
+        "open302": {
+          "api_model_id": "gemini-3.1-flash-image",
+          "gateway": "open302"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "open302"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "open302": "open302_unsupported"
+        },
+        "image_input_mode": {
+          "open302": "open302_multipart_image"
+        },
+        "reference_video_input_mode": {
+          "open302": "open302_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "image",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
     "gpt-image/gpt-image-2#image": {
       "backend_env_key": null,
       "capabilities": [
@@ -6529,25 +7315,30 @@
         "i2i"
       ],
       "credential_sources": {
-        "mulerouter": [
-          "MULEROUTER_API_KEY"
+        "open302": [
+          "OPEN302_API_KEY"
         ]
       },
-      "default_backend": "mulerouter",
-      "description": "OpenAI GPT-Image-2 via MuleRouter (T2I + I2I editing)",
-      "display_name": "GPT Image 2",
+      "default_backend": "open302",
+      "description": "GPT Image 2 — 指令服从度高，支持文字渲染与参考图编辑",
+      "display_name": "高级",
       "docs": {
         "context_hub_doc_ids": [
-          "mulerouter/gpt-image-2"
+          "open302/image-tiers"
         ],
         "official_snapshot_ids": [
-          "mulerouter/gpt-image-2/2026-06-03"
+          "open302/image/2026-09-15"
         ]
       },
       "duration": null,
       "family": "gpt-image",
       "id": "gpt-image/gpt-image-2#image",
-      "inputs": {},
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
       "legacy_model_id": "gpt-image-2",
       "mode": "image",
       "model_line_id": "gpt-image/gpt-image-2",
@@ -6570,44 +7361,141 @@
             "1536x1024",
             "1024x1536",
             "2048x2048",
-            "2048x1152",
-            "3840x2160",
-            "2160x3840"
+            "3840x2160"
           ]
         },
         "watermark": false
       },
-      "provider": "mulerouter",
+      "provider": "open302",
       "release_stage": "stable",
       "routing_prefixes": [
+        "gemini-image-",
         "gpt-image-"
       ],
       "runtime": {
-        "mulerouter": {
-          "gateway": "mulerouter"
+        "open302": {
+          "api_model_id": "gpt-image-2",
+          "gateway": "open302"
         }
       },
       "status": "active",
       "supported_backends": [
-        "mulerouter"
+        "open302"
       ],
       "transport": {
         "audio_input_mode": {
-          "mulerouter": "mulerouter_audio_url"
+          "open302": "open302_unsupported"
         },
         "image_input_mode": {
-          "mulerouter": "mulerouter_base64_image"
+          "open302": "open302_multipart_image"
         },
         "reference_video_input_mode": {
-          "mulerouter": "mulerouter_video_url"
+          "open302": "open302_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 80,
+        "recommended": true,
+        "selection_group": "image",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "gpt-image/gpt-image-2.5-sunburst#image": {
+      "backend_env_key": null,
+      "capabilities": [
+        "t2i",
+        "i2i"
+      ],
+      "credential_sources": {
+        "open302": [
+          "OPEN302_API_KEY"
+        ]
+      },
+      "default_backend": "open302",
+      "description": "GPT Image 2.5 Sunburst — 最高画质档，适合关键镜头与定稿",
+      "display_name": "卓越",
+      "docs": {
+        "context_hub_doc_ids": [
+          "open302/image-tiers"
+        ],
+        "official_snapshot_ids": [
+          "open302/image/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "gpt-image",
+      "id": "gpt-image/gpt-image-2.5-sunburst#image",
+      "inputs": {
+        "reference_images": {
+          "max": 9,
+          "reference_type": "image"
+        }
+      },
+      "legacy_model_id": "gpt-image-2.5-sunburst",
+      "mode": "image",
+      "model_line_id": "gpt-image/gpt-image-2.5-sunburst",
+      "params": {
+        "negativePrompt": false,
+        "promptExtend": false,
+        "quality": {
+          "default": "high",
+          "options": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "seed": false,
+        "size": {
+          "default": "1024x1024",
+          "options": [
+            "1024x1024",
+            "1536x1024",
+            "1024x1536",
+            "2048x2048",
+            "3840x2160"
+          ]
+        },
+        "watermark": false
+      },
+      "provider": "open302",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "gemini-image-",
+        "gpt-image-"
+      ],
+      "runtime": {
+        "open302": {
+          "api_model_id": "gpt-image-2.5-sunburst",
+          "gateway": "open302"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "open302"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "open302": "open302_unsupported"
+        },
+        "image_input_mode": {
+          "open302": "open302_multipart_image"
+        },
+        "reference_video_input_mode": {
+          "open302": "open302_unsupported"
         }
       },
       "ui": {
         "badges": [
-          "new"
+          "latest"
         ],
-        "order": 95,
-        "recommended": true,
+        "order": 90,
+        "recommended": false,
         "selection_group": "image",
         "visible_in": [
           "project_settings",
@@ -9129,6 +10017,218 @@
           "project_settings",
           "series_settings",
           "video_sidebar",
+          "global_settings"
+        ]
+      }
+    },
+    "text/claude-opus-5#text": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "长篇叙事与人物一致性最强，适合关键集数与定稿",
+      "display_name": "极致",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text/claude-opus-5#text",
+      "inputs": {},
+      "legacy_model_id": "text-ultimate",
+      "mode": "text",
+      "model_line_id": "text/claude-opus-5",
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "runtime": {
+        "newapi": {
+          "api_key_env": "KAIZO_CLAUDE_API_KEY",
+          "api_model_id": "claude-opus-5",
+          "gateway": "newapi"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [
+          "latest"
+        ],
+        "order": 70,
+        "recommended": false,
+        "selection_group": "text",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "text/deepseek-v4.1-flash#text": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "速度快、成本最低，适合量产分镜与常规改写",
+      "display_name": "标准",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text/deepseek-v4.1-flash#text",
+      "inputs": {},
+      "legacy_model_id": "text-standard",
+      "mode": "text",
+      "model_line_id": "text/deepseek-v4.1-flash",
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "runtime": {
+        "newapi": {
+          "api_key_env": "KAIZO_DEEPSEEK_API_KEY",
+          "api_model_id": "DeepSeek-V4.1-Flash",
+          "gateway": "newapi"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 40,
+        "recommended": false,
+        "selection_group": "text",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
+          "global_settings"
+        ]
+      }
+    },
+    "text/gpt-5.6-sol#text": {
+      "backend_env_key": null,
+      "capabilities": [
+        "text"
+      ],
+      "credential_sources": {
+        "newapi": [
+          "KAIZO_DEEPSEEK_API_KEY",
+          "KAIZO_GPT_API_KEY",
+          "KAIZO_CLAUDE_API_KEY"
+        ]
+      },
+      "default_backend": "newapi",
+      "description": "文本与视觉兼备，适合需要读图的润色与分镜校对",
+      "display_name": "高级",
+      "docs": {
+        "context_hub_doc_ids": [
+          "newapi/text-tiers"
+        ],
+        "official_snapshot_ids": [
+          "kaizo/text/2026-09-15"
+        ]
+      },
+      "duration": null,
+      "family": "text",
+      "id": "text/gpt-5.6-sol#text",
+      "inputs": {},
+      "legacy_model_id": "text-advanced",
+      "mode": "text",
+      "model_line_id": "text/gpt-5.6-sol",
+      "params": {},
+      "provider": "newapi",
+      "release_stage": "stable",
+      "routing_prefixes": [
+        "text/"
+      ],
+      "runtime": {
+        "newapi": {
+          "api_key_env": "KAIZO_GPT_API_KEY",
+          "api_model_id": "gpt-5.6-sol",
+          "gateway": "newapi"
+        }
+      },
+      "status": "active",
+      "supported_backends": [
+        "newapi"
+      ],
+      "transport": {
+        "audio_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "image_input_mode": {
+          "newapi": "newapi_unsupported"
+        },
+        "reference_video_input_mode": {
+          "newapi": "newapi_unsupported"
+        }
+      },
+      "ui": {
+        "badges": [],
+        "order": 60,
+        "recommended": true,
+        "selection_group": "text",
+        "visible_in": [
+          "project_settings",
+          "series_settings",
           "global_settings"
         ]
       }

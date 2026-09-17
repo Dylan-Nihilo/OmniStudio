@@ -34,6 +34,7 @@ from .base import VideoGenModel
 from ..utils.endpoints import get_provider_base_url
 from ..utils.model_catalog import get_catalog_accessor
 from ..utils.oss_utils import OSSImageUploader
+from ..utils.media_refs import resolve_local_media_path
 from ..utils.provider_media import resolve_media_inputs
 from ..utils.workspace_env import workspace_getenv
 
@@ -59,6 +60,22 @@ MINIMAX_A_MODES = {"t2v": "text", "i2v": "keyframe", "r2v": "reference", "v2v": 
 CN_ASSET_TYPES = {"image": 1, "video": 2, "audio": 3}
 
 _TERMINAL_FAILURES = {"failed", "cancelled", "expired"}
+
+# The upstream silently refuses images outside these bounds. Neither the bounds nor the
+# refusal are documented: a registration comes back HTTP 200 with an empty asset_url, holds
+# ¥0.10, parks at registration_state "pending" for ever, and reports nothing more useful
+# than operation.error_code "submission_unknown". Measured against the live CN line on
+# 2026-09-16, one ¥0.10 registration per data point:
+#
+#     300x300  ok        200x200  refused        (short side)
+#     1024x410 ok (2.5)  1024x341 refused (3.0)  (aspect)
+#
+# which lands exactly on the limits Volcengine publishes for Seedance — short side at least
+# 300px, aspect no wider than 5:2. Checking here costs nothing and turns an unexplained
+# failure into a message naming the actual image, so a storyboard frame that cannot work is
+# rejected before it is paid for.
+CN_IMAGE_MIN_SIDE = 300
+CN_IMAGE_MAX_ASPECT = 2.5
 
 
 class CnLineUnavailable(RuntimeError):
@@ -121,13 +138,28 @@ class JojoKeyVideoModel(VideoGenModel):
 
     # ---- HTTP plumbing -----------------------------------------------------------
 
+    @staticmethod
+    def _header_safe_key(value: str) -> str:
+        """Reduce an idempotency key to something a header can carry.
+
+        HTTP headers are latin-1, so a key with any non-ASCII in it raises before the request
+        leaves. Job ids are ASCII today, but a key is caller-supplied and losing a generation
+        to an encoding error is a bad trade. Non-ASCII runs collapse to a hash of the original
+        so two different keys still cannot converge on one.
+        """
+        if value.isascii():
+            return value[:128]
+        digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:20]
+        ascii_part = "".join(char for char in value if char.isascii() and char.isprintable())
+        return f"{ascii_part[:80]}-{digest}".lstrip("-")
+
     def _headers(self, *, idempotency_key: Optional[str] = None) -> Dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
         if idempotency_key:
-            headers["Idempotency-Key"] = idempotency_key
+            headers["Idempotency-Key"] = self._header_safe_key(str(idempotency_key))
         return headers
 
     def _base(self, line: str) -> str:
@@ -162,7 +194,12 @@ class JojoKeyVideoModel(VideoGenModel):
     # ---- reference assets --------------------------------------------------------
 
     def _resolved_urls(self, refs: List[str], *, model_id: str, modality: str) -> List[str]:
-        """Turn project-side refs into public URLs JojoKey can fetch."""
+        """Turn project-side refs into public URLs JojoKey can fetch.
+
+        Only used for the overseas line, which reads the URL itself, and for CN-line audio,
+        which has no upload endpoint. CN images and videos go up as files instead — see
+        `_cn_asset_for`, which needs no object storage of ours at all.
+        """
         if not refs:
             return []
         resolved = resolve_media_inputs(
@@ -173,6 +210,190 @@ class JojoKeyVideoModel(VideoGenModel):
             uploader=OSSImageUploader(),
         )
         return [item.value for item in resolved]
+
+    def _cn_asset_for(self, ref: str, *, model_id: str, modality: str,
+                      group_id: Optional[str]) -> str:
+        """Get a CN-line ``asset://`` handle for one project reference.
+
+        A local file is uploaded directly. That matters more than it sounds: registering by
+        URL requires a URL the vendor's upstream can reach, which would have made our own
+        object storage a hard prerequisite for every i2v and r2v shot. Uploading sidesteps
+        that entirely — JojoKey stores the file on their side and hands back the handle.
+
+        Audio is the exception: it has no upload endpoint and must be registered from an
+        HTTPS URL, so it still goes through media resolution.
+        """
+        if modality != "audio":
+            local_path = resolve_local_media_path(ref, project_root=None) or (
+                ref if os.path.isfile(ref) else None)
+            if local_path:
+                return self._upload_cn_asset(local_path, modality=modality, group_id=group_id,
+                                             cache_key=ref)
+        # Already a URL, an OSS object key, or audio: resolve to something fetchable first.
+        url = self._resolved_urls([ref], model_id=model_id, modality=modality)[0]
+        return self._register_cn_asset(url, modality=modality, group_id=group_id)
+
+    def _upload_cn_asset(self, local_path: str, *, modality: str, group_id: Optional[str],
+                         cache_key: str) -> str:
+        cached = self._asset_cache.get((modality, cache_key))
+        if cached:
+            return cached
+
+        if modality == "image":
+            self._reject_unusable_image(local_path)
+
+        base = get_provider_base_url("JOJOKEY")
+        digest = self._file_digest(local_path)
+        data = {"asset_type": str(CN_ASSET_TYPES[modality]),
+                "asset_name": os.path.basename(local_path) or f"omni-{modality}"}
+        if group_id:
+            data["group_id"] = group_id
+        with open(local_path, "rb") as handle:
+            response = requests.post(
+                f"{base}/video-cn/assets",
+                headers=self._upload_headers(f"omni-asset:{modality}:{digest}"),
+                files={"file": (os.path.basename(local_path), handle)},
+                data=data,
+                timeout=180,
+            )
+        self._ensure_success(response, "asset upload")
+        asset_url = self._asset_url_from(response.json(), phase="upload")
+        self._asset_cache[(modality, cache_key)] = asset_url
+        return asset_url
+
+    @staticmethod
+    def _image_size(path: str) -> Optional[Tuple[int, int]]:
+        """Read (width, height) from an image header, for the three formats the CN line takes.
+
+        Done by hand rather than with Pillow: Pillow is not a declared dependency of this
+        project — it is commented out in requirements.txt and nothing else imports it — so
+        relying on it would make this check quietly vanish wherever it happens not to be
+        installed. Returns None for anything unrecognised, which skips the check rather than
+        blocking an upload over a header we cannot parse.
+        """
+        try:
+            with open(path, "rb") as handle:
+                head = handle.read(32)
+                if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+                    return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
+                if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+                    chunk = head[12:16]
+                    if chunk == b"VP8X":
+                        # 24-bit canvas width/height, stored minus one.
+                        return (int.from_bytes(head[24:27], "little") + 1,
+                                int.from_bytes(head[27:30], "little") + 1)
+                    if chunk == b"VP8 ":
+                        # Frame header: 3-byte tag, 3-byte start code, then 14-bit dimensions.
+                        return (int.from_bytes(head[26:28], "little") & 0x3FFF,
+                                int.from_bytes(head[28:30], "little") & 0x3FFF)
+                    if chunk == b"VP8L":
+                        bits = int.from_bytes(head[21:25], "little")
+                        return ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+                if head[:2] == b"\xff\xd8":
+                    handle.seek(2)
+                    while True:
+                        marker = handle.read(2)
+                        if len(marker) < 2 or marker[0] != 0xFF:
+                            return None
+                        if marker[1] in (0xD8, 0xD9) or 0xD0 <= marker[1] <= 0xD7:
+                            continue
+                        length = int.from_bytes(handle.read(2), "big")
+                        # Start-of-frame markers carry the dimensions; SOF4/SOF8/SOF12 do not.
+                        if marker[1] in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                                         0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+                            # Segment body: 1 byte sample precision, then height, then width.
+                            body = handle.read(5)
+                            return (int.from_bytes(body[3:5], "big"), int.from_bytes(body[1:3], "big"))
+                        handle.seek(length - 2, os.SEEK_CUR)
+        except OSError:
+            return None
+        return None
+
+    def _reject_unusable_image(self, path: str) -> None:
+        """Refuse an image the upstream will refuse anyway, while it is still free to do so."""
+        size = self._image_size(path)
+        if size is None:
+            return
+        width, height = size
+        if min(width, height) <= 0:
+            return
+        aspect = max(width, height) / min(width, height)
+        if min(width, height) < CN_IMAGE_MIN_SIDE:
+            raise ValueError(
+                f"参考图 {os.path.basename(path)} 为 {width}×{height}，短边不足 "
+                f"{CN_IMAGE_MIN_SIDE}px，Seedance 国内线会拒绝。请换用更大的分镜图。")
+        if aspect > CN_IMAGE_MAX_ASPECT:
+            raise ValueError(
+                f"参考图 {os.path.basename(path)} 为 {width}×{height}（{aspect:.2f}:1），"
+                f"长宽比超过 {CN_IMAGE_MAX_ASPECT}:1，Seedance 国内线会拒绝。请裁成更接近方形的比例。")
+
+    @staticmethod
+    def _file_digest(path: str) -> str:
+        """Content hash, so the same image is uploaded — and billed — once however it is
+        reached. Registration costs ¥0.10 an asset, and a storyboard reuses references
+        across many shots."""
+        digest = hashlib.sha1()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()[:20]
+
+    def _upload_headers(self, idempotency_key: str) -> Dict[str, str]:
+        # requests sets the multipart Content-Type with its boundary; setting it here breaks it.
+        return {"Authorization": f"Bearer {self.api_key}",
+                "Idempotency-Key": self._header_safe_key(idempotency_key)}
+
+    def _asset_url_from(self, body: Dict[str, Any], *, phase: str) -> str:
+        """Get a reference the CN line will actually accept for a registered asset.
+
+        Their own ``source_url`` is used in preference to the ``asset://`` handle, even
+        though the handle is what the docs tell you to put in ``content[]``. The handle is
+        currently refused: a freshly registered asset sitting at registration_state
+        "registered" with sync_status 2 comes back InvalidVideoCnAsset — "无权使用或无法供
+        目标上游读取" — for first_frame, for reference_image, and for the raw asset id, while
+        the same file submitted as its plain https source_url is accepted and renders
+        (verified end to end on 2026-09-16, task cnvid_89a20ed14f473c33). source_url points
+        at the supplier's own domestic bucket, so it needs no object storage of ours and is
+        reachable from inside China by construction. The handle stays as the fallback so
+        this reverts to the documented path the moment they fix it.
+
+        The reference is not always in the first response either: a registration still being
+        submitted answers with both fields empty and fills them in later, so empty means
+        "poll", not "failed" — raising on it turned every slow registration into an error
+        that dumped the whole response body.
+        """
+        def reference(payload: Dict[str, Any]) -> Optional[str]:
+            return (payload.get("source_url") or payload.get("asset_url")
+                    or payload.get("url") or None)
+
+        direct = reference(body)
+        if direct and self._asset_is_ready(body):
+            return str(direct)
+        synced = self._await_asset(get_provider_base_url("JOJOKEY"), str(body.get("id") or ""), body)
+        resolved = reference(synced) or direct
+        if not resolved:
+            raise RuntimeError(f"JojoKey asset {phase} produced no usable reference: {synced or body}")
+        return str(resolved)
+
+    @staticmethod
+    def _registration_failure(body: Dict[str, Any]) -> Optional[str]:
+        """The reason a registration will never complete, if it has one.
+
+        The operation carries this, not the asset: a refused image sits at
+        registration_state "pending" with an operation in state "unknown" and error_code
+        "submission_unknown", and waiting longer does not change it.
+        """
+        operation = body.get("operation") or {}
+        code = operation.get("error_code") or ""
+        state = str(operation.get("state") or "").lower()
+        if not code and state not in _TERMINAL_FAILURES:
+            return None
+        if code == "submission_unknown":
+            # Measured cause: the upstream refuses the image and reports nothing specific.
+            return ("上游拒绝了这张参考图且未说明原因（submission_unknown）。已知触发条件是"
+                    f"短边小于 {CN_IMAGE_MIN_SIDE}px 或长宽比超过 {CN_IMAGE_MAX_ASPECT}:1。"
+                    f"本次登记已预扣 ¥{operation.get('held_cny', 0.1)}。")
+        return code or f"registration {state}"
 
     def _register_cn_asset(self, url: str, *, modality: str, group_id: Optional[str]) -> str:
         """Register a public URL as a CN-line ``asset://`` handle.
@@ -208,27 +429,30 @@ class JojoKeyVideoModel(VideoGenModel):
             timeout=60,
         )
         self._ensure_success(response, "asset registration")
-        body = response.json()
-        asset_url = body.get("asset_url") or body.get("url")
-        asset_id = body.get("id")
-        if not asset_url:
-            raise RuntimeError(f"JojoKey asset registration returned no asset_url: {body}")
-        if not self._asset_is_ready(body):
-            self._await_asset(base, str(asset_id), body)
-        self._asset_cache[(modality, url)] = str(asset_url)
-        return str(asset_url)
+        asset_url = self._asset_url_from(response.json(), phase="registration")
+        self._asset_cache[(modality, url)] = asset_url
+        return asset_url
 
     @staticmethod
     def _asset_is_ready(body: Dict[str, Any]) -> bool:
         # sync_status 2 is the vendor's "synced, safe to use"; `ready` mirrors it.
         return bool(body.get("ready")) or body.get("sync_status") == 2
 
-    def _await_asset(self, base: str, asset_id: str, first: Dict[str, Any]) -> None:
-        """Poll a freshly registered asset until the upstream can read it."""
+    def _await_asset(self, base: str, asset_id: str, first: Dict[str, Any]) -> Dict[str, Any]:
+        """Poll a freshly registered asset until the upstream can read it.
+
+        Returns the response that reported it ready, because that is where the handle is when
+        the first response came back without one.
+        """
         if not asset_id:
             raise RuntimeError(f"JojoKey asset is not synced and has no id to poll: {first}")
+        # A refusal is already visible in the first response, so check before waiting at all.
+        refused = self._registration_failure(first)
+        if refused:
+            raise RuntimeError(f"JojoKey 素材登记失败：{refused}")
         deadline = self._env_number("JOJOKEY_ASSET_SYNC_SECONDS", DEFAULT_ASSET_SYNC_SECONDS)
         waited = 0
+        body = first
         while waited < deadline:
             time.sleep(ASSET_POLL_INTERVAL_SECONDS)
             waited += ASSET_POLL_INTERVAL_SECONDS
@@ -238,13 +462,18 @@ class JojoKeyVideoModel(VideoGenModel):
             body = response.json()
             if self._asset_is_ready(body):
                 logger.info("[JojoKey] Asset %s synced after %ss", asset_id, waited)
-                return
+                return body
+            refused = self._registration_failure(body)
+            if refused:
+                raise RuntimeError(f"JojoKey 素材登记失败：{refused}")
             error = (body.get("operation") or {}).get("result", {}).get("sync_error") or ""
             if error:
                 raise RuntimeError(f"JojoKey asset {asset_id} failed to sync: {error}")
         raise RuntimeError(
-            f"JojoKey asset {asset_id} was still unsynced after {deadline}s. The CN line has to "
-            "fetch the source URL itself, so it must be reachable from inside China.")
+            f"JojoKey asset {asset_id} was still unsynced after {deadline}s "
+            f"(registration_state={body.get('registration_state')!r}). A registration by URL "
+            "needs the source reachable from inside China; an uploaded file should not stall, "
+            "so a stall here is worth reporting to the supplier.")
 
     # ---- payload -----------------------------------------------------------------
 
@@ -394,24 +623,26 @@ class JojoKeyVideoModel(VideoGenModel):
             first_frame = primary
             ref_images = []
 
-        image_urls = self._resolved_urls(
-            ([first_frame] if first_frame else []) + ref_images,
-            model_id=model_id, modality="image")
-        video_urls = self._resolved_urls(
-            [url for url in (kwargs.get("ref_video_urls") or []) if url],
-            model_id=model_id, modality="video")
-        audio_urls = self._resolved_urls(
-            [url for url in ([kwargs.get("audio_url")] if kwargs.get("audio_url") else []) if url],
-            model_id=model_id, modality="audio")
+        image_refs = ([first_frame] if first_frame else []) + ref_images
+        video_refs = [url for url in (kwargs.get("ref_video_urls") or []) if url]
+        audio_refs = [url for url in ([kwargs.get("audio_url")] if kwargs.get("audio_url") else []) if url]
 
         if line == "cn":
+            # The CN line wants asset:// handles, and a local file can be uploaded straight
+            # to it — so a storyboard frame reaches the model without our own object storage
+            # being configured at all.
             group_id = kwargs.get("asset_group_id")
-            image_urls = [self._register_cn_asset(url, modality="image", group_id=group_id)
-                          for url in image_urls]
-            video_urls = [self._register_cn_asset(url, modality="video", group_id=group_id)
-                          for url in video_urls]
-            audio_urls = [self._register_cn_asset(url, modality="audio", group_id=group_id)
-                          for url in audio_urls]
+            image_urls = [self._cn_asset_for(ref, model_id=model_id, modality="image", group_id=group_id)
+                          for ref in image_refs]
+            video_urls = [self._cn_asset_for(ref, model_id=model_id, modality="video", group_id=group_id)
+                          for ref in video_refs]
+            audio_urls = [self._cn_asset_for(ref, model_id=model_id, modality="audio", group_id=group_id)
+                          for ref in audio_refs]
+        else:
+            # The overseas line fetches the URL itself, so the reference has to be reachable.
+            image_urls = self._resolved_urls(image_refs, model_id=model_id, modality="image")
+            video_urls = self._resolved_urls(video_refs, model_id=model_id, modality="video")
+            audio_urls = self._resolved_urls(audio_refs, model_id=model_id, modality="audio")
 
         resolved_first_frame = image_urls[0] if first_frame and image_urls else None
         resolved_references = image_urls if not first_frame else []

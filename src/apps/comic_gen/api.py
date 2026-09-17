@@ -98,7 +98,11 @@ from .collaboration_context import (
     current_workspace_role,
 )
 from .audit import record_request_event
-from ...utils.workspace_env import current_workspace_config, workspace_getenv
+from ...utils.workspace_env import (
+    current_platform_config,
+    current_workspace_config,
+    workspace_getenv,
+)
 from ... import audio as _audio_pkg  # noqa: F401 - ensures src.audio is importable before use
 from ...audio import tts as _tts_module
 from ...billing import BillingServices
@@ -166,6 +170,11 @@ _WORKSPACE_PROVIDER_CONFIG_KEYS = {
     "MOMA_BASE_URL",
     "JOJOKEY_API_KEY",
     "JOJOKEY_BASE_URL",
+    "OPEN302_API_KEY",
+    "OPEN302_BASE_URL",
+    "KAIZO_DEEPSEEK_API_KEY",
+    "KAIZO_GPT_API_KEY",
+    "KAIZO_CLAUDE_API_KEY",
     "IMAGE_PROVIDER",
 }
 
@@ -968,6 +977,57 @@ def _is_workspace_viewer(context) -> bool:
     return getattr(getattr(context, "membership", None), "access_role", "member") == "viewer"
 
 
+# Provider credentials and the probes that use them. On a centrally operated deployment the
+# platform holds these and users only pick models and spend credits, so they belong to root
+# rather than to every workspace owner. Model defaults stay out of this list: those are a
+# creative choice, not infrastructure.
+_ROOT_REQUIRED_PATHS = frozenset({("config", "env"), ("config", "provider-test")})
+
+
+def _root_required_for_request(path: str) -> bool:
+    parts = tuple(part for part in path.strip("/").split("/") if part)
+    return parts in _ROOT_REQUIRED_PATHS
+
+
+def _role_service(request: Request):
+    """Role lookups for the credential gate, straight off the request's engine.
+
+    Deliberately not the app-scoped BillingServices: that one caches itself on app.state,
+    and this gate runs on plain /config traffic, so it would pin a services object to
+    whichever engine happened to be current — which leaks across tests that swap the engine
+    under the module-level app. The gate only needs roles, which is a thin wrapper anyway.
+    """
+    from ...billing.roles import RoleService
+
+    engine = getattr(request.app.state, "storage_engine", None)
+    return RoleService(engine) if engine is not None else None
+
+
+def _platform_is_root_managed(request: Request) -> bool:
+    """Whether anyone holds root, i.e. whether credentials are centrally operated.
+
+    A desktop build has no platform roles at all and its owner must be able to enter their
+    own keys, so the gate below only applies once a root exists. An unprovisioned deployment
+    with no role table yet is treated the same way.
+    """
+    try:
+        service = _role_service(request)
+        return bool(service and service.has_root())
+    except Exception:
+        return False
+
+
+def _config_scope(request: Request) -> str:
+    """Which layer this caller's provider settings belong in: "platform" or "workspace".
+
+    Decided by the deployment rather than by a field in the request, because each kind of
+    deployment only has one sensible answer. On a centrally operated platform the route gate
+    has already refused everyone but root, and root's settings are the platform's settings.
+    A desktop build has no root at all, so its owner keeps writing their own workspace.
+    """
+    return "platform" if _platform_is_root_managed(request) else "workspace"
+
+
 def _owner_required_for_request(method: str, path: str) -> bool:
     parts = [part for part in path.strip("/").split("/") if part]
     if parts and parts[0] in {"config", "debug", "diagnose", "system"}:
@@ -1009,6 +1069,7 @@ def _apply_security_headers(response):
 async def enforce_auth_and_security_headers(request: Request, call_next):
     role_token = None
     config_token = None
+    platform_token = None
     workspace_token = None
     actor_token = None
     try:
@@ -1059,25 +1120,17 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             workspace_config = service.repository.get_workspace_provider_config(
                 context.workspace.id
             )
-            if (
-                not workspace_config
-                and _is_workspace_owner(context)
-                and getattr(context.workspace, "slug", None) == "default"
-            ):
-                inherited = {
-                    key: value
-                    for key in _WORKSPACE_PROVIDER_CONFIG_KEYS
-                    if (value := os.getenv(key)) is not None
-                }
-                if inherited:
-                    workspace_config = service.repository.update_workspace_provider_config(
-                        workspace_id=context.workspace.id,
-                        user_id=context.user.id,
-                        values=inherited,
-                        removed_keys=[],
-                        now=time.time(),
-                    )
+            # The default workspace used to inherit a copy of .env on first access. With a
+            # platform layer that is precisely the bug to avoid: the copy is a workspace
+            # override, so it outranks the operator's settings for ever — rotate a key in the
+            # console and that workspace keeps using the copy. Nothing seeds the override
+            # layer any more; .env is read as the bottom layer instead of being duplicated.
+            #
+            # Loaded per request rather than cached: it is one row, and a process-local cache
+            # would go stale in every other worker the moment root saved.
+            platform_config = service.repository.get_platform_provider_config()
             config_token = current_workspace_config.set(workspace_config)
+            platform_token = current_platform_config.set(platform_config)
             workspace_token = current_workspace_id.set(context.workspace.id)
             actor_token = current_actor_user_id.set(context.user.id)
             if _owner_required_for_request(request.method.upper(), request.url.path) and not _is_workspace_owner(context):
@@ -1086,6 +1139,14 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
                     "只有 Workspace Owner 可以执行此操作",
                     status_code=403,
                 )
+            if _root_required_for_request(request.url.path) and _platform_is_root_managed(request):
+                roles = _role_service(request)
+                if not roles or roles.role_of(context.user.id) != "root":
+                    raise AuthError(
+                        "AUTH_ROOT_REQUIRED",
+                        "模型凭据由平台统一管理，只有超级管理员可以查看和修改",
+                        status_code=403,
+                    )
             if request.method.upper() in _MUTATING_METHODS and _is_workspace_viewer(context):
                 raise AuthError(
                     "AUTH_VIEWER_READ_ONLY",
@@ -1168,6 +1229,8 @@ async def enforce_auth_and_security_headers(request: Request, call_next):
             current_workspace_role.reset(role_token)
         if config_token is not None:
             current_workspace_config.reset(config_token)
+        if platform_token is not None:
+            current_platform_config.reset(platform_token)
         if workspace_token is not None:
             current_workspace_id.reset(workspace_token)
         if actor_token is not None:
@@ -3307,6 +3370,10 @@ class EnvConfig(ProviderRoutingConfig):
     MULEROUTER_API_KEY: Optional[str] = None
     MOMA_API_KEY: Optional[str] = None
     JOJOKEY_API_KEY: Optional[str] = None
+    OPEN302_API_KEY: Optional[str] = None
+    KAIZO_DEEPSEEK_API_KEY: Optional[str] = None
+    KAIZO_GPT_API_KEY: Optional[str] = None
+    KAIZO_CLAUDE_API_KEY: Optional[str] = None
     endpoint_overrides: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -3326,6 +3393,8 @@ _PROVIDER_TEST_CREDENTIALS = {
     "mulerouter": ("MULEROUTER_API_KEY",),
     "moma": ("MOMA_API_KEY",),
     "jojokey": ("JOJOKEY_API_KEY",),
+    "open302": ("OPEN302_API_KEY",),
+    "newapi": ('KAIZO_DEEPSEEK_API_KEY', 'KAIZO_GPT_API_KEY', 'KAIZO_CLAUDE_API_KEY'),
 }
 
 
@@ -3534,21 +3603,41 @@ def update_env_config(config: EnvConfig, request: Request):
                 # Clear override: remove from env and config file
                 keys_to_remove.append(env_key)
         context = request.state.auth_context
-        request.app.state.auth_service.repository.update_workspace_provider_config(
-            workspace_id=context.workspace.id,
-            user_id=context.user.id,
-            values=config_dict,
-            removed_keys=keys_to_remove,
-            now=time.time(),
-        )
+        repository = request.app.state.auth_service.repository
+        # Where the write lands follows the deployment, and the route above already decided
+        # who may write at all: on a centrally operated platform only root gets here, and
+        # what they configure has to reach every workspace, not just their own. A desktop
+        # build has no root and keeps its settings where it always did.
+        scope = _config_scope(request)
+        if scope == "platform":
+            repository.update_platform_provider_config(
+                user_id=context.user.id,
+                values=config_dict,
+                removed_keys=keys_to_remove,
+                now=time.time(),
+            )
+        else:
+            repository.update_workspace_provider_config(
+                workspace_id=context.workspace.id,
+                user_id=context.user.id,
+                values=config_dict,
+                removed_keys=keys_to_remove,
+                now=time.time(),
+            )
         record_request_event(
             request,
             action="provider.config.update",
-            object_type="workspace",
-            object_id=str(context.workspace.id),
-            metadata={"changed_keys": sorted(config_dict.keys()), "removed_keys": sorted(keys_to_remove)},
+            object_type="platform" if scope == "platform" else "workspace",
+            object_id="platform" if scope == "platform" else str(context.workspace.id),
+            metadata={"changed_keys": sorted(config_dict.keys()), "removed_keys": sorted(keys_to_remove),
+                      "scope": scope},
         )
-        return {"status": "success", "message": "Configuration saved to Workspace"}
+        return {
+            "status": "success",
+            "scope": scope,
+            "message": ("Configuration saved for the whole platform" if scope == "platform"
+                        else "Configuration saved to Workspace"),
+        }
     except Exception as e:
         logger.exception("Failed to save environment configuration")
         raise HTTPException(status_code=500, detail=str(e))
@@ -7171,6 +7260,10 @@ SECRET_FIELDS = {
     "MULEROUTER_API_KEY",
     "MOMA_API_KEY",
     "JOJOKEY_API_KEY",
+    "OPEN302_API_KEY",
+    "KAIZO_DEEPSEEK_API_KEY",
+    "KAIZO_GPT_API_KEY",
+    "KAIZO_CLAUDE_API_KEY",
 }
 
 # Bullet sentinel: never appears in a real key, so the save path can detect an
@@ -7191,7 +7284,7 @@ def _mask_secret(value: Optional[str]) -> str:
 
 
 @app.get("/config/env")
-def get_env_config():
+def get_env_config(request: Request):
     """Get current environment configuration.
 
     Secrets are masked (bullets + last 4 chars) and never returned in
@@ -7227,6 +7320,10 @@ def get_env_config():
             "MULEROUTER_API_KEY": _mask_secret(workspace_getenv("MULEROUTER_API_KEY")),
             "MOMA_API_KEY": _mask_secret(workspace_getenv("MOMA_API_KEY")),
             "JOJOKEY_API_KEY": _mask_secret(workspace_getenv("JOJOKEY_API_KEY")),
+            "OPEN302_API_KEY": _mask_secret(workspace_getenv("OPEN302_API_KEY")),
+            "KAIZO_DEEPSEEK_API_KEY": _mask_secret(workspace_getenv("KAIZO_DEEPSEEK_API_KEY")),
+            "KAIZO_GPT_API_KEY": _mask_secret(workspace_getenv("KAIZO_GPT_API_KEY")),
+            "KAIZO_CLAUDE_API_KEY": _mask_secret(workspace_getenv("KAIZO_CLAUDE_API_KEY")),
             # Non-secret config.
             "OSS_BUCKET_NAME": workspace_getenv("OSS_BUCKET_NAME", ""),
             "OSS_ENDPOINT": workspace_getenv("OSS_ENDPOINT", ""),
@@ -7244,6 +7341,10 @@ def get_env_config():
             "PIXVERSE_PROVIDER_MODE": _normalize_provider_mode(workspace_getenv("PIXVERSE_PROVIDER_MODE")),
             "endpoint_overrides": endpoint_overrides,
             "secrets_configured": secrets_configured,
+            # Values above are the resolved ones — whatever the layers add up to. This says
+            # which layer a save would write, so root can tell "this applies to everybody"
+            # from "this applies to my machine" instead of inferring it from their role.
+            "config_scope": _config_scope(request),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

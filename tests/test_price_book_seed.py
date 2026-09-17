@@ -82,8 +82,8 @@ def test_text_and_tts_quote_through_their_own_entry_points(published):
     # quantities are characters, billed per 1000 at whole-credit rates
     # 标准 is 1 credit in / 2 out per 1000 chars: 20 x 1 + 5 x 2
     assert published.runtime.quote_text("text/DeepSeek-V4.1-Flash", 20_000, 5_000).credits == 30
-    # 极致 is 4 in / 8 out: 20 x 4 + 5 x 8
-    assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 120
+    # 极致 is 3 in / 6 out: 20 x 3 + 5 x 6
+    assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 90
     # 600 characters of dialogue at 9 credits per 1000
     assert published.runtime.quote("tts/cosyvoice-v2", {}, 600 / 1000).credits == 6
 
@@ -97,14 +97,18 @@ def test_a_spec_outside_the_price_book_is_refused_rather_than_free(published):
 
 
 def test_each_text_tier_costs_one_more_credit_than_the_one_below(published):
-    """Cost alone puts three of the four tiers at the 1-credit floor, which makes an upgrade
-    invisible on the bill. The tiers are priced as a ladder instead: 1/2/3/4 credits per 1000
-    characters of input, and double that for output."""
+    """Cost alone puts every tier at or near the 1-credit floor, which makes an upgrade
+    invisible on the bill. The tiers are priced as a ladder instead: 1/2/3 credits per 1000
+    characters of input, and double that for output.
+
+    Three tiers, not four: the relay we buy text from scopes each key to one model group, and
+    no key we hold can see a Gemini model, so that tier was dropped rather than sold as a
+    model nobody can run."""
     snapshot = published.runtime.require_current()
-    tiers = ("DeepSeek-V4.1-Flash", "gemini-3.7-flash", "gpt-5.6-sol", "claude-opus-5")
+    tiers = ("DeepSeek-V4.1-Flash", "gpt-5.6-sol", "claude-opus-5")
     rate = lambda name, direction: snapshot.quote(f"text/{name}", {"direction": direction}, 1).credits
-    assert [rate(name, "in") for name in tiers] == [1, 2, 3, 4]
-    assert [rate(name, "out") for name in tiers] == [2, 4, 6, 8]
+    assert [rate(name, "in") for name in tiers] == [1, 2, 3]
+    assert [rate(name, "out") for name in tiers] == [2, 4, 6]
 
 
 def test_every_image_stays_inside_the_price_band_we_promised(published):
@@ -133,13 +137,35 @@ def test_every_model_a_user_can_pick_has_a_price():
         (Path(__file__).resolve().parents[1] / "config" / "model_catalog" / "generated" / "model_catalog.json")
         .read_text(encoding="utf-8"))
     priced = {item["model_id"] for item in json.loads(SEED.read_text(encoding="utf-8"))["items"]}
+    generation_groups = {"i2v", "r2v", "t2v", "v2v", "image", "t2i", "i2i"}
     selectable = {
         mode_id for mode_id, mode in catalog["modes"].items()
         if mode.get("status") == "active"
         and (mode.get("ui") or {}).get("visible_in")
-        and (mode.get("ui") or {}).get("selection_group") in {"i2v", "r2v", "t2v", "v2v", "image", "t2i", "i2i"}
+        and (mode.get("ui") or {}).get("selection_group") in generation_groups
     }
     assert sorted(selectable - priced) == []
+
+
+def test_every_text_tier_a_user_can_pick_has_a_price():
+    """Text is keyed differently from image and video: the price book keys on the model name
+    the adapter sends upstream (`text/<api_model_id>`), not on the catalog's own mode id,
+    because billing charges against whatever string actually went to the provider. A tier
+    whose api_model_id drifts from the price book bills nothing and then fails outright.
+    """
+    catalog = json.loads(
+        (Path(__file__).resolve().parents[1] / "config" / "model_catalog" / "generated" / "model_catalog.json")
+        .read_text(encoding="utf-8"))
+    priced = {item["model_id"] for item in json.loads(SEED.read_text(encoding="utf-8"))["items"]
+              if item["stage"] == "text"}
+    tiers = {
+        mode["display_name"]: f'text/{((mode.get("runtime") or {}).get("newapi") or {}).get("api_model_id")}'
+        for mode in catalog["modes"].values()
+        if (mode.get("ui") or {}).get("selection_group") == "text"
+        and mode.get("status") == "active" and (mode.get("ui") or {}).get("visible_in")
+    }
+    assert tiers, "the catalog should offer text tiers"
+    assert sorted(set(tiers.values()) - priced) == [], tiers
 
 
 def test_seedance_25_is_priced_above_what_it_actually_costs(published):
