@@ -29,6 +29,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout
 
 from .base import VideoGenModel
 from ..utils.endpoints import get_provider_base_url
@@ -137,6 +138,20 @@ class JojoKeyVideoModel(VideoGenModel):
         return line, str(upstream), dialect
 
     # ---- HTTP plumbing -----------------------------------------------------------
+
+    @staticmethod
+    def submission_outcome_unknown(error: Optional[str]) -> bool:
+        """Legacy task errors have no reason code; retain the key after transport failures.
+
+        A confirmed provider rejection must get a fresh key when retried. A disconnected
+        poll must replay its original submission key so the provider returns the same job.
+        """
+        message = error or ""
+        return any(marker in message for marker in (
+            "HTTPSConnectionPool", "HTTPConnectionPool", "ConnectTimeout", "ReadTimeout",
+            "JojoKey task timed out after", "JojoKey poll failed with HTTP 429",
+            "JojoKey poll failed with HTTP 5", "JojoKey download failed with HTTP 5",
+        ))
 
     @staticmethod
     def _header_safe_key(value: str) -> str:
@@ -687,11 +702,21 @@ class JojoKeyVideoModel(VideoGenModel):
         poll_interval = self._env_number("JOJOKEY_POLL_INTERVAL_SECONDS", DEFAULT_POLL_INTERVAL_SECONDS)
         poll_url = f"{submit_url}/{task_id}"
         elapsed = 0
+        started = time.monotonic()
 
         while True:
-            response = requests.get(poll_url, headers=self._headers(), timeout=30)
-            self._ensure_success(response, "poll")
-            task = response.json()
+            task = {}
+            try:
+                response = requests.get(poll_url, headers=self._headers(), timeout=30)
+                if response.status_code == 429 or 500 <= response.status_code < 600:
+                    logger.warning("[JojoKey] Task %s poll unavailable (HTTP %s); retaining task",
+                                   task_id, response.status_code)
+                else:
+                    self._ensure_success(response, "poll")
+                    task = response.json()
+            except (RequestsConnectionError, Timeout) as error:
+                logger.warning("[JojoKey] Task %s poll interrupted (%s); retaining task",
+                               task_id, type(error).__name__)
             status = str(task.get("status") or "").strip().lower()
             logger.info("[JojoKey] Task %s status: %s (%ss)", task_id, status or "unknown", elapsed)
 
@@ -703,10 +728,12 @@ class JojoKeyVideoModel(VideoGenModel):
             if status in _TERMINAL_FAILURES:
                 raise RuntimeError(f"JojoKey task {status}: {self._describe_failure(task)}")
 
+            elapsed = max(elapsed, time.monotonic() - started)
             if elapsed >= max_wait:
                 break
-            time.sleep(poll_interval)
-            elapsed += poll_interval
+            delay = min(poll_interval, max_wait - elapsed)
+            time.sleep(delay)
+            elapsed += delay
 
         raise RuntimeError(f"JojoKey task timed out after {max_wait}s")
 

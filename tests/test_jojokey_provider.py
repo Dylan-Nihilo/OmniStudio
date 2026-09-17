@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import pytest
+from requests.exceptions import ConnectTimeout
 
 from src.apps.comic_gen.models import VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
@@ -352,6 +353,43 @@ def test_polling_gives_up_instead_of_hanging_forever(monkeypatch, tmp_path):
                                        model="seedance-2.0-t2v", resolution="720p")
 
 
+@pytest.mark.parametrize("failure", [ConnectTimeout("connection timed out"), 503, 429])
+def test_polling_recovers_transient_failures_without_resubmitting(recorder, monkeypatch, tmp_path, failure):
+    original_get = recorder.get
+    attempts = []
+
+    def flaky_get(url, **kwargs):
+        if "/videos/" in url:
+            attempts.append(url)
+            if len(attempts) == 1:
+                if isinstance(failure, Exception):
+                    raise failure
+                return _Response(status_code=failure)
+        return original_get(url, **kwargs)
+
+    monkeypatch.setattr(recorder, "get", flaky_get)
+    out = tmp_path / "out.mp4"
+    JojoKeyVideoModel({}).generate("a shot", str(out), model="seedance-2.0-t2v", resolution="720p")
+    assert out.read_bytes() == b"MP4BYTES"
+    assert len(attempts) == 2
+    assert len([post for post in recorder.posts if "/videos" in post["url"]]) == 1
+
+
+def test_polling_connection_failures_have_a_bounded_wait(recorder, monkeypatch):
+    attempts = []
+
+    def unavailable(url, **kwargs):
+        attempts.append(url)
+        raise ConnectTimeout("connection timed out")
+
+    monkeypatch.setattr(recorder, "get", unavailable)
+    monkeypatch.setenv("JOJOKEY_MAX_WAIT_SECONDS", "16")
+    monkeypatch.setenv("JOJOKEY_POLL_INTERVAL_SECONDS", "8")
+    with pytest.raises(RuntimeError, match="timed out after 16s"):
+        JojoKeyVideoModel({})._await_video("https://example.com/videos", "accepted-task")
+    assert len(attempts) == 3
+
+
 def test_an_unroutable_model_is_refused_with_a_pointer_to_the_catalog(recorder, tmp_path):
     with pytest.raises(ValueError, match="runtime.jojokey"):
         JojoKeyVideoModel({}).generate("a shot", str(tmp_path / "out.mp4"),
@@ -376,7 +414,7 @@ def test_catalog_routes_both_families_to_jojokey():
 def _pipeline_with(task: VideoTask, monkeypatch) -> tuple[ComicGenPipeline, dict]:
     calls: dict = {}
 
-    class FakeJojoKeyModel:
+    class FakeJojoKeyModel(JojoKeyVideoModel):
         def __init__(self, config):
             calls["config"] = config
 
@@ -404,6 +442,25 @@ def test_pipeline_dispatches_a_seedance_task_to_jojokey(monkeypatch):
     assert calls["kwargs"]["model"] == "seedance-2.0-i2v"
     # The CN line dedupes on this, so a resubmitted task cannot be billed twice.
     assert calls["kwargs"]["idempotency_key"] == "task-seedance"
+
+
+@pytest.mark.parametrize("error,reuse", [
+    ("HTTPSConnectionPool: Max retries exceeded with url: /v1/video-cn/videos/cnvid_1 (ConnectTimeoutError)", True),
+    ("JojoKey task timed out after 1800s", True),
+    ("JojoKey poll failed with HTTP 503", True),
+    ("JojoKey task failed: invalid reference image", False),
+    ("JojoKey 素材登记失败：submission_unknown", False),
+])
+def test_retry_reuses_submission_key_only_when_outcome_is_unknown(monkeypatch, error, reuse):
+    original = VideoTask(id="original", project_id="script-1", image_url="", prompt="demo",
+                         model="seedance-2.0-i2v", status="failed", error=error)
+    retry = original.model_copy(update={"id": "retry", "status": "pending", "error": None,
+                                      "retry_of_task_id": "original"})
+    pipeline, calls = _pipeline_with(retry, monkeypatch)
+    pipeline.scripts["script-1"].video_tasks.append(original)
+    pipeline.process_video_task("script-1", retry.id)
+    assert retry.status == "completed"
+    assert calls["kwargs"]["idempotency_key"] == ("original" if reuse else "retry")
 
 
 def test_pipeline_forwards_minimax_last_frame_to_the_active_provider(monkeypatch):

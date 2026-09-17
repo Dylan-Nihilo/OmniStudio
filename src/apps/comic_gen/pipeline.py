@@ -4956,9 +4956,20 @@ class ComicGenPipeline:
             use_jojokey = backend == "jojokey"
 
             if use_jojokey:
+                from ...models.jojokey import JojoKeyVideoModel
                 if self._jojokey_video_model is None:
-                    from ...models.jojokey import JojoKeyVideoModel
                     self._jojokey_video_model = JojoKeyVideoModel({})
+                submission_key = task.id
+                retry_source_id = task.retry_of_task_id
+                seen_retry_ids = {task.id}
+                while retry_source_id and retry_source_id not in seen_retry_ids:
+                    seen_retry_ids.add(retry_source_id)
+                    source = next((item for item in script.video_tasks if item.id == retry_source_id), None)
+                    if (source is None or source.model != task.model
+                            or not JojoKeyVideoModel.submission_outcome_unknown(source.error)):
+                        break
+                    submission_key = source.id
+                    retry_source_id = source.retry_of_task_id
                 video_path, _ = self._jojokey_video_model.generate(
                     prompt=task.prompt,
                     output_path=output_path,
@@ -4975,9 +4986,9 @@ class ComicGenPipeline:
                     ref_image_urls=task.reference_image_urls if task.generation_mode == "r2v" else None,
                     ref_video_urls=task.reference_video_urls if task.generation_mode == "r2v" else None,
                     audio_url=final_audio_url,
-                    # The CN line dedupes on this header, so a retried submit cannot be
-                    # charged twice. The task id is the same key billing holds against.
-                    idempotency_key=task_id,
+                    # Reconnect an uncertain submission using the original provider key.
+                    # Confirmed failures intentionally start a new provider task.
+                    idempotency_key=submission_key,
                 )
             elif use_moma:
                 if self._moma_video_model is None:
