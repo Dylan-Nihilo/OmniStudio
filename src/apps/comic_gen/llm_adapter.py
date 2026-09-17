@@ -15,7 +15,7 @@ Configuration via environment variables:
 import logging
 import uuid
 from threading import Lock
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from ...utils.endpoints import get_provider_base_url
 from ...utils.workspace_env import workspace_getenv
@@ -38,9 +38,27 @@ class LLMAdapter:
 
     @property
     def is_configured(self) -> bool:
+        """Whether a call would find a credential — answered by the resolver the call path
+        itself uses.
+
+        Asking a different question here is how script analysis came to refuse work on a
+        platform where all three tiers answered: this checked OPENAI_API_KEY, which no tier
+        uses since the keys became per-model, so the gate said "not configured" while the
+        very next line of code would have succeeded. Readiness and the call must read the
+        same thing or the product lies about its own state.
+        """
         if self.provider == "openai":
-            return bool(workspace_getenv("OPENAI_API_KEY"))
+            return bool(self.credential_for()[1])
         return bool(workspace_getenv("DASHSCOPE_API_KEY"))
+
+    def credential_for(self, model: Optional[str] = None) -> Tuple[str, Optional[str]]:
+        """(variable name, value) of the credential a call with this model would use.
+
+        The name is returned too so a failure can say which variable to go and set, rather
+        than naming one that was never consulted.
+        """
+        env_key = self._credential_env_for(model or self._get_default_model()) or "OPENAI_API_KEY"
+        return env_key, (workspace_getenv(env_key) or "").strip() or None
 
     @staticmethod
     def _credential_env_for(model: str) -> Optional[str]:
@@ -87,8 +105,7 @@ class LLMAdapter:
             # key of its own. Reading the argument alone looked up "" and fell through to
             # OPENAI_API_KEY, which no tier uses — the vision route, which never names a
             # model, failed with "Missing credentials" while its key sat configured.
-            env_key = self._credential_env_for(model or self._get_default_model()) or "OPENAI_API_KEY"
-            api_key = workspace_getenv(env_key)
+            _, api_key = self.credential_for(model)
             base_url = workspace_getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1"
         else:
             api_key = workspace_getenv("DASHSCOPE_API_KEY")
