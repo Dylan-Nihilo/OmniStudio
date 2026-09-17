@@ -65,6 +65,7 @@
   "voicePicker": {
     "recommendationReasons": {
       "gender_match": "Gender match",
+      "gender_neutral": "No character gender preference",
       "emotion_instruction": "Supports emotion instructions",
       "preview_ready": "Fits the preview text",
       "natural_dialogue": "Natural dialogue"

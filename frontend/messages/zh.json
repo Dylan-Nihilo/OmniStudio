@@ -65,6 +65,7 @@
   "voicePicker": {
     "recommendationReasons": {
       "gender_match": "性别匹配",
+      "gender_neutral": "未限定角色性别",
       "emotion_instruction": "支持情绪指令",
       "preview_ready": "适合当前试听文本",
       "natural_dialogue": "自然对白表现"
