@@ -63,6 +63,12 @@
     "confirmCloseLeave": "Leave"
   },
   "voicePicker": {
+    "recommendationReasons": {
+      "gender_match": "Gender match",
+      "emotion_instruction": "Supports emotion instructions",
+      "preview_ready": "Fits the preview text",
+      "natural_dialogue": "Natural dialogue"
+    },
     "title": "Pick voice",
     "close": "Close",
     "tabSystem": "System",
@@ -284,13 +290,7 @@
     "batchPending": "Pending",
     "batchSucceeded": "Succeeded",
     "batchFailed": "Failed",
-    "batchCanceled": "Canceled",
-    "recommendationReasons": {
-      "gender_match": "Gender match",
-      "emotion_instruction": "Supports emotion instructions",
-      "preview_ready": "Fits the preview text",
-      "natural_dialogue": "Natural dialogue"
-    }
+    "batchCanceled": "Canceled"
   },
   "voiceDesign": {
     "title": "Design a new voice",

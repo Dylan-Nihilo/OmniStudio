@@ -63,6 +63,12 @@
     "confirmCloseLeave": "离开"
   },
   "voicePicker": {
+    "recommendationReasons": {
+      "gender_match": "性别匹配",
+      "emotion_instruction": "支持情绪指令",
+      "preview_ready": "适合当前试听文本",
+      "natural_dialogue": "自然对白表现"
+    },
     "title": "选择音色",
     "close": "关闭",
     "tabSystem": "系统音色",
@@ -284,13 +290,7 @@
     "batchPending": "等待中",
     "batchSucceeded": "已成功",
     "batchFailed": "失败",
-    "batchCanceled": "已取消",
-    "recommendationReasons": {
-      "gender_match": "性别匹配",
-      "emotion_instruction": "支持情绪指令",
-      "preview_ready": "适合当前试听文本",
-      "natural_dialogue": "自然对白表现"
-    }
+    "batchCanceled": "已取消"
   },
   "voiceDesign": {
     "title": "设计新音色",
