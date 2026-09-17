@@ -57,6 +57,47 @@ def test_duplicate_idempotency_key_returns_existing_item(repository):
     assert repository.list_jobs("workspace-1").total == 1
 
 
+@pytest.mark.parametrize("length", [255, 256, 1016])
+def test_long_keys_fit_mysql_without_losing_deduplication(repository, length):
+    job = repository.create_job("workspace-1", "asset")
+    key = "场" * length
+    first = repository.create_item(job.id, "image", key, {"prompt": key})
+    assert len(first.idempotency_key) <= 255
+    assert first.payload["prompt"] == key
+    assert repository.create_item(job.id, "image", key).id == first.id
+    assert repository.find_item_by_idempotency("workspace-1", key).id == first.id
+    assert repository.find_item_by_idempotency("another-workspace", key) is None
+    assert repository.create_item(job.id, "image", key[:-1] + "景").id != first.id
+    if length == 255:
+        assert first.idempotency_key == key
+
+
+def test_long_retry_keys_fit_mysql_and_remain_idempotent(repository):
+    job = repository.create_job("workspace-1", "video")
+    source = repository.create_item(job.id, "video", "source")
+    repository.transition_item(source.id, "failed")
+    key = "retry:" + "x" * 1000
+    retry = repository.create_retry(source.id, key)
+    assert len(retry.idempotency_key) <= 255
+    assert retry.retry_of == source.id
+    assert repository.create_retry(source.id, key).id == retry.id
+    assert repository.find_item_by_idempotency("workspace-1", key).id == retry.id
+
+
+def test_legacy_sqlite_long_key_is_still_found(repository):
+    from src.storage.schema import JobItem
+
+    job = repository.create_job("workspace-1", "image")
+    item = repository.create_item(job.id, "image", "legacy")
+    key = "legacy:" + "x" * 1000
+    with repository.engine.begin() as connection:
+        connection.execute(JobItem.__table__.update().where(JobItem.id == item.id).values(idempotency_key=key))
+    assert repository.find_item_by_idempotency("workspace-1", key).id == item.id
+    assert repository.create_item(job.id, "image", key).id == item.id
+    repository.transition_item(item.id, "failed")
+    assert repository.create_retry(item.id, key).id == item.id
+
+
 def test_retry_creates_new_item_linked_to_failed_item(repository):
     job = repository.create_job("workspace-1", "video")
     failed = repository.create_item(job.id, "video", "original-key", {"shot_id": "shot-1"})

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
@@ -15,6 +16,11 @@ from src.apps.comic_gen.contracts import JobStatus, MediaRef, summarize_job_item
 
 from .errors import StorageError
 from .schema import Job, JobItem, JobItemEvent
+
+
+def normalize_idempotency_key(key: str) -> str:
+    """Keep prompt-derived keys within MySQL's VARCHAR(255), without truncation."""
+    return key if len(key) <= 255 else "sha256:" + hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -158,7 +164,8 @@ class JobRepository:
             existing = connection.execute(
                 select(JobItem.__table__).where(
                     JobItem.__table__.c.workspace_id == job["workspace_id"],
-                    JobItem.__table__.c.idempotency_key == idempotency_key,
+                    # Also find legacy SQLite rows that stored the unbounded key.
+                    JobItem.__table__.c.idempotency_key.in_((idempotency_key, normalize_idempotency_key(idempotency_key))),
                 )
             ).mappings().first()
             if existing is not None:
@@ -178,7 +185,7 @@ class JobRepository:
                     kind=kind,
                     status=JobStatus.PENDING.value,
                     progress=0.0,
-                    idempotency_key=idempotency_key,
+                    idempotency_key=normalize_idempotency_key(idempotency_key),
                     retry_of=retry_of,
                     payload_json=json.dumps(stored_payload, ensure_ascii=False),
                     media_refs_json="[]",
@@ -203,7 +210,7 @@ class JobRepository:
             existing = connection.execute(
                 select(JobItem.__table__).where(
                     JobItem.__table__.c.workspace_id == source["workspace_id"],
-                    JobItem.__table__.c.idempotency_key == idempotency_key,
+                    JobItem.__table__.c.idempotency_key.in_((idempotency_key, normalize_idempotency_key(idempotency_key))),
                 )
             ).mappings().first()
             if existing is not None:
@@ -232,7 +239,7 @@ class JobRepository:
                     kind=source["kind"],
                     status=JobStatus.PENDING.value,
                     progress=0.0,
-                    idempotency_key=idempotency_key,
+                    idempotency_key=normalize_idempotency_key(idempotency_key),
                     retry_of=failed_item_id,
                     payload_json=json.dumps(retry_payload, ensure_ascii=False),
                     media_refs_json="[]",
@@ -273,7 +280,7 @@ class JobRepository:
             row = connection.execute(
                 select(JobItem.__table__).where(
                     JobItem.__table__.c.workspace_id == workspace_id,
-                    JobItem.__table__.c.idempotency_key == idempotency_key,
+                    JobItem.__table__.c.idempotency_key.in_((idempotency_key, normalize_idempotency_key(idempotency_key))),
                 )
             ).mappings().first()
         return self._item_record(row, idempotent=True) if row is not None else None
