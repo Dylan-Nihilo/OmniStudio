@@ -18,8 +18,15 @@ export default function EnvConfigChecker() {
     if (!scope) return;
     let cancelled = false;
     void api.getEnvConfig().then(config => {
-      const key = config.LLM_PROVIDER === "openai" ? "OPENAI_API_KEY" : "DASHSCOPE_API_KEY";
-      const configured = config.secrets_configured?.[key] ?? Boolean(config[key]?.trim());
+      // Ask the backend rather than picking a variable to check. Which credential matters
+      // is not knowable from here — the text tiers each carry their own key — and guessing
+      // OPENAI_API_KEY put this dialog in front of root on every page load while all three
+      // tiers were answering. The old guess stays only for a backend too old to say.
+      const configured = config.llm_configured
+        ?? (() => {
+          const key = config.LLM_PROVIDER === "openai" ? "OPENAI_API_KEY" : "DASHSCOPE_API_KEY";
+          return config.secrets_configured?.[key] ?? Boolean(config[key]?.trim());
+        })();
       if (!cancelled && !configured) setPromptScope(scope);
     }).catch(() => {
       // A failed or forbidden read does not establish that credentials are missing.

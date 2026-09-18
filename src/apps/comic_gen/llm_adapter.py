@@ -13,6 +13,7 @@ Configuration via environment variables:
   OPENAI_MODEL=gpt-4o
 """
 import logging
+import time
 import uuid
 from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,6 +23,56 @@ from ...utils.endpoints import get_provider_base_url
 from ...utils.workspace_env import workspace_getenv
 
 logger = logging.getLogger(__name__)
+
+# A rate limit says "later", not "no", but nothing here used to retry one: a single 429
+# anywhere in a long job — script analysis makes a call per chapter — threw the whole run
+# away. Attempts are few and the waits short, because the caller is a person watching a
+# progress bar; anything longer should surface rather than hang.
+RATE_LIMIT_BACKOFF_SECONDS = (2.0, 5.0, 11.0)
+
+
+def _retry_after_seconds(error: Exception) -> Optional[float]:
+    """Honour the upstream's own Retry-After when it sends one."""
+    response = getattr(error, "response", None)
+    header = getattr(response, "headers", None) or {}
+    try:
+        value = float(header.get("Retry-After") or header.get("retry-after") or 0)
+    except (TypeError, ValueError):
+        return None
+    # Ignore an implausible wait: a person is watching, and we would rather report the
+    # limit than sit silently for minutes.
+    return value if 0 < value <= 30 else None
+
+
+def _is_rate_limited(error: Exception) -> bool:
+    if getattr(error, "status_code", None) == 429 or type(error).__name__ == "RateLimitError":
+        return True
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 429:
+        return True
+    text = str(error)
+    return "429" in text and ("rate" in text.lower() or "too many" in text.lower())
+
+
+def _with_rate_limit_retry(call, model: str):
+    """Run `call`, waiting out a rate limit a few times before giving up.
+
+    The error is logged with the model on it: a bare "429" in a toast says nothing about
+    which tier ran out of room, and that is the one fact needed to act on it.
+    """
+    last: Optional[Exception] = None
+    for attempt, backoff in enumerate((*RATE_LIMIT_BACKOFF_SECONDS, None)):
+        try:
+            return call()
+        except Exception as error:
+            if not _is_rate_limited(error) or backoff is None:
+                raise
+            last = error
+            wait = _retry_after_seconds(error) or backoff
+            logger.warning("Rate limited by the text provider on %s (attempt %d); "
+                           "retrying in %.0fs", model or "the default model", attempt + 1, wait)
+            time.sleep(wait)
+    raise last if last else RuntimeError("rate limit retry exhausted")
 
 
 class LLMAdapter:
@@ -201,14 +252,17 @@ class LLMAdapter:
         run is a worse outcome than a ledger entry without a token count, since text is
         charged per character anyway. Only that specific rejection is retried.
         """
-        try:
-            return client.chat.completions.create(**kwargs, stream=True,
-                                                  stream_options={"include_usage": True})
-        except Exception as error:
-            if "stream_options" not in str(error):
-                raise
-            logger.info("Upstream rejects stream_options; retrying without usage reporting")
-            return client.chat.completions.create(**kwargs, stream=True)
+        def open_it():
+            try:
+                return client.chat.completions.create(**kwargs, stream=True,
+                                                      stream_options={"include_usage": True})
+            except Exception as error:
+                if "stream_options" not in str(error):
+                    raise
+                logger.info("Upstream rejects stream_options; retrying without usage reporting")
+                return client.chat.completions.create(**kwargs, stream=True)
+
+        return _with_rate_limit_retry(open_it, str(kwargs.get("model") or ""))
 
     def _chat_once(
         self,

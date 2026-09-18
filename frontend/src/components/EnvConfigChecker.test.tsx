@@ -107,3 +107,44 @@ describe('configuration dialog after refresh', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 });
+
+describe('whether credentials count as configured', () => {
+  it('stays out of the way when the backend reports text generation is ready', async () => {
+    // The regression this pins: root was shown "no text model API Key" on every login and
+    // every refresh while all three tiers were answering. This component picked a variable
+    // to check — OPENAI_API_KEY — and the tiers each carry their own key, so that variable
+    // is unset on a working platform. Which credential matters is not knowable from here.
+    useAuthStore.setState({ activeWorkspace: ownerWorkspace });
+    mocks.getEnvConfig.mockResolvedValue({
+      LLM_PROVIDER: 'openai',
+      llm_configured: true,
+      secrets_configured: { OPENAI_API_KEY: false, KAIZO_GPT_API_KEY: true },
+    });
+
+    await act(async () => { render(<EnvConfigChecker />); });
+    await waitFor(() => expect(mocks.getEnvConfig).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('still prompts when the backend reports text generation has no credential', async () => {
+    useAuthStore.setState({ activeWorkspace: ownerWorkspace });
+    mocks.getEnvConfig.mockResolvedValue({
+      LLM_PROVIDER: 'openai', llm_configured: false, secrets_configured: {},
+    });
+
+    await act(async () => { render(<EnvConfigChecker />); });
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  });
+
+  it('falls back to inspecting the key when the backend does not answer', async () => {
+    // A desktop build or an older backend sends no verdict; the old heuristic still applies.
+    useAuthStore.setState({ activeWorkspace: ownerWorkspace });
+    mocks.getEnvConfig.mockResolvedValue({
+      LLM_PROVIDER: 'dashscope', secrets_configured: { DASHSCOPE_API_KEY: true },
+    });
+
+    await act(async () => { render(<EnvConfigChecker />); });
+    await waitFor(() => expect(mocks.getEnvConfig).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});

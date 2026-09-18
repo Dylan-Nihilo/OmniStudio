@@ -7510,6 +7510,7 @@ def get_env_config(request: Request):
     try:
         from ...utils.endpoints import PROVIDER_DEFAULTS
         from ...utils.oss_utils import is_oss_enabled
+        from .llm_adapter import LLMAdapter
         endpoint_overrides = {}
         for provider in PROVIDER_DEFAULTS:
             env_key = f"{provider}_BASE_URL"
@@ -7560,6 +7561,13 @@ def get_env_config(request: Request):
             # which layer a save would write, so root can tell "this applies to everybody"
             # from "this applies to my machine" instead of inferring it from their role.
             "config_scope": _config_scope(request),
+            # Whether text generation would actually find a credential. Answered here rather
+            # than left to the caller, because "which variable matters" is not knowable from
+            # outside: the text tiers each carry their own key, so a client checking
+            # OPENAI_API_KEY concludes nothing is configured on a platform where all three
+            # tiers answer — which is exactly what put a "no API key" dialog in front of
+            # root on every single page load.
+            "llm_configured": LLMAdapter().is_configured,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

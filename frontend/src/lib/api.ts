@@ -102,6 +102,9 @@ export interface EnvConfigPayload {
     // Which layer a save writes: "platform" on a centrally operated deployment, where the
     // settings apply to every workspace, or "workspace" on a desktop build.
     config_scope?: "platform" | "workspace";
+    // Whether text generation would find a credential. The backend resolves this because
+    // the text tiers each carry their own key, so no single variable name answers it.
+    llm_configured?: boolean;
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
 }
 
