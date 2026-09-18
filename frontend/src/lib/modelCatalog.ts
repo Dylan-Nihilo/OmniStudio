@@ -383,6 +383,12 @@ export function getMaxReferenceImages(modelId?: string | null): number {
     return typeof maxReferenceImages === 'number' ? maxReferenceImages : 3;
 }
 
+export function getOmniReferenceLimits(modelId: string): { videos: number; audios: number } {
+    const model = MODEL_CATALOG.models[normalizeRequestedModelId(modelId) ?? modelId];
+    const inputs = model?.inputs as { reference_videos?: { max?: number }; reference_audio?: { max?: number } } | undefined;
+    return { videos: inputs?.reference_videos?.max ?? 0, audios: inputs?.reference_audio?.max ?? 0 };
+}
+
 export const PROJECT_T2I_MODELS = getVisibleModels('t2i', 'project_settings').map(toSelectableModel);
 export const SERIES_T2I_MODELS = getVisibleModels('t2i', 'series_settings').map(toSelectableModel);
 export const GLOBAL_T2I_MODELS = getVisibleModels('t2i', 'global_settings').map(toSelectableModel);
@@ -464,4 +470,10 @@ export function isR2vImageBased(modelId: string): boolean {
     return family === 'happyhorse' || family === 'wan' || family === 'kling'
         || family === 'pixverse' || family === 'vidu' || family === 'seedance'
         || family === 'minimax';
+}
+
+/** Match the backend's reference-input gate without silently changing models. */
+export function supportsAssetReferences(modelId: string, count: number): boolean {
+    const model = MODEL_CATALOG.models[modelId];
+    return !!model?.capabilities.includes('i2i') && count <= (model.inputs?.reference_images?.max ?? 4);
 }

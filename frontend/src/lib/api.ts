@@ -1,3 +1,5 @@
+import type { PlanSettings, ProductionPlan, PlanOverview, ProductionReview } from '@/lib/productionPlan';
+import type { AssetReferenceInput, AssetReferencePurpose, HoldingPosition } from '@/lib/assetReferences';
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
 import type { FrontendModelSettings } from "@/lib/modelCatalog";
@@ -1002,6 +1004,16 @@ export const api = {
         return { ...res.data, originalText: res.data.original_text };
     },
 
+    previewScriptWriting: async (scriptId: string, request: import('./scriptWriting').WritingRequest, signal?: AbortSignal) => {
+        const res = await apiClient.post<import('./scriptWriting').WritingPreview>(`${API_URL}/projects/${scriptId}/writing/preview`, request, { timeout: 180_000, signal });
+        return res.data;
+    },
+
+    checkScriptContinuity: async (scriptId: string, text: string, previousText?: string, signal?: AbortSignal) => {
+        const res = await apiClient.post<import('./scriptWriting').ContinuityReport>(`${API_URL}/projects/${scriptId}/writing/continuity`, { text, previous_text: previousText }, { timeout: 180_000, signal });
+        return res.data;
+    },
+
     extractPreview: async (scriptId: string, text: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/extract_preview`, { text }, { timeout: 120_000 });
         return res.data as { characters: any[]; scenes: any[]; props: any[] };
@@ -1272,7 +1284,7 @@ export const api = {
         return res.data;
     },
 
-    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string, candidateType?: "simple" | "detailed" | "design_sheet") => {
+    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string, aspectRatio?: string, candidateType?: "simple" | "detailed" | "design_sheet", referenceOptions?: { purpose: AssetReferencePurpose; inputs: AssetReferenceInput[]; holdingPosition?: HoldingPosition }) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/assets/generate`, {
             asset_id: assetId,
             asset_type: assetType,
@@ -1286,6 +1298,9 @@ export const api = {
             model_name: modelName,
             aspect_ratio: aspectRatio,
             candidate_type: candidateType,
+            reference_purpose: referenceOptions?.purpose,
+            reference_inputs: referenceOptions?.inputs,
+            holding_position: referenceOptions?.holdingPosition,
         });
         return res.data;
     },
@@ -1613,6 +1628,7 @@ export const api = {
     },
 
     updateFrame: async (scriptId: string, frameId: string, data: {
+        omni_reference_settings?: import('./omniReferences').OmniReferenceSettings;
         image_prompt?: string;
         action_description?: string;
         visual_description?: string;
@@ -1665,6 +1681,27 @@ export const api = {
      * Analyzes script text and generates storyboard frames using AI.
      * Replaces existing frames with newly generated ones.
      */
+    getProductionPlan: async (scriptId: string): Promise<PlanOverview> =>
+        (await apiClient.get(`${API_URL}/projects/${scriptId}/production-plan`)).data,
+    generateProductionPlan: async (scriptId: string, settings: PlanSettings) =>
+        (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/generate`, settings, { timeout: 180_000 })).data,
+    reviseProductionPlan: async (scriptId: string) =>
+        (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/revise`)).data,
+    saveProductionPlan: async (scriptId: string, plan: ProductionPlan) =>
+        (await apiClient.put(`${API_URL}/projects/${scriptId}/production-plan`, {
+            expected_revision: plan.revision, summary: plan.summary, continuity_rules: plan.continuity_rules, segments: plan.segments,
+        })).data,
+    applyProductionPlan: async (scriptId: string, revision: string) =>
+        (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/apply`, { expected_revision: revision })).data,
+    restoreStoryboardVersion: async (scriptId: string, versionId: string, fingerprint: string) =>
+        (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/versions/${versionId}/restore`, { expected_fingerprint: fingerprint })).data,
+    reviewProductionPlan: async (scriptId: string): Promise<{ segments: ProductionReview[]; storyboard_fingerprint: string }> =>
+        (await apiClient.get(`${API_URL}/projects/${scriptId}/production-plan/review`)).data,
+    updateProductionPreview: async (scriptId: string, previewId: string, patch: { image_prompt?: string; selected_index?: number }) =>
+        (await apiClient.patch(`${API_URL}/projects/${scriptId}/production-plan/previews/${previewId}`, patch)).data,
+    confirmProductionSegment: async (scriptId: string, frameId: string, fingerprint: string) =>
+        (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/segments/${frameId}/confirm`, { expected_fingerprint: fingerprint })).data,
+
     analyzeToStoryboard: async (scriptId: string, text: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/analyze`, {
             text: text

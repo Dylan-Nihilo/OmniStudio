@@ -1,3 +1,4 @@
+import type { ProductionPlan, PlanningJob } from '@/lib/productionPlan';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { api, type DialogueAudioBatch, type StoryboardGeneration } from '@/lib/api';
@@ -57,6 +58,7 @@ export interface ImageVariant {
     url: string;
     created_at: number;
     prompt_used?: string;
+    params?: { reference_inputs?: import('@/lib/assetReferences').AssetReferenceSnapshot[]; reference_purpose?: import('@/lib/assetReferences').AssetReferencePurpose; [key: string]: unknown };
 }
 
 export interface ImageAsset {
@@ -108,6 +110,7 @@ export interface Character {
     // reference_sheet is the canonical character asset (new schema);
     // full_body_asset is legacy, kept only as a read fallback.
     reference_sheet?: AssetUnit;
+    holding_reference?: AssetUnit;
     full_body_asset?: ImageAsset;
     three_view_asset?: ImageAsset;
     headshot_asset?: ImageAsset;
@@ -170,6 +173,12 @@ export interface Prop {
 }
 
 export interface StoryboardFrame {
+    image_prompt?: string | null;
+    t2i_image_urls?: string[];
+    t2i_selected_index?: number;
+    image_generation_status?: 'pending' | 'processing' | 'completed' | 'failed' | null;
+    image_error?: string | null;
+
     id: string;
     scene_id: string;
     image_url?: string;
@@ -295,6 +304,7 @@ export interface Series {
 
 export interface Project {
     id: string;
+    _revision?: string;
     title: string;
     originalText: string;
     characters: Character[];
@@ -304,6 +314,11 @@ export interface Project {
     video_tasks?: any[];
     dialogue_audio_batch?: DialogueAudioBatch | null;
     storyboard_generation?: StoryboardGeneration | null;
+    production_plan?: ProductionPlan | null;
+    production_plan_draft?: ProductionPlan | null;
+    production_planning_job?: PlanningJob | null;
+    production_previews?: StoryboardFrame[];
+    storyboard_versions?: { id: string; title: string; created_at: number; frames: StoryboardFrame[] }[];
     status: string;
     createdAt: string;
     updatedAt: string;
