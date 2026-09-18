@@ -28,7 +28,7 @@ export default function StepPageHeader({
 }: StepPageHeaderProps) {
     const stepStr = String(stepNumber).padStart(2, "0");
     return (
-        <header className="shrink-0 border-b border-border-default bg-surface px-4 py-5 sm:px-7">
+        <header className="shrink-0 border-b border-border-default bg-surface px-4 py-3.5 sm:px-7">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex-1 min-w-[min(100%,16rem)]">
                     <div className="font-mono text-[0.59375rem] font-normal uppercase tracking-[0.22em] text-text-muted">
@@ -43,7 +43,7 @@ export default function StepPageHeader({
                         </h1>
                         {pills ? <div className="flex items-center gap-2">{pills}</div> : null}
                     </div>
-                    <p className="mt-1.5 text-[0.8125rem] text-text-secondary">{subtitle}</p>
+                    <p className="mt-1 text-[0.8125rem] text-text-secondary">{subtitle}</p>
                 </div>
                 {trailing ? (
                     <div className="flex max-w-full flex-wrap items-center gap-2">{trailing}</div>
