@@ -113,6 +113,7 @@ from ...storage.legacy_claim import LegacyClaimService
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
 from .revision import compute_dependency_fingerprint, compute_revision, evaluate_stale
 from .director_plan import DirectorPlanPatch, DirectorPlanStore, DirectorPlanValue, preview_from_instruction
+from .script_writing import WritingRequest, ContinuityRequest, propose_writing, check_continuity
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
@@ -3607,6 +3608,50 @@ def update_project(script_id: str, payload: UpdateProjectRequest, request: Reque
         return signed_response(script)
     except ValueError as exc:
         raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)) from exc
+
+
+_script_writing_inflight: set[tuple[str, str]] = set()
+
+
+async def _run_script_writing(script_id: str, payload, request: Request, operation: str):
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    # ponytail: one ASGI loop per worker; use a shared job claim if workers are scaled out.
+    claim = (script_id, operation)
+    if claim in _script_writing_inflight:
+        raise HTTPException(status_code=409, detail="这份剧本的 AI 请求仍在处理中，请稍后重试")
+    _script_writing_inflight.add(claim)
+    try:
+        from ...billing.metering import text_meter_for
+        from .llm_adapter import LLMAdapter
+
+        meter = text_meter_for(request.app.state)
+        if meter and meter.enabled:
+            model = LLMAdapter()._get_default_model()
+            quote = meter.services.runtime.quote_text(f"text/{model}", len(payload.text) + len(getattr(payload, "instruction", "")), 1)
+            meter.ensure_available(request.state.auth_context.workspace.id, quote.credits)
+        handler = propose_writing if operation == "preview" else check_continuity
+        result = await asyncio.to_thread(handler, payload, script.title)
+        record_request_event(request, action=f"script.writing.{operation}", object_type="project", object_id=script_id,
+                             metadata={"scope": getattr(payload, "scope", "document"), "characters": len(payload.text)})
+        return result
+    except (HTTPException, BillingError):
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"code": "SCRIPT_WRITING_FAILED", "message": _redact_provider_message(str(exc))}) from exc
+    finally:
+        _script_writing_inflight.discard(claim)
+
+
+@app.post("/projects/{script_id}/writing/preview")
+async def preview_script_writing(script_id: str, payload: WritingRequest, request: Request):
+    return await _run_script_writing(script_id, payload, request, "preview")
+
+
+@app.post("/projects/{script_id}/writing/continuity")
+async def inspect_script_continuity(script_id: str, payload: ContinuityRequest, request: Request):
+    return await _run_script_writing(script_id, payload, request, "continuity")
 
 
 class DirectorPlanPreviewRequest(BaseModel):
