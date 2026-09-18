@@ -9,7 +9,8 @@ import {
     Copy,
     Video,
     ImageIcon,
-    AtSign,
+    Plus,
+    X,
     Maximize2,
     PanelBottomOpen,
     PanelBottomClose,
@@ -20,7 +21,6 @@ import {
     PinOff,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import AssetChipBar from "./AssetChipBar";
 import PromptExpandModal from "./PromptExpandModal";
 import PolishPanel from "./PolishPanel";
 import FieldTagChip, { AddFieldButton, type FieldType } from "./FieldTagChip";
@@ -29,12 +29,15 @@ import { PendingTaskAffordance } from "@/components/shared/PendingTaskAffordance
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import { useProjectStore } from "@/store/projectStore";
-import { Button, ActionMenu, SelectField, LoadingState, StatusBadge } from "@omnistudio/ui";
+import { Button, Dialog, ActionMenu, SelectField, LoadingState, StatusBadge } from "@omnistudio/ui";
 import styles from "./ShotCard.module.css";
+import { findCharacterReference, resolveStoryboardReferenceTags, removeStoryboardReference } from '@/lib/assetReferences';
 import { selectedVariantUrl } from "@/lib/characterImage";
+import type { OmniReferenceSettings } from '@/lib/omniReferences';
 
 export interface ShotNode {
     id: string;
+    omniReferences?: OmniReferenceSettings;
     prompt: string;
     imagePrompt?: string;
     promptMode?: "structured" | "complete";
@@ -113,6 +116,11 @@ export const T2I_HISTORY_LIMIT = 10;
 
 interface ShotCardProps {
     shot: ShotNode;
+    omniMode?: boolean;
+    unitLabel?: string;
+    productionInfo?: ReactNode;
+    onEditProduction?: () => void;
+    generationHint?: string;
     index: number;
     totalShots: number;
     characters: any[];
@@ -140,7 +148,6 @@ interface ShotCardProps {
      *  Setup/Takes chips below the card are hidden entirely (zero chrome
      *  residue). When true, chips render. The chevron in the card's
      *  top-right corner toggles this. */
-    referenceImages?: string[];
     sequence?: ReactNode;
     audio?: ReactNode;
     configuration?: ReactNode;
@@ -170,6 +177,7 @@ interface ShotCardProps {
 
 export default function ShotCard({
     shot,
+    unitLabel, productionInfo, generationHint, onEditProduction,
     index,
     totalShots,
     characters,
@@ -180,6 +188,7 @@ export default function ShotCard({
     onGenerateT2I,
     onGenerateVideo,
     structurePending = false,
+    omniMode = false,
     onDelete,
     onMoveUp,
     onMoveDown,
@@ -189,7 +198,7 @@ export default function ShotCard({
     onInsertAsset: _onInsertAsset,
     durationEditorConfig,
     onCancelVideo,
-    sequence, audio, configuration, candidates, referenceImages = [],
+    sequence, audio, configuration, candidates,
     generateCount = 1,
     genSummary,
     canGenerate = true,
@@ -202,11 +211,19 @@ export default function ShotCard({
     isSelectingVideo = false,
 }: ShotCardProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const previewColumnRef = useRef<HTMLElement>(null);
+    const settingsRef = useRef<HTMLElement>(null);
     const t = useTranslations("storyboardR2V");
     // Expand modal state (B5). Cmd/Ctrl+E in the small textarea
     // opens it; saving syncs back via onUpdatePrompt; cancel
     // discards the modal's draft without touching parent state.
     const [expandOpen, setExpandOpen] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+    useEffect(() => {
+        setDeleteTarget(null);
+        if (previewColumnRef.current) previewColumnRef.current.scrollTop = 0;
+        if (settingsRef.current) settingsRef.current.scrollTop = 0;
+    }, [shot.id]);
     const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
     useEffect(() => { setExpandOpen(false); setPromptPreviewOpen(false); }, [shot.id]);
     // currentProjectId — needed by PolishPanel to look up the
@@ -229,7 +246,8 @@ export default function ShotCard({
             const slotN = parseInt(match[1], 10);
             if (bySlot.has(slotN)) continue;
             const name = match[2];
-            const char = characters.find((c: any) => c.name === name);
+            const reference = findCharacterReference(characters, name);
+            const char = reference?.character;
             bySlot.set(slotN, char?.description ? `${name}: ${char.description}` : name);
         }
         return Array.from(bySlot.entries())
@@ -251,10 +269,11 @@ export default function ShotCard({
             let m;
             while ((m = tagPattern.exec(shot.prompt)) !== null) {
                 const [, name] = m;
-                const char = characters.find((c: any) => c.name === name);
+                const reference = findCharacterReference(characters, name);
+                const char = reference?.character;
                 if (!char || seen.has(char.id)) continue;
                 seen.add(char.id);
-                const url = char.headshot_image_url || char.image_url || char.full_body_image_url
+                const url = selectedVariantUrl(reference?.unit) || char.headshot_image_url || char.image_url || char.full_body_image_url
                     || selectedVariantUrl(char.reference_sheet)
                     || (char.full_body_asset?.variants?.[0]?.url);
                 if (url) out.push(url);
@@ -268,31 +287,15 @@ export default function ShotCard({
         return active ? [active] : [];
     }, [shot.tabMode, shot.prompt, shot.t2iImageUrls, shot.t2iSelectedIndex, shot.t2iImageUrl, shot.imageUrl, characters])();
 
-    // castAvatars — character avatar group for the "Cast:" row above
-    // the prompt textarea (L5 borrow from 火山剧创's 出镜角色). De-
-    // duped by id. We accept either [character:name] or [characterN:
-    // name] patterns since the asset chip bar emits both formats.
-    const castAvatars = useCallback((): Array<{ id: string; name: string; avatarUrl?: string }> => {
-        const out: Array<{ id: string; name: string; avatarUrl?: string }> = [];
-        const seen = new Set<string>();
-        const tagPattern = /\[character\d*:([^\]]+)\]/g;
-        let match;
-        while ((match = tagPattern.exec(shot.prompt)) !== null) {
-            const [, name] = match;
-            const char = characters.find((c: any) => c.name === name);
-            if (!char || seen.has(char.id)) continue;
-            seen.add(char.id);
-            const avatarUrl =
-                char.avatar_url ||
-                char.headshot_image_url ||
-                char.image_url ||
-                char.full_body_image_url ||
-                selectedVariantUrl(char.reference_sheet) ||
-                (char.full_body_asset?.variants?.[0]?.url);
-            out.push({ id: char.id, name: char.name, avatarUrl });
-        }
-        return out;
-    }, [shot.prompt, characters])();
+    const { references } = resolveStoryboardReferenceTags(shot.prompt, characters, scenes, props);
+    const [removedReference, setRemovedReference] = useState<{ shotId: string; before: string; after: string; name: string } | null>(null);
+    const addReferenceRef = useRef<HTMLButtonElement>(null);
+    const removeReference = (name: string) => {
+        const after = removeStoryboardReference(shot.prompt, name);
+        setRemovedReference({ shotId: shot.id, before: shot.prompt, after, name });
+        onUpdatePrompt(after);
+        addReferenceRef.current?.focus();
+    };
 
     const assembledPromptPreview = useMemo(() => buildAssembledPrompt(shot), [
         shot.prompt, shot.promptMode, shot.shotSize, shot.cameraAngle, shot.cameraMovementStructured, shot.transitionHint,
@@ -492,6 +495,9 @@ export default function ShotCard({
                 </span>
             );
         }
+        if (shot.videoUrl || shot.videoStatus === "completed") {
+            return <StatusBadge tone="success">{t("statusVideoReady")}</StatusBadge>;
+        }
         return (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-glass-border bg-black/20 px-2.5 py-1 font-mono text-[0.625rem] font-semibold uppercase tracking-[0.1em] text-text-secondary">
                 <span className="h-[5px] w-[5px] rounded-full bg-text-muted" />
@@ -500,57 +506,8 @@ export default function ShotCard({
         );
     }
 
-    const handleInsertAssetFromChip = (_type: string, name: string) => {
-        const currentPrompt = shot.prompt;
-        // Each unique character gets one fixed slot number throughout this
-        // prompt: slot N → reference_image_urls[N-1] in HappyHorse R2V, so
-        // referencing the same actor twice must reuse the same slot —
-        // otherwise the model would expect two separate reference images.
-        // Examples:
-        //   first @小兔子 → [character1:小兔子]
-        //   then @小狗 → [character2:小狗]
-        //   then @小兔子 again → [character1:小兔子]   (reuse, NOT [character3:…])
-        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const existingTagRe = new RegExp(`\\[character(\\d+):${escapedName}\\]`);
-        const existingMatch = currentPrompt.match(existingTagRe);
-
-        let slot: number;
-        if (existingMatch) {
-            slot = parseInt(existingMatch[1], 10);
-        } else {
-            // Map of (slot → name) already in the prompt; first-seen wins
-            // per slot so accidental dup tags don't inflate the count.
-            const usedSlotByName = new Map<number, string>();
-            const slotRe = /\[character(\d+):([^\]]+)\]/g;
-            let m;
-            while ((m = slotRe.exec(currentPrompt)) !== null) {
-                const slotN = parseInt(m[1], 10);
-                if (!usedSlotByName.has(slotN)) {
-                    usedSlotByName.set(slotN, m[2]);
-                }
-            }
-            const usedSlots = Array.from(usedSlotByName.keys());
-            slot = usedSlots.length > 0 ? Math.max(...usedSlots) + 1 : 1;
-        }
-        const tag = `[character${slot}:${name}]`;
-
-        const textarea = textareaRef.current;
-        if (textarea) {
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            const newPrompt = currentPrompt.slice(0, start) + tag + currentPrompt.slice(end);
-            onUpdatePrompt(newPrompt);
-            setTimeout(() => {
-                textarea.selectionStart = textarea.selectionEnd = start + tag.length;
-                textarea.focus();
-            }, 0);
-        } else {
-            onUpdatePrompt(currentPrompt + " " + tag);
-        }
-    };
-
     return <div className={styles.layout}>
-        <section className={styles.previewColumn}>
+        <section ref={previewColumnRef} className={styles.previewColumn} aria-label={t("shotPreview")}>
             <div className={styles.preview}>
                         {renderPreview()}
             </div>
@@ -567,54 +524,23 @@ export default function ShotCard({
             {audio}
             {sequence}
         </section>
-        <aside className={styles.settings} aria-busy={isRefining}>
-            <header className={styles.heading}><span>{t("shot")} {String(index + 1).padStart(2, "0")}</span>{isRefining ? <LoadingState inline label={t("refiningPrompt")} /> : <ShotStatusBadge shot={shot} t={t} />}</header>
-            <SelectField label={t("generationMode")} value={shot.tabMode} onChange={key => onSetTabMode(String(key) as ShotNode["tabMode"])} options={[{ id: "direct_r2v", label: t("tabDirectR2v") }, { id: "t2i_i2v", label: t("tabT2iI2v") }]} />
+        <aside ref={settingsRef} className={styles.settings} aria-busy={isRefining}>
+            <header className={styles.heading}><span>{unitLabel ?? `${t("shot")} ${String(index + 1).padStart(2, "0")}`}</span>{isRefining ? <LoadingState inline label={t("refiningPrompt")} /> : <ShotStatusBadge shot={shot} t={t} />}</header>
+            <div className={styles.shotToolbar} role="group" aria-label={t("shotActions")}>
+                {onEditProduction ? <Button variant="quiet" onPress={onEditProduction}>{t("editProductionSegments")}</Button> : <>
+                <Button variant="quiet" isDisabled={structurePending || isRefining || index === 0} onPress={onMoveUp}><ChevronUp size={16} />{t("moveUp")}</Button>
+                <Button variant="quiet" isDisabled={structurePending || isRefining || index === totalShots - 1} onPress={onMoveDown}><ChevronDown size={16} />{t("moveDown")}</Button>
+                <Button variant="quiet" aria-label={t("duplicateShot")} isDisabled={structurePending || isRefining} onPress={onDuplicate}><Copy size={14} />{t("duplicateShotShort")}</Button>
+                <Button variant="quiet" aria-label={t("deleteShot")} className={styles.deleteAction} isDisabled={structurePending || isRefining} onPress={() => setDeleteTarget(shot.id)}><Trash2 size={14} />{t("deleteShotShort")}</Button>
+                </>}
+            </div>
+            {(structurePending || isRefining) && <p className={styles.actionHint}>{t(isRefining ? "shotRefinementBusyHint" : "shotStructureBusyHint")}</p>}
+            <SelectField isDisabled={!!productionInfo} label={t("generationMode")} value={shot.tabMode} onChange={key => onSetTabMode(String(key) as ShotNode["tabMode"])} options={[{ id: "direct_r2v", label: t(omniMode ? "tabOmni" : "tabDirectR2v") }, { id: "t2i_i2v", label: t("tabT2iI2v") }]} />
+            {productionInfo}
             <div className={styles.editor}>
                         {/* Cast avatar group */}
-                        {castAvatars.length > 0 ? (
-                            <div className="flex items-center gap-2">
-                                <span className="font-mono text-[0.625rem] uppercase tracking-[0.1em] text-text-muted">
-                                    {t("shotCast")}
-                                </span>
-                                <div className="flex items-center -space-x-2">
-                                    {castAvatars.slice(0, 3).map((c) => (
-                                        <button
-                                            key={c.id}
-                                            type="button"
-                                            onClick={() => {
-                                                document.dispatchEvent(
-                                                    new CustomEvent("omni_studio:navigateStep", { detail: "cast" }),
-                                                );
-                                            }}
-                                            title={c.name}
-                                            className="grid h-[26px] w-[26px] place-items-center overflow-hidden rounded-full border-2 border-surface bg-elevated transition-all duration-fast ease-out-quart hover:z-10 hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
-                                        >
-                                            {c.avatarUrl ? (
-                                                <PreviewImage
-                                                    src={c.avatarUrl}
-                                                    alt={c.name}
-                                                    className="h-full w-full"
-                                                    noLightbox
-                                                />
-                                            ) : (
-                                                <span className="font-mono text-[0.5625rem] font-medium text-text-secondary">
-                                                    {c.name.slice(0, 1)}
-                                                </span>
-                                            )}
-                                        </button>
-                                    ))}
-                                    {castAvatars.length > 3 ? (
-                                        <span className="grid h-[26px] w-[26px] place-items-center rounded-full border-2 border-surface bg-elevated font-mono text-[0.5625rem] font-medium text-text-secondary">
-                                            +{castAvatars.length - 3}
-                                        </span>
-                                    ) : null}
-                                </div>
-                            </div>
-                        ) : null}
-
                         {/* Prompt Editor wrapper — with left accent line */}
-                        <SelectField label={t("promptModeLabel")} value={shot.promptMode ?? "structured"}
+                        <SelectField isDisabled={!!productionInfo} label={t("promptModeLabel")} value={shot.promptMode ?? "structured"}
                             onChange={value => onUpdateField("promptMode", String(value))}
                             options={[{ id: "structured", label: t("promptModeStructured") }, { id: "complete", label: t("promptModeComplete") }]} />
                         <div className="relative">
@@ -647,6 +573,34 @@ export default function ShotCard({
                             </button>
                         </div>
 
+                        <section className={styles.referenceSection} aria-label={t("shotReferences")}>
+                            <div className={styles.referenceHeading}>
+                                <span>{t("shotReferences")}{references.length ? ` · ${references.length}` : ""}</span>
+                                <Button ref={addReferenceRef} variant="quiet" onPress={onOpenDrawer}>
+                                    <Plus size={14} />{t("addReference")}
+                                </Button>
+                            </div>
+                            {references.length ? <ul className={styles.references}>
+                                {references.map(({ name, url }, index) => <li key={`${index}:${name}`} className={styles.referenceItem}>
+                                    {url ? <PreviewImage src={url} alt={name} className={styles.reference} />
+                                        : <span className={styles.referenceMissing}><ImageIcon size={18} aria-hidden="true" /></span>}
+                                    <span className={styles.referenceName}>{name}{!url && <small>{t("referenceUnavailable")}</small>}</span>
+                                    <Button variant="quiet" isIconOnly aria-label={t("removeReference", { name })}
+                                        onPress={() => removeReference(name)}><X size={14} /></Button>
+                                </li>)}
+                            </ul> : <p className={styles.referenceHint}>{t("referenceEmpty")}</p>}
+                            {removedReference?.shotId === shot.id && removedReference.after === shot.prompt && (
+                                <div className={styles.referenceUndo} role="status">
+                                    <span>{t("referenceRemoved", { name: removedReference.name })}</span>
+                                    <Button variant="quiet" onPress={() => {
+                                        onUpdatePrompt(removedReference.before);
+                                        setRemovedReference(null);
+                                        addReferenceRef.current?.focus();
+                                    }}>{t("undoReferenceRemoval")}</Button>
+                                </div>
+                            )}
+                        </section>
+
                         {/* AI Polish — bilingual prompt rewrite using
                             the project's polish system prompt
                             (storyboard_polish / video_polish /
@@ -664,7 +618,7 @@ export default function ShotCard({
                         {/* Structured field tags — interactive Popover editors */}
                         <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                             {/* Duration: always visible */}
-                            <FieldTagChip
+                            {!productionInfo && <FieldTagChip
                                 field="duration"
                                 value={shot.duration}
                                 editorConfig={durationEditorConfig
@@ -672,7 +626,7 @@ export default function ShotCard({
                                     : { type: "duration", min: 3, max: 15, step: 1 }
                                 }
                                 onChange={(v) => onUpdateField("duration", v)}
-                            />
+                            />}
                             {/* Shot size: visible when has value */}
                             {shot.promptMode !== "complete" && <>
                             {shot.shotSize !== undefined && shot.shotSize !== null && (
@@ -777,34 +731,27 @@ export default function ShotCard({
                             </div>
                         )}
 
-                        {/* Asset Chip Bar */}
-                        <AssetChipBar
-                            characters={characters}
-                            scenes={scenes}
-                            props={props}
-                            onInsertAsset={handleInsertAssetFromChip}
-                        />
-
             </div>
-            {referenceImages.length > 0 && <div className={styles.references}>{referenceImages.map((url, index) => <PreviewImage key={url} src={url} alt={t("referenceImage", { number: index + 1 })} className={styles.reference} />)}</div>}
             {configuration}
             <div className={styles.actions}>
-                <ActionMenu label={t("shotActions")} items={[
-                    { id: "assets", label: t("browseAssets"), onAction: onOpenDrawer },
-                    { id: "up", label: t("moveUp"), onAction: onMoveUp, isDisabled: structurePending || isRefining || index === 0 },
-                    { id: "down", label: t("moveDown"), onAction: onMoveDown, isDisabled: structurePending || isRefining || index === totalShots - 1 },
-                    { id: "copy", label: t("duplicateShot"), onAction: onDuplicate, isDisabled: structurePending || isRefining },
-                    ...(onRefineFrame ? [{ id: "refine", label: t("refineFrame"), onAction: onRefineFrame, isDisabled: isRefining || shot.id.startsWith("shot_") }] : []),
-                    { id: "delete", label: t("deleteShot"), onAction: onDelete, isDisabled: structurePending || isRefining },
-                ]} />
+                {onRefineFrame && <ActionMenu label={t("shotMoreActions")} items={[
+                    { id: "refine", label: t("refineFrame"), onAction: onRefineFrame, isDisabled: isRefining || shot.id.startsWith("shot_") },
+                ]} />}
                 <SelectField label={t("countLabel")} value={String(generateCount)} onChange={key => onSetGenerateCount?.(Number(key))} options={[1, 2, 4, 6].map(n => ({ id: String(n), label: String(n) }))} />
             </div>
             <Button className={styles.generate} onPress={() => onGenerateBatch?.(generateCount)} isDisabled={!canGenerate || isRefining} isPending={inFlightCount > 0}>
                 {inFlightCount > 0 ? t("genClusterInFlight", { count: inFlightCount }) : t("generateBatch", { count: generateCount })}
             </Button>
-            <p className={styles.summary}>{!canGenerate ? (shot.tabMode === "t2i_i2v" ? t("needFirstFrameTooltip") : t("needPromptInputTooltip")) : genSummary}</p>
+            <p className={styles.summary}>{generationHint || (!canGenerate ? (shot.tabMode === "t2i_i2v" ? t("needFirstFrameTooltip") : t("needPromptInputTooltip")) : genSummary)}</p>
             {candidates}
         </aside>
+            <Dialog isOpen={deleteTarget === shot.id} onOpenChange={open => { if (!open) setDeleteTarget(null); }}
+                title={t("deleteShotConfirmTitle", { number: index + 1 })} closeLabel={t("close")}
+                footer={<><Button variant="secondary" onPress={() => setDeleteTarget(null)}>{t("cancel")}</Button>
+                    <Button variant="danger" isDisabled={structurePending || isRefining} onPress={() => { setDeleteTarget(null); onDelete(); }}>{t("deleteShot")}</Button></>}>
+                <blockquote className={styles.deletePreview}>{shot.prompt.trim() ? shot.prompt.slice(0, 120) + (shot.prompt.length > 120 ? "…" : "") : t("emptyShotDescription")}</blockquote>
+                <p>{t("deleteShotConfirmBody")}</p>
+            </Dialog>
             {expandOpen ? (
                 <PromptExpandModal
                     initialValue={shot.prompt}

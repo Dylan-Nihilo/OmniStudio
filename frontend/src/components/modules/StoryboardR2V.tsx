@@ -1,5 +1,7 @@
 "use client";
 
+import { resolveStoryboardReferenceTags, nextReferenceTag } from '@/lib/assetReferences';
+
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
 import { Button, EmptyState, SelectField } from "@omnistudio/ui";
@@ -18,7 +20,12 @@ import { getMaxReferenceImages, getR2vRouteModelId, isR2vImageBased, VIDEO_I2V_M
 import ShotCard, { type ShotNode } from "./storyboard-r2v/ShotCard";
 import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
 import DialogueAudioRow, { useDialogueAudioRequests } from "./storyboard-r2v/DialogueAudioRow";
-import StoryboardGenerateDialog from "./storyboard-r2v/StoryboardGenerateDialog";
+import ProductionPlanDialog from "./production-plan/ProductionPlanDialog";
+import ProductionPrevisDialog from "./production-plan/ProductionPrevisDialog";
+import OmniReferenceSection from './storyboard-r2v/OmniReferenceSection';
+import { supportsOmniReferences, type OmniReferenceSettings } from '@/lib/omniReferences';
+import { useEditLeaseStore } from "@/store/editLeaseStore";
+import type { ProductionReview } from '@/lib/productionPlan';
 import { toast } from "@/store/toastStore";
 import AssetDrawer from "./storyboard-r2v/AssetDrawer";
 import { type VideoConfig, DEFAULT_VIDEO_CONFIG } from "./storyboard-r2v/VideoConfigModal";
@@ -64,10 +71,13 @@ export default function StoryboardR2V() {
 }
 
 function StoryboardWorkbench() {
+    const [referenceUploads, setReferenceUploads] = useState<Set<string>>(() => new Set());
     const currentProject = useProjectStore((state) => state.currentProject);
     const updateProject = useProjectStore((state) => state.updateProject);
     const t = useTranslations("storyboardR2V");
     const tStudio = useTranslations("studioPage");
+    const tPlan = useTranslations("productionPlan");
+    const planReadOnly = useEditLeaseStore(state => state.scriptId === currentProject?.id && state.status !== "editing");
     const selectedFrameId = useProjectStore(state => state.selectedFrameId);
     const setSelectedFrameId = useProjectStore(state => state.setSelectedFrameId);
 
@@ -361,12 +371,16 @@ function StoryboardWorkbench() {
     }, [currentProject, t, queueDraft, materializeShot, beginStructure, endStructure]);
 
     const [genDialogOpen, setGenDialogOpen] = useState(false);
+    const [previsDialogOpen, setPrevisDialogOpen] = useState(false);
+    const [productionReviews, setProductionReviews] = useState<ProductionReview[]>([]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
     const storyboardRunning = storyboardJob?.status === "processing" || storyboardJob?.status === "pending";
     const storyboardSubmitting = !!storyboardRequest?.pending || !!storyboardRequest?.recovering;
     const generating = storyboardRunning || storyboardSubmitting;
+    const analyzing = (storyboardRunning && storyboardJob.phase === "analyze")
+        || (storyboardSubmitting && storyboardRequest.phase === "analyze");
     const bannerState = storyboardSubmitting ? (storyboardRequest.phase === "analyze" ? "phase1" : "phase2")
         : storyboardRunning ? (storyboardJob.phase === "analyze" ? "phase1" : "phase2") : (currentProject?.frames.length ? "summary" : "idle");
     const refineProgress = storyboardRunning && storyboardJob.phase === "refine"
@@ -377,10 +391,13 @@ function StoryboardWorkbench() {
         analysisBaseline.current = { id: storyboardJob.id, frames: currentProject?.frames ?? [] };
     }
     useEffect(() => {
-        holdRefinements(storyboardSubmitting && storyboardRequest.submitted ? storyboardRequest.frameIds ?? [] : storyboardRunning
-            ? storyboardJob.frame_ids.filter(id => storyboardJob.phase === "analyze" || !storyboardJob.results[id]) : []);
+        const requestedIds = storyboardSubmitting && storyboardRequest.submitted ? storyboardRequest.frameIds ?? []
+            : storyboardRunning ? storyboardJob.frame_ids : [];
+        const observedRefinement = storyboardJob?.phase === "refine" && (!storyboardRequest?.submitted
+            || storyboardJob.id !== storyboardRequest.previousGenerationId);
+        holdRefinements(requestedIds.filter(id => !observedRefinement || !storyboardJob.results[id]));
     }, [storyboardJob, storyboardRunning, storyboardRequest, storyboardSubmitting, holdRefinements]);
-    structurePendingRef.current = structurePending || draftSave.materializing || generating;
+    structurePendingRef.current = structurePending || draftSave.materializing || analyzing;
     const refinementIds = storyboardJob && (storyboardJob.phase === "refine" || storyboardJob.status === "completed")
         ? storyboardJob.frame_ids.filter(id => currentProject?.frames.some(frame => frame.id === id)
             && (storyboardJob.phase === "analyze" || !["completed", "skipped"].includes(storyboardJob.results[id]))) : [];
@@ -508,60 +525,6 @@ function StoryboardWorkbench() {
         }
     }, [currentProject?.id, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, t]);
 
-    const handleSmartGenerate = useCallback(async () => {
-        const existing = useStoryboardRequests.getState()[batchScope];
-        if (!currentProject?.id || batchPending || structurePending || storyboardRunning || existing?.pending || existing?.recovering) return;
-        const projectId = currentProject.id;
-        const scriptText = (currentProject as any).original_text ?? currentProject.originalText ?? "";
-        if (!scriptText.trim()) { toast.warning(t("genToastNoScript")); return; }
-        const isCurrent = () => useAuthStore.getState().user?.id === firstFrameContext.userId
-            && useAuthStore.getState().activeWorkspace?.id === firstFrameContext.workspaceId
-            && useProjectStore.getState().currentProject?.id === projectId;
-        const request = { id: crypto.randomUUID(), phase: "analyze" as const, pending: true,
-            previousGenerationId: currentProject.storyboard_generation?.id };
-        useStoryboardRequests.setState({ [batchScope]: request });
-        let submitted = false;
-        try {
-            if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
-            if (!isCurrent()) { useStoryboardRequests.setState({ [batchScope]: undefined }); return; }
-            const baselineFrames = useProjectStore.getState().currentProject!.frames;
-            const frameIds = baselineFrames.map(frame => frame.id);
-            submitted = true;
-            holdRefinements(frameIds);
-            useStoryboardRequests.setState({ [batchScope]: { ...request, submitted, frameIds, baselineFrames } });
-            const updated = await api.analyzeToStoryboard(projectId, scriptText);
-            const latest = useStoryboardRequests.getState()[batchScope];
-            if (latest?.id !== request.id) return;
-            if (updated?.storyboard_generation?.status !== "completed" || !updated.frames?.length) throw new Error(t("storyboardUnknown"));
-            const observedProject = useProjectStore.getState().currentProject;
-            const observedId = observedProject?.storyboard_generation?.id;
-            if (!isCurrent() || !taskContext.current.active
-                || observedId && observedId !== request.previousGenerationId && observedId !== updated.storyboard_generation.id) {
-                useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering: true } });
-                return;
-            }
-            const adopted = adoptAnalyzedFrames(updated, baselineFrames);
-            if (!adopted) {
-                updateProject(projectId, { storyboard_generation: updated.storyboard_generation });
-                useStoryboardRequests.setState({ [batchScope]: { ...request, pending: false, error: t("storyboardChangedDuringAnalysis") } });
-                return;
-            }
-            updateProject(projectId, { frames: adopted, storyboard_generation: updated.storyboard_generation });
-            useStoryboardRequests.setState({ [batchScope]: undefined });
-            holdRefinements([]);
-            // Continue the confirmed generation through the same path as a failed-item retry.
-            await startRefinement(updated.frames.map((frame: { id: string }) => frame.id));
-        } catch (error: any) {
-            const status = error?.response?.status;
-            const recovering = submitted && (!status || status === 409 || status >= 500);
-            const latest = useStoryboardRequests.getState()[batchScope];
-            if (latest?.id !== request.id) return;
-            const detail = typeof error?.response?.data?.detail === "string" ? error.response.data.detail : recovering ? t("storyboardUnknown") : error?.message || t("genToastErrUnknown");
-            useStoryboardRequests.setState({ [batchScope]: { ...latest, pending: false, recovering, error: detail } });
-            if (isCurrent()) toast.error(`${t("genToastErr")}: ${String(detail).slice(0, 200)}`);
-        }
-    }, [currentProject, batchScope, batchPending, structurePending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, adoptAnalyzedFrames, updateProject, startRefinement, t]);
-
     const displayedRefinements = useRef<Record<string, number>>({});
     useEffect(() => {
         const project = useProjectStore.getState().currentProject;
@@ -589,7 +552,7 @@ function StoryboardWorkbench() {
     // Keep the current order visible until the backend confirms the mutation.
     const deleteShot = useCallback(async (index: number) => {
         const target = shots[index];
-        if (!target || structurePendingRef.current) return;
+        if (!target || structurePendingRef.current || draftSave.isRefining(target.id)) return;
         const projectId = currentProject?.id;
         const ownsStructure = beginStructure();
         if (!ownsStructure) return;
@@ -613,7 +576,7 @@ function StoryboardWorkbench() {
             structurePendingRef.current = false;
             endStructure(ownsStructure);
         }
-    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId, discardDraft, isCurrentProject, beginStructure, endStructure]);
+    }, [shots, currentProject?.id, t, updateProject, setSelectedFrameId, discardDraft, isCurrentProject, beginStructure, endStructure, draftSave.isRefining]);
 
     const moveShot = useCallback(async (index: number, direction: "up" | "down") => {
         const targetIndex = direction === "up" ? index - 1 : index + 1;
@@ -701,6 +664,11 @@ function StoryboardWorkbench() {
     }, [shots, persistWorkbench]);
 
     // Structured field updates — local immediate + debounce 3s auto-save
+    const handleOmniChange = useCallback((shotId: string, value: OmniReferenceSettings) => {
+        setShots(previous => previous.map(shot => shot.id === shotId ? { ...shot, omniReferences: value } : shot));
+        queueDraft(shotId, 'fields', { omni_reference_settings: value }, 600);
+    }, [queueDraft]);
+
     const handleUpdateField = useCallback((index: number, field: string, value: string | number | null) => {
         if (field === "duration" && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) return;
         setShots(prev => prev.map((s, i) => {
@@ -748,95 +716,11 @@ function StoryboardWorkbench() {
         return { min: dc.value, max: dc.value, step: 1 };
     }, [videoConfig.r2vModel]);
 
-    // Parse asset tags from prompt and resolve to URLs
-    const parseAssetTags = useCallback((prompt: string): string[] => {
-        // HappyHorse uses [characterN:name] as generic reference-image slots.
-        // N determines the position in the URL array: character1 → image[0], etc.
-        // The "name" can be a character, scene, or prop — we look up all three.
-        // Dedup by slot number (first-seen wins): the same slot referenced
-        // multiple times in the prompt still corresponds to one reference
-        // image, so [character1:小兔子] used twice resolves to one URL slot
-        // not two. Without this, model expectations (characterN → URL[N-1])
-        // would shift right and downstream slots would point to the wrong
-        // images.
-        const seenSlot = new Set<number>();
-        const slots: { idx: number; url: string }[] = [];
-        const tagPattern = /\[character(\d+):([^\]]+)\]/g;
-        let match;
-        while ((match = tagPattern.exec(prompt)) !== null) {
-            const slotNum = parseInt(match[1], 10);
-            if (seenSlot.has(slotNum)) continue;
-            const name = match[2];
-            let url: string | undefined;
-
-            // Try character first
-            const char = characters.find((c: any) => c.name === name);
-            if (char) {
-                url = selectedVariantUrl(char.reference_sheet) || selectedVariantUrl(char.full_body_asset);
-            }
-            // Try scene
-            if (!url) {
-                const scene = scenes.find((s: any) => s.name === name);
-                const sceneAsset = scene?.image_asset;
-                if (sceneAsset?.selected_id && sceneAsset.variants?.length) {
-                    const selected = sceneAsset.variants.find((v: any) => v.id === sceneAsset.selected_id);
-                    if (selected) url = selected.url;
-                } else if (sceneAsset?.variants?.[0]) {
-                    url = sceneAsset.variants[0].url;
-                }
-            }
-            // Try prop
-            if (!url) {
-                const prop = props.find((p: any) => p.name === name);
-                const propAsset = prop?.image_asset;
-                if (propAsset?.selected_id && propAsset.variants?.length) {
-                    const selected = propAsset.variants.find((v: any) => v.id === propAsset.selected_id);
-                    if (selected) url = selected.url;
-                } else if (propAsset?.variants?.[0]) {
-                    url = propAsset.variants[0].url;
-                }
-            }
-
-            if (url) {
-                slots.push({ idx: slotNum, url });
-                seenSlot.add(slotNum);
-            }
-        }
-        // Sort by slot number so URL array matches HappyHorse's positional mapping
-        slots.sort((a, b) => a.idx - b.idx);
-        return slots.map(s => s.url);
-    }, [characters, scenes, props]);
-
-    const hasAssetTags = useCallback((prompt: string): boolean => {
-        return /\[character\d+:[^\]]+\]/.test(prompt);
-    }, []);
-
-    const getUnresolvedAssetNames = useCallback((prompt: string): string[] => {
-        const unresolved: string[] = [];
-        const tagPattern = /\[character\d+:([^\]]+)\]/g;
-        let match;
-        while ((match = tagPattern.exec(prompt)) !== null) {
-            const name = match[1];
-            let hasImage = false;
-            // Check character
-            const char = characters.find((c: any) => c.name === name);
-            if (char) {
-                hasImage = !!(char.reference_sheet?.image_variants?.length || char.full_body_asset?.variants?.length);
-            }
-            // Check scene
-            if (!hasImage) {
-                const scene = scenes.find((s: any) => s.name === name);
-                hasImage = !!(scene?.image_asset?.variants?.length);
-            }
-            // Check prop
-            if (!hasImage) {
-                const prop = props.find((p: any) => p.name === name);
-                hasImage = !!(prop?.image_asset?.variants?.length);
-            }
-            if (!hasImage) unresolved.push(name);
-        }
-        return unresolved;
-    }, [characters, scenes, props]);
+    const parseAssetTags = useCallback((prompt: string): string[] =>
+        resolveStoryboardReferenceTags(prompt, characters, scenes, props).urls, [characters, scenes, props]);
+    const hasAssetTags = useCallback((prompt: string): boolean => /\[character\d+:[^\]]+\]/.test(prompt), []);
+    const getUnresolvedAssetNames = useCallback((prompt: string): string[] =>
+        resolveStoryboardReferenceTags(prompt, characters, scenes, props).missing, [characters, scenes, props]);
 
     const mergeAudioResult = (frameId: string, result: any, fields: readonly string[]) => {
         const auth = useAuthStore.getState();
@@ -932,7 +816,7 @@ function StoryboardWorkbench() {
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
         const shot = shots[index];
-        if (!currentProject || !shot.prompt.trim()) return;
+        if (!currentProject || !shot.prompt.trim() || referenceUploads.has(shot.id)) return;
 
         const promptText = buildAssembledPrompt(shot);
 
@@ -942,6 +826,8 @@ function StoryboardWorkbench() {
 
         try {
             const frameId = await materializeShot(shot, index);
+            if (!await flushDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrentProject()) return;
             if (shot.tabMode === "direct_r2v") {
                 // R2V mode: use reference assets. We prefer the user's
                 // explicit R2V model choice (videoConfig.r2vModel) over
@@ -1081,7 +967,7 @@ function StoryboardWorkbench() {
                 i === index ? { ...s, videoStatus: "failed" } : s
             ));
         }
-    }, [shots, currentProject, videoConfig, parseAssetTags, materializeShot]);
+    }, [shots, currentProject, videoConfig, parseAssetTags, materializeShot, flushDrafts, referenceUploads, isCurrentProject, t]);
 
     // Batch-aware generation. The user's "抽卡" mental model: one
     // click of Generate ×N fires N independent createVideoTask calls
@@ -1096,7 +982,7 @@ function StoryboardWorkbench() {
         params?: Partial<ParamsState>,
     ) => {
         const shot = shots[index];
-        if (!currentProject || !shot?.prompt.trim()) return;
+        if (!currentProject || !shot?.prompt.trim() || referenceUploads.has(shot.id)) return;
         const promptText = buildAssembledPrompt(shot);
         const tabMode = shot.tabMode;
         const effectiveCount = Math.max(1, Math.min(6, count || 1));
@@ -1108,7 +994,8 @@ function StoryboardWorkbench() {
         // here and show inline error in the ParamsSection.
         if (tabMode === "direct_r2v") {
             const refs = parseAssetTags(shot.prompt);
-            if (refs.length === 0) {
+            if (refs.length === 0 && !(supportsOmniReferences(params?.model ?? videoConfig.r2vModel)
+                && ((shot.omniReferences?.videos.length ?? 0) > 0 || (shot.omniReferences?.audio_mode === 'driven' && shot.omniReferences.audios.length > 0)))) {
                 const hasTags = hasAssetTags(shot.prompt);
                 let errMsg: string;
                 if (hasTags) {
@@ -1162,6 +1049,8 @@ function StoryboardWorkbench() {
 
         try {
             const frameId = await materializeShot(shot, index);
+            if (!await flushDrafts()) throw new Error(t("saveFailed"));
+            if (!isCurrentProject()) return;
             // Build a per-call factory so the batch fires N parallel
             // requests through Promise.all — fail-fast on any one
             // failure leaves the others untouched on the backend (the
@@ -1286,7 +1175,7 @@ function StoryboardWorkbench() {
                 i === index ? { ...s, videoStatus: "failed" as const } : s
             ));
         }
-    }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot]);
+    }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot, flushDrafts, referenceUploads, isCurrentProject, t]);
 
     const [refreshingTasks, setRefreshingTasks] = useState(false);
     const [taskRefreshError, setTaskRefreshError] = useState(false);
@@ -1442,7 +1331,9 @@ function StoryboardWorkbench() {
                     && refinedJob.frame_ids.length > 0 && refinedJob.frame_ids.every((id: string) => ["completed", "skipped"].includes(refinedJob.results[id]))) {
                     toast.success(refinementDoneMessage);
                 }
-                if (watchStoryboard && storyboardReadSafe && storyboardRequestAtStart && !storyboardRequestAtStart.pending) {
+                const refinementSettled = storyboardObserved && storyboardRequestAtStart?.phase === "refine"
+                    && refinedJob?.phase === "refine" && (refinedJob.status === "completed" || refinedJob.status === "failed");
+                if (watchStoryboard && storyboardReadSafe && storyboardRequestAtStart && (!storyboardRequestAtStart.pending || refinementSettled)) {
                     useStoryboardRequests.setState({ [batchScope]: storyboardObserved ? undefined : { ...storyboardRequestAtStart, recovering: false, error: storyboardRequestAtStart.error || storyboardUnknownMessage } });
                 }
                 if (completedAnalysis && !acceptedAnalysis) useStoryboardRequests.setState({ [batchScope]: {
@@ -1488,7 +1379,8 @@ function StoryboardWorkbench() {
         const shotIndex = drawerState.targetShotIndex;
         if (shotIndex === null || shotIndex === undefined) return;
 
-        const tag = `[${type}:${name}]`;
+        const tag = nextReferenceTag(shots[shotIndex].prompt, name);
+        if (shots[shotIndex].prompt.includes(tag)) return;
         const textarea = textareaRefs.current.get(shotIndex) ?? null;
         if (textarea) {
             const start = textarea.selectionStart;
@@ -1536,9 +1428,9 @@ function StoryboardWorkbench() {
     // Map shot.id → human label for the queue panel's frame column.
     const shotLabelByFrameId = useMemo(() => {
         const out: Record<string, string> = {};
-        shots.forEach((s, i) => { out[s.id] = `${t("shot")} ${i + 1}`; });
+        shots.forEach((s, i) => { out[s.id] = currentProject?.production_plan ? tPlan("segmentNumber", { number: i + 1 }) : `${t("shot")} ${i + 1}`; });
         return out;
-    }, [shots, t]);
+    }, [shots, t, tPlan, currentProject?.production_plan]);
 
     // In-flight aggregate count drives the TaskQueueButton badge.
     const inFlightTaskCount = useMemo(
@@ -1734,8 +1626,8 @@ function StoryboardWorkbench() {
                 ? resolutions.default : videoConfig.resolution,
             ratio: undefined,
             negativePrompt: videoConfig.negativePrompt,
-            audioMode: videoConfig.audioMode,
-            audioUrl: videoConfig.audioUrl,
+            audioMode: shot.omniReferences?.audio_mode ?? videoConfig.audioMode,
+            audioUrl: shot.omniReferences ? shot.omniReferences.audios[0]?.url : videoConfig.audioUrl,
             promptExtend: videoConfig.promptExtend,
             cfgScale: videoConfig.cfgScale,
             mode: videoConfig.mode,
@@ -1790,8 +1682,8 @@ function StoryboardWorkbench() {
                 duration: next.duration,
                 resolution: next.resolution ?? prev.resolution,
                 negativePrompt: next.negativePrompt ?? prev.negativePrompt,
-                audioMode: next.audioMode ?? prev.audioMode ?? "post",
-                audioUrl: next.audioUrl ?? prev.audioUrl,
+                audioMode: shot.omniReferences ? prev.audioMode : next.audioMode ?? prev.audioMode ?? "post",
+                audioUrl: shot.omniReferences ? prev.audioUrl : next.audioUrl ?? prev.audioUrl,
                 promptExtend: next.promptExtend ?? prev.promptExtend,
                 cfgScale: next.cfgScale ?? prev.cfgScale,
                 mode: next.mode ?? prev.mode,
@@ -1970,6 +1862,48 @@ function StoryboardWorkbench() {
         });
     }, []);
 
+    const updateProduction = useCallback((patch: Partial<NonNullable<typeof currentProject>>, replaceFrames = false) => {
+        if (!currentProject || !isCurrentProject()) return;
+        updateProject(currentProject.id, patch);
+        if (replaceFrames && patch.frames) {
+            setShots(patch.frames.map(frame => frameToShotNode(frame, patch.video_tasks ?? currentProject.video_tasks ?? [])));
+            setSelectedFrameId(patch.frames[0]?.id ?? null);
+        }
+    }, [currentProject?.id, isCurrentProject, updateProject, setSelectedFrameId]);
+    useEffect(() => {
+        if (!currentProject || genDialogOpen && previsDialogOpen) return;
+        const planPending = !genDialogOpen && currentProject.production_planning_job?.status === "processing";
+        const previewsPending = !previsDialogOpen && currentProject.production_previews?.some(frame => frame.image_generation_status === "processing" || frame.image_generation_status === "pending");
+        if (!planPending && !previewsPending) return;
+        let active = true, polling = false;
+        const timer = window.setInterval(async () => {
+            if (polling) return;
+            polling = true;
+            const before = useProjectStore.getState().currentProject;
+            try {
+                const updated = await api.getProject(currentProject.id);
+                const now = useProjectStore.getState().currentProject;
+                if (!active || !isCurrentProject() || !now || !before) return;
+                const patch: Partial<typeof now> = {};
+                if (planPending && now.production_planning_job?.id === before.production_planning_job?.id) {
+                    patch.production_planning_job = updated.production_planning_job;
+                    patch.production_plan_draft = updated.production_plan_draft;
+                }
+                if (previewsPending && now.production_previews === before.production_previews) patch.production_previews = updated.production_previews;
+                updateProduction(patch);
+            } catch { /* Keep the persisted in-progress state until a later read succeeds. */ }
+            finally { polling = false; }
+        }, 4000);
+        return () => { active = false; window.clearInterval(timer); };
+    }, [currentProject?.id, currentProject?.production_planning_job, currentProject?.production_previews, genDialogOpen, previsDialogOpen, isCurrentProject, updateProduction]);
+
+    useEffect(() => {
+        if (!currentProject?.production_plan) { setProductionReviews([]); return; }
+        let active = true;
+        void api.reviewProductionPlan(currentProject.id).then(result => { if (active) setProductionReviews(result.segments); }).catch(() => { if (active) setProductionReviews([]); });
+        return () => { active = false; };
+    }, [currentProject?.id, currentProject?.production_plan, currentProject?.production_previews, currentProject?.frames, currentProject?.originalText, previsDialogOpen]);
+
     // Active candidate URL resolver — many backend video URLs are
     // relative paths needing the asset prefix to render in <video>.
     const resolveAssetUrl = useCallback((u: string) => getAssetUrl(u), []);
@@ -1984,7 +1918,7 @@ function StoryboardWorkbench() {
         <div className={styles.page}>
         <div className={styles.main}>
             <header className={styles.header}>
-                <div><p>{currentProject?.title} / {tStudio("storyboard")}</p><h2>{selectedShot ? tStudio("shotNumber", { number: shots.indexOf(selectedShot) + 1 }) : tStudio("storyboard")}</h2></div>
+                <div><p>{currentProject?.title} / {tStudio("storyboard")}</p><h2>{selectedShot ? (currentProject?.production_plan ? tPlan("segmentNumber", { number: shots.indexOf(selectedShot) + 1 }) : tStudio("shotNumber", { number: shots.indexOf(selectedShot) + 1 })) : tStudio("storyboard")}</h2></div>
                 <div className={styles.saveState}>
                         <span role="status" aria-label={t("saveStatus")} aria-live="polite" data-error={draftSave.hasError || undefined}>
                             {structurePending || draftSave.saving ? t("saving") : draftSave.hasError ? t("saveFailedRetained") : draftSave.pending ? t("unsaved") : t("saved")}
@@ -1995,7 +1929,7 @@ function StoryboardWorkbench() {
                 <div className={styles.headerActions}>
                     <Button variant="quiet" onPress={() => document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "assembly" }))}>{tStudio("previewCut")}</Button>
                     <TaskQueueButton inFlightCount={inFlightTaskCount} open={queueOpen} onToggle={() => setQueueOpen(value => !value)} />
-                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating} isDisabled={batchPending || structurePending}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : t("genShots")}</Button>
+                    <Button variant="secondary" onPress={() => setGenDialogOpen(true)} isPending={generating} isDisabled={batchPending || structurePending}>{!generating && <Sparkles size={16} aria-hidden="true" />}{generating ? t("genInFlight") : currentProject?.production_planning_job?.status === "processing" ? tPlan("planning") : tPlan("title")}</Button>
                 </div>
             </header>
             <GenerationBanner
@@ -2011,6 +1945,8 @@ function StoryboardWorkbench() {
                 storyboardError={storyboardRequest?.error}
                 storyboardRecovering={storyboardRequest?.recovering}
                 refinementCount={refinementIds.length}
+                refinementShots={refinementIds.map(id => ({ id, number: shots.findIndex(shot => shot.id === id) + 1 })).filter(shot => shot.number > 0)}
+                onOpenShot={setSelectedFrameId}
                 onRefine={() => { void startRefinement(refinementIds); }}
                 refreshFailed={taskRefreshError && (generating || !!storyboardJob || batchPending || !!dialogueBatch)}
                 refreshing={refreshingTasks}
@@ -2021,18 +1957,32 @@ function StoryboardWorkbench() {
                 {!shots.length && <EmptyState title={t("emptyTitle")} description={t("emptyBody")} action={<><Button onPress={() => setGenDialogOpen(true)} isPending={generating}>{t("emptyCTA")}</Button><Button variant="quiet" onPress={() => addShot(-1)}>{t("emptyManualAdd")}</Button></>} />}
                 {shots.map((shot, index) => {
                     if (shot.id !== selectedShot?.id) return null;
+                    const plannedSegment = currentProject?.production_plan?.segments.find(segment => segment.frame_id === shot.id);
+                    const productionReview = productionReviews.find(report => report.frame_id === shot.id);
                     const shotTasks = tasksForShot(shot);
                     const shotInFlight = shotTasks.filter(task => task.status === "pending" || task.status === "processing").length;
                     const paramsState = paramsStateForShot(shot);
                     const isI2vTab = shot.tabMode === "t2i_i2v";
+                    const omniSupported = !isI2vTab && supportsOmniReferences(paramsState.model);
+                    const omni = shot.omniReferences ?? { videos: [], audios: [], audio_mode: paramsState.audioMode ?? 'post' };
+                    const hasOmni = !!shot.omniReferences && (omni.videos.length > 0 || omni.audios.length > 0 || omni.audio_mode !== 'post');
                     const modelList = isI2vTab ? VIDEO_I2V_MODELS : VIDEO_R2V_MODELS;
                     const shotModelField: ShotModelField = isI2vTab ? "i2v_model" : "r2v_model";
                     const hasModelOverride = Object.prototype.hasOwnProperty.call(shot.modelSettingsOverrides ?? {}, shotModelField);
                     const modelOverrideSaving = savingShotModels.has(shot.id) || savingShotModels.has(resolveId(shot.id));
                     return <div key="selected-shot" className={styles.selectedShot} ref={el => { shotWrapperRefs.current.set(shot.id, el); }}>
-                        <DirectorPlanEditor projectId={currentProject!.id} episodeId={currentProject!.id} shotId={shot.id} />
                         <ShotCard
                             shot={shot}
+                            omniMode={omniSupported}
+                            onEditProduction={plannedSegment ? () => setGenDialogOpen(true) : undefined}
+                            unitLabel={plannedSegment ? tPlan('segmentNumber', { number: index + 1 }) : undefined}
+                            productionInfo={plannedSegment ? <section className={styles.productionInfo}>
+                                <div><span>{tPlan('previsCount', { count: plannedSegment.shots.length })} · {tPlan(productionReview?.ready ? 'confirmed' : productionReview?.changed_after_review ? 'needsReview' : 'awaitReview')}</span>
+                                    <Button variant="quiet" onPress={() => setPrevisDialogOpen(true)}>{tPlan('previsTab')}</Button></div>
+                                <details><summary>{plannedSegment.title}</summary>{plannedSegment.shots.map((item, i) => <p key={item.id}>{i + 1}. {item.title} · {item.duration}s</p>)}
+                                    <p>{tPlan('startState')}：{plannedSegment.start_state}</p><p>{tPlan('endState')}：{plannedSegment.end_state}</p></details>
+                            </section> : undefined}
+                            generationHint={plannedSegment && (!productionReview?.ready || draftSave.pending) ? tPlan(productionReview?.changed_after_review || draftSave.pending ? 'reviewNotice' : 'reviewFirst') : undefined}
                             index={index}
                             totalShots={shots.length}
                             characters={characters}
@@ -2043,7 +1993,7 @@ function StoryboardWorkbench() {
                             durationEditorConfig={durationEditorCfg}
                             onGenerateT2I={() => submitFirstFrame(index)}
                             onGenerateVideo={() => generateVideo(index)}
-                            structurePending={structurePending || draftSave.materializing || generating}
+                            structurePending={structurePending || draftSave.materializing || analyzing}
                             onDelete={() => deleteShot(index)}
                             onMoveUp={() => moveShot(index, "up")}
                             onMoveDown={() => moveShot(index, "down")}
@@ -2065,7 +2015,12 @@ function StoryboardWorkbench() {
                                     : (VIDEO_I2V_MODELS.find(m => m.id === paramsState.model)?.name ?? paramsState.model ?? "")
                             } · ${paramsState.duration}s`}
                             canGenerate={
-                                shot.prompt.trim().length > 0
+                                !referenceUploads.has(shot.id)
+                                && !(hasOmni && !omniSupported)
+                                && !(omniSupported && omni.audio_mode === 'driven' && !omni.audios.length)
+                                &&
+                                (!plannedSegment || !!productionReview?.ready && !draftSave.pending)
+                                && shot.prompt.trim().length > 0
                                 && (
                                     shot.tabMode === "direct_r2v"
                                     || !!shot.t2iImageUrl
@@ -2089,17 +2044,16 @@ function StoryboardWorkbench() {
                                     debugLog.error("Studio", "update dialogue failed", e);
                                 }
                             }}
-                            referenceImages={parseAssetTags(shot.prompt)}
                             sequence={<section className={styles.sequence} aria-label={tStudio("sequence")}>
-                                <header><span>{tStudio("sequence")}</span><span>{tStudio("shotCount", { count: shots.length })}</span></header>
+                                <header><span>{currentProject?.production_plan ? tPlan("segmentSequence") : tStudio("sequence")}</span><span>{currentProject?.production_plan ? tPlan("segmentCount", { count: shots.length }) : tStudio("shotCount", { count: shots.length })}</span></header>
                                 <div className={styles.strip}>
                                     {shots.map((item, i) => <Button key={item.id} variant="quiet" className={styles.thumbnail} aria-pressed={item.id === shot.id} aria-label={tStudio("selectShot", { number: i + 1 })} onPress={() => setSelectedFrameId(item.id)}>
                                         {item.imageUrl || item.t2iImageUrl ? <img src={getAssetUrl(item.imageUrl || item.t2iImageUrl!)} alt="" /> : <span className={styles.noImage}><Film size={22} /></span>}
-                                        <span>{tStudio("shotNumber", { number: i + 1 })}{item.duration ? ` · ${item.duration}s` : ""}</span>
+                                        <span>{currentProject?.production_plan ? tPlan("segmentNumber", { number: i + 1 }) : tStudio("shotNumber", { number: i + 1 })}{item.duration ? ` · ${item.duration}s` : ""}</span>
                                         <strong>{item.visualDescription || item.prompt || tStudio("untitledShot")}</strong>
                                     </Button>)}
                                 </div>
-                                <footer><Button variant="quiet" isDisabled={structurePending || draftSave.materializing || generating} onPress={() => addShot(index)}><Plus size={15} />{t("addShot")}</Button></footer>
+                                <footer><Button variant="quiet" isDisabled={structurePending || draftSave.materializing || analyzing} onPress={() => currentProject?.production_plan ? setGenDialogOpen(true) : addShot(index)}><Plus size={15} />{currentProject?.production_plan ? tPlan("editSegments") : t("addShot")}</Button></footer>
                             </section>}
                             audio={(() => {
                             const frame = currentProject?.frames?.find((f: any) => f.id === shot.id);
@@ -2214,7 +2168,13 @@ function StoryboardWorkbench() {
                                 </div>
                             );
                         })()}
-                            configuration={<>                            {isI2vTab ? (
+                            configuration={<>{(omniSupported || hasOmni) && <OmniReferenceSection key={shot.id}
+                                value={omni} supported={omniSupported} readOnly={planReadOnly}
+                                imageCount={parseAssetTags(shot.prompt).length + (plannedSegment?.shots.length ?? 0)}
+                                onChange={value => handleOmniChange(shot.id, value)}
+                                onPendingChange={pending => setReferenceUploads(previous => {
+                                    const next = new Set(previous); if (pending) next.add(shot.id); else next.delete(shot.id); return next;
+                                })} />}{isI2vTab ? (
                                 <div>
                                     <T2ISubsection key={shot.id}
                                         imageUrls={shot.t2iImageUrls ?? []}
@@ -2254,8 +2214,10 @@ function StoryboardWorkbench() {
                                 candidates in direct_r2v mode. */}
                             <div className={isI2vTab ? "border-t border-glass-border" : ""}>
                                 <ParamsSection key={shot.id}
+                                    hideAudioControls={omniSupported}
                                     shotId={shot.id}
                                     modelList={modelList}
+                                    onEditPlannedTiming={plannedSegment ? () => setGenDialogOpen(true) : undefined}
                                     title={t("generationSettings")}
                                     params={paramsState}
                                     onChange={(next) => handleShotParamsChange(shot, next)}
@@ -2266,7 +2228,8 @@ function StoryboardWorkbench() {
                                     errorMessage={shotErrors[shot.id] ?? null}
                                 />
                             </div>
-</>}
+                            <DirectorPlanEditor projectId={currentProject!.id} episodeId={currentProject!.id} shotId={shot.id} />
+                            </>}
                             candidates={                                <CandidatesSection key={shot.id}
                                     shotId={shot.id}
                                     tasks={shotTasks}
@@ -2303,6 +2266,7 @@ function StoryboardWorkbench() {
                 scenes={scenes}
                 props={props}
                 onSelectAsset={insertAssetFromDrawer}
+                selectedNames={resolveStoryboardReferenceTags(shots[drawerState.targetShotIndex ?? -1]?.prompt ?? "", characters, scenes, props).references.map(ref => ref.name)}
             />
         </div>
         {/* Right-side Task Queue — pushes (does not overlay) the main
@@ -2328,18 +2292,18 @@ function StoryboardWorkbench() {
             onClose={() => setCompareModalOpen(false)}
             resolveUrl={resolveAssetUrl}
         />
-        {/* LLM-generate frames dialog */}
-        <StoryboardGenerateDialog
+        {currentProject && <><ProductionPlanDialog
             isOpen={genDialogOpen}
             onClose={() => setGenDialogOpen(false)}
-            project={currentProject as any}
-            existingShotCount={shots.length}
-            onConfirm={handleSmartGenerate}
-            onJumpToScript={() => {
-                setGenDialogOpen(false);
-                document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: "script" }));
-            }}
+            project={currentProject}
+            readOnly={planReadOnly}
+            modelId={String(selectedShot?.modelSettingsOverrides?.r2v_model ?? videoConfig.r2vModel)}
+            beforeChange={saveAllDrafts}
+            onUpdate={updateProduction}
+            onPrevis={() => setPrevisDialogOpen(true)}
         />
+        <ProductionPrevisDialog isOpen={previsDialogOpen} onClose={() => setPrevisDialogOpen(false)}
+            project={currentProject} readOnly={planReadOnly} beforeChange={saveAllDrafts} onUpdate={updateProduction} /></>}
         </div>
     );
 }
