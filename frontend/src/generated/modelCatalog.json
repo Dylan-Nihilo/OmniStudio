@@ -4660,6 +4660,7 @@
         }
       },
       "params": {
+        "audio": true,
         "negativePrompt": false,
         "promptExtend": false,
         "resolution": {
@@ -4741,12 +4742,21 @@
       "family": "seedance",
       "id": "seedance-2.5-r2v",
       "inputs": {
+        "reference_audio": {
+          "max": 10,
+          "reference_type": "audio"
+        },
         "reference_images": {
           "max": 30,
           "reference_type": "image"
+        },
+        "reference_videos": {
+          "max": 10,
+          "reference_type": "video"
         }
       },
       "params": {
+        "audio": true,
         "negativePrompt": false,
         "promptExtend": false,
         "resolution": {
@@ -4829,6 +4839,7 @@
       "id": "seedance-2.5-t2v",
       "inputs": {},
       "params": {
+        "audio": true,
         "negativePrompt": false,
         "promptExtend": false,
         "resolution": {
@@ -8884,6 +8895,7 @@
       "mode": "i2v",
       "model_line_id": "seedance/seedance-2.5-video",
       "params": {
+        "audio": true,
         "negativePrompt": false,
         "promptExtend": false,
         "resolution": {
@@ -8973,15 +8985,24 @@
       "family": "seedance",
       "id": "seedance/seedance-2.5-video#r2v",
       "inputs": {
+        "reference_audio": {
+          "max": 10,
+          "reference_type": "audio"
+        },
         "reference_images": {
           "max": 30,
           "reference_type": "image"
+        },
+        "reference_videos": {
+          "max": 10,
+          "reference_type": "video"
         }
       },
       "legacy_model_id": "seedance-2.5-r2v",
       "mode": "r2v",
       "model_line_id": "seedance/seedance-2.5-video",
       "params": {
+        "audio": true,
         "negativePrompt": false,
         "promptExtend": false,
         "resolution": {
@@ -9075,6 +9096,7 @@
       "mode": "t2v",
       "model_line_id": "seedance/seedance-2.5-video",
       "params": {
+        "audio": true,
         "negativePrompt": false,
         "promptExtend": false,
         "resolution": {

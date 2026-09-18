@@ -235,6 +235,8 @@ models:
     status: active
     release_stage: preview
     docs:
+      official_snapshot_ids:
+        - jojokey/seedance/2026-09-18
       context_hub_doc_ids:
         - jojokey/seedance-2-5
     runtime:
@@ -261,6 +263,7 @@ models:
           step: 1
           default: 5
         params: &v25_params
+          audio: true
           resolution:
             options: [480p, 720p, 1080p]
             default: 720p
@@ -300,3 +303,9 @@ models:
           reference_images:
             max: 30
             reference_type: image
+          reference_videos:
+            max: 10
+            reference_type: video
+          reference_audio:
+            max: 10
+            reference_type: audio
