@@ -44,6 +44,39 @@ def generate(client, project_id):
     return response.json()
 
 
+@pytest.mark.parametrize('base_url', ['https://kaizo.top/v1', 'https://api.example.test/v1', 'https://kaizo.top.example.test/v1'])
+def test_planning_requests_isolate_kaizo_cache_without_changing_content(api_client, monkeypatch, base_url):
+    real_chat = LLMAdapter.chat
+    project_id, content, _ = setup_plan(api_client, monkeypatch)
+    monkeypatch.setattr(LLMAdapter, 'chat', real_chat)
+    assert api_client.post('/config/env', json={'OPENAI_BASE_URL': base_url}).status_code == 200
+    sent = []
+
+    def create(**kwargs):
+        key = kwargs.get('prompt_cache_key')
+        if base_url == 'https://kaizo.top/v1':
+            if not key or any(previous['prompt_cache_key'] == key for previous in sent):
+                raise RuntimeError('Our servers are currently overloaded. Please try again later.')
+        else:
+            assert 'prompt_cache_key' not in kwargs
+        sent.append(kwargs)
+        return nullcontext(iter([SimpleNamespace(choices=[SimpleNamespace(
+            delta=SimpleNamespace(content=json.dumps(content, ensure_ascii=False)), finish_reason='stop'
+        )])]))
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(LLMAdapter, '_get_client', lambda self: client)
+    first = generate(api_client, project_id)
+    second = generate(api_client, project_id)
+    assert first['production_planning_job']['id'] != second['production_planning_job']['id']
+    assert first['frames'] == second['frames']
+    assert len(sent) == 2
+    assert {k: v for k, v in sent[0].items() if k != 'prompt_cache_key'} == {
+        k: v for k, v in sent[1].items() if k != 'prompt_cache_key'
+    }
+    assert json.loads(sent[0]['messages'][1]['content'])['existing_shots'][0]['has_video'] is True
+
+
 def test_plan_review_apply_reload_and_restore_preserve_original_media(api_client, monkeypatch):
     project_id, content, calls = setup_plan(api_client, monkeypatch)
     route = f'/projects/{project_id}/production-plan'

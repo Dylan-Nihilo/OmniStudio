@@ -16,6 +16,7 @@ import logging
 import uuid
 from threading import Lock
 from typing import Dict, List, Optional, Any
+from urllib.parse import urlsplit
 
 from ...utils.endpoints import get_provider_base_url
 from ...utils.workspace_env import workspace_getenv
@@ -147,6 +148,10 @@ class LLMAdapter:
 
         try:
             if self.provider == "openai":
+                # Kaizo can repeatedly fail an identical prompt on its default cache route.
+                # Isolate each logical call; other compatible providers may reject this field.
+                if urlsplit(workspace_getenv("OPENAI_BASE_URL", "") or "").hostname == "kaizo.top":
+                    kwargs["prompt_cache_key"] = f"omni-{uuid.uuid4().hex}"
                 # Receive upstream tokens as they arrive so a long JSON response
                 # does not hit the gateway's non-streaming response timeout.
                 parts = []
