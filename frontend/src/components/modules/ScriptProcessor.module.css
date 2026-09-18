@@ -38,3 +38,6 @@
 .error { margin: 0; padding: 8px 18px; color: var(--color-danger); font-size: 12px; }
 @media (max-width: 1199px) { .header { padding: 18px 24px; flex-wrap: wrap; gap: 16px; } .panels { grid-template-columns: minmax(0, 1fr) 280px; padding-left: 16px; } .editor textarea { padding-inline: 16px; } .gutter { width: 40px; } .rail { padding-inline: 8px; } .analysis { padding-inline: 8px; } }
 @media (max-width: 959px) { .page { overflow: auto; flex: 0 0 auto; min-height: 100%; } .panels { display: flex; flex-direction: column; gap: 16px; padding: 0 16px 24px; } .paper { min-height: 460px; height: 60vh; flex-shrink: 0; } .rail { overflow: visible; min-height: 300px; flex-shrink: 0; } .header { padding: 20px 16px; } .header h2 { font-size: 17px; } .actions { gap: 8px; } }
+
+.recovery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 24px 16px; font-size: 12px; color: var(--color-text-secondary); }
+.recovery > span { flex: 1; }
