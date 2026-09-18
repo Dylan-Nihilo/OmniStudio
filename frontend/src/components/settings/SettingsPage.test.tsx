@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
 import { useAuthStore } from '@/store/authStore';
+import { useBillingStore } from '@/store/billingStore';
+import { billingAdminApi } from '@/lib/billing';
 
 const mocks = vi.hoisted(() => ({
   getEnvConfig: vi.fn(), saveEnvConfig: vi.fn(), getGlobalModelSettings: vi.fn(), saveGlobalModelSettings: vi.fn(), testProviderConnection: vi.fn(), fetchPromptDefaults: vi.fn(), healthCheck: vi.fn(), checkSystem: vi.fn(), triggerMulerunLogin: vi.fn(),
@@ -103,7 +105,8 @@ describe('settings controls and recovery', () => {
     render(<SettingsPage />);
     choose('tabApikeys');
     const key = await screen.findByLabelText('DashScope API Key');
-    const group = within(screen.getByRole('group', {name:'dashscopeKeyLabel'}));
+    // Credentials are grouped by what they buy now, so the DashScope key lives under 配音.
+    const group = within(screen.getByRole('group', {name:'groupVoiceLabel'}));
     expect(group.getByRole('button', {name:'copyKey'})).toBeDisabled();
     expect(group.getByRole('button', {name:'showKey'})).toBeDisabled();
     key.focus();
@@ -255,5 +258,114 @@ describe('workspace configuration boundaries', () => {
     await act(async () => finish());
     expect(saved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', {name:'saveConfig'})).toBeEnabled();
+  });
+});
+
+describe('credential visibility', () => {
+  const setWallet = (wallet: Record<string, unknown> | null) =>
+    useBillingStore.setState({ wallet } as never);
+  afterEach(() => setWallet(null));
+
+  it('hides provider and storage config on a centrally operated deployment', async () => {
+    // The platform holds the credentials there; users only pick models and spend credits.
+    setWallet({ enabled: false, role: null, platform_managed: true });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabGeneral'})).toBeInTheDocument());
+    expect(screen.queryByRole('tab', {name:'tabApikeys'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name:'tabStorage'})).not.toBeInTheDocument();
+    // Model defaults are a creative choice and stay with the people creating.
+    expect(screen.getByRole('tab', {name:'tabModels'})).toBeInTheDocument();
+  });
+
+  it('still shows them to root', async () => {
+    setWallet({ enabled: false, role: 'root', platform_managed: true });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabApikeys'})).toBeInTheDocument());
+    expect(screen.getByRole('tab', {name:'tabStorage'})).toBeInTheDocument();
+  });
+
+  it('still shows them when no root exists at all', async () => {
+    // Desktop build: nobody operates this for anyone else, so the owner needs their own keys.
+    setWallet({ enabled: false, role: null, platform_managed: false });
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabApikeys'})).toBeInTheDocument());
+  });
+
+  it('does not render a hidden panel even when it is the requested category', async () => {
+    // Hiding the tab is not enough: initialCategory can point straight at it.
+    setWallet({ enabled: false, role: null, platform_managed: true });
+    render(<SettingsPage initialCategory="apikeys" />);
+    await waitFor(() => expect(screen.getByRole('tab', {name:'tabGeneral'})).toBeInTheDocument());
+    expect(screen.queryByLabelText('DashScope API Key')).not.toBeInTheDocument();
+  });
+});
+
+describe('credentials grouped by model type', () => {
+  const asRoot = () => useBillingStore.setState({
+    wallet: { enabled: false, role: 'root', platform_managed: true },
+  } as never);
+  afterEach(() => useBillingStore.setState({ wallet: null } as never));
+
+  it('groups credentials by what they buy rather than by vendor', async () => {
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    for (const group of ['groupTextLabel', 'groupImageLabel', 'groupVideoLabel', 'groupVoiceLabel']) {
+      expect(await screen.findByRole('group', {name:group})).toBeInTheDocument();
+    }
+  });
+
+  it('warns that the script tiers cannot run on the DashScope route', async () => {
+    // The four tiers are newapi models; an explicit override is a single attempt with no
+    // fallback, so this combination fails outright and the page has to say so.
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByText('textTiersNeedOpenai')).toBeInTheDocument();
+  });
+
+  it('keeps one input for a credential that serves two stages', async () => {
+    // DashScope serves voice always and text on one route; two controlled inputs writing the
+    // same config key is a bug waiting to happen.
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    await screen.findByRole('group', {name:'groupVoiceLabel'});
+    expect(screen.getAllByLabelText('DashScope API Key')).toHaveLength(1);
+    expect(screen.getByText('textUsesVoiceKey')).toBeInTheDocument();
+  });
+
+  it('keeps unrouted providers reachable instead of deleting them', async () => {
+    asRoot();
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByRole('group', {name:'groupUnusedLabel'})).toBeInTheDocument();
+    expect(screen.getByLabelText('MOMA API Key')).toBeInTheDocument();
+  });
+});
+
+describe('configured model list', () => {
+  const PROVIDERS = [
+    { family: 'seedance', backend: 'jojokey', stages: ['video'], credential_keys: ['JOJOKEY_API_KEY'],
+      missing_credentials: [], configured: true, model_count: 2,
+      models: ['Seedance 2.0 标准 I2V', 'Seedance 2.5 I2V'] },
+    { family: 'gpt-image', backend: 'open302', stages: ['image'], credential_keys: ['OPEN302_API_KEY'],
+      missing_credentials: ['OPEN302_API_KEY'], configured: false, model_count: 1,
+      models: ['GPT Image 2'] },
+  ];
+
+  beforeEach(() => {
+    useBillingStore.setState({ wallet: { enabled: false, role: 'root', platform_managed: true } } as never);
+    vi.spyOn(billingAdminApi, 'listProviders').mockResolvedValue(PROVIDERS as never);
+  });
+  afterEach(() => useBillingStore.setState({ wallet: null } as never));
+
+  it('names the models each credential unlocks, not just how many', async () => {
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByText('Seedance 2.0 标准 I2V')).toBeInTheDocument();
+    expect(screen.getByText('Seedance 2.5 I2V')).toBeInTheDocument();
+    expect(screen.getByText('GPT Image 2')).toBeInTheDocument();
+  });
+
+  it('says which credential is missing for the group that cannot run', async () => {
+    render(<SettingsPage initialCategory="apikeys" />);
+    expect(await screen.findByText('stageBlocked')).toBeInTheDocument();
+    expect(screen.getByText('stageReady')).toBeInTheDocument();
   });
 });

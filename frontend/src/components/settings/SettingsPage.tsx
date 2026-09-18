@@ -5,6 +5,8 @@ import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
 import { useBillingStore } from "@/store/billingStore";
+import { withCreditLabel } from "@/lib/modelCost";
+import { billingAdminApi, type ProviderReadiness } from "@/lib/billing";
 import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
 import { ASPECT_RATIOS } from "@/store/projectStore";
@@ -200,6 +202,51 @@ export default function SettingsPage(props: SettingsPageProps = {}) {
 function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
   const billingRole = useBillingStore((state) => state.wallet?.role ?? null);
+  // Provider credentials and storage belong to whoever operates the deployment. On a
+  // centrally operated platform the operator holds them and users only pick models and
+  // spend credits, so these two categories are root-only. A desktop build has no root at
+  // all and its owner must still be able to enter their own keys, hence the second clause.
+  const platformManaged = useBillingStore((state) => state.wallet?.platform_managed ?? false);
+  // Users on a hosted plan pick a tier and spend credits; showing the rate at the point of
+  // choice is what makes the tiers legible. Absent a published price book this adds nothing.
+  const pricing = useBillingStore((state) => state.pricing);
+  const unitLabels = { second: t("unitSecond"), image: t("unitImage"), chars_1k: t("unitChars1k") };
+  const withCost = (id: string, description: string) => withCreditLabel(description, pricing, id, unitLabels);
+  // Credentials are per provider family, but they are only meaningful as "which models does
+  // this let people use". The readiness endpoint answers that, so the groups below can say
+  // it rather than leaving root to map key names onto model names by hand.
+  const [providers, setProviders] = useState<ProviderReadiness[]>([]);
+  useEffect(() => {
+    if (billingRole !== "root") return;
+    void billingAdminApi.listProviders().then(setProviders).catch(() => setProviders([]));
+  }, [billingRole]);
+  const readiness = (stage: "text" | "image" | "video") => {
+    const rows = providers.filter(provider => provider.stages.includes(stage));
+    if (!rows.length) return null;
+    const models = rows.reduce((total, row) => total + row.model_count, 0);
+    const missing = [...new Set(rows.flatMap(row => row.missing_credentials))];
+    return { models, missing, ready: missing.length === 0 };
+  };
+  const stageStatus = (stage: "text" | "image" | "video") => {
+    const info = readiness(stage);
+    if (!info) return null;
+    // The count alone does not tell you what you can call. Listing the models is what makes
+    // this page usable as a reference rather than just a status light.
+    const names = providers.filter(provider => provider.stages.includes(stage)).flatMap(provider => provider.models);
+    return <div className="space-y-1">
+      <p role="status" className={`text-xs ${info.ready ? "text-status-completed-fg" : "text-status-failed-fg"}`}>
+        {info.ready ? t("stageReady", { count: info.models }) : t("stageBlocked", { count: info.models, keys: info.missing.join(", ") })}
+      </p>
+      {names.length > 0 && <ul className="flex flex-wrap gap-1.5">
+        {names.map(name => (
+          <li key={name} className={`rounded px-1.5 py-0.5 text-[0.625rem] ${info.ready ? "bg-surface text-text-secondary" : "bg-surface text-text-muted line-through"}`}>
+            {name}
+          </li>
+        ))}
+      </ul>}
+    </div>;
+  };
+  const canSeeCredentials = !platformManaged || billingRole === "root";
   const refreshBilling = useBillingStore((state) => state.refresh);
   // Load the wallet here rather than relying on the sidebar badge having mounted first:
   // the Billing tab is gated on the platform role and must not depend on render order.
@@ -576,7 +623,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const renderModels = () => <Section id="models" title={t("secModelsTitle")} desc={t("secModelsDesc")}>
     <FormRow label={t("imageModelLabel")} hint={t("imageModelHint")}>
-      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("imageModelLabel")} className="[&>.label]:sr-only" value={modelSettings.t2i_model} onChange={value => updateModel("t2i_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_IMAGE_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>
     <FormRow label={t("assetAspectLabel")} hint={t("assetAspectHint")}>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -587,10 +634,10 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
     </FormRow>
     <FormRow label={t("storyboardAspectLabel")} hint={t("storyboardAspectHint")}>{ratioField("storyboard_aspect_ratio", t("storyboardAspectLabel"))}</FormRow>
     <FormRow label={t("i2vModelLabel")} hint={t("i2vModelHint")}>
-      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>
     <FormRow label={t("r2vModelLabel")} hint={t("r2vModelHint")}>
-      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:m.description}))} />
+      <SelectField label={t("r2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.r2v_model} onChange={value => updateModel("r2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_R2V_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>
   </Section>;
 
@@ -611,18 +658,52 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const ownerNotice = <p role="status" className="py-8 text-sm text-text-secondary">{t("ownerConfigOnly")}</p>;
   const configGuard = !canManageConfig ? ownerNotice : loading ? <LoadingState label={t("loadingConfig")} className="py-12" /> : loadError ? <div role="alert" className="flex flex-wrap items-center gap-4 py-8 text-sm text-status-failed-fg">{t(loadError)}<Button variant="secondary" onPress={loadConfig}>{t("retryLoad")}</Button></div> : null;
   const vendorOptions = [{id:"dashscope", label:"DashScope"}, {id:"vendor", label:t("vendorDirect")}];
+  // Root is editing credentials for every customer on the deployment, not for themselves.
+  // That is worth stating outright rather than leaving it to be inferred from a role badge —
+  // these settings used to save per workspace, so the distinction has bitten us already.
+  const scopeNotice = config.config_scope === "platform"
+    ? <p role="status" className="text-xs text-text-muted">{t("configScopePlatform")}</p>
+    : null;
+
   const renderApiKeys = () => <Section id="apikeys" title={t("secApiTitle")} desc={t("secApiDesc")}>
     {configGuard || <>
-      <FormRow label={t("llmProviderLabel")} hint={t("llmProviderHint")}>
-        <SelectField label={t("llmProviderLabel")} className="[&>.label]:sr-only" value={config.LLM_PROVIDER} onChange={value => handleChange("LLM_PROVIDER", String(value))} isDisabled={saving} options={[{id:"dashscope", label:"DashScope"}, {id:"openai", label:t("openaiCompatible")}]} />
-      </FormRow>
-      {config.LLM_PROVIDER === "openai" ? <FormRow label={t("openaiKeyLabel")} hint={t("openaiKeyHint")}>
+      {scopeNotice}
+      {/* Grouped by what the credential buys, because that is how root thinks about it:
+          which models can people use. Key names alone leave that mapping to be done by hand. */}
+      <FormRow label={t("groupTextLabel")} hint={t("groupTextHint")}>
         <div className="space-y-4">
-          {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
-          {envField("OPENAI_BASE_URL", t("openaiBaseUrlLabel"), "https://api.openai.com/v1", "url")}
-          {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
+          {stageStatus("text")}
+          <SelectField label={t("llmProviderLabel")} value={config.LLM_PROVIDER} onChange={value => handleChange("LLM_PROVIDER", String(value))} isDisabled={saving} options={[{id:"dashscope", label:"DashScope"}, {id:"openai", label:t("openaiCompatible")}]} />
+          {config.LLM_PROVIDER === "openai" ? <>
+            {envField("OPENAI_BASE_URL", t("openaiBaseUrlLabel"), "https://api.openai.com/v1", "url")}
+            {/* Three keys, not one: the relay scopes a key to a single model group, so each
+                tier can only be reached by its own credential. Filling one does not enable
+                the others — the tier whose key is missing fails on its first call. */}
+            <p className="text-xs text-text-muted">{t("textKeyPerTier")}</p>
+            {keyField("KAIZO_DEEPSEEK_API_KEY", t("textKeyStandard"), "sk-...")}
+            {keyField("KAIZO_GPT_API_KEY", t("textKeyAdvanced"), "sk-...")}
+            {keyField("KAIZO_CLAUDE_API_KEY", t("textKeyUltimate"), "sk-...")}
+            <details>
+              <summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandTextFallback")}</summary>
+              <div className="mt-4 space-y-4">
+                {/* Used only by a model the catalog gives no key of its own — a custom
+                    endpoint, or a tier added upstream before it is declared here. */}
+                {keyField("OPENAI_API_KEY", t("openaiKeyLabel"), "sk-...")}
+                {envField("OPENAI_MODEL", t("openaiModelLabel"), "gpt-4o")}
+              </div>
+            </details>
+          </> : <>
+            {/* DashScope is one credential serving two stages, so it gets one input — under
+                配音, where it is always needed — and a pointer here rather than a second
+                field writing the same value. */}
+            <p className="text-xs text-text-muted">{t("textUsesVoiceKey")}</p>
+            {/* The four script tiers are newapi models; DashScope cannot serve them, and an
+                explicit model override is a single attempt with no fallback, so picking a
+                tier on this route fails outright rather than quietly degrading. */}
+            <p className="text-xs text-status-failed-fg">{t("textTiersNeedOpenai")}</p>
+          </>}
         </div>
-      </FormRow> : <FormRow label={t("dashscopeKeyLabel")} hint={t("dashscopeKeyHint")}>{keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}</FormRow>}
+      </FormRow>
       <FormRow label={t("providerTestLabel")} hint={t("providerTestHint")}>
         <div className="space-y-2">
           <Button variant="secondary" onPress={testActiveProvider} isPending={providerTesting} isDisabled={providerTesting || loading || Boolean(loadError) || !online}>
@@ -634,25 +715,51 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
           </p>}
         </div>
       </FormRow>
-      <FormRow label={t("imageProviderLabel")} hint={t("imageProviderHint")}>
+      <FormRow label={t("groupVideoLabel")} hint={t("groupVideoHint")}>
         <div className="space-y-4">
-          <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
-          {config.IMAGE_PROVIDER === "openai" && <>{keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}{envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}{envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}</>}
+          {stageStatus("video")}
+          {keyField("JOJOKEY_API_KEY", "JojoKey Relay API Key", "sk-...")}
         </div>
       </FormRow>
-      <FormRow label="JojoKey" hint={t("jojokeyHint")}>{keyField("JOJOKEY_API_KEY", "JojoKey Relay API Key", "sk-...")}</FormRow>
-      <FormRow label="MOMA / MiniMax H3" hint={t("momaHint")}>{keyField("MOMA_API_KEY", "MOMA API Key")}</FormRow>
-      <FormRow label={t("klingLabel")} hint={t("klingHint")}>
+      <FormRow label={t("groupVoiceLabel")} hint={t("groupVoiceHint")}>
+        {/* 百炼 serves the TTS voices, and the same key serves text when the route above is
+            DashScope — one credential, shown wherever it is actually used. */}
+        {keyField("DASHSCOPE_API_KEY", "DashScope API Key", "sk-...")}
+      </FormRow>
+      <FormRow label={t("groupImageLabel")} hint={t("groupImageHint")}>
         <div className="space-y-4">
-          <SelectField label={t("klingProvider")} value={config.KLING_PROVIDER_MODE} onChange={value => handleChange("KLING_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
-          {config.KLING_PROVIDER_MODE === "vendor" && <>{keyField("KLING_ACCESS_KEY", "Kling Access Key")}{keyField("KLING_SECRET_KEY", "Kling Secret Key")}</>}
+          {stageStatus("image")}
+          {/* One key serves all three image tiers — unlike text, this relay scopes by
+              account rather than by model group. Setting it also selects the route, so no
+              provider switch is needed. */}
+          {keyField("OPEN302_API_KEY", t("imageKeyLabel"), "sk-...")}
+          <details>
+            <summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandImageFallback")}</summary>
+            <div className="mt-4 space-y-4">
+              {/* The generic OpenAI-image route, used only when the key above is empty. No
+                  catalog model points at MuleRouter any more; the option stays for
+                  self-hosted deployments that still route there. */}
+              <SelectField label={t("imageProviderLabel")} value={config.IMAGE_PROVIDER} onChange={value => handleChange("IMAGE_PROVIDER", String(value))} isDisabled={saving} options={[{id:"mulerouter", label:"MuleRouter"}, {id:"openai", label:t("openaiCompatible")}]} />
+              {keyField("OPENAI_IMAGE_API_KEY", "OpenAI Image API Key", "sk-...")}
+              {envField("OPENAI_IMAGE_BASE_URL", "OpenAI Image Base URL", "https://api.openai.com/v1", "url")}
+              {envField("OPENAI_IMAGE_MODEL", t("imageModel"), "gpt-image-2")}
+            </div>
+          </details>
         </div>
       </FormRow>
-      <FormRow label="Vidu" hint={t("viduHint")}>
-        <div className="space-y-4">
-          <SelectField label={t("viduProvider")} value={config.VIDU_PROVIDER_MODE} onChange={value => handleChange("VIDU_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
-          {config.VIDU_PROVIDER_MODE === "vendor" && keyField("VIDU_API_KEY", "Vidu API Key")}
-        </div>
+      <FormRow label={t("groupUnusedLabel")} hint={t("groupUnusedHint")}>
+        {/* Providers no active model routes to. Kept rather than removed: the families are
+            still in the catalog for historical projects, and a route may come back. */}
+        <details>
+          <summary className="cursor-pointer text-sm text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{t("expandUnused")}</summary>
+          <div className="mt-4 space-y-4">
+            {keyField("MOMA_API_KEY", "MOMA API Key")}
+            <SelectField label={t("klingProvider")} value={config.KLING_PROVIDER_MODE} onChange={value => handleChange("KLING_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
+            {config.KLING_PROVIDER_MODE === "vendor" && <>{keyField("KLING_ACCESS_KEY", "Kling Access Key")}{keyField("KLING_SECRET_KEY", "Kling Secret Key")}</>}
+            <SelectField label={t("viduProvider")} value={config.VIDU_PROVIDER_MODE} onChange={value => handleChange("VIDU_PROVIDER_MODE", String(value))} options={vendorOptions} isDisabled={saving} />
+            {config.VIDU_PROVIDER_MODE === "vendor" && keyField("VIDU_API_KEY", "Vidu API Key")}
+          </div>
+        </details>
       </FormRow>
       <FormRow label={t("mulerunLabel")} hint={t("mulerunHint")}>
         <div className="space-y-4">
@@ -681,6 +788,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const renderStorage = () => <Section id="storage" title={t("secStorageTitle")} desc={t("secStorageDesc")}>
     {configGuard || <>
+      {scopeNotice}
       <FormRow label={t("cloudStorageLabel")}>
         <Toggle checked={config.OSS_ENABLE} onChange={value => {clearFeedback(); setConfig(c => ({...c, OSS_ENABLE:value}));}} label={t("enableCloudStorage")} sub={t("enableCloudStorageSub")} ariaLabel={t("enableCloudStorageAria")} isDisabled={saving} />
       </FormRow>
@@ -712,26 +820,31 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
 
   const tabs: { id: SettingsCategory; label: string }[] = [
     {id:"general", label:t("tabGeneral")}, {id:"models", label:t("tabModels")}, {id:"prompts", label:t("tabPrompts")},
-    {id:"apikeys", label:t("tabApikeys")}, {id:"storage", label:t("tabStorage")},
+    ...(canSeeCredentials ? [{id:"apikeys" as SettingsCategory, label:t("tabApikeys")},
+                             {id:"storage" as SettingsCategory, label:t("tabStorage")}] : []),
     ...(billingRole === "root" || billingRole === "admin" ? [{id:"billing" as SettingsCategory, label:t("tabBilling")}] : []),
     {id:"about", label:t("tabAbout")},
   ];
+  // A hidden category can still be reached through initialCategory, or be left selected when
+  // the role loads in after first paint. Hiding the tab is not enough — the panel underneath
+  // has to stop rendering too.
+  const visible: SettingsCategory = tabs.some(tab => tab.id === active) ? active : "general";
   const titles = {general:t("eyebrowGeneral"), models:t("eyebrowModels"), prompts:t("eyebrowPrompts"), apikeys:t("eyebrowApikeys"), storage:t("eyebrowStorage"), billing:t("eyebrowBilling"), about:t("eyebrowAbout")};
   const renderers = {general:renderGeneral, models:renderModels, prompts:renderPrompts, apikeys:renderApiKeys, storage:renderStorage, billing:() => <BillingAdminPanel />, about:renderAbout};
-  const saveAction = active === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : active === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : active === "apikeys" ? handleSaveApiConfig : active === "storage" ? handleSaveStorage : undefined;
-  const remoteConfig = active === "apikeys" || active === "storage";
+  const saveAction = visible === "models" ? (canManageConfig ? handleSaveModelDefaults : undefined) : visible === "prompts" ? handleSavePromptDefaults : !canManageConfig ? undefined : visible === "apikeys" ? handleSaveApiConfig : visible === "storage" ? handleSaveStorage : undefined;
+  const remoteConfig = visible === "apikeys" || visible === "storage";
   const selectCategory = (value: string) => { clearFeedback(); setActive(value as SettingsCategory); };
   return <div className="relative flex h-full min-w-0 flex-col bg-background text-foreground">
     <header className="flex min-h-24 shrink-0 items-center justify-between gap-4 border-b border-glass-border px-4 py-4 md:px-8">
-      <div className="min-w-0"><p className="text-xs text-text-muted">{t("title")}</p><h1 className="mt-1 text-xl font-semibold tracking-tight">{titles[active]}</h1></div>
-      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving || (active === "models" && modelSettingsLoading)} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
+      <div className="min-w-0"><p className="text-xs text-text-muted">{t("title")}</p><h1 className="mt-1 text-xl font-semibold tracking-tight">{titles[visible]}</h1></div>
+      {saveAction ? <Button variant="primary" onPress={saveAction} isPending={saving || (visible === "models" && modelSettingsLoading)} isDisabled={remoteConfig && (loading || Boolean(loadError) || !online)}><Save size={16} />{saving ? t("saving") : remoteConfig ? t("saveConfig") : t("saveDefaults")}</Button> : active === "general" ? <span className="text-xs text-text-muted">{t("appliesImmediately")}</span> : null}
     </header>
     {saveError && <p role="alert" className="shrink-0 bg-status-failed-bg px-4 py-3 text-sm text-status-failed-fg md:px-8">{saveError}</p>}
     {saved && <p role="status" className="flex shrink-0 items-center gap-2 px-4 py-3 text-sm text-status-completed-fg md:px-8"><Check size={16} />{t("saved")}</p>}
-    <div className="shrink-0 px-4 pt-4 md:px-8 sm:hidden"><SelectField label={t("tabsAria")} value={active} onChange={value => selectCategory(String(value))} options={tabs} isDisabled={saving} /></div>
-    <Tabs aria-label={t("tabsAria")} selectedKey={active} onSelectionChange={key => selectCategory(String(key))} className={`${styles.tabs} px-4 md:px-8`} items={tabs.map(tab => ({...tab, isDisabled:saving, content:active === tab.id ? <div className="max-w-6xl">
+    <div className="shrink-0 px-4 pt-4 md:px-8 sm:hidden"><SelectField label={t("tabsAria")} value={visible} onChange={value => selectCategory(String(value))} options={tabs} isDisabled={saving} /></div>
+    <Tabs aria-label={t("tabsAria")} selectedKey={visible} onSelectionChange={key => selectCategory(String(key))} className={`${styles.tabs} px-4 md:px-8`} items={tabs.map(tab => ({...tab, isDisabled:saving, content:visible === tab.id ? <div className="max-w-6xl">
       {!online && <div role="status" className="mb-5 flex items-center gap-3 rounded-lg border border-glass-border bg-surface p-4 text-sm"><WifiOff size={18} /><div><p>{t("offlineTitle")}</p><p className="mt-1 text-xs text-text-muted">{t("offlineSettingsBody")}</p></div></div>}
-      {renderers[active]()}
+      {renderers[visible]()}
     </div> : null}))} />
   </div>;
 }

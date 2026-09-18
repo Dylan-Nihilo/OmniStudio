@@ -11,6 +11,12 @@ export interface WalletSummary {
     frozen?: number;
     available?: number;
     role: PlatformRole;
+    /**
+     * True when somebody holds root, i.e. the deployment is centrally operated and the
+     * platform supplies the provider credentials. A user's own role cannot tell the two
+     * apart: an ordinary user here and the sole user of a desktop build both read null.
+     */
+    platform_managed?: boolean;
 }
 
 export interface LedgerEntry {
@@ -126,7 +132,23 @@ export const billingApi = {
     },
 };
 
+/** Whether a model family can actually run, independent of what we charge for it. */
+export interface ProviderReadiness {
+    family: string;
+    backend: string;
+    stages: ("text" | "image" | "video")[];
+    credential_keys: string[];
+    missing_credentials: string[];
+    configured: boolean;
+    model_count: number;
+    models: string[];
+}
+
 export const billingAdminApi = {
+    listProviders: async (): Promise<ProviderReadiness[]> => {
+        const res = await apiClient.get<ProviderReadiness[]>(`${API_URL}/admin/providers`);
+        return res.data;
+    },
     getRule: async (): Promise<CreditRule> => {
         const res = await apiClient.get<CreditRule>(`${API_URL}/admin/pricing/rule`);
         return res.data;

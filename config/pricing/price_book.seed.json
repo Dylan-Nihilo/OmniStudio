@@ -1,5 +1,5 @@
 {
-  "note": "2026-09-14 供应商报价。视频=JojoKey 我方账号实测价。Seedance 走国内线人民币 token 计价（/v1/video-cn/price-estimate，客户比例 0.85），已用一条真实结算任务校验，不涉及汇率；MiniMax 不在国内线，按记账常量 7.3 折算（非实时汇率，高于即期以免低估成本）；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=供应商每张成本；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
+  "note": "2026-09-14 供应商报价。视频=JojoKey 我方账号实测价。Seedance 走国内线人民币 token 计价（/v1/video-cn/price-estimate，客户比例 0.85），已用一条真实结算任务校验，不涉及汇率；MiniMax 不在国内线，按记账常量 7.3 折算（非实时汇率，高于即期以免低估成本）；文本=按档位定价（标准/高级/卓越/极致 输入 1/2/3/4 积分每千字，输出为输入的 2 倍），进货价仍记 newapi 刊例价×我方倍率（DeepSeek 0.6 / Gemini 0.8 / GPT 0.8 / Claude 1.8，1 额度=¥1）按 1 字=1 token 折成每千字，用于核对利润；图片=open302 每张成本（标准不分尺寸，高级/卓越按尺寸分档，卓越每档 +¥0.03）；配音=百炼官方价折成每千字。计费单位：视频每秒、图片每张、文本与配音每千字。match 键与 src/billing/metering.normalize_params 一致。由 scripts/build_price_book_seed.py 生成。",
   "rule": {
     "credit_face_value_cny": 0.1,
     "l1_discount": 0.5,
@@ -361,28 +361,6 @@
       "display_name": "标准"
     },
     {
-      "model_id": "text/gemini-3.7-flash",
-      "stage": "text",
-      "billing_unit": "chars_1k",
-      "match": {
-        "direction": "in"
-      },
-      "purchase_price_cny": 0.0012,
-      "credits_override": 2,
-      "display_name": "高级"
-    },
-    {
-      "model_id": "text/gemini-3.7-flash",
-      "stage": "text",
-      "billing_unit": "chars_1k",
-      "match": {
-        "direction": "out"
-      },
-      "purchase_price_cny": 0.0045,
-      "credits_override": 4,
-      "display_name": "高级"
-    },
-    {
       "model_id": "text/gpt-5.6-sol",
       "stage": "text",
       "billing_unit": "chars_1k",
@@ -390,8 +368,8 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.004,
-      "credits_override": 3,
-      "display_name": "卓越"
+      "credits_override": 2,
+      "display_name": "高级"
     },
     {
       "model_id": "text/gpt-5.6-sol",
@@ -401,8 +379,8 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.032,
-      "credits_override": 6,
-      "display_name": "卓越"
+      "credits_override": 4,
+      "display_name": "高级"
     },
     {
       "model_id": "text/claude-opus-5",
@@ -412,7 +390,7 @@
         "direction": "in"
       },
       "purchase_price_cny": 0.009,
-      "credits_override": 4,
+      "credits_override": 3,
       "display_name": "极致"
     },
     {
@@ -423,32 +401,16 @@
         "direction": "out"
       },
       "purchase_price_cny": 0.045,
-      "credits_override": 8,
+      "credits_override": 6,
       "display_name": "极致"
     },
     {
-      "model_id": "gemini/gemini-image-lite#image",
-      "stage": "image",
-      "billing_unit": "image",
-      "match": {},
-      "purchase_price_cny": 0.06,
-      "display_name": "标准"
-    },
-    {
-      "model_id": "gemini/gemini-image-flash#image",
+      "model_id": "gpt-image/gemini-3.1-flash-image#image",
       "stage": "image",
       "billing_unit": "image",
       "match": {},
       "purchase_price_cny": 0.08,
-      "display_name": "高级"
-    },
-    {
-      "model_id": "gemini/gemini-image-pro#image",
-      "stage": "image",
-      "billing_unit": "image",
-      "match": {},
-      "purchase_price_cny": 0.16,
-      "display_name": "卓越"
+      "display_name": "标准"
     },
     {
       "model_id": "gpt-image/gpt-image-2#image",
@@ -458,7 +420,7 @@
         "size_tier": "1K"
       },
       "purchase_price_cny": 0.06,
-      "display_name": "GPT Image 2"
+      "display_name": "高级"
     },
     {
       "model_id": "gpt-image/gpt-image-2#image",
@@ -468,7 +430,7 @@
         "size_tier": "2K"
       },
       "purchase_price_cny": 0.1,
-      "display_name": "GPT Image 2"
+      "display_name": "高级"
     },
     {
       "model_id": "gpt-image/gpt-image-2#image",
@@ -478,7 +440,7 @@
         "size_tier": "4K"
       },
       "purchase_price_cny": 0.12,
-      "display_name": "GPT Image 2"
+      "display_name": "高级"
     },
     {
       "model_id": "gpt-image/gpt-image-2#image",
@@ -486,7 +448,45 @@
       "billing_unit": "image",
       "match": {},
       "purchase_price_cny": 0.12,
-      "display_name": "GPT Image 2 (尺寸未知)"
+      "display_name": "高级（尺寸未知）"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2.5-sunburst#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size_tier": "1K"
+      },
+      "purchase_price_cny": 0.09,
+      "display_name": "卓越"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2.5-sunburst#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size_tier": "2K"
+      },
+      "purchase_price_cny": 0.13,
+      "display_name": "卓越"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2.5-sunburst#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {
+        "size_tier": "4K"
+      },
+      "purchase_price_cny": 0.15,
+      "display_name": "卓越"
+    },
+    {
+      "model_id": "gpt-image/gpt-image-2.5-sunburst#image",
+      "stage": "image",
+      "billing_unit": "image",
+      "match": {},
+      "purchase_price_cny": 0.15,
+      "display_name": "卓越（尺寸未知）"
     },
     {
       "model_id": "tts/cosyvoice-v2",

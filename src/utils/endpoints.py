@@ -11,6 +11,9 @@ PROVIDER_DEFAULTS = {
     # Official main site. Mirror entrances serve the same API under their own domain, e.g.
     # https://jojokey.com/video-api/v1 — point JOJOKEY_BASE_URL at whichever the key belongs to.
     "JOJOKEY": "https://video.jojokey.com/v1",
+    # Image relay. Speaks the OpenAI image protocol (and the Gemini native one), so the
+    # existing OpenAI-compatible path serves it with only the model name varying per tier.
+    "OPEN302": "https://open302.com/v1",
 }
 
 

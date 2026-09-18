@@ -16,6 +16,7 @@ import {
     getCanonicalModeId,
     getLegacyModelId,
     getMaxReferenceImages,
+    getTextTiers,
     getModelLineEntry,
     getModeGateway,
     isR2vImageBased,
@@ -196,12 +197,11 @@ describe('model catalog runtime helpers', () => {
 
     it('reads per-model reference image limits from catalog metadata', () => {
         // getMaxReferenceImages routes the input through resolveModelId for the 'i2i'
-        // surface; an id that surface cannot offer falls back to the current default.
-        // That default is now gpt-image-2, which declares no reference_images limit, so
-        // callers (PropertiesPanel) get the conservative built-in 3 rather than the 9 the
-        // retired wan2.7 image models advertised.
-        expect(getMaxReferenceImages('wan2.6-image')).toBe(3);
-        expect(getMaxReferenceImages('wan2.5-i2i-preview')).toBe(3);
+        // surface; an id that surface cannot offer falls back to the current default,
+        // gpt-image-2, which declares nine. The cheap tier declares three, so the limit is
+        // a real per-model value again rather than the built-in fallback.
+        expect(getMaxReferenceImages('wan2.6-image')).toBe(9);
+        expect(getMaxReferenceImages('gemini-3.1-flash-image')).toBe(3);
     });
 });
 
@@ -263,5 +263,25 @@ describe('model catalog phase 2 canonical helpers', () => {
         for (const model of GLOBAL_I2I_MODELS) {
             expect(model.id).not.toContain('#');
         }
+    });
+});
+
+describe('text tiers', () => {
+    it('offers the three script tiers keyed by the name that goes upstream', () => {
+        // The stored value must stay the provider's model name: it is handed to the LLM
+        // adapter and billing charges against exactly that string.
+        const tiers = getTextTiers();
+        expect(tiers.map((tier) => tier.name)).toEqual(['极致', '高级', '标准']);
+        expect(tiers.map((tier) => tier.id)).toEqual([
+            'claude-opus-5', 'gpt-5.6-sol', 'DeepSeek-V4.1-Flash',
+        ]);
+    });
+
+    it('marks one tier as the recommended default', () => {
+        expect(getTextTiers().filter((tier) => tier.recommended).map((t) => t.id)).toEqual(['gpt-5.6-sol']);
+    });
+
+    it('does not offer text models in the video sidebar', () => {
+        expect(getTextTiers('video_sidebar')).toEqual([]);
     });
 });

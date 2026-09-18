@@ -598,6 +598,9 @@ describe("StoryboardR2V synthetic frame generation", () => {
         await waitFor(() => expect(renderFrame).toHaveBeenCalledWith('project-1', frame.id, { reference_image_urls: [] }, '全景，双手握着解下的腰带。', 1));
         expect(updateFrame).toHaveBeenCalledWith('project-1', frame.id, { image_prompt: '全景，双手握着解下的腰带。' });
         expect(screen.getByRole('textbox', { name: 'shot prompt' })).toHaveValue(frame.action_description);
+        // renderFrame having been called is not the same as its result having landed. Without
+        // this the next click reads the pre-render image and the assertion below sees old.png.
+        await waitFor(() => expect(useProjectStore.getState().currentProject!.frames[0].t2i_selected_index).toBe(1));
         fireEvent.click(screen.getByRole('button', { name: 'generate video' }));
         await waitFor(() => expect(createVideoTask).toHaveBeenCalled());
         expect(createVideoTask.mock.calls[0][1]).toBe('new.png');
@@ -759,10 +762,12 @@ describe("StoryboardR2V synthetic frame generation", () => {
         expect(useProjectStore.getState().currentProject!.frames[0].t2i_image_urls).toEqual(["replacement.png"]);
     });
 
-    it("rejects excess Qwen references and sends the selected references in order after correction", async () => {
+    it("rejects references beyond the model's own limit and sends them in order after correction", async () => {
         const names = ['room', 'leaf', 'window', 'lamp'];
         useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!,
-            model_settings: { ...DEFAULT_MODEL_SETTINGS, i2i_model: 'qwen-image-2.0-pro' },
+            // The cheap image tier takes three references; the default tier takes nine, so
+            // the limit has to come from the selected model for this to mean anything.
+            model_settings: { ...DEFAULT_MODEL_SETTINGS, i2i_model: 'gemini-3.1-flash-image' },
             scenes: names.map(name => ({ id: name, name, description: name, image_asset: { selected_id: name, variants: [{ id: name, url: `${name}.png`, created_at: 0 }] } })),
             frames: [{ id: 'frame-refs', action_description: 'Keep video action', image_prompt: names.map((name, index) => `[character${index + 1}:${name}]`).join(' ') + ' Only one painted leaf.', workbench_tab_mode: 't2i_i2v', prompt_mode: 'complete' }],
         } }));

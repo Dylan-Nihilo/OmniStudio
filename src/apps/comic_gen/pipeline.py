@@ -3231,7 +3231,7 @@ class ComicGenPipeline:
                     refs[asset.id] = image
                     if kind == "characters" and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
                         params[asset.id] = [getattr(asset, key, None) for key in ("voice_id", "voice_speed", "voice_pitch", "voice_volume")]
-        if frame.omni_reference_settings is not None:
+        if getattr(frame, "omni_reference_settings", None) is not None:
             params["omni_reference_settings"] = frame.omni_reference_settings.model_dump()
         return compute_dependency_fingerprint("shot-video", refs, params)
 
@@ -3245,13 +3245,13 @@ class ComicGenPipeline:
             raise ValueError(f"Frame not found: {frame_id}")
 
         frame = next((frame for frame in script.frames if frame.id == frame_id), None)
-        if frame and frame.production_plan_id:
+        if frame and getattr(frame, "production_plan_id", None):
             from .production_planning import reviewed_video_inputs
             if generation_mode != "r2v":
                 raise ValueError("制作计划片段使用多参考生成，请返回计划确认生成方式")
             prompt, reference_image_urls = reviewed_video_inputs(script, frame, self.resolve_episode_assets(script), model, duration)
         reference_audio_urls = []
-        if frame and frame.omni_reference_settings is not None:
+        if frame and getattr(frame, "omni_reference_settings", None) is not None:
             from .omni_reference import supports_omni_reference
             settings = frame.omni_reference_settings
             if not supports_omni_reference(model) or generation_mode != "r2v":

@@ -65,7 +65,7 @@ def test_planning_requests_isolate_kaizo_cache_without_changing_content(api_clie
         )])]))
 
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-    monkeypatch.setattr(LLMAdapter, '_get_client', lambda self: client)
+    monkeypatch.setattr(LLMAdapter, '_get_client', lambda self, model=None: client)
     first = generate(api_client, project_id)
     second = generate(api_client, project_id)
     assert first['production_planning_job']['id'] != second['production_planning_job']['id']

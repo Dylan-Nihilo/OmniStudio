@@ -80,3 +80,28 @@ export function creditsFor(pricing: PricingTable | null, modelId: string, params
     const best = candidates.reduce((a, b) => (Object.keys(b.match).length > Object.keys(a.match).length ? b : a));
     return best.credits;
 }
+
+
+/**
+ * Credit cost of a model, for the moment somebody chooses it.
+ *
+ * A model's rate varies by resolution, and resolution is picked after the model, so a single
+ * number would be a guess. This reports the spread instead: one figure when the model bills
+ * the same at every size, a range when it does not. That is also what explains the tiers —
+ * why 标准 stops at 720p and why 2.5 costs what it does.
+ *
+ * Takes the canonical price-book id (`seedance/seedance-2.0-video#i2v`); pickers hold legacy
+ * flat ids, so resolve through getCanonicalModeId first.
+ */
+export function creditRange(pricing: PricingTable | null, modelId: string): { min: number; max: number; unit: string } | null {
+    if (!pricing) return null;
+    const rates = pricing.items.filter((item) => item.model_id === modelId);
+    if (!rates.length) return null;
+    const credits = rates.map((item) => item.credits);
+    return { min: Math.min(...credits), max: Math.max(...credits), unit: rates[0].unit };
+}
+
+/** Subscribe to the published price book, so a picker label updates when root republishes. */
+export function usePricingTable(): PricingTable | null {
+    return useBillingStore((state) => state.pricing);
+}

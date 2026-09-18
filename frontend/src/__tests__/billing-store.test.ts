@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { creditLabel, withCreditLabel } from "@/lib/modelCost";
 
 import type { PricingTable } from "@/lib/billing";
 import { creditsFor, useBillingStore } from "@/store/billingStore";
@@ -108,5 +109,29 @@ describe("billing store", () => {
         });
         await useBillingStore.getState().refresh();
         expect(useBillingStore.getState().isLow()).toBe(true);
+    });
+});
+
+describe("creditLabel", () => {
+    const UNITS = { second: "积分/秒", image: "积分/张", chars_1k: "积分/千字" };
+
+    it("reports a range when the rate varies by resolution", () => {
+        // Resolution is chosen after the model, so a single figure would be a guess.
+        expect(creditLabel(PRICING, "wan/wan2.7-video#i2v", UNITS)).toBe("27–40 积分/秒");
+    });
+
+    it("reports one figure when the model bills the same at every size", () => {
+        expect(creditLabel(PRICING, "text/DeepSeek-V4.1-Flash", UNITS)).toBe("1 积分/千字");
+    });
+
+    it("says nothing on a deployment that does not bill", () => {
+        // No published price book must show nothing rather than a zero.
+        expect(creditLabel(null, "wan/wan2.7-video#i2v", UNITS)).toBeNull();
+    });
+
+    it("leaves a description untouched when there is no price to show", () => {
+        expect(withCreditLabel("原描述", null, "anything", UNITS)).toBe("原描述");
+        expect(withCreditLabel("原描述", PRICING, "text/DeepSeek-V4.1-Flash", UNITS))
+            .toBe("1 积分/千字 · 原描述");
     });
 });

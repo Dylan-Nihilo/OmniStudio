@@ -578,3 +578,195 @@ def test_different_non_ascii_keys_stay_different(recorder, tmp_path):
                        resolution="720p", idempotency_key=raw)
         keys.append(recorder.posts[-1]["headers"]["Idempotency-Key"])
     assert keys[0] != keys[1]
+
+
+def test_a_local_storyboard_frame_is_uploaded_and_needs_no_object_storage(monkeypatch, tmp_path):
+    """The reason this path exists.
+
+    Registering a CN asset by URL needs a URL the vendor's upstream can fetch, which would
+    have made our own object storage a hard prerequisite for every i2v and r2v shot — and
+    production has none configured. Uploading the file sidesteps that: JojoKey stores it and
+    hands back the handle.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    frame = tmp_path / "output/frame.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+
+    class _UploadRecorder(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+            if url.endswith("/video-cn/assets"):
+                self.posts.append({"url": url, "headers": dict(headers or {}),
+                                   "files": sorted((files or {}).keys()), "data": dict(data or {})})
+                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://uploaded", "source_url": "https://cdn.example.cn/uploaded.png",
+                                          "sync_status": 2, "ready": True})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    rec = _UploadRecorder()
+    old_get = rec.get
+    def get(url, **kwargs):
+        if "/video-cn/assets/" in url:
+            return _Response(payload={"id": "a", "source_url": "https://cdn.example.cn/uploaded.png"})
+        return old_get(url, **kwargs)
+    rec.get = get
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+
+    def _no_object_storage(*_args, **_kwargs):
+        raise AssertionError("the CN line must not need our object storage for a local file")
+
+    monkeypatch.setattr("src.models.jojokey.resolve_media_inputs", _no_object_storage)
+
+    JojoKeyVideoModel({}).generate(
+        "the character looks up", str(tmp_path / "out.mp4"), img_path=str(frame),
+        model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+    upload = next(post for post in rec.posts if post["url"].endswith("/video-cn/assets"))
+    assert upload["files"] == ["file"]
+    assert upload["data"]["asset_type"] == "1"                 # 1 = image
+    # requests must set the multipart boundary itself, so we may not send a Content-Type.
+    assert "Content-Type" not in upload["headers"]
+    assert upload["headers"]["Idempotency-Key"].startswith("omni-upload:")
+    assert _submit_body(rec)["content"][1]["image_url"]["url"] == "https://cdn.example.cn/uploaded.png"
+
+
+def test_the_same_frame_is_uploaded_once_however_it_is_reached(monkeypatch, tmp_path):
+    """Upload is billed per asset, and a storyboard points many shots at one reference. The
+    key is a content hash, so two paths to the same bytes still pay once."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    frame = tmp_path / "output/hero.png"
+    frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 64)
+    twin = tmp_path / "output/hero-copy.png"
+    twin.write_bytes(frame.read_bytes())
+
+    uploads: list[str] = []
+
+    class _UploadRecorder(_Recorder):
+        def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+            if url.endswith("/video-cn/assets"):
+                uploads.append((headers or {}).get("Idempotency-Key", ""))
+                return _Response(payload={"id": "a", "asset_url": "asset://uploaded", "source_url": "https://cdn.example.cn/uploaded.png",
+                                          "sync_status": 2, "ready": True})
+            return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    rec = _UploadRecorder()
+    old_get = rec.get
+    def get(url, **kwargs):
+        if "/video-cn/assets/" in url:
+            return _Response(payload={"id": "a", "source_url": "https://cdn.example.cn/uploaded.png"})
+        return old_get(url, **kwargs)
+    rec.get = get
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+
+    model = JojoKeyVideoModel({})
+    for shot, path in enumerate((frame, twin, frame)):
+        model.generate("a shot", str(tmp_path / f"out{shot}.mp4"), img_path=str(path),
+                       model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
+
+    # Three shots, two distinct paths, one set of bytes: the vendor dedupes on the key.
+    assert len(set(uploads)) == 1, uploads
+
+
+# --- reference image validation ------------------------------------------------------
+# The CN line refuses images outside its bounds without saying so: HTTP 200, an empty
+# asset_url, a ¥0.10 hold, and registration_state parked at "pending" for ever with
+# operation.error_code "submission_unknown". Bounds measured against the live line
+# (300x300 ok / 200x200 refused, 2.5:1 ok / 3.0:1 refused).
+
+def _image(tmp_path, size, fmt="PNG", name=None):
+    pytest.importorskip("PIL", reason="Pillow only writes the fixtures; the parser is stdlib")
+    from PIL import Image
+
+    path = tmp_path / (name or f"probe.{fmt.lower()}")
+    Image.new("RGB", size, (90, 120, 200)).save(path, fmt)
+    return str(path)
+
+
+# JPEG and WebP each have several encodings that store the dimensions differently, and the
+# offsets are easy to get wrong — the progressive and lossless cases below are exactly where
+# a hand-rolled parser goes astray (the first version of this one read the JPEG frame header
+# two bytes early and reported 769x640 for a 640x360 image).
+@pytest.mark.parametrize("label,kwargs,size", [
+    ("png", {"format": "PNG"}, (640, 360)),
+    ("jpeg-baseline", {"format": "JPEG"}, (641, 361)),
+    ("jpeg-progressive", {"format": "JPEG", "progressive": True}, (802, 455)),
+    ("webp-lossy", {"format": "WEBP", "lossless": False, "quality": 80}, (517, 289)),
+    ("webp-lossless", {"format": "WEBP", "lossless": True}, (413, 921)),
+])
+def test_dimensions_are_read_from_the_header_without_pillow(tmp_path, label, kwargs, size):
+    """Pillow is not a declared dependency here, so the parser must stand on its own —
+    otherwise the check silently disappears wherever Pillow is absent."""
+    pytest.importorskip("PIL", reason="Pillow only writes the fixtures; the parser is stdlib")
+    from PIL import Image
+
+    path = tmp_path / f"{label}.img"
+    Image.new("RGB", size, (30, 90, 160)).save(path, **kwargs)
+    assert JojoKeyVideoModel._image_size(str(path)) == size
+
+
+def test_a_file_we_cannot_parse_does_not_block_an_upload(tmp_path):
+    """Unknown header means "no opinion", not "refuse": guessing wrong here would reject
+    images the upstream would have accepted."""
+    path = tmp_path / "not-an-image.bin"
+    path.write_bytes(b"\x00\x01\x02\x03" * 16)
+    assert JojoKeyVideoModel._image_size(str(path)) is None
+    JojoKeyVideoModel({})._reject_unusable_image(str(path))
+
+
+def test_an_image_too_small_is_refused_before_it_is_paid_for(tmp_path):
+    model = JojoKeyVideoModel({})
+    with pytest.raises(ValueError, match="短边"):
+        model._reject_unusable_image(_image(tmp_path, (200, 200)))
+    # The boundary itself is allowed: 300 was measured as accepted.
+    model._reject_unusable_image(_image(tmp_path, (300, 300), name="ok.png"))
+
+
+def test_an_image_too_wide_is_refused_before_it_is_paid_for(tmp_path):
+    model = JojoKeyVideoModel({})
+    with pytest.raises(ValueError, match="长宽比"):
+        model._reject_unusable_image(_image(tmp_path, (1024, 341)))
+    model._reject_unusable_image(_image(tmp_path, (1024, 410), name="ok-aspect.png"))
+    # Tall images are bound by the same ratio, not just wide ones.
+    with pytest.raises(ValueError, match="长宽比"):
+        model._reject_unusable_image(_image(tmp_path, (341, 1024), name="tall.png"))
+
+
+@pytest.mark.parametrize("source_url", [None, "", "asset://unreadable", "https://cdn.example.cn/usable.png"])
+def test_cn_upload_requires_source_url_without_paid_registration(monkeypatch, tmp_path, source_url):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    image = _image(tmp_path / "output", (640, 360))
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    calls = []
+    def upload(url, **kwargs):
+        calls.append((url, kwargs))
+        return _Response(payload={"id": "cnasset_a", "source_url": source_url,
+                                  "asset_url": "asset://not-fetchable", "ready": True})
+    monkeypatch.setattr("src.models.jojokey.requests.post", upload)
+    model = JojoKeyVideoModel({})
+    if source_url and source_url.startswith("https://"):
+        assert model._resolved_urls([image], model_id="seedance-2.5-r2v", modality="image", line="cn") == [source_url]
+    else:
+        with pytest.raises(RuntimeError, match="no HTTPS URL"):
+            model._resolved_urls([image], model_id="seedance-2.5-r2v", modality="image", line="cn")
+    assert len(calls) == 1
+    assert calls[0][1]["data"]["register"] == "false"
+
+
+def test_invalid_cn_image_never_reaches_upload_or_video_submit(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    path = _image(tmp_path / "output", (200, 200))
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    def no_request(*args, **kwargs):
+        pytest.fail("Invalid reference reached the provider")
+    monkeypatch.setattr("src.models.jojokey.requests.post", no_request)
+    with pytest.raises(ValueError, match="短边"):
+        JojoKeyVideoModel({}).generate("reference", str(tmp_path / "out.mp4"), img_path=path,
+            model="seedance-2.5-r2v", generation_mode="r2v")

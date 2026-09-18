@@ -12,6 +12,7 @@ import {
     type CreditRule,
     type PriceBookVersion,
     type PricingItemRow,
+    type ProviderReadiness,
 } from "@/lib/billing";
 import { catalogModesForStage, describePriceItem, describeSpec, TRANSLATED_CAPABILITIES, TRANSLATED_SPEC_KEYS, type PriceItemKind } from "@/lib/billingCatalog";
 import { useBillingStore } from "@/store/billingStore";
@@ -183,10 +184,18 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
     const t = useTranslations("billing.admin");
     const [edits, setEdits] = useState<Record<string, string>>({});
     const [stage, setStage] = useState<PriceItemKind>("video");
+    const [providers, setProviders] = useState<ProviderReadiness[]>([]);
+    useEffect(() => {
+        // Priced, visible and pickable still is not runnable: the family needs a credential.
+        // Root should not have to read logs to find that out.
+        void billingAdminApi.listProviders().then(setProviders).catch(() => setProviders([]));
+    }, []);
     const [draft, setDraft] = useState({ model_id: "", match: "", price: "" });
     const [pendingDelete, setPendingDelete] = useState<PricingItemRow | null>(null);
 
     const shown = items.filter((item) => item.stage === stage);
+    const providerStage = stage === "tts" ? "text" : stage;
+    const stageProviders = providers.filter((provider) => provider.stages.includes(providerStage as never));
     const described = new Map(shown.map((item) => [item.item_id, describePriceItem(item)]));
     // Rows nobody can ever pick, so offer a purge: either the catalog has no entry at all
     // (orphaned) or the model has been retired. Planned rows are excluded — they are waiting
@@ -251,6 +260,21 @@ function ItemsTab({ items, isRoot, onChanged }: { items: PricingItemRow[]; isRoo
                     </Button>
                 )}
             </div>
+
+            {stageProviders.length > 0 && (
+                <div className={styles.providers}>
+                    {stageProviders.map((provider) => (
+                        <span key={`${provider.family}:${provider.backend}`}
+                              className={clsx(styles.provider, !provider.configured && styles.providerMissing)}>
+                            {provider.family} · {provider.backend}
+                            <span className={styles.providerCount}>{t("providerModels", { count: provider.model_count })}</span>
+                            {provider.configured
+                                ? <span className={styles.providerOk}>{t("providerReady")}</span>
+                                : <span className={styles.providerWarn}>{t("providerMissingKey", { keys: provider.missing_credentials.join(", ") })}</span>}
+                        </span>
+                    ))}
+                </div>
+            )}
 
             {orphaned.length > 0 && <p className={styles.notice}>{t("unselectableHint")}</p>}
             {retired.length > 0 && <p className={styles.notice}>{t("retiredHint", { count: retired.length })}</p>}

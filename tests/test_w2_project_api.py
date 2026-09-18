@@ -1210,19 +1210,31 @@ def test_script_document_uses_current_project_storage(api_client, tmp_path):
     ).is_file()
 
 
-def test_provider_configuration_is_isolated_by_workspace(api_client):
+def test_provider_configuration_by_root_reaches_every_workspace(api_client):
+    """Deliberate reversal of the previous rule.
+
+    This used to assert the opposite — provider config saved in one workspace stayed
+    invisible to the next. That suited a product where each workspace brought its own keys.
+    It does not suit the one we run: the operator holds the credentials, users only pick
+    models and spend credits, so configuring a provider once has to reach everybody.
+
+    Under the old rule the operator's own settings reached only the operator's own
+    workspace, and every other workspace silently fell through to whatever happened to be
+    in .env on the server — which meant the console could not actually configure anything.
+    """
     team_id = api_client.get("/auth/me").json()["workspace"]["id"]
     saved = api_client.post(
         "/config/env",
         json={
-            "DASHSCOPE_API_KEY": "team-secret",
-            "OSS_BASE_PATH": "team-only",
+            "DASHSCOPE_API_KEY": "platform-secret",
+            "OSS_BASE_PATH": "platform-wide",
         },
     )
     assert saved.status_code == 200, saved.text
+    assert saved.json()["scope"] == "platform", saved.text
     team_config = api_client.get("/config/env").json()
     assert team_config["secrets_configured"]["DASHSCOPE_API_KEY"] is True
-    assert team_config["OSS_BASE_PATH"] == "team-only"
+    assert team_config["OSS_BASE_PATH"] == "platform-wide"
 
     personal = api_client.post(
         "/auth/workspaces",
@@ -1237,8 +1249,8 @@ def test_provider_configuration_is_isolated_by_workspace(api_client):
         headers={"X-Workspace-ID": personal_id},
     )
     assert personal_config.status_code == 200, personal_config.text
-    assert personal_config.json()["secrets_configured"]["DASHSCOPE_API_KEY"] is False
-    assert personal_config.json()["OSS_BASE_PATH"] == ""
+    assert personal_config.json()["secrets_configured"]["DASHSCOPE_API_KEY"] is True
+    assert personal_config.json()["OSS_BASE_PATH"] == "platform-wide"
 
 
 def test_auth_me_ignores_a_stale_workspace_selection(api_client):

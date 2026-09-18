@@ -21,6 +21,7 @@ import requests
 
 from .base import VideoGenModel
 from .image import ImageGenModel
+from ..utils.endpoints import get_provider_base_url
 from ..utils.workspace_env import workspace_config_active, workspace_getenv
 
 logger = logging.getLogger(__name__)
@@ -209,13 +210,49 @@ def _get_api_key() -> str:
     return key
 
 
-def _get_openai_image_config() -> Dict[str, str]:
-    """Return workspace-scoped OpenAI-compatible image settings."""
+def _open302_model_for(model_id: str) -> Optional[str]:
+    """Resolve one of our image model ids to the name the relay expects.
+
+    Image tiers differ only by model name on the same relay, so the name has to come from
+    the catalog per request. The env default stays as the fallback for a caller that does
+    not name a model, and for deployments pointing this path at plain OpenAI.
+    """
+    if not model_id:
+        return None
+    try:
+        from ..utils.model_catalog import get_catalog_accessor
+
+        accessor = get_catalog_accessor()
+        canonical = accessor.resolve_legacy_to_canonical(model_id) or model_id
+        runtime = accessor.get_mode_runtime(canonical) or {}
+    except Exception as error:                      # catalog problems must not block a call
+        logger.warning("Could not read catalog routing for image model %s: %s", model_id, error)
+        return None
+    for backend in ("open302", "mulerouter"):
+        api_model_id = (runtime.get(backend) or {}).get("api_model_id")
+        if api_model_id:
+            return str(api_model_id)
+    return None
+
+
+def _get_openai_image_config(model_id: str = "") -> Dict[str, str]:
+    """Return workspace-scoped OpenAI-compatible image settings.
+
+    OPEN302_API_KEY takes precedence when set: the relay is the configured image route, and
+    OPENAI_IMAGE_* remains for a deployment pointing this path somewhere else.
+    """
+    relay_key = (workspace_getenv("OPEN302_API_KEY", "") or "").strip()
+    default_base = get_provider_base_url("OPEN302") if relay_key else "https://api.openai.com/v1"
     return {
-        "api_key": (workspace_getenv("OPENAI_IMAGE_API_KEY", "") or "").strip(),
-        "base_url": (workspace_getenv("OPENAI_IMAGE_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1").rstrip("/"),
-        "model": (workspace_getenv("OPENAI_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2").strip(),
+        "api_key": relay_key or (workspace_getenv("OPENAI_IMAGE_API_KEY", "") or "").strip(),
+        "base_url": (workspace_getenv("OPENAI_IMAGE_BASE_URL", "") or default_base).rstrip("/"),
+        "model": (_open302_model_for(model_id)
+                  or (workspace_getenv("OPENAI_IMAGE_MODEL", "gpt-image-2") or "gpt-image-2").strip()),
     }
+
+
+IMAGE_TASK_POLL_INTERVAL_SECONDS = 5
+IMAGE_TASK_MAX_WAIT_SECONDS = 420      # the relay gives up on its own side at 300s
 
 
 def _extract_openai_image_url(result: Dict[str, Any]) -> str:
@@ -232,7 +269,47 @@ def _extract_openai_image_url(result: Dict[str, Any]) -> str:
     raise RuntimeError(f"OpenAI-compatible image API returned no image: {result}")
 
 
+def _await_openai_image_task(result: Dict[str, Any], config: Dict[str, str], headers: Dict[str, str]) -> Dict[str, Any]:
+    """Resolve an asynchronous image task into a finished response.
+
+    The relay answers the same request either way: usually an inline image, but under load
+    it hands back `{"object": "image.generation.task", "status": "running", "async": true}`
+    and expects a poll on GET /images/generations/{id}. It is genuinely intermittent — the
+    same model returned both shapes minutes apart — so both have to be handled rather than
+    whichever one a first test happened to see.
+    """
+    if result.get("object") != "image.generation.task":
+        return result
+    task_id = result.get("id")
+    if not task_id:
+        raise RuntimeError(f"Image task has no id to poll: {result}")
+
+    waited = 0
+    status = str(result.get("status") or "")
+    while waited < IMAGE_TASK_MAX_WAIT_SECONDS:
+        if status == "succeeded" or result.get("data"):
+            return result
+        if status == "failed":
+            error = (result.get("error") or {}).get("message") or result
+            raise RuntimeError(f"Image task failed: {error}")
+        time.sleep(IMAGE_TASK_POLL_INTERVAL_SECONDS)
+        waited += IMAGE_TASK_POLL_INTERVAL_SECONDS
+        response = _request_with_retry(
+            "GET", f"{config['base_url']}/images/generations/{task_id}", headers=headers, timeout=60)
+        result = response.json()
+        status = str(result.get("status") or "")
+        logger.info("[OpenAI-compatible image] task %s status=%s (%ss)", task_id, status or "unknown", waited)
+    raise RuntimeError(f"Image task {task_id} did not finish within {IMAGE_TASK_MAX_WAIT_SECONDS}s")
+
+
 def _openai_image_selected() -> bool:
+    """The OpenAI image protocol is the route whenever the relay key is set.
+
+    open302 is now the configured image provider and speaks that protocol, so having its
+    key is enough — nobody should have to also flip IMAGE_PROVIDER to make images work.
+    """
+    if (workspace_getenv("OPEN302_API_KEY", "") or "").strip():
+        return True
     return (workspace_getenv("IMAGE_PROVIDER", "mulerouter") or "").strip().lower() == "openai"
 
 
@@ -549,9 +626,9 @@ class MuleRouterImageModel(ImageGenModel):
     def _generate_via_openai_compatible(self, prompt: str, output_path: str, **kwargs) -> Tuple[str, float]:
         """Generate/edit through a standard OpenAI images API."""
         start_time = time.time()
-        config = _get_openai_image_config()
+        config = _get_openai_image_config(kwargs.get("model") or "")
         if not config["api_key"]:
-            raise RuntimeError("OPENAI_IMAGE_API_KEY is not configured for IMAGE_PROVIDER=openai")
+            raise RuntimeError("OPEN302_API_KEY (or OPENAI_IMAGE_API_KEY) is not configured for the image route")
         headers = {"Authorization": f"Bearer {config['api_key']}"}
         size = _normalize_gpt_image_size(kwargs.get("size", "1024x1024"))
         ref_image_paths = list(kwargs.get("ref_image_paths") or [])
@@ -586,7 +663,8 @@ class MuleRouterImageModel(ImageGenModel):
                 timeout=300,
             )
 
-        image_ref = _extract_openai_image_url(response.json())
+        image_ref = _extract_openai_image_url(
+            _await_openai_image_task(response.json(), config, headers))
         if image_ref.startswith("data:"):
             _, encoded = image_ref.split(",", 1)
             with open(output_path, "wb") as output:

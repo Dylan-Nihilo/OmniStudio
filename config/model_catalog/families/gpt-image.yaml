@@ -1,49 +1,91 @@
 family: gpt-image
-display_name: "GPT Image (OpenAI)"
-provider: mulerouter
+display_name: "图片生成"
+provider: open302
 routing_prefixes:
   - gpt-image-
+  - gemini-image-
 supported_backends:
-  - mulerouter
-default_backend: mulerouter
+  - open302
+default_backend: open302
 credential_sources:
-  mulerouter:
-    - MULEROUTER_API_KEY
+  open302:
+    - OPEN302_API_KEY
 supported_modalities:
   - t2i
   - i2i
-docs:
-  official_snapshot_ids:
-    - mulerouter/gpt-image-2/2026-06-03
+# The relay speaks the OpenAI image protocol: /images/generations for text-to-image and
+# /images/edits when reference frames are attached, so reference images go up as files.
 transport:
   image_input_mode:
-    mulerouter: mulerouter_base64_image
+    open302: open302_multipart_image
   audio_input_mode:
-    mulerouter: mulerouter_audio_url
+    open302: open302_unsupported
   reference_video_input_mode:
-    mulerouter: mulerouter_video_url
+    open302: open302_unsupported
+docs:
+  official_snapshot_ids:
+    - open302/image/2026-09-15
+
+# Three tiers, matching the naming used for text and video. `api_model_id` is the name sent
+# to the relay; the price book keys on our own model id here (unlike text, where billing
+# charges against the upstream name), so the two only need to stay in step by resolution.
+#
+# Verified against the live relay on 2026-09-15: all three return a downloadable image.
+# MuleRouter is gone — no model routes to it any more.
 models:
-  - id: gpt-image-2
-    display_name: GPT Image 2
-    description: OpenAI GPT-Image-2 via MuleRouter (T2I + I2I editing)
+  - id: gemini-3.1-flash-image
+    display_name: 标准
+    description: Gemini 3.1 Flash Image — 出图快、成本最低，适合量产分镜与草图
     status: active
     release_stage: stable
     capabilities: [t2i, i2i]
     docs:
       context_hub_doc_ids:
-        - mulerouter/gpt-image-2
+        - open302/image-tiers
     runtime:
-      mulerouter:
-        gateway: mulerouter
+      open302:
+        gateway: open302
+        api_model_id: gemini-3.1-flash-image
     ui:
       selection_group: image
       visible_in: [project_settings, series_settings, global_settings]
-      order: 95
+      order: 70
+    params:
+      # The relay accepts the OpenAI size vocabulary; the Gemini tier ignores it and returns
+      # its own resolution, which is why its price does not vary by size.
+      size:
+        options: ["1024x1024", "1536x1024", "1024x1536"]
+        default: "1024x1024"
+      negativePrompt: false
+      seed: false
+      promptExtend: false
+      watermark: false
+    inputs:
+      reference_images:
+        max: 3
+        reference_type: image
+
+  - id: gpt-image-2
+    display_name: 高级
+    description: GPT Image 2 — 指令服从度高，支持文字渲染与参考图编辑
+    status: active
+    release_stage: stable
+    capabilities: [t2i, i2i]
+    docs:
+      context_hub_doc_ids:
+        - open302/image-tiers
+    runtime:
+      open302:
+        gateway: open302
+        api_model_id: gpt-image-2
+    ui:
+      selection_group: image
+      visible_in: [project_settings, series_settings, global_settings]
+      order: 80
       recommended: true
-      badges: [new]
     params:
       size:
-        options: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840"]
+        options: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160"]
         default: "1024x1024"
       quality:
         options: ["high", "medium", "low"]
@@ -52,3 +94,41 @@ models:
       seed: false
       promptExtend: false
       watermark: false
+    inputs:
+      reference_images:
+        max: 9
+        reference_type: image
+
+  - id: gpt-image-2.5-sunburst
+    display_name: 卓越
+    description: GPT Image 2.5 Sunburst — 最高画质档，适合关键镜头与定稿
+    status: active
+    release_stage: stable
+    capabilities: [t2i, i2i]
+    docs:
+      context_hub_doc_ids:
+        - open302/image-tiers
+    runtime:
+      open302:
+        gateway: open302
+        api_model_id: gpt-image-2.5-sunburst
+    ui:
+      selection_group: image
+      visible_in: [project_settings, series_settings, global_settings]
+      order: 90
+      badges: [latest]
+    params:
+      size:
+        options: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160"]
+        default: "1024x1024"
+      quality:
+        options: ["high", "medium", "low"]
+        default: "high"
+      negativePrompt: false
+      seed: false
+      promptExtend: false
+      watermark: false
+    inputs:
+      reference_images:
+        max: 9
+        reference_type: image

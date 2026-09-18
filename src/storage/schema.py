@@ -292,6 +292,37 @@ class WorkspaceProviderConfig(Base):
     )
 
 
+PLATFORM_PROVIDER_CONFIG_ID = "platform"
+
+
+class PlatformProviderConfig(Base):
+    """The operator's own provider settings, shared by every workspace.
+
+    The table above is an override layer scoped to one workspace, which is the wrong shape
+    for a hosted platform: the operator holds the credentials and configuring them once has
+    to reach everybody. This is that single shared layer, sitting between the workspace
+    overrides and the process environment.
+
+    One row, pinned to PLATFORM_PROVIDER_CONFIG_ID. A packaged desktop build simply never
+    writes it and keeps resolving straight from its own .env.
+    """
+
+    __tablename__ = "platform_provider_configs"
+
+    id: Mapped[str] = mapped_column(KEY, primary_key=True)
+    config_json: Mapped[str] = mapped_column(BIG, nullable=False, server_default=text_default("{}"))
+    updated_by_user_id: Mapped[str] = mapped_column(
+        KEY,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    updated_at: Mapped[float] = mapped_column(REAL, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("json_valid(config_json)", name="ck_platform_provider_configs_json"),
+    )
+
+
 class Session(Base):
     __tablename__ = "sessions"
 

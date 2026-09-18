@@ -5,7 +5,28 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, RotateCcw, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { getTextTiers } from "@/lib/modelCatalog";
 import { useTranslations } from "next-intl";
+
+/**
+ * Tier options for the polish model, inherit-first.
+ *
+ * The stored value is the provider's own model name, because that string is handed to the
+ * LLM adapter and billing charges against it; only the label is the tier a writer picks by.
+ * A value the catalog no longer offers is kept as its own option so opening an older
+ * project does not silently retarget its model.
+ */
+function textModelOptions(inheritLabel: string, current: string): { id: string; label: string }[] {
+    const tiers = getTextTiers();
+    const options = [
+        { id: "__default__", label: inheritLabel },
+        ...tiers.map(tier => ({ id: tier.id, label: tier.name })),
+    ];
+    if (current && !tiers.some(tier => tier.id === current)) {
+        options.push({ id: current, label: current });
+    }
+    return options;
+}
 
 interface SeriesPromptConfigModalProps {
     isOpen: boolean;
@@ -144,7 +165,7 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
                                         </p>
                                     </div>
                                     <SelectField label={t("polishModelTitle")} className="[&>label]:sr-only" value={config.polish_model || "__default__"} onChange={value => setConfig(prev => ({ ...prev, polish_model: value === "__default__" ? "" : String(value) }))}
-                                        options={[{ id: "__default__", label: tc("polishInheritWorkspace") }, { id: "gpt-5.6-sol", label: "GPT 5.6 Sol · 文本与视觉" }, ...(config.polish_model && config.polish_model !== "gpt-5.6-sol" ? [{ id: config.polish_model, label: config.polish_model }] : [])]} />
+                                        options={textModelOptions(tc("polishInheritWorkspace"), config.polish_model)} />
                                     <div className="border-b border-border-subtle pt-1" />
                                 </div>
 

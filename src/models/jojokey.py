@@ -61,6 +61,9 @@ CN_ASSET_TYPES = {"image": 1, "video": 2, "audio": 3}
 
 _TERMINAL_FAILURES = {"failed", "cancelled", "expired"}
 
+CN_IMAGE_MIN_SIDE = 300
+CN_IMAGE_MAX_ASPECT = 2.5
+
 
 class CnLineUnavailable(RuntimeError):
     """The CN line is switched off for this account, so the request never reached a model."""
@@ -184,6 +187,8 @@ class JojoKeyVideoModel(VideoGenModel):
         values = []
         for ref in refs:
             local_path = resolve_local_media_path(ref)
+            if local_path and line == "cn" and modality == "image":
+                self._reject_unusable_image(local_path)
             if local_path and not getattr(uploader, "is_configured", False):
                 values.append(self._upload_local_media(local_path, modality=modality,
                                                        line=line, group_id=group_id))
@@ -191,6 +196,72 @@ class JojoKeyVideoModel(VideoGenModel):
                 values.extend(item.value for item in resolve_media_inputs(
                     [ref], model_name=model_id, modality=modality, backend="jojokey", uploader=uploader))
         return values
+
+    @staticmethod
+    def _image_size(path: str) -> Optional[Tuple[int, int]]:
+        """Read (width, height) from an image header, for the three formats the CN line takes.
+
+        Done by hand rather than with Pillow: Pillow is not a declared dependency of this
+        project — it is commented out in requirements.txt and nothing else imports it — so
+        relying on it would make this check quietly vanish wherever it happens not to be
+        installed. Returns None for anything unrecognised, which skips the check rather than
+        blocking an upload over a header we cannot parse.
+        """
+        try:
+            with open(path, "rb") as handle:
+                head = handle.read(32)
+                if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+                    return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
+                if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+                    chunk = head[12:16]
+                    if chunk == b"VP8X":
+                        # 24-bit canvas width/height, stored minus one.
+                        return (int.from_bytes(head[24:27], "little") + 1,
+                                int.from_bytes(head[27:30], "little") + 1)
+                    if chunk == b"VP8 ":
+                        # Frame header: 3-byte tag, 3-byte start code, then 14-bit dimensions.
+                        return (int.from_bytes(head[26:28], "little") & 0x3FFF,
+                                int.from_bytes(head[28:30], "little") & 0x3FFF)
+                    if chunk == b"VP8L":
+                        bits = int.from_bytes(head[21:25], "little")
+                        return ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+                if head[:2] == b"\xff\xd8":
+                    handle.seek(2)
+                    while True:
+                        marker = handle.read(2)
+                        if len(marker) < 2 or marker[0] != 0xFF:
+                            return None
+                        if marker[1] in (0xD8, 0xD9) or 0xD0 <= marker[1] <= 0xD7:
+                            continue
+                        length = int.from_bytes(handle.read(2), "big")
+                        # Start-of-frame markers carry the dimensions; SOF4/SOF8/SOF12 do not.
+                        if marker[1] in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                                         0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+                            # Segment body: 1 byte sample precision, then height, then width.
+                            body = handle.read(5)
+                            return (int.from_bytes(body[3:5], "big"), int.from_bytes(body[1:3], "big"))
+                        handle.seek(length - 2, os.SEEK_CUR)
+        except OSError:
+            return None
+        return None
+
+    def _reject_unusable_image(self, path: str) -> None:
+        """Refuse an image the upstream will refuse anyway, while it is still free to do so."""
+        size = self._image_size(path)
+        if size is None:
+            return
+        width, height = size
+        if min(width, height) <= 0:
+            return
+        aspect = max(width, height) / min(width, height)
+        if min(width, height) < CN_IMAGE_MIN_SIDE:
+            raise ValueError(
+                f"参考图 {os.path.basename(path)} 为 {width}×{height}，短边不足 "
+                f"{CN_IMAGE_MIN_SIDE}px，Seedance 国内线会拒绝。请换用更大的分镜图。")
+        if aspect > CN_IMAGE_MAX_ASPECT:
+            raise ValueError(
+                f"参考图 {os.path.basename(path)} 为 {width}×{height}（{aspect:.2f}:1），"
+                f"长宽比超过 {CN_IMAGE_MAX_ASPECT}:1，Seedance 国内线会拒绝。请裁成更接近方形的比例。")
 
     def _upload_local_media(self, path: str, *, modality: str, line: str,
                             group_id: Optional[str]) -> str:
