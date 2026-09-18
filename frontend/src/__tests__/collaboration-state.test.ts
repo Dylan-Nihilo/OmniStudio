@@ -94,4 +94,26 @@ describe("collaboration client state", () => {
       token: "lease-token",
     });
   });
+
+  it("keeps the draft's base revision when a lost lease is reacquired", async () => {
+    useEditLeaseStore.setState({ status: "lost", scriptId: "episode-1", revision: "draft-base" });
+    post.mockResolvedValue({ data: {
+      script_id: "episode-1", holder_user_id: "user-1", holder_display_name: "Dylan",
+      revision: "changed-on-another-client", token: "new-token",
+    } });
+    await useEditLeaseStore.getState().acquire("episode-1");
+    expect(useEditLeaseStore.getState()).toMatchObject({ status: "editing", revision: "draft-base", token: "new-token" });
+  });
+
+  it("does not let an old heartbeat failure revoke a newly acquired lease", async () => {
+    let rejectHeartbeat!: (reason: Error) => void;
+    patch.mockReturnValue(new Promise((_, reject) => { rejectHeartbeat = reject; }));
+    useEditLeaseStore.setState({ status: "editing", scriptId: "episode-1", revision: "base", token: "old-token" });
+    const pending = useEditLeaseStore.getState().heartbeat();
+    post.mockResolvedValue({ data: { revision: "base", token: "new-token", holder_user_id: "user-1" } });
+    await useEditLeaseStore.getState().acquire("episode-1");
+    rejectHeartbeat(new Error("old request finished late"));
+    await pending;
+    expect(useEditLeaseStore.getState()).toMatchObject({ status: "editing", token: "new-token" });
+  });
 });
