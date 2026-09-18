@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 from .models import StoryboardFrame, Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant
 from ...models.image import WanxImageModel
 from ...utils import get_logger
+from ...utils.model_catalog import load_generated_model_catalog
 from ...utils.oss_utils import is_object_key
 
 logger = get_logger(__name__)
@@ -181,7 +182,7 @@ class StoryboardGenerator:
                 # Pass collected asset paths to model
                 logger.info(f"[Storyboard] Calling model.generate with {len(asset_ref_paths)} reference images using model {model_name or 'default'}")
                 model = self.model
-                if model_name and model_name.startswith("gpt-image"):
+                if model_name and load_generated_model_catalog().get("models", {}).get(model_name, {}).get("family") == "gpt-image":
                     from ...models.mulerouter import MuleRouterImageModel
                     model = MuleRouterImageModel({})
                 model.generate(generation_prompt, output_path, ref_image_paths=asset_ref_paths, size=effective_size, model_name=model_name)

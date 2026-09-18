@@ -139,7 +139,7 @@ def test_references_reach_openai_edit_multipart_transport(api_client, monkeypatc
     from src.models import mulerouter
     pid, cid, prop_id, _ = setup_assets(api_client, monkeypatch)
     monkeypatch.setattr(mulerouter, '_openai_image_selected', lambda: True)
-    monkeypatch.setattr(mulerouter, '_get_openai_image_config', lambda: {
+    monkeypatch.setattr(mulerouter, '_get_openai_image_config', lambda model_id='': {
         'api_key': 'fixture-only', 'base_url': 'https://images.invalid/v1', 'model': 'gpt-image-2',
     })
     uploads = []

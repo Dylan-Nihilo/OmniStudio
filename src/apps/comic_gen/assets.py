@@ -6,6 +6,7 @@ from urllib.parse import quote
 from .models import Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant, MAX_VARIANTS_PER_ASSET
 from ...models.image import WanxImageModel, ImageGenModel
 from ...utils import get_logger
+from ...utils.model_catalog import load_generated_model_catalog
 from ...utils.oss_utils import is_object_key
 
 logger = get_logger(__name__)
@@ -55,7 +56,7 @@ class AssetGenerator:
 
     def _get_model_for(self, model_name: str) -> "ImageGenModel":
         """Route to the correct image adapter based on model name."""
-        if model_name and model_name.startswith("gpt-image"):
+        if model_name and load_generated_model_catalog().get("models", {}).get(model_name, {}).get("family") == "gpt-image":
             if self._mulerouter_image_model is None:
                 from ...models.mulerouter import MuleRouterImageModel
                 self._mulerouter_image_model = MuleRouterImageModel({})
