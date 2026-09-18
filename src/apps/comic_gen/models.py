@@ -4,6 +4,7 @@ import time
 from pydantic import BaseModel, Field
 
 from ...utils.model_catalog import get_default_model_settings
+from .production_planning import ProductionPlan, PlanningJob
 from .omni_reference import OmniReferenceSettings
 
 # Source-domain contracts live in their own module to keep this large legacy
@@ -404,6 +405,10 @@ class StoryboardFrame(BaseModel):
     scene_id: str = Field(..., description="Reference to the Scene ID")
     character_ids: List[str] = Field(default_factory=list, description="List of Character IDs present in the frame")
     prop_ids: List[str] = Field(default_factory=list, description="List of Prop IDs present in the frame")
+    production_plan_id: Optional[str] = None
+    production_segment_id: Optional[str] = None
+    production_shot_id: Optional[str] = None
+    production_review_fingerprint: Optional[str] = None
     
     # Legacy fields (kept for compatibility)
     action_description: str = Field("", description="What is happening in this frame (Legacy, use character_acting)")
@@ -615,6 +620,17 @@ class DialogueAudioBatch(BaseModel):
     error: Optional[str] = None
 
 
+class StoryboardVersion(BaseModel):
+    merged_video_url: Optional[str] = None
+    merge_verification: Optional[Dict[str, Any]] = None
+    id: str
+    created_at: float = Field(default_factory=time.time)
+    title: str
+    frames: List[StoryboardFrame] = Field(default_factory=list)
+    production_previews: List[StoryboardFrame] = Field(default_factory=list)
+    production_plan: Optional[ProductionPlan] = None
+
+
 class Script(BaseModel):
     id: str = Field(..., description="Unique identifier for the script project")
     title: str = Field(..., description="Title of the comic/video")
@@ -627,6 +643,11 @@ class Script(BaseModel):
     video_tasks: List[VideoTask] = Field(default_factory=list)
     dialogue_audio_batch: Optional[DialogueAudioBatch] = None
     storyboard_generation: Optional[StoryboardGeneration] = None
+    production_plan: Optional[ProductionPlan] = None
+    production_plan_draft: Optional[ProductionPlan] = None
+    production_planning_job: Optional[PlanningJob] = None
+    production_previews: List[StoryboardFrame] = Field(default_factory=list)
+    storyboard_versions: List[StoryboardVersion] = Field(default_factory=list)
     storyboard_ready: bool = Field(False, description="Whether deterministic storyboard readiness checks pass")
     storyboard_readiness: Optional[Dict[str, Any]] = Field(None, description="Latest storyboard readiness report")
     storyboard_continuity_ledger: Optional[Dict[str, Any]] = Field(None, description="Latest deterministic continuity ledger")

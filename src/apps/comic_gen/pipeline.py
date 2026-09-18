@@ -686,6 +686,10 @@ class ComicGenPipeline:
         recovered = 0
 
         for script in self.scripts.values():
+            if script.production_planning_job and script.production_planning_job.status == "processing":
+                script.production_planning_job.status = "failed"
+                script.production_planning_job.error = "服务重启中断了制作规划，原方案已保留，请重试"
+                recovered += 1
             if script.storyboard_generation and script.storyboard_generation.status in STUCK:
                 script.storyboard_generation.status = GenerationStatus.FAILED
                 script.storyboard_generation.error = script.storyboard_generation.error or self._ORPHAN_RECOVERY_REASON
@@ -694,7 +698,7 @@ class ComicGenPipeline:
                 script.dialogue_audio_batch.status = GenerationStatus.FAILED
                 script.dialogue_audio_batch.error = script.dialogue_audio_batch.error or self._ORPHAN_RECOVERY_REASON
                 recovered += 1
-            for frame in script.frames:
+            for frame in [*script.frames, *script.production_previews]:
                 if frame.image_generation_status in STUCK:
                     frame.image_generation_status = GenerationStatus.FAILED
                     frame.image_error = frame.image_error or self._ORPHAN_RECOVERY_REASON
@@ -806,7 +810,7 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 return None
-            frames = getattr(script, "frames", None) or []
+            frames = [*script.frames, *script.production_previews]
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
@@ -864,7 +868,7 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 return None
-            frames = getattr(script, "frames", None) or []
+            frames = [*script.frames, *script.production_previews]
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
@@ -2070,6 +2074,230 @@ class ComicGenPipeline:
 
     # === STORYBOARD DRAMATIZATION v2 ===
 
+    def update_production_preview(self, script_id: str, preview_id: str, image_prompt: str | None, selected_index: int | None) -> Script:
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            preview = next((p for p in script.production_previews if p.id == preview_id), None) if script else None
+            if preview is None:
+                raise LookupError("分镜图不存在")
+            if preview.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("分镜图仍在生成，请完成后再修改")
+            changes = {}
+            if image_prompt is not None:
+                changes['image_prompt'] = image_prompt
+            if selected_index is not None:
+                if not 0 <= selected_index < len(preview.t2i_image_urls):
+                    raise ValueError("请选择已有的分镜图")
+                changes['t2i_selected_index'] = selected_index
+            self._save_fields(preview, **changes)
+            return script
+
+    def production_plan_review(self, script_id: str) -> dict:
+        from .production_planning import segment_review, storyboard_fingerprint
+        script = self.get_script(script_id)
+        if script is None:
+            raise LookupError("项目不存在")
+        assets = self.resolve_episode_assets(script)
+        return {"storyboard_fingerprint": storyboard_fingerprint(script), "segments": [
+            segment_review(script, frame, assets) for frame in script.frames
+            if frame.production_plan_id and script.production_plan and frame.production_plan_id == script.production_plan.id
+            and any(segment.frame_id == frame.id for segment in script.production_plan.segments)]}
+
+    def confirm_production_segment(self, script_id: str, frame_id: str, expected_fingerprint: str) -> Script:
+        from .production_planning import segment_review
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if frame is None:
+                raise LookupError("片段不存在")
+            report = segment_review(script, frame, self.resolve_episode_assets(script))
+            if report["fingerprint"] != expected_fingerprint:
+                raise GenerationInProgressError("画面或前一片段已有更新，请重新查看后确认")
+            if report["blockers"]:
+                raise ValueError("；".join(report["blockers"]))
+            self._save_fields(frame, production_review_fingerprint=expected_fingerprint,
+                              image_url=report["preview_urls"][0], rendered_image_url=report["preview_urls"][0])
+            return script
+
+    def generate_production_plan(self, script_id: str, settings) -> Script:
+        from .production_planning import PlanningJob, propose_plan, source_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            if script.production_planning_job and script.production_planning_job.status == "processing":
+                raise GenerationInProgressError("制作计划仍在生成，请等待本次结果")
+            snapshot = script.model_copy(deep=True)
+            assets = self.resolve_episode_assets(snapshot)
+            job = PlanningJob()
+            self._save_fields(script, production_planning_job=job)
+        try:
+            proposal = propose_plan(snapshot, assets, settings)
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if current is None:
+                    raise LookupError("项目不存在")
+                if not current.production_planning_job or current.production_planning_job.id != job.id:
+                    raise GenerationInProgressError("本次规划已被新的请求替代")
+                if ((current.production_plan_draft.revision if current.production_plan_draft else None)
+                        != (snapshot.production_plan_draft.revision if snapshot.production_plan_draft else None)):
+                    raise GenerationInProgressError("规划期间方案已有新修改，已保留修改，请重新规划")
+                if source_fingerprint(current, self.resolve_episode_assets(current)) != proposal.source_fingerprint:
+                    raise GenerationInProgressError("规划期间剧本或素材设定已改变，请基于最新内容重新规划")
+                self._save_fields(current, production_plan_draft=proposal,
+                                  production_planning_job=job.model_copy(update={"status": "completed"}))
+                return current
+        except Exception:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if current and current.production_planning_job and current.production_planning_job.id == job.id:
+                    # Provider credentials and raw responses must never enter persisted errors.
+                    self._save_fields(current, production_planning_job=job.model_copy(update={
+                        "status": "failed", "error": "制作计划未生成成功，原有方案和分镜已保留，请重试"}))
+            raise
+
+    def revise_production_plan(self, script_id: str) -> Script:
+        from .production_planning import new_id, source_fingerprint, storyboard_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None or script.production_plan is None:
+                raise LookupError("当前没有已确认的制作计划")
+            if script.production_plan_draft is not None:
+                return script
+            assets = self.resolve_episode_assets(script)
+            if source_fingerprint(script, assets) != script.production_plan.source_fingerprint:
+                raise GenerationInProgressError("剧本或素材设定已经更新，请重新规划")
+            draft = script.production_plan.model_copy(deep=True, update={"id": new_id(), "revision": new_id(),
+                "status": "draft", "created_at": time.time(), "approved_from_revision": None,
+                "storyboard_fingerprint": storyboard_fingerprint(script)})
+            for segment in draft.segments:
+                segment.id, segment.frame_id = new_id(), None
+                for shot in segment.shots:
+                    shot.id = new_id()
+            self._save_fields(script, production_plan_draft=draft)
+            return script
+
+    def edit_production_plan(self, script_id: str, request) -> Script:
+        from .production_planning import validate_content, source_fingerprint, new_id
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            plan = script.production_plan_draft
+            if not plan or plan.revision != request.expected_revision:
+                raise GenerationInProgressError("方案已有更新，请刷新后再修改")
+            assets = self.resolve_episode_assets(script)
+            if plan.source_fingerprint != source_fingerprint(script, assets):
+                raise GenerationInProgressError("剧本或素材设定已更新，请重新规划")
+            warnings = validate_content(request, plan.settings, script, assets)
+            edited = type(plan).model_validate({**plan.model_dump(), **request.model_dump(exclude={"expected_revision"}),
+                                               "revision": new_id(), "warnings": warnings})
+            self._save_fields(script, production_plan_draft=edited)
+            return script
+
+    def _archive_storyboard(self, script: Script):
+        from .models import StoryboardVersion
+        return StoryboardVersion(id=str(uuid.uuid4()), merged_video_url=script.merged_video_url, merge_verification=script.merge_verification, title=script.production_plan.summary[:80] if script.production_plan else "原有分镜",
+            frames=[frame.model_copy(deep=True) for frame in script.frames],
+            production_previews=[frame.model_copy(deep=True) for frame in script.production_previews],
+            production_plan=script.production_plan.model_copy(deep=True) if script.production_plan else None)
+
+    def _require_idle_storyboard(self, script: Script) -> None:
+        busy = (GenerationStatus.PENDING, GenerationStatus.PROCESSING)
+        if (script.storyboard_generation and script.storyboard_generation.status in busy
+                or script.dialogue_audio_batch and script.dialogue_audio_batch.status in busy
+                or any(task.status in busy for task in script.video_tasks)
+                or any(frame.image_generation_status in busy or frame.audio_generation_status in busy or frame.dub_generation_status in busy
+                       for frame in [*script.frames, *script.production_previews])):
+            raise GenerationInProgressError("当前制作任务仍在进行，完成后才能切换分镜方案")
+
+    def apply_production_plan(self, script_id: str, expected_revision: str) -> Script:
+        from .production_planning import source_fingerprint, storyboard_fingerprint, validate_content, reference_assets, segment_prompt, segment_content_fingerprint, new_id
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            plan = script.production_plan_draft
+            if plan is None and script.production_plan and script.production_plan.approved_from_revision == expected_revision:
+                return script
+            if not plan or plan.revision != expected_revision:
+                raise GenerationInProgressError("方案已有更新，请刷新后重新确认")
+            self._require_idle_storyboard(script)
+            assets = self.resolve_episode_assets(script)
+            if plan.source_fingerprint != source_fingerprint(script, assets) or plan.storyboard_fingerprint != storyboard_fingerprint(script):
+                raise GenerationInProgressError("剧本或现有分镜已改变，旧方案不会覆盖新内容，请重新规划")
+            validate_content(plan, plan.settings, script, assets)
+            refs = reference_assets(assets)
+            approved = plan.model_copy(deep=True, update={"status": "approved", "revision": new_id(), "approved_from_revision": expected_revision})
+            reusable = {}
+            old_plan = script.production_plan
+            old_frames = {frame.id: frame for frame in script.frames}
+            old_previews = {preview.id: preview for preview in script.production_previews}
+            if (old_plan and old_plan.source_fingerprint == plan.source_fingerprint
+                    and old_plan.continuity_rules == plan.continuity_rules
+                    and old_plan.settings.model == plan.settings.model):
+                for segment in old_plan.segments:
+                    frame = old_frames.get(segment.frame_id)
+                    if (frame and frame.production_plan_id == old_plan.id
+                            and all(shot.id in old_previews for shot in segment.shots)):
+                        reusable.setdefault(segment_content_fingerprint(segment), []).append(segment)
+            frames, previews = [], []
+            for segment in approved.segments:
+                matches = reusable.get(segment_content_fingerprint(segment), [])
+                if matches:
+                    original = matches.pop(0)
+                    segment.id, segment.frame_id = original.id, original.frame_id
+                    for shot, previous in zip(segment.shots, original.shots):
+                        shot.id = previous.id
+                        previews.append(old_previews[previous.id].model_copy(deep=True, update={"production_plan_id": plan.id}))
+                    frames.append(old_frames[original.frame_id].model_copy(deep=True, update={"production_plan_id": plan.id}))
+                    continue
+                segment.frame_id = new_id()
+                character_ids = list(dict.fromkeys(refs[name][1].id for name in segment.reference_names if refs[name][0] == "characters"))
+                prop_ids = list(dict.fromkeys(refs[name][1].id for name in segment.reference_names if refs[name][0] == "props"))
+                prompt = segment_prompt(segment, approved.continuity_rules)
+                frame = StoryboardFrame(id=segment.frame_id, scene_id=segment.scene_id,
+                    character_ids=character_ids, prop_ids=prop_ids, action_description=segment.purpose,
+                    visual_description=prompt, assembled_prompt=prompt, prompt_mode="complete", duration=segment.duration,
+                    workbench_tab_mode="direct_r2v", model_settings_overrides={"r2v_model": plan.settings.model},
+                    production_plan_id=plan.id, production_segment_id=segment.id)
+                frames.append(frame)
+                for shot_index, shot in enumerate(segment.shots):
+                    context = f"本片段开场状态：{segment.start_state}" if shot_index == 0 else f"前一镜叙事：{segment.shots[shot_index - 1].description}"
+                    image_prompt = f"{approved.continuity_rules}\n{context}\n本镜关键画面：{shot.camera}。{shot.description}\n按本镜动作推进人物姿态与位置，取一个清晰的静态瞬间。单张分镜画面，不拼图，不显示文字。"
+                    previews.append(StoryboardFrame(id=shot.id, scene_id=segment.scene_id, character_ids=character_ids, prop_ids=prop_ids,
+                        action_description=shot.description, visual_description=shot.description, image_prompt=image_prompt,
+                        duration=shot.duration, production_plan_id=plan.id, production_segment_id=segment.id, production_shot_id=shot.id))
+            versions = [*script.storyboard_versions]
+            if script.frames:
+                versions.append(self._archive_storyboard(script))
+            self._save_fields(script, frames=frames, production_previews=previews, production_plan=approved,
+                production_plan_draft=None, storyboard_versions=versions, storyboard_generation=None,
+                storyboard_ready=False, storyboard_readiness=None, storyboard_continuity_ledger=None,
+                merged_video_url=None, merge_verification=None, updated_at=time.time())
+            return script
+
+    def restore_storyboard_version(self, script_id: str, version_id: str, expected_fingerprint: str) -> Script:
+        from .production_planning import storyboard_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            self._require_idle_storyboard(script)
+            if storyboard_fingerprint(script) != expected_fingerprint:
+                raise GenerationInProgressError("分镜已有更新，请刷新后再恢复")
+            version = next((v for v in script.storyboard_versions if v.id == version_id), None)
+            if version is None:
+                raise LookupError("历史分镜不存在")
+            versions = [*script.storyboard_versions, self._archive_storyboard(script)]
+            self._save_fields(script, frames=[frame.model_copy(deep=True) for frame in version.frames],
+                production_previews=[frame.model_copy(deep=True) for frame in version.production_previews],
+                production_plan=version.production_plan.model_copy(deep=True) if version.production_plan else None,
+                storyboard_versions=versions, storyboard_generation=None,
+                storyboard_ready=False, storyboard_readiness=None, storyboard_continuity_ledger=None,
+                merged_video_url=version.merged_video_url, merge_verification=version.merge_verification, updated_at=time.time())
+            return script
+
     def analyze_text_to_frames(self, script_id: str, text: str) -> Script:
         """Generate off-model, then atomically replace an unchanged storyboard."""
         with self._save_lock:
@@ -2808,12 +3036,16 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 raise ValueError("Script not found")
-            frame = next((f for f in script.frames if f.id == frame_id), None)
+            frame = next((f for f in [*script.frames, *script.production_previews] if f.id == frame_id), None)
             if not frame:
                 raise ValueError(f"Frame {frame_id} not found")
             # ponytail: one-process exclusion; multiple workers need a database claim.
             if frame.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
                 raise GenerationInProgressError("A first-frame image is already being generated. Refresh its status before retrying.")
+            generation_prompt = prompt
+            if frame.production_shot_id:
+                from .production_planning import production_preview_inputs
+                generation_prompt, composition_data = production_preview_inputs(script, frame, prompt, self.resolve_episode_assets(script))
             previous = (frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.image_prompt, frame.composition_data)
             generation_id = str(uuid.uuid4())
             frame.image_generation_status = GenerationStatus.PROCESSING
@@ -2869,7 +3101,7 @@ class ComicGenPipeline:
             ref_image_path = ref_image_paths[0] if ref_image_paths else None
             
             # Use the prompt as-is from frontend (already contains style)
-            final_prompt = prompt
+            final_prompt = generation_prompt
             
             # Update frame with final prompt
             frame.image_prompt = final_prompt
@@ -2911,7 +3143,7 @@ class ComicGenPipeline:
             with self._save_lock:
                 # Project reads replace the cached Script while the provider is running.
                 current = self.scripts.get(script_id)
-                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                target = next((f for f in [*current.frames, *current.production_previews] if f.id == frame_id), None) if current else None
                 if not target:
                     raise ValueError(f"Frame {frame_id} not found")
                 if target.image_generation_id != generation_id:
@@ -2919,7 +3151,7 @@ class ComicGenPipeline:
                 target.status = frame.status
                 target.image_generation_status = frame.status
                 target.image_error = frame.image_error
-                if target.image_prompt == prompt:
+                if target.image_prompt == prompt and not target.production_shot_id:
                     target.image_prompt = frame.image_prompt
                 generated = [v for v in frame.rendered_image_asset.variants if v.id not in original_variant_ids] if frame.rendered_image_asset else []
                 if generated:
@@ -2944,7 +3176,7 @@ class ComicGenPipeline:
         except Exception as error:
             with self._save_lock:
                 current = self.scripts.get(script_id)
-                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                target = next((f for f in [*current.frames, *current.production_previews] if f.id == frame_id), None) if current else None
                 if target and target.image_generation_id == generation_id:
                     target.status = GenerationStatus.FAILED
                     target.image_generation_status = GenerationStatus.FAILED
@@ -3013,6 +3245,11 @@ class ComicGenPipeline:
             raise ValueError(f"Frame not found: {frame_id}")
 
         frame = next((frame for frame in script.frames if frame.id == frame_id), None)
+        if frame and frame.production_plan_id:
+            from .production_planning import reviewed_video_inputs
+            if generation_mode != "r2v":
+                raise ValueError("制作计划片段使用多参考生成，请返回计划确认生成方式")
+            prompt, reference_image_urls = reviewed_video_inputs(script, frame, self.resolve_episode_assets(script), model, duration)
         reference_audio_urls = []
         if frame and frame.omni_reference_settings is not None:
             from .omni_reference import supports_omni_reference
@@ -5859,7 +6096,7 @@ class ComicGenPipeline:
             episode_overrides = sparse_model_settings(script.model_settings)
         shot_overrides: dict[str, Any] = {}
         if frame_id:
-            frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
+            frame = next((candidate for candidate in [*script.frames, *script.production_previews] if candidate.id == frame_id), None)
             if frame is None:
                 raise ValueError(f"Frame not found: {frame_id}")
             shot_overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})

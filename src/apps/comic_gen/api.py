@@ -556,7 +556,7 @@ def _dispatch_production_item(item):
             payload.get("batch_size", 1),
         )
         script = pipeline.get_script(item.project_id)
-        frame = next((candidate for candidate in (script.frames if script else []) if candidate.id == payload["frame_id"]), None)
+        frame = next((candidate for candidate in ([*script.frames, *script.production_previews] if script else []) if candidate.id == payload["frame_id"]), None)
         url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None) if frame else None
         return [_production_media_ref(url, kind="storyboard", item_id=item.id)]
     if kind == "audio":
@@ -4449,7 +4449,141 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
 
 # === STORYBOARD DRAMATIZATION v2 ===
 
+from .production_planning import PlanSettings, PlanEditRequest, PlanRevisionRequest, storyboard_fingerprint
 from .omni_reference import OmniReferenceSettings
+
+
+@app.get("/projects/{script_id}/production-plan")
+def get_production_plan(script_id: str):
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    return signed_response({"draft": script.production_plan_draft.model_dump() if script.production_plan_draft else None,
+        "active": script.production_plan.model_dump() if script.production_plan else None,
+        "job": script.production_planning_job.model_dump() if script.production_planning_job else None, "storyboard_fingerprint": storyboard_fingerprint(script),
+        "versions": [{"id": v.id, "title": v.title, "created_at": v.created_at, "frame_count": len(v.frames)} for v in script.storyboard_versions]})
+
+
+@app.post("/projects/{script_id}/production-plan/generate", response_model=Script)
+async def generate_production_plan(script_id: str, payload: PlanSettings, request: Request):
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    from .production_planning import model_durations
+    try:
+        model_durations(payload.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        from ...billing.metering import text_meter_for
+        from .llm_adapter import LLMAdapter
+        meter = text_meter_for(request.app.state)
+        if meter and meter.enabled:
+            quote = meter.services.runtime.quote_text(f"text/{LLMAdapter()._get_default_model()}", len(script.original_text) + len(payload.instruction), 1)
+            meter.ensure_available(request.state.auth_context.workspace.id, quote.credits)
+        result = await asyncio.to_thread(pipeline.generate_production_plan, script_id, payload)
+        record_request_event(request, action="storyboard.plan.generate", object_type="project", object_id=script_id,
+                             metadata={"segments": len(result.production_plan_draft.segments)})
+        return signed_response(result)
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (HTTPException, BillingError):
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"code": "PRODUCTION_PLAN_FAILED", "message": _redact_provider_message(str(exc))}) from exc
+
+
+@app.post("/projects/{script_id}/production-plan/revise", response_model=Script)
+def revise_production_plan(script_id: str):
+    try:
+        return signed_response(pipeline.revise_production_plan(script_id))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/projects/{script_id}/production-plan", response_model=Script)
+def edit_production_plan(script_id: str, payload: PlanEditRequest):
+    try:
+        return signed_response(pipeline.edit_production_plan(script_id, payload))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/production-plan/apply", response_model=Script)
+def apply_production_plan(script_id: str, payload: PlanRevisionRequest):
+    try:
+        return signed_response(pipeline.apply_production_plan(script_id, payload.expected_revision))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ProductionPreviewRequest(BaseModel):
+    image_prompt: str | None = Field(default=None, min_length=1, max_length=8000)
+    selected_index: int | None = Field(default=None, ge=0)
+
+
+@app.patch("/projects/{script_id}/production-plan/previews/{preview_id}", response_model=Script)
+def update_production_preview(script_id: str, preview_id: str, payload: ProductionPreviewRequest):
+    try:
+        return signed_response(pipeline.update_production_preview(script_id, preview_id, payload.image_prompt, payload.selected_index))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ProductionReviewRequest(BaseModel):
+    expected_fingerprint: str
+
+
+@app.get("/projects/{script_id}/production-plan/review")
+def review_production_plan(script_id: str):
+    try:
+        return signed_response(pipeline.production_plan_review(script_id))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/production-plan/segments/{frame_id}/confirm", response_model=Script)
+def confirm_production_segment(script_id: str, frame_id: str, payload: ProductionReviewRequest):
+    try:
+        return signed_response(pipeline.confirm_production_segment(script_id, frame_id, payload.expected_fingerprint))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class RestoreStoryboardRequest(BaseModel):
+    expected_fingerprint: str
+
+
+@app.post("/projects/{script_id}/production-plan/versions/{version_id}/restore", response_model=Script)
+def restore_storyboard_version(script_id: str, version_id: str, payload: RestoreStoryboardRequest):
+    try:
+        return signed_response(pipeline.restore_storyboard_version(script_id, version_id, payload.expected_fingerprint))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 class AnalyzeToStoryboardRequest(BaseModel):
     """Request to analyze script text into storyboard frames."""
     text: str
