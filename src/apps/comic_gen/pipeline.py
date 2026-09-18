@@ -2092,6 +2092,68 @@ class ComicGenPipeline:
             self._save_fields(preview, **changes)
             return script
 
+    def remove_production_preview_candidate(
+        self,
+        script_id: str,
+        preview_id: str,
+        candidate_index: int,
+        expected_revision: str,
+    ) -> Script:
+        """Remove one preview candidate while preserving the project source media."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            preview = next((p for p in script.production_previews if p.id == preview_id), None) if script else None
+            if preview is None:
+                raise LookupError("分镜图不存在")
+            if self.repository.script_revision(script_id) != expected_revision:
+                raise GenerationInProgressError("分镜图已有更新，请刷新后再操作")
+            if preview.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("分镜图仍在生成，请完成后再修改")
+            urls = list(preview.t2i_image_urls or [])
+            if not 0 <= candidate_index < len(urls):
+                raise ValueError("请选择已有的分镜图")
+            selected = max(0, min(int(preview.t2i_selected_index or 0), len(urls) - 1))
+            was_selected = candidate_index == selected
+            urls.pop(candidate_index)
+            if not urls:
+                selected = 0
+                image = None
+            elif was_selected:
+                selected = min(candidate_index, len(urls) - 1)
+                image = urls[selected]
+            else:
+                selected = selected - 1 if candidate_index < selected else selected
+                image = urls[selected]
+            asset = preview.rendered_image_asset.model_copy(deep=True) if preview.rendered_image_asset else None
+            if asset:
+                asset.variants = [variant for variant in asset.variants if variant.url in urls]
+                asset.selected_id = next((variant.id for variant in asset.variants if variant.url == image), None)
+                if not asset.variants:
+                    asset = None
+            self._save_fields(
+                preview,
+                t2i_image_urls=urls,
+                t2i_selected_index=selected,
+                rendered_image_url=image,
+                image_url=image,
+                rendered_image_asset=asset,
+            )
+            return script
+
+    def clear_production_preview_candidates(self, script_id: str, preview_id: str, expected_revision: str) -> Script:
+        """Clear project references to all preview candidates without deleting source files."""
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            preview = next((p for p in script.production_previews if p.id == preview_id), None) if script else None
+            if preview is None:
+                raise LookupError("分镜图不存在")
+            if self.repository.script_revision(script_id) != expected_revision:
+                raise GenerationInProgressError("分镜图已有更新，请刷新后再操作")
+            if preview.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("分镜图仍在生成，请完成后再修改")
+            self._save_fields(preview, t2i_image_urls=[], t2i_selected_index=0, rendered_image_url=None, image_url=None, rendered_image_asset=None)
+            return script
+
     def production_plan_review(self, script_id: str) -> dict:
         from .production_planning import segment_review, storyboard_fingerprint
         script = self.get_script(script_id)

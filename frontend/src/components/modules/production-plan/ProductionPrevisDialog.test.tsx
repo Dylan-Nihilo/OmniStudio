@@ -5,8 +5,8 @@ import { renderWithIntl } from '@/test/renderWithIntl';
 import type { Project } from '@/store/projectStore';
 import ProductionPrevisDialog from './ProductionPrevisDialog';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), review: vi.fn(), render: vi.fn(), confirm: vi.fn(), upload: vi.fn(), update: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { getProject: mocks.get, reviewProductionPlan: mocks.review, renderFrame: mocks.render, confirmProductionSegment: mocks.confirm, uploadT2IFrame: mocks.upload, updateProductionPreview: mocks.update } }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), review: vi.fn(), render: vi.fn(), confirm: vi.fn(), upload: vi.fn(), update: vi.fn(), remove: vi.fn(), clear: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: { getProject: mocks.get, reviewProductionPlan: mocks.review, renderFrame: mocks.render, confirmProductionSegment: mocks.confirm, uploadT2IFrame: mocks.upload, updateProductionPreview: mocks.update, removeProductionPreviewCandidate: mocks.remove, clearProductionPreviewCandidates: mocks.clear } }));
 vi.mock('@/components/shared/preview/PreviewImage', () => ({ default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} /> }));
 vi.mock('@/components/shared/preview/PreviewVideo', () => ({ default: () => <video /> }));
 let stored: Project;
@@ -18,7 +18,7 @@ function Harness() {
     return <ProductionPrevisDialog isOpen onClose={close} project={project} beforeChange={async () => true} onUpdate={update} />;
 }
 beforeEach(() => {
-    vi.clearAllMocks(); confirmed = false;
+    vi.clearAllMocks(); confirmed = false; vi.stubGlobal('confirm', vi.fn(() => true));
     stored = { id: 'project', frames: [{ id: 'segment-frame' }], production_plan: { id: 'plan', continuity_rules: '两人站在亭檐下', segments: [
         { id: 'segment', frame_id: 'segment-frame', title: '对峙', start_state: '亭口相望', end_state: '沈砚垂眼', connection: '',
             shots: ['a', 'b'].map(id => ({ id, title: `镜头${id}`, description: '人物在檐下', duration: 4, camera: '中景', dialogue: [] })) },
@@ -64,4 +64,17 @@ it('stops a batch after a failed image instead of submitting the rest', async ()
     expect(mocks.render).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: '确认画面与衔接' })).toBeDisabled();
     expect(mocks.confirm).not.toHaveBeenCalled();
+});
+
+it('removes the selected preview candidate and clears the preview through the server', async () => {
+    stored = { ...stored, _revision: 'revision-1', production_previews: stored.production_previews!.map(p => ({ ...p, t2i_image_urls: ['/a.png', '/b.png'], t2i_selected_index: 1 })) } as Project;
+    mocks.get.mockImplementation(async () => stored);
+    mocks.remove.mockImplementation(async () => (stored = { ...stored, _revision: 'revision-2', production_previews: stored.production_previews!.map(p => ({ ...p, t2i_image_urls: ['/a.png'], t2i_selected_index: 0 })) }, stored));
+    mocks.clear.mockImplementation(async () => (stored = { ...stored, _revision: 'revision-3', production_previews: stored.production_previews!.map(p => ({ ...p, t2i_image_urls: [], t2i_selected_index: 0 })) }, stored));
+    renderWithIntl(<Harness />);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[0]).toBeVisible());
+    fireEvent.click(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[0]);
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('project', 'a', 1, 'revision-1'));
+    fireEvent.click(screen.getAllByRole('button', { name: '清空本镜头候选图' })[0]);
+    await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith('project', 'a', 'revision-2'));
 });

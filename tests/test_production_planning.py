@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.apps.comic_gen import api as api_module
-from src.apps.comic_gen.models import Character, Scene, StoryboardFrame, VideoTask
+from src.apps.comic_gen.models import Character, Scene, StoryboardFrame, VideoTask, GenerationStatus
 from src.apps.comic_gen.production_planning import model_durations
 from src.apps.comic_gen.llm_adapter import LLMAdapter
 from tests.test_script_writing import configure_writer
@@ -121,6 +121,82 @@ def test_plan_review_apply_reload_and_restore_preserve_original_media(api_client
     assert len(restored.json()['storyboard_versions']) == 2
     api_module.pipeline.video_generator.generate_video.assert_not_called()
     api_module.pipeline.storyboard_generator.generate_frame.assert_not_called()
+
+
+def test_production_preview_candidate_removal_reselects_and_clears_without_deleting_source_media(api_client, monkeypatch, tmp_path):
+    from src.apps.comic_gen.models import ImageAsset, ImageVariant
+    source = tmp_path / 'storyboard' / 'b.png'
+    source.parent.mkdir()
+    source.write_bytes(b'original-media')
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    route = f'/projects/{project_id}/production-plan'
+    applied = api_client.post(route + '/apply', json={'expected_revision': draft['revision']}).json()
+    preview_id = applied['production_previews'][0]['id']
+    script = api_module.pipeline.scripts[project_id]
+    preview = next(item for item in script.production_previews if item.id == preview_id)
+    preview.t2i_image_urls = ['storyboard/a.png', 'storyboard/b.png', 'storyboard/c.png']
+    preview.t2i_selected_index = 1
+    preview.rendered_image_url = 'storyboard/b.png'
+    preview.rendered_image_asset = ImageAsset(selected_id='b', variants=[ImageVariant(id=name, url=f'storyboard/{name}.png') for name in ['a', 'b', 'c']])
+    api_module.pipeline._save_data()
+    current = api_client.get(f'/projects/{project_id}').json()
+    removed = api_client.delete(
+        route + f'/previews/{preview_id}/candidates/1',
+        params={'expected_revision': current['_revision']},
+    )
+    assert removed.status_code == 200, removed.text
+    result = next(item for item in removed.json()['production_previews'] if item['id'] == preview_id)
+    assert result['t2i_image_urls'] == ['storyboard/a.png', 'storyboard/c.png']
+    assert result['t2i_selected_index'] == 1
+    assert result['rendered_image_url'] == 'storyboard/c.png'
+    assert [v['id'] for v in result['rendered_image_asset']['variants']] == ['a', 'c']
+    assert result['rendered_image_asset']['selected_id'] == 'c'
+    assert removed.json()['_revision'] != current['_revision']
+    stale = api_client.delete(
+        route + f'/previews/{preview_id}/candidates/0',
+        params={'expected_revision': current['_revision']},
+    )
+    assert stale.status_code == 409, stale.text
+    latest = api_client.get(f'/projects/{project_id}').json()
+    cleared = api_client.delete(
+        route + f'/previews/{preview_id}/candidates',
+        params={'expected_revision': removed.json()['_revision']},
+    )
+    assert cleared.status_code == 200, cleared.text
+    result = next(item for item in cleared.json()['production_previews'] if item['id'] == preview_id)
+    assert result['t2i_image_urls'] == []
+    assert result['t2i_selected_index'] == 0
+    assert result.get('rendered_image_url') is None
+    assert result.get('image_url') is None
+    assert result.get('rendered_image_asset') is None
+    reloaded = api_client.get(f'/projects/{project_id}').json()
+    assert reloaded['production_previews'][0] == result
+    assert reloaded['video_tasks'][0]['video_url'] == 'video/old.mp4'
+    assert reloaded['storyboard_versions'][0]['frames'][0]['video_url'] == 'video/old.mp4'
+    assert source.read_bytes() == b'original-media'
+
+
+def test_production_preview_candidate_removal_rejects_generation_and_invalid_index(api_client, monkeypatch):
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    route = f'/projects/{project_id}/production-plan'
+    applied = api_client.post(route + '/apply', json={'expected_revision': draft['revision']}).json()
+    preview_id = applied['production_previews'][0]['id']
+    script = api_module.pipeline.scripts[project_id]
+    preview = next(item for item in script.production_previews if item.id == preview_id)
+    preview.t2i_image_urls = ['storyboard/a.png']
+    preview.image_generation_status = GenerationStatus.PROCESSING
+    api_module.pipeline._save_data()
+    current = api_client.get(f'/projects/{project_id}').json()
+    busy = api_client.delete(route + f'/previews/{preview_id}/candidates/0', params={'expected_revision': current['_revision']})
+    assert busy.status_code == 409, busy.text
+    preview = next(item for item in api_module.pipeline.scripts[project_id].production_previews if item.id == preview_id)
+    preview.image_generation_status = GenerationStatus.COMPLETED
+    api_module.pipeline._save_data()
+    current = api_client.get(f'/projects/{project_id}').json()
+    invalid = api_client.delete(route + f'/previews/{preview_id}/candidates/3', params={'expected_revision': current['_revision']})
+    assert invalid.status_code == 422, invalid.text
 
 
 @pytest.mark.parametrize('changed', ['script', 'frame'])

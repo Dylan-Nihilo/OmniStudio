@@ -4638,6 +4638,38 @@ def update_production_preview(script_id: str, preview_id: str, payload: Producti
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.delete("/projects/{script_id}/production-plan/previews/{preview_id}/candidates/{candidate_index}")
+def remove_production_preview_candidate(script_id: str, preview_id: str, candidate_index: int, expected_revision: str = Query(..., min_length=1)):
+    try:
+        with pipeline._save_lock:
+            script = pipeline.remove_production_preview_candidate(script_id, preview_id, candidate_index, expected_revision)
+            payload = _project_payload(script)
+            payload['_revision'] = pipeline.repository.script_revision(script_id)
+        return signed_response(payload)
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/projects/{script_id}/production-plan/previews/{preview_id}/candidates")
+def clear_production_preview_candidates(script_id: str, preview_id: str, expected_revision: str = Query(..., min_length=1)):
+    try:
+        with pipeline._save_lock:
+            script = pipeline.clear_production_preview_candidates(script_id, preview_id, expected_revision)
+            payload = _project_payload(script)
+            payload['_revision'] = pipeline.repository.script_revision(script_id)
+        return signed_response(payload)
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 class ProductionReviewRequest(BaseModel):
     expected_fingerprint: str
 

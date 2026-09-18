@@ -49,7 +49,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
         const version = mutationVersion.current;
         const [updated, review] = await Promise.all([api.getProject(project.id), api.reviewProductionPlan(project.id)]);
         if (!mounted.current || version !== mutationVersion.current) return;
-        onUpdate({ production_previews: updated.production_previews });
+        onUpdate({ production_previews: updated.production_previews, _revision: updated._revision });
         setReviews(review.segments);
     }, [project.id, onUpdate]);
     useEffect(() => {
@@ -150,6 +150,19 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                                 onClick={() => void run(preview.id, async () => { const result = await api.updateProductionPreview(project.id, preview.id, { selected_index: index }); if (mounted.current) onUpdate({ production_previews: result.production_previews }); })}>
                                 <PreviewImage src={image} alt="" noLightbox />
                             </button>)}</div>}
+                            {!!preview.t2i_image_urls?.length && <div className={styles.tools}>
+                                <Button variant="quiet" isDisabled={!!busy || imageRunning} onPress={() => void run(`${preview.id}:remove`, async () => {
+                                    const result = await api.removeProductionPreviewCandidate(project.id, preview.id, preview.t2i_selected_index ?? 0, project._revision ?? '');
+                                    if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
+                                })}>{t('imageRemove')}</Button>
+                                <Button variant="quiet" isDisabled={!!busy || imageRunning} onPress={() => {
+                                    if (!window.confirm(t('imageClearConfirm'))) return;
+                                    void run(`${preview.id}:clear`, async () => {
+                                        const result = await api.clearProductionPreviewCandidates(project.id, preview.id, project._revision ?? '');
+                                        if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
+                                    });
+                                }}>{t('imageClear')}</Button>
+                            </div>}
                             <details><summary>{t('imagePrompt')}</summary><TextAreaField label={t('imagePrompt')} rows={3} value={prompts[preview.id] ?? preview.image_prompt ?? ''} onChange={value => setPrompts(current => ({ ...current, [preview.id]: value }))} />
                                 <Button variant="quiet" isDisabled={!!busy || imageRunning || !prompts[preview.id]} onPress={() => void run(preview.id, async () => {
                                     const result = await api.updateProductionPreview(project.id, preview.id, { image_prompt: prompts[preview.id] });
