@@ -15,3 +15,8 @@
 .episodes summary { cursor: pointer; margin-bottom: 12px; }
 .footer { margin-top: auto; padding-top: 12px; font-size: 12px; }
 @media (max-width: 767px) { .sidebar { padding: 0; overflow: visible; min-width: 0; } .header { display: flex; align-items: center; gap: 8px; border: 0; margin: 0 0 6px; padding: 0; } .header h1 { font-size: 14px; flex: 1; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .header p { margin: 0; } .menu { display: none; } .mobileWorkflow { display: block; } .menu [data-slot="sidebar-menu-item"] { min-height: 36px; } .eyebrow, .footer { display: none; } .episodes { margin-top: 6px; padding-top: 6px; max-height: 120px; overflow-y: auto; } .episodes summary { margin-bottom: 0; } }
+
+.titleRow { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.titleRow h1 { min-width: 0; flex: 1; }
+.titleRow > span > button { flex-shrink: 0; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 5px; }
+@media (max-width: 767px) { .titleRow { flex: 1; align-items: center; } }

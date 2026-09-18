@@ -15,9 +15,9 @@ import type { ShotNode } from "./ShotCard";
 export function buildAssembledPrompt(shot: ShotNode): string {
     let base = (shot.prompt || "").trim();
 
-    // Strip existing reference tags from the display — they're handled
-    // separately as reference_image URLs in the API call
-    base = base.replace(/\[character\d+:[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
+    // Images travel separately, but inline references must keep their subject names.
+    base = base.replace(/\[character\d+:([^\]]+)\]/g, (_tag, name: string, offset: number) =>
+        base.slice(0, offset).endsWith(name) ? "" : name).replace(/\s+/g, " ").trim();
     if (shot.promptMode === "complete") return base;
 
     const suffixes: string[] = [];

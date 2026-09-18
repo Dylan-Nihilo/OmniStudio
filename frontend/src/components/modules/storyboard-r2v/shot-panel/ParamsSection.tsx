@@ -76,6 +76,8 @@ interface ParamsSectionProps {
     hasModelOverride?: boolean;
     modelOverrideSaving?: boolean;
     onResetModel?: () => void;
+    onEditPlannedTiming?: () => void;
+    hideAudioControls?: boolean;
 }
 
 // COUNT_OPTIONS removed in PR-3c — count selector relocated to ShotCard's
@@ -91,7 +93,7 @@ export default function ParamsSection({
     errorMessage,
     hasModelOverride = false,
     modelOverrideSaving = false,
-    onResetModel,
+    onResetModel, onEditPlannedTiming, hideAudioControls = false,
 }: ParamsSectionProps) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = usePanelSectionState(shotId, "params", true);
@@ -127,7 +129,7 @@ export default function ParamsSection({
         onChange({
             ...params,
             model: nextModelId,
-            duration: safeDuration,
+            duration: onEditPlannedTiming ? params.duration : safeDuration,
             resolution: np.resolution?.default ?? params.resolution,
             ratio: np.ratio?.default ?? params.ratio,
             promptExtend: typeof np.promptExtend === "boolean" ? np.promptExtend : params.promptExtend,
@@ -142,7 +144,7 @@ export default function ParamsSection({
             watermark: np.watermark ? (typeof params.watermark === "boolean" ? params.watermark : false) : undefined,
             // negativePrompt intentionally preserved
         });
-    }, [modelList, params, onChange]);
+    }, [modelList, params, onChange, onEditPlannedTiming]);
 
     const hasAdvanced =
         !!modelParams.negativePrompt ||
@@ -189,11 +191,11 @@ export default function ParamsSection({
 
                 {/* Duration */}
                 <ParamRow label={t("durationLabel")}>
-                    <DurationControl
+                    {onEditPlannedTiming ? <button type="button" className="text-sm text-text-secondary underline underline-offset-4" onClick={onEditPlannedTiming}>{params.duration}s · {t("editPlannedTiming")}</button> : <DurationControl
                         cfg={durationCfg}
                         value={params.duration}
                         onChange={(v) => set("duration", v)}
-                    />
+                    />}
                 </ParamRow>
 
                 {/* Count row removed in PR-3c — moved into ShotCard's
@@ -226,7 +228,7 @@ export default function ParamsSection({
                     </ParamRow>
                 ) : null}
 
-                <SelectField
+                {!hideAudioControls && <SelectField
                         label={t("audioModeLabel")}
                         value={params.audioMode ?? "post"}
                         onChange={(value) => set("audioMode", String(value) as ParamsState["audioMode"])}
@@ -236,8 +238,8 @@ export default function ParamsSection({
                             { id: "driven", label: t("audioModeDriven") },
                             { id: "silent", label: t("audioModeSilent") },
                         ]}
-                    />
-                {params.audioMode === "driven" ? (
+                    />}
+                {!hideAudioControls && params.audioMode === "driven" ? (
                     <ParamRow label={t("audioDriverUrlLabel")}>
                         <input
                             type="url"

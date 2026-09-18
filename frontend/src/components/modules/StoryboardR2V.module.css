@@ -5,9 +5,9 @@
 .header p { font-size: 10px; color: var(--color-text-muted); overflow-wrap: anywhere; }
 .header h2 { margin-top: 6px; font-size: 19px; font-weight: 600; }
 .headerActions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.workbench { display: flex; flex: 1; min-height: 0; padding-bottom: 24px; }
+.workbench { display: flex; flex: 1; min-height: 0; padding: 0 24px 24px 0; }
 .selectedShot { display: flex; flex: 1; min-width: 0; min-height: 0; }
-.sequence { margin-top: 36px; }
+.sequence { margin-top: 24px; }
 .sequence header, .sequence footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--color-border-default); padding-bottom: 16px; font-size: 11px; color: var(--color-text-muted); }
 .sequence footer { border: 0; border-top: 1px solid var(--color-border-default); padding: 16px 0; }
 .strip { display: flex; gap: 16px; overflow-x: auto; padding: 24px 0; }
@@ -18,7 +18,7 @@
 .thumbnail > span:not(.noImage) { font-size: 10px; color: var(--color-text-muted); }
 .thumbnail strong { font-size: 12px; font-weight: 400; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @media (max-width: 1199px) { .header { padding: 18px 24px; flex-wrap: wrap; } .headerActions { gap: 8px; } }
-@media (max-width: 959px) { .page { overflow: auto; } .header { padding: 20px 16px; } .headerActions { width: 100%; } }
+@media (max-width: 959px) { .page { overflow: auto; } .workbench { padding: 0; } .header { padding: 20px 16px; } .headerActions { width: 100%; } }
 
 .saveState { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--color-text-muted); }
 .saveState [data-error], .saveState [role="alert"] { color: var(--color-status-failed-fg); }
@@ -32,3 +32,9 @@
   .headerActions { flex-wrap: nowrap; }
   .headerActions :global(.omni-button) { flex: 1; min-width: 0; padding-inline: 8px; gap: 4px; font-size: 12px; }
 }
+
+.productionInfo { border-block: 1px solid var(--color-border-default); padding: 8px 0; margin-bottom: 16px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.6; }
+.productionInfo > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.productionInfo button { height: 30px; min-height: 30px; padding-inline: 6px; font-size: 12px; }
+.productionInfo summary { cursor: pointer; }
+.productionInfo details p { margin-top: 6px; }

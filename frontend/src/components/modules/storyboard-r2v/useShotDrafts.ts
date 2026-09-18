@@ -342,6 +342,7 @@ export function useShotDrafts(projectId: string | undefined) {
         return {
             ...shot,
             ...(f.image_prompt !== undefined ? { imagePrompt: f.image_prompt } : {}),
+            ...(f.omni_reference_settings !== undefined ? { omniReferences: f.omni_reference_settings } : {}),
             ...(f.dialogue !== undefined ? { dialogueStructured: { speaker: shot.dialogueStructured?.speaker ?? "", ...shot.dialogueStructured, line: f.dialogue } } : {}),
             ...(f.visual_description !== undefined ? { prompt: f.visual_description, visualDescription: f.visual_description }
                 : f.action_description !== undefined ? { prompt: f.action_description } : {}),

@@ -3,6 +3,7 @@ import { Button, Checkbox, Dialog } from "@omnistudio/ui";
 import { Users, MapPin, Box, Check, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import styles from "./EntityConfirmModal.module.css";
 
 export interface ExtractionPreview {
     characters: { id?: string; name: string; description?: string }[];
@@ -68,23 +69,24 @@ export default function EntityConfirmModal({
     });
 
     return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open && !isPending) onDiscard(); }}
+        className={styles.dialog}
         isDismissable={!isPending} title={t("extractConfirmTitle")} closeLabel={tc("close")}
         footer={<><Button variant="quiet" onPress={onDiscard} isDisabled={isPending}><X size={14} />{t("extractDiscard")}</Button><Button onPress={confirmSelection} isPending={isPending}><Check size={14} />{t("extractApply")}</Button></>}>
-        <p className="mb-5 text-sm text-text-secondary">{t("extractConfirmSubtitle")}</p>
-        <div className="space-y-4">
+        <p className={styles.subtitle}>{t("extractConfirmSubtitle")}</p>
+        <div className={styles.sections}>
         {sections.map(({ key, icon: Icon, items, prev }) => (
-            <div key={key} className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-text-secondary">
-                    <Icon size={14} />
-                    <span className="font-medium">
+            <section key={key} className={styles.section}>
+                <div className={styles.sectionHeading}>
+                    <Icon size={16} aria-hidden="true" />
+                    <h3>
                         {t(`entityKind_${key}`)}
-                    </span>
-                    <span className="ml-auto text-xs opacity-70">
+                    </h3>
+                    <span className={styles.count}>
                         {prev} → {items.length}
                     </span>
                 </div>
                 {items.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className={styles.list}>
                         {items.map((item, i) => (
                             <Checkbox
                                 key={i}
@@ -92,15 +94,15 @@ export default function EntityConfirmModal({
                                 onChange={() => toggle(key, item.id ?? String(i))}
                                 isDisabled={isPending}
                                 aria-label={item.name}
-                                className="inline-flex items-center px-2 py-0.5 rounded-md bg-elevated border border-glass-border text-xs text-foreground"
+                                className={styles.item}
                                 description={item.description}
-                            >{item.name}</Checkbox>
+                            ><span className={styles.name}>{item.name}</span></Checkbox>
                         ))}
                     </div>
                 ) : (
-                    <p className="text-xs text-text-tertiary italic">{t("noEntities")}</p>
+                    <p className={styles.empty}>{t("noEntities")}</p>
                 )}
-            </div>
+            </section>
         ))}
         </div>
     </Dialog>;

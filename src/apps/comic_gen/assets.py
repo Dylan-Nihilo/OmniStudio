@@ -6,6 +6,7 @@ from urllib.parse import quote
 from .models import Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant, MAX_VARIANTS_PER_ASSET
 from ...models.image import WanxImageModel, ImageGenModel
 from ...utils import get_logger
+from ...utils.model_catalog import load_generated_model_catalog
 from ...utils.oss_utils import is_object_key
 
 logger = get_logger(__name__)
@@ -55,14 +56,14 @@ class AssetGenerator:
 
     def _get_model_for(self, model_name: str) -> "ImageGenModel":
         """Route to the correct image adapter based on model name."""
-        if model_name and model_name.startswith("gpt-image"):
+        if model_name and load_generated_model_catalog().get("models", {}).get(model_name, {}).get("family") == "gpt-image":
             if self._mulerouter_image_model is None:
                 from ...models.mulerouter import MuleRouterImageModel
                 self._mulerouter_image_model = MuleRouterImageModel({})
             return self._mulerouter_image_model
         return self.model
 
-    def generate_character(self, character: Character, generation_type: str = "all", prompt: str = "", positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, i2i_model_name: str = None, size: str = None, candidate_type: str = None, reference_image_path: str = None) -> Character:
+    def generate_character(self, character: Character, generation_type: str = "all", prompt: str = "", positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, i2i_model_name: str = None, size: str = None, candidate_type: str = None, reference_image_path: str = None, reference_image_paths: list = None, reference_inputs: list = None, reference_purpose: str = None, holding_position: str = None) -> Character:
         """
         Generates character assets based on generation_type.
         Types: 'full_body', 'three_view', 'headshot', 'all'
@@ -77,7 +78,8 @@ class AssetGenerator:
         
         try:
             # === R2V: Single unified reference sheet (T2I only) ===
-            if generation_type == "reference_sheet":
+            if generation_type in ("reference_sheet", "holding_reference"):
+                unit_name = "holding_reference" if generation_type == "holding_reference" else "reference_sheet"
                 effective_prompt = prompt if prompt else f"Character reference sheet for {character.name}. {character.description}. Multiple views: front, side, back. Clean background, studio lighting."
                 if positive_prompt and positive_prompt not in effective_prompt:
                     effective_prompt = f"{effective_prompt}, {positive_prompt}"
@@ -95,6 +97,7 @@ class AssetGenerator:
                         self._get_model_for(model_name).generate(
                             effective_prompt, sheet_path,
                             ref_image_path=reference_image_path,
+                            ref_image_paths=reference_image_paths or [],
                             negative_prompt=negative_prompt,
                             model_name=model_name,
                             size=effective_size
@@ -102,9 +105,10 @@ class AssetGenerator:
 
                         rel_path = os.path.relpath(sheet_path, "output")
 
-                        if not character.reference_sheet:
-                            from .models import AssetUnit
-                            character.reference_sheet = AssetUnit()
+                        from .models import AssetUnit
+                        if not getattr(character, unit_name):
+                            setattr(character, unit_name, AssetUnit())
+                        unit = getattr(character, unit_name)
 
                         from .models import ImageVariant
                         variant = ImageVariant(
@@ -117,15 +121,19 @@ class AssetGenerator:
                                 "size": effective_size,
                                 "negative_prompt": negative_prompt,
                                 "seed": None,
+                                "reference_inputs": reference_inputs or [],
+                                "reference_purpose": reference_purpose,
+                                "holding_position": holding_position,
                             },
                             source="generated",
                             candidate_type=candidate_type,
                         )
-                        character.reference_sheet.image_variants.append(variant)
+                        unit.image_variants.append(variant)
 
-                        if not character.reference_sheet.selected_image_id:
-                            character.reference_sheet.selected_image_id = variant_id
-                            character.image_url = rel_path
+                        if not unit.selected_image_id:
+                            unit.selected_image_id = variant_id
+                            if unit_name == "reference_sheet":
+                                character.image_url = rel_path
 
                         successful_generations += 1
 
@@ -137,7 +145,7 @@ class AssetGenerator:
                                 object_key = uploader.upload_file(sheet_path, sub_path="assets/characters")
                                 if object_key:
                                     variant.url = object_key
-                                    if character.reference_sheet.selected_image_id == variant_id:
+                                    if unit_name == "reference_sheet" and unit.selected_image_id == variant_id:
                                         character.image_url = object_key
                         except Exception as e:
                             logger.error(f"Failed to upload reference sheet to OSS: {e}")
@@ -602,7 +610,7 @@ class AssetGenerator:
                 )
                 scene.image_asset.variants.insert(0, variant)
                 
-                if not scene.image_asset.selected_id or batch_size == 1:
+                if not scene.image_asset.selected_id:
                     scene.image_asset.selected_id = variant_id
                     scene.image_url = rel_path # Legacy sync
 
@@ -628,7 +636,7 @@ class AssetGenerator:
             
         return scene
 
-    def generate_prop(self, prop: Prop, positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, size: str = None, prompt: str = None, reference_image_path: str = None) -> Prop:
+    def generate_prop(self, prop: Prop, positive_prompt: str = None, negative_prompt: str = "", batch_size: int = 1, model_name: str = None, size: str = None, prompt: str = None, reference_image_path: str = None, reference_image_paths: list = None, reference_inputs: list = None, reference_purpose: str = None) -> Prop:
         """Generates a prop reference image."""
         prop.status = GenerationStatus.PROCESSING
         
@@ -649,7 +657,7 @@ class AssetGenerator:
                 output_path = os.path.join(self.output_dir, 'props', f"{prop.id}_{variant_id}.png")
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 
-                image_path, _ = self._get_model_for(model_name).generate(prompt, output_path, ref_image_path=reference_image_path, negative_prompt=negative_prompt, model_name=model_name, size=effective_size)
+                image_path, _ = self._get_model_for(model_name).generate(prompt, output_path, ref_image_path=reference_image_path, ref_image_paths=reference_image_paths or [], negative_prompt=negative_prompt, model_name=model_name, size=effective_size)
                 
                 rel_path = os.path.relpath(output_path, "output")
                 
@@ -668,12 +676,14 @@ class AssetGenerator:
                         "size": effective_size,
                         "negative_prompt": negative_prompt,
                         "seed": None,
+                        "reference_inputs": reference_inputs or [],
+                        "reference_purpose": reference_purpose,
                     },
                     source="generated",
                 )
                 prop.image_asset.variants.insert(0, variant)
                 
-                if not prop.image_asset.selected_id or batch_size == 1:
+                if not prop.image_asset.selected_id:
                     prop.image_asset.selected_id = variant_id
                     prop.image_url = rel_path # Legacy sync
 

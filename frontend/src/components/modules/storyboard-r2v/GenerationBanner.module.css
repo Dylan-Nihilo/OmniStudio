@@ -1,0 +1,12 @@
+.shell { display: flex; flex-shrink: 0; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 24px 16px 32px; padding: 6px 12px; border: 1px solid var(--color-border-default); border-radius: 8px; background: var(--color-bg-surface); }
+.shell :global(.omni-button) { min-height: 30px; height: 30px; padding-inline: 8px; font-size: 12px; }
+.copy { flex: 1; min-width: 180px; font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); }
+.copy > p + p { margin-top: 6px; }
+.shotLinks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.shotLinks :global(.omni-button) { color: var(--color-primary); }
+.errorDetails { margin-top: 6px; }
+.errorDetails summary { width: fit-content; cursor: pointer; color: var(--color-text-muted); }
+.errorDetails p { margin-top: 6px; overflow-wrap: anywhere; color: var(--color-status-failed-fg); }
+@media (max-width: 1199px) { .shell { margin-left: 24px; } }
+@media (max-width: 959px) { .shell { margin-inline: 16px; } }
+@media (pointer: coarse) { .shell :global(.omni-button) { min-height: 40px; height: 40px; } }

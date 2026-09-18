@@ -116,7 +116,10 @@ from .job_adapters import ProductionJobAdapter
 from ...storage.legacy_claim import LegacyClaimService
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
 from .revision import compute_dependency_fingerprint, compute_revision, evaluate_stale
+from .models import AssetReferenceInput
+from .asset_references import AssetReferenceError, AssetReferencePurpose, HoldingPosition
 from .director_plan import DirectorPlanPatch, DirectorPlanStore, DirectorPlanValue, preview_from_instruction
+from .script_writing import WritingRequest, ContinuityRequest, propose_writing, check_continuity
 
 app = FastAPI(title="AI Comic Gen API")
 logger = logging.getLogger(__name__)
@@ -562,7 +565,7 @@ def _dispatch_production_item(item):
             payload.get("batch_size", 1),
         )
         script = pipeline.get_script(item.project_id)
-        frame = next((candidate for candidate in (script.frames if script else []) if candidate.id == payload["frame_id"]), None)
+        frame = next((candidate for candidate in ([*script.frames, *script.production_previews] if script else []) if candidate.id == payload["frame_id"]), None)
         url = getattr(frame, "rendered_image_url", None) or getattr(frame, "image_url", None) if frame else None
         return [_production_media_ref(url, kind="storyboard", item_id=item.id)]
     if kind == "audio":
@@ -771,6 +774,7 @@ def _iter_media_strings(value, field: str = ""):
             "input_media",
             "reference_image_urls",
             "reference_video_urls",
+            "reference_audio_urls",
             "t2i_image_urls",
             "bg_audio_source_video",
         }:
@@ -1357,6 +1361,9 @@ class GenerateAssetRequest(BaseModel):
     asset_type: str
     style_preset: str = "Cinematic"
     reference_image_url: Optional[str] = None
+    reference_inputs: List[AssetReferenceInput] = Field(default_factory=list, max_length=4)
+    reference_purpose: Optional[AssetReferencePurpose] = None
+    holding_position: Optional[HoldingPosition] = None
     style_prompt: Optional[str] = None
     generation_type: str = "all"  # 'full_body', 'three_view', 'headshot', 'all', 'reference_sheet'
     prompt: Optional[str] = None
@@ -2838,6 +2845,8 @@ def get_series_assets(series_id: str):
 def generate_series_asset(series_id: str, request: GenerateAssetRequest, background_tasks: BackgroundTasks):
     """Generate a single asset for a Series (async)."""
     try:
+        if request.reference_inputs or request.reference_purpose or request.holding_position:
+            raise HTTPException(status_code=400, detail="请在本集素材中使用人物与道具参考")
         series, task_id = pipeline.generate_series_asset(
             series_id,
             request.asset_id,
@@ -2865,6 +2874,8 @@ def generate_series_asset(series_id: str, request: GenerateAssetRequest, backgro
             response_data["_job_item_id"] = job_item.id
             response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -3705,6 +3716,50 @@ def update_project(script_id: str, payload: UpdateProjectRequest, request: Reque
         raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)) from exc
 
 
+_script_writing_inflight: set[tuple[str, str]] = set()
+
+
+async def _run_script_writing(script_id: str, payload, request: Request, operation: str):
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    # ponytail: one ASGI loop per worker; use a shared job claim if workers are scaled out.
+    claim = (script_id, operation)
+    if claim in _script_writing_inflight:
+        raise HTTPException(status_code=409, detail="这份剧本的 AI 请求仍在处理中，请稍后重试")
+    _script_writing_inflight.add(claim)
+    try:
+        from ...billing.metering import text_meter_for
+        from .llm_adapter import LLMAdapter
+
+        meter = text_meter_for(request.app.state)
+        if meter and meter.enabled:
+            model = LLMAdapter()._get_default_model()
+            quote = meter.services.runtime.quote_text(f"text/{model}", len(payload.text) + len(getattr(payload, "instruction", "")), 1)
+            meter.ensure_available(request.state.auth_context.workspace.id, quote.credits)
+        handler = propose_writing if operation == "preview" else check_continuity
+        result = await asyncio.to_thread(handler, payload, script.title)
+        record_request_event(request, action=f"script.writing.{operation}", object_type="project", object_id=script_id,
+                             metadata={"scope": getattr(payload, "scope", "document"), "characters": len(payload.text)})
+        return result
+    except (HTTPException, BillingError):
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"code": "SCRIPT_WRITING_FAILED", "message": _redact_provider_message(str(exc))}) from exc
+    finally:
+        _script_writing_inflight.discard(claim)
+
+
+@app.post("/projects/{script_id}/writing/preview")
+async def preview_script_writing(script_id: str, payload: WritingRequest, request: Request):
+    return await _run_script_writing(script_id, payload, request, "preview")
+
+
+@app.post("/projects/{script_id}/writing/continuity")
+async def inspect_script_continuity(script_id: str, payload: ContinuityRequest, request: Request):
+    return await _run_script_writing(script_id, payload, request, "continuity")
+
+
 class DirectorPlanPreviewRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=2000)
 
@@ -4490,6 +4545,141 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
 
 # === STORYBOARD DRAMATIZATION v2 ===
 
+from .production_planning import PlanSettings, PlanEditRequest, PlanRevisionRequest, storyboard_fingerprint
+from .omni_reference import OmniReferenceSettings
+
+
+@app.get("/projects/{script_id}/production-plan")
+def get_production_plan(script_id: str):
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    return signed_response({"draft": script.production_plan_draft.model_dump() if script.production_plan_draft else None,
+        "active": script.production_plan.model_dump() if script.production_plan else None,
+        "job": script.production_planning_job.model_dump() if script.production_planning_job else None, "storyboard_fingerprint": storyboard_fingerprint(script),
+        "versions": [{"id": v.id, "title": v.title, "created_at": v.created_at, "frame_count": len(v.frames)} for v in script.storyboard_versions]})
+
+
+@app.post("/projects/{script_id}/production-plan/generate", response_model=Script)
+async def generate_production_plan(script_id: str, payload: PlanSettings, request: Request):
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    from .production_planning import model_durations
+    try:
+        model_durations(payload.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        from ...billing.metering import text_meter_for
+        from .llm_adapter import LLMAdapter
+        meter = text_meter_for(request.app.state)
+        if meter and meter.enabled:
+            quote = meter.services.runtime.quote_text(f"text/{LLMAdapter()._get_default_model()}", len(script.original_text) + len(payload.instruction), 1)
+            meter.ensure_available(request.state.auth_context.workspace.id, quote.credits)
+        result = await asyncio.to_thread(pipeline.generate_production_plan, script_id, payload)
+        record_request_event(request, action="storyboard.plan.generate", object_type="project", object_id=script_id,
+                             metadata={"segments": len(result.production_plan_draft.segments)})
+        return signed_response(result)
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (HTTPException, BillingError):
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"code": "PRODUCTION_PLAN_FAILED", "message": _redact_provider_message(str(exc))}) from exc
+
+
+@app.post("/projects/{script_id}/production-plan/revise", response_model=Script)
+def revise_production_plan(script_id: str):
+    try:
+        return signed_response(pipeline.revise_production_plan(script_id))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/projects/{script_id}/production-plan", response_model=Script)
+def edit_production_plan(script_id: str, payload: PlanEditRequest):
+    try:
+        return signed_response(pipeline.edit_production_plan(script_id, payload))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/production-plan/apply", response_model=Script)
+def apply_production_plan(script_id: str, payload: PlanRevisionRequest):
+    try:
+        return signed_response(pipeline.apply_production_plan(script_id, payload.expected_revision))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ProductionPreviewRequest(BaseModel):
+    image_prompt: str | None = Field(default=None, min_length=1, max_length=8000)
+    selected_index: int | None = Field(default=None, ge=0)
+
+
+@app.patch("/projects/{script_id}/production-plan/previews/{preview_id}", response_model=Script)
+def update_production_preview(script_id: str, preview_id: str, payload: ProductionPreviewRequest):
+    try:
+        return signed_response(pipeline.update_production_preview(script_id, preview_id, payload.image_prompt, payload.selected_index))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ProductionReviewRequest(BaseModel):
+    expected_fingerprint: str
+
+
+@app.get("/projects/{script_id}/production-plan/review")
+def review_production_plan(script_id: str):
+    try:
+        return signed_response(pipeline.production_plan_review(script_id))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/projects/{script_id}/production-plan/segments/{frame_id}/confirm", response_model=Script)
+def confirm_production_segment(script_id: str, frame_id: str, payload: ProductionReviewRequest):
+    try:
+        return signed_response(pipeline.confirm_production_segment(script_id, frame_id, payload.expected_fingerprint))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class RestoreStoryboardRequest(BaseModel):
+    expected_fingerprint: str
+
+
+@app.post("/projects/{script_id}/production-plan/versions/{version_id}/restore", response_model=Script)
+def restore_storyboard_version(script_id: str, version_id: str, payload: RestoreStoryboardRequest):
+    try:
+        return signed_response(pipeline.restore_storyboard_version(script_id, version_id, payload.expected_fingerprint))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 class AnalyzeToStoryboardRequest(BaseModel):
     """Request to analyze script text into storyboard frames."""
     text: str
@@ -4965,12 +5155,16 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             request.model_name,
             request.aspect_ratio,
             request.candidate_type,
+            [ref.model_dump() for ref in request.reference_inputs],
+            request.reference_purpose,
+            request.holding_position,
         )
         
+        reference_key = json.dumps([request.reference_purpose, request.holding_position, [ref.model_dump() for ref in request.reference_inputs]], sort_keys=True)
         job_item = _create_production_item(
             "asset", script_id, None,
             {"legacy_task_id": task_id, "asset_id": request.asset_id, "asset_type": request.asset_type},
-            f"asset:{script_id}:{request.asset_id}:{request.asset_type}:{request.model_name or ''}:{request.prompt or ''}",
+            f"asset:{script_id}:{request.asset_id}:{request.asset_type}:{request.model_name or ''}:{request.prompt or ''}:{reference_key}",
         )
         if job_item is None:
             background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
@@ -4985,6 +5179,8 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
 
+    except AssetReferenceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -6216,6 +6412,7 @@ def toggle_frame_lock(script_id: str, request: ToggleFrameLockRequest):
 
 class UpdateFrameRequest(BaseModel):
     frame_id: str
+    omni_reference_settings: Optional[OmniReferenceSettings] = None
     image_prompt: Optional[str] = None
     action_description: Optional[str] = None
     visual_description: Optional[str] = None
@@ -6233,12 +6430,19 @@ class UpdateFrameRequest(BaseModel):
     out_point: Optional[float] = Field(None, gt=0)
 
 @app.post("/projects/{script_id}/frames/update", response_model=Script)
-def update_frame(script_id: str, request: UpdateFrameRequest):
+def update_frame(script_id: str, request: UpdateFrameRequest, http_request: Request):
     """Updates frame data (prompt, scene, characters, etc.)."""
+    if request.omni_reference_settings:
+        for item in request.omni_reference_settings.videos:
+            if not item.url.startswith("https://") and not _media_is_owned_by_workspace(
+                item.url, http_request.state.auth_context.workspace.id, pipeline
+            ):
+                raise HTTPException(status_code=404, detail="参考视频不存在或不属于当前工作区")
     try:
         updated_script = pipeline.update_frame(
             script_id,
             request.frame_id,
+            omni_reference_settings=request.omni_reference_settings,
             image_prompt=request.image_prompt,
             action_description=request.action_description,
             visual_description=request.visual_description,

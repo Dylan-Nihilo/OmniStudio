@@ -16,6 +16,7 @@ from io import BytesIO
 import zipfile
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings
+from .asset_references import AssetReferenceError, resolve_asset_references, reference_instruction
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
@@ -685,6 +686,10 @@ class ComicGenPipeline:
         recovered = 0
 
         for script in self.scripts.values():
+            if script.production_planning_job and script.production_planning_job.status == "processing":
+                script.production_planning_job.status = "failed"
+                script.production_planning_job.error = "服务重启中断了制作规划，原方案已保留，请重试"
+                recovered += 1
             if script.storyboard_generation and script.storyboard_generation.status in STUCK:
                 script.storyboard_generation.status = GenerationStatus.FAILED
                 script.storyboard_generation.error = script.storyboard_generation.error or self._ORPHAN_RECOVERY_REASON
@@ -693,7 +698,7 @@ class ComicGenPipeline:
                 script.dialogue_audio_batch.status = GenerationStatus.FAILED
                 script.dialogue_audio_batch.error = script.dialogue_audio_batch.error or self._ORPHAN_RECOVERY_REASON
                 recovered += 1
-            for frame in script.frames:
+            for frame in [*script.frames, *script.production_previews]:
                 if frame.image_generation_status in STUCK:
                     frame.image_generation_status = GenerationStatus.FAILED
                     frame.image_error = frame.image_error or self._ORPHAN_RECOVERY_REASON
@@ -805,7 +810,7 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 return None
-            frames = getattr(script, "frames", None) or []
+            frames = [*script.frames, *script.production_previews]
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
@@ -863,7 +868,7 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 return None
-            frames = getattr(script, "frames", None) or []
+            frames = [*script.frames, *script.production_previews]
             frame = next((f for f in frames if getattr(f, "id", None) == frame_id), None)
             if not frame:
                 return None
@@ -1149,7 +1154,7 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None, candidate_type: str = None) -> Script:
+    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None, candidate_type: str = None, reference_inputs: list = None, reference_purpose: str = None, holding_position: str = None) -> Script:
         """Step 2: Generate a specific asset (character/scene/prop).
         If style_preset is None, uses the project's global style."""
         script = self.scripts.get(script_id)
@@ -1164,7 +1169,25 @@ class ComicGenPipeline:
         effective_settings = self.resolve_model_settings(script_id).settings
         t2i_model = model_name or effective_settings.t2i_model
         i2i_model = effective_settings.i2i_model
+        reference_snapshots = resolve_asset_references(self.resolve_episode_assets(script) if reference_inputs else {},
+            asset_type, asset_id, reference_purpose, reference_inputs, t2i_model, holding_position)
+        if reference_purpose and reference_image_url:
+            raise AssetReferenceError("请使用素材参考选择，不能同时指定额外图片地址")
+        if (generation_type == "holding_reference") != (reference_purpose == "character_holding"):
+            raise AssetReferenceError("持物图必须使用人物与道具参考生成")
+        if reference_purpose == "character_base" and generation_type != "reference_sheet":
+            raise AssetReferenceError("基础形象请使用人物参考图模式")
+        reference_paths = [self._resolve_media_path(ref["image_url"], suffix=".png") for ref in reference_snapshots]
+        if any(not path for path in reference_paths):
+            raise AssetReferenceError("参考图片不可用，请重新选择")
+        if reference_paths:
+            reference_image_path = reference_paths[0]
+        reference_options = {"reference_image_paths": reference_paths[1:], "reference_inputs": reference_snapshots,
+            "reference_purpose": reference_purpose} if reference_purpose else {}
         
+        if reference_purpose == "character_holding":
+            reference_options["holding_position"] = holding_position
+
         # Get effective size based on asset type (aspect_ratio param overrides model_settings)
         from .assets import ASPECT_RATIO_TO_SIZE
         if aspect_ratio:
@@ -1247,6 +1270,9 @@ class ComicGenPipeline:
         if not target_asset:
             raise ValueError(f"{asset_type.capitalize()} {asset_id} not found")
 
+        if reference_purpose:
+            prompt = (prompt or f"{target_asset.name}: {target_asset.description}") + reference_instruction(reference_purpose, reference_snapshots, holding_position)
+
         target_asset.status = GenerationStatus.PROCESSING
         self._save_data()
         if asset_is_series_level:
@@ -1277,12 +1303,12 @@ class ComicGenPipeline:
                     i2i_model_name=i2i_model,
                     size=effective_size,
                     candidate_type=candidate_type,
-                    reference_image_path=reference_image_path,
+                    reference_image_path=reference_image_path, **reference_options,
                 )
             elif asset_type == "scene":
-                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path)
+                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path, **reference_options)
             elif asset_type == "prop":
-                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path)
+                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path, **reference_options)
                 
             target_asset.status = GenerationStatus.COMPLETED
         except Exception as e:
@@ -1301,7 +1327,7 @@ class ComicGenPipeline:
                     if previous == generated:
                         continue
                     value = getattr(current, field)
-                    if field in {"reference_sheet", "full_body_asset", "three_view_asset", "headshot_asset", "image_asset"} and generated:
+                    if field in {"reference_sheet", "holding_reference", "full_body_asset", "three_view_asset", "headshot_asset", "image_asset"} and generated:
                         if value is None:
                             value = type(generated)()
                             setattr(current, field, value)
@@ -1324,12 +1350,26 @@ class ComicGenPipeline:
                                       prompt: str = None, apply_style: bool = True,
                                       negative_prompt: str = None, batch_size: int = 1,
                                       model_name: str = None, aspect_ratio: str = None,
-                                      candidate_type: str = None) -> Tuple[Script, str]:
+                                      candidate_type: str = None, reference_inputs: list = None,
+                                      reference_purpose: str = None, holding_position: str = None) -> Tuple[Script, str]:
         """Creates an async asset generation task and returns (script, task_id) immediately."""
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
         
+        if reference_purpose or reference_inputs or holding_position or generation_type == "holding_reference":
+            model_name = model_name or self.resolve_model_settings(script_id).settings.t2i_model
+            snapshots = resolve_asset_references(self.resolve_episode_assets(script) if reference_inputs else {},
+                asset_type, asset_id, reference_purpose, reference_inputs, model_name, holding_position)
+            if reference_image_url:
+                raise AssetReferenceError("请使用素材参考选择，不能同时指定额外图片地址")
+            if (generation_type == "holding_reference") != (reference_purpose == "character_holding"):
+                raise AssetReferenceError("持物图必须使用人物与道具参考生成")
+            if reference_purpose == "character_base" and generation_type != "reference_sheet":
+                raise AssetReferenceError("基础形象请使用人物参考图模式")
+            if any(not self._resolve_media_path(ref["image_url"], suffix=".png") for ref in snapshots):
+                raise AssetReferenceError("参考图片不可用，请重新选择")
+
         # Find the asset and set to PROCESSING
         asset_list = []
         if asset_type == "character":
@@ -1386,6 +1426,9 @@ class ComicGenPipeline:
                 "model_name": model_name,
                 "aspect_ratio": aspect_ratio,
                 "candidate_type": candidate_type,
+                "reference_inputs": reference_inputs or [],
+                "reference_purpose": reference_purpose,
+                "holding_position": holding_position,
             }
         }
         
@@ -1423,6 +1466,9 @@ class ComicGenPipeline:
                     params["model_name"],
                     params.get("aspect_ratio"),
                     params.get("candidate_type"),
+                    params.get("reference_inputs"),
+                    params.get("reference_purpose"),
+                    params.get("holding_position"),
                 )
             task["status"] = "completed"
             task["progress"] = 100
@@ -2028,6 +2074,230 @@ class ComicGenPipeline:
 
     # === STORYBOARD DRAMATIZATION v2 ===
 
+    def update_production_preview(self, script_id: str, preview_id: str, image_prompt: str | None, selected_index: int | None) -> Script:
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            preview = next((p for p in script.production_previews if p.id == preview_id), None) if script else None
+            if preview is None:
+                raise LookupError("分镜图不存在")
+            if preview.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
+                raise GenerationInProgressError("分镜图仍在生成，请完成后再修改")
+            changes = {}
+            if image_prompt is not None:
+                changes['image_prompt'] = image_prompt
+            if selected_index is not None:
+                if not 0 <= selected_index < len(preview.t2i_image_urls):
+                    raise ValueError("请选择已有的分镜图")
+                changes['t2i_selected_index'] = selected_index
+            self._save_fields(preview, **changes)
+            return script
+
+    def production_plan_review(self, script_id: str) -> dict:
+        from .production_planning import segment_review, storyboard_fingerprint
+        script = self.get_script(script_id)
+        if script is None:
+            raise LookupError("项目不存在")
+        assets = self.resolve_episode_assets(script)
+        return {"storyboard_fingerprint": storyboard_fingerprint(script), "segments": [
+            segment_review(script, frame, assets) for frame in script.frames
+            if frame.production_plan_id and script.production_plan and frame.production_plan_id == script.production_plan.id
+            and any(segment.frame_id == frame.id for segment in script.production_plan.segments)]}
+
+    def confirm_production_segment(self, script_id: str, frame_id: str, expected_fingerprint: str) -> Script:
+        from .production_planning import segment_review
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            frame = next((f for f in script.frames if f.id == frame_id), None) if script else None
+            if frame is None:
+                raise LookupError("片段不存在")
+            report = segment_review(script, frame, self.resolve_episode_assets(script))
+            if report["fingerprint"] != expected_fingerprint:
+                raise GenerationInProgressError("画面或前一片段已有更新，请重新查看后确认")
+            if report["blockers"]:
+                raise ValueError("；".join(report["blockers"]))
+            self._save_fields(frame, production_review_fingerprint=expected_fingerprint,
+                              image_url=report["preview_urls"][0], rendered_image_url=report["preview_urls"][0])
+            return script
+
+    def generate_production_plan(self, script_id: str, settings) -> Script:
+        from .production_planning import PlanningJob, propose_plan, source_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            if script.production_planning_job and script.production_planning_job.status == "processing":
+                raise GenerationInProgressError("制作计划仍在生成，请等待本次结果")
+            snapshot = script.model_copy(deep=True)
+            assets = self.resolve_episode_assets(snapshot)
+            job = PlanningJob()
+            self._save_fields(script, production_planning_job=job)
+        try:
+            proposal = propose_plan(snapshot, assets, settings)
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if current is None:
+                    raise LookupError("项目不存在")
+                if not current.production_planning_job or current.production_planning_job.id != job.id:
+                    raise GenerationInProgressError("本次规划已被新的请求替代")
+                if ((current.production_plan_draft.revision if current.production_plan_draft else None)
+                        != (snapshot.production_plan_draft.revision if snapshot.production_plan_draft else None)):
+                    raise GenerationInProgressError("规划期间方案已有新修改，已保留修改，请重新规划")
+                if source_fingerprint(current, self.resolve_episode_assets(current)) != proposal.source_fingerprint:
+                    raise GenerationInProgressError("规划期间剧本或素材设定已改变，请基于最新内容重新规划")
+                self._save_fields(current, production_plan_draft=proposal,
+                                  production_planning_job=job.model_copy(update={"status": "completed"}))
+                return current
+        except Exception:
+            with self._save_lock:
+                current = self.scripts.get(script_id)
+                if current and current.production_planning_job and current.production_planning_job.id == job.id:
+                    # Provider credentials and raw responses must never enter persisted errors.
+                    self._save_fields(current, production_planning_job=job.model_copy(update={
+                        "status": "failed", "error": "制作计划未生成成功，原有方案和分镜已保留，请重试"}))
+            raise
+
+    def revise_production_plan(self, script_id: str) -> Script:
+        from .production_planning import new_id, source_fingerprint, storyboard_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None or script.production_plan is None:
+                raise LookupError("当前没有已确认的制作计划")
+            if script.production_plan_draft is not None:
+                return script
+            assets = self.resolve_episode_assets(script)
+            if source_fingerprint(script, assets) != script.production_plan.source_fingerprint:
+                raise GenerationInProgressError("剧本或素材设定已经更新，请重新规划")
+            draft = script.production_plan.model_copy(deep=True, update={"id": new_id(), "revision": new_id(),
+                "status": "draft", "created_at": time.time(), "approved_from_revision": None,
+                "storyboard_fingerprint": storyboard_fingerprint(script)})
+            for segment in draft.segments:
+                segment.id, segment.frame_id = new_id(), None
+                for shot in segment.shots:
+                    shot.id = new_id()
+            self._save_fields(script, production_plan_draft=draft)
+            return script
+
+    def edit_production_plan(self, script_id: str, request) -> Script:
+        from .production_planning import validate_content, source_fingerprint, new_id
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            plan = script.production_plan_draft
+            if not plan or plan.revision != request.expected_revision:
+                raise GenerationInProgressError("方案已有更新，请刷新后再修改")
+            assets = self.resolve_episode_assets(script)
+            if plan.source_fingerprint != source_fingerprint(script, assets):
+                raise GenerationInProgressError("剧本或素材设定已更新，请重新规划")
+            warnings = validate_content(request, plan.settings, script, assets)
+            edited = type(plan).model_validate({**plan.model_dump(), **request.model_dump(exclude={"expected_revision"}),
+                                               "revision": new_id(), "warnings": warnings})
+            self._save_fields(script, production_plan_draft=edited)
+            return script
+
+    def _archive_storyboard(self, script: Script):
+        from .models import StoryboardVersion
+        return StoryboardVersion(id=str(uuid.uuid4()), merged_video_url=script.merged_video_url, merge_verification=script.merge_verification, title=script.production_plan.summary[:80] if script.production_plan else "原有分镜",
+            frames=[frame.model_copy(deep=True) for frame in script.frames],
+            production_previews=[frame.model_copy(deep=True) for frame in script.production_previews],
+            production_plan=script.production_plan.model_copy(deep=True) if script.production_plan else None)
+
+    def _require_idle_storyboard(self, script: Script) -> None:
+        busy = (GenerationStatus.PENDING, GenerationStatus.PROCESSING)
+        if (script.storyboard_generation and script.storyboard_generation.status in busy
+                or script.dialogue_audio_batch and script.dialogue_audio_batch.status in busy
+                or any(task.status in busy for task in script.video_tasks)
+                or any(frame.image_generation_status in busy or frame.audio_generation_status in busy or frame.dub_generation_status in busy
+                       for frame in [*script.frames, *script.production_previews])):
+            raise GenerationInProgressError("当前制作任务仍在进行，完成后才能切换分镜方案")
+
+    def apply_production_plan(self, script_id: str, expected_revision: str) -> Script:
+        from .production_planning import source_fingerprint, storyboard_fingerprint, validate_content, reference_assets, segment_prompt, segment_content_fingerprint, new_id
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            plan = script.production_plan_draft
+            if plan is None and script.production_plan and script.production_plan.approved_from_revision == expected_revision:
+                return script
+            if not plan or plan.revision != expected_revision:
+                raise GenerationInProgressError("方案已有更新，请刷新后重新确认")
+            self._require_idle_storyboard(script)
+            assets = self.resolve_episode_assets(script)
+            if plan.source_fingerprint != source_fingerprint(script, assets) or plan.storyboard_fingerprint != storyboard_fingerprint(script):
+                raise GenerationInProgressError("剧本或现有分镜已改变，旧方案不会覆盖新内容，请重新规划")
+            validate_content(plan, plan.settings, script, assets)
+            refs = reference_assets(assets)
+            approved = plan.model_copy(deep=True, update={"status": "approved", "revision": new_id(), "approved_from_revision": expected_revision})
+            reusable = {}
+            old_plan = script.production_plan
+            old_frames = {frame.id: frame for frame in script.frames}
+            old_previews = {preview.id: preview for preview in script.production_previews}
+            if (old_plan and old_plan.source_fingerprint == plan.source_fingerprint
+                    and old_plan.continuity_rules == plan.continuity_rules
+                    and old_plan.settings.model == plan.settings.model):
+                for segment in old_plan.segments:
+                    frame = old_frames.get(segment.frame_id)
+                    if (frame and frame.production_plan_id == old_plan.id
+                            and all(shot.id in old_previews for shot in segment.shots)):
+                        reusable.setdefault(segment_content_fingerprint(segment), []).append(segment)
+            frames, previews = [], []
+            for segment in approved.segments:
+                matches = reusable.get(segment_content_fingerprint(segment), [])
+                if matches:
+                    original = matches.pop(0)
+                    segment.id, segment.frame_id = original.id, original.frame_id
+                    for shot, previous in zip(segment.shots, original.shots):
+                        shot.id = previous.id
+                        previews.append(old_previews[previous.id].model_copy(deep=True, update={"production_plan_id": plan.id}))
+                    frames.append(old_frames[original.frame_id].model_copy(deep=True, update={"production_plan_id": plan.id}))
+                    continue
+                segment.frame_id = new_id()
+                character_ids = list(dict.fromkeys(refs[name][1].id for name in segment.reference_names if refs[name][0] == "characters"))
+                prop_ids = list(dict.fromkeys(refs[name][1].id for name in segment.reference_names if refs[name][0] == "props"))
+                prompt = segment_prompt(segment, approved.continuity_rules)
+                frame = StoryboardFrame(id=segment.frame_id, scene_id=segment.scene_id,
+                    character_ids=character_ids, prop_ids=prop_ids, action_description=segment.purpose,
+                    visual_description=prompt, assembled_prompt=prompt, prompt_mode="complete", duration=segment.duration,
+                    workbench_tab_mode="direct_r2v", model_settings_overrides={"r2v_model": plan.settings.model},
+                    production_plan_id=plan.id, production_segment_id=segment.id)
+                frames.append(frame)
+                for shot_index, shot in enumerate(segment.shots):
+                    context = f"本片段开场状态：{segment.start_state}" if shot_index == 0 else f"前一镜叙事：{segment.shots[shot_index - 1].description}"
+                    image_prompt = f"{approved.continuity_rules}\n{context}\n本镜关键画面：{shot.camera}。{shot.description}\n按本镜动作推进人物姿态与位置，取一个清晰的静态瞬间。单张分镜画面，不拼图，不显示文字。"
+                    previews.append(StoryboardFrame(id=shot.id, scene_id=segment.scene_id, character_ids=character_ids, prop_ids=prop_ids,
+                        action_description=shot.description, visual_description=shot.description, image_prompt=image_prompt,
+                        duration=shot.duration, production_plan_id=plan.id, production_segment_id=segment.id, production_shot_id=shot.id))
+            versions = [*script.storyboard_versions]
+            if script.frames:
+                versions.append(self._archive_storyboard(script))
+            self._save_fields(script, frames=frames, production_previews=previews, production_plan=approved,
+                production_plan_draft=None, storyboard_versions=versions, storyboard_generation=None,
+                storyboard_ready=False, storyboard_readiness=None, storyboard_continuity_ledger=None,
+                merged_video_url=None, merge_verification=None, updated_at=time.time())
+            return script
+
+    def restore_storyboard_version(self, script_id: str, version_id: str, expected_fingerprint: str) -> Script:
+        from .production_planning import storyboard_fingerprint
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if script is None:
+                raise LookupError("项目不存在")
+            self._require_idle_storyboard(script)
+            if storyboard_fingerprint(script) != expected_fingerprint:
+                raise GenerationInProgressError("分镜已有更新，请刷新后再恢复")
+            version = next((v for v in script.storyboard_versions if v.id == version_id), None)
+            if version is None:
+                raise LookupError("历史分镜不存在")
+            versions = [*script.storyboard_versions, self._archive_storyboard(script)]
+            self._save_fields(script, frames=[frame.model_copy(deep=True) for frame in version.frames],
+                production_previews=[frame.model_copy(deep=True) for frame in version.production_previews],
+                production_plan=version.production_plan.model_copy(deep=True) if version.production_plan else None,
+                storyboard_versions=versions, storyboard_generation=None,
+                storyboard_ready=False, storyboard_readiness=None, storyboard_continuity_ledger=None,
+                merged_video_url=version.merged_video_url, merge_verification=version.merge_verification, updated_at=time.time())
+            return script
+
     def analyze_text_to_frames(self, script_id: str, text: str) -> Script:
         """Generate off-model, then atomically replace an unchanged storyboard."""
         with self._save_lock:
@@ -2445,6 +2715,9 @@ class ComicGenPipeline:
                     raise ValueError("out_point exceeds the selected video's duration")
 
         # Update only provided fields
+        if kwargs.get("omni_reference_settings") is not None:
+            from .omni_reference import OmniReferenceSettings
+            frame.omni_reference_settings = OmniReferenceSettings.model_validate(kwargs["omni_reference_settings"])
         if kwargs.get('image_prompt') is not None:
             frame.image_prompt = kwargs['image_prompt']
         if kwargs.get('action_description') is not None:
@@ -2763,12 +3036,16 @@ class ComicGenPipeline:
             script = self.scripts.get(script_id)
             if not script:
                 raise ValueError("Script not found")
-            frame = next((f for f in script.frames if f.id == frame_id), None)
+            frame = next((f for f in [*script.frames, *script.production_previews] if f.id == frame_id), None)
             if not frame:
                 raise ValueError(f"Frame {frame_id} not found")
             # ponytail: one-process exclusion; multiple workers need a database claim.
             if frame.image_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
                 raise GenerationInProgressError("A first-frame image is already being generated. Refresh its status before retrying.")
+            generation_prompt = prompt
+            if frame.production_shot_id:
+                from .production_planning import production_preview_inputs
+                generation_prompt, composition_data = production_preview_inputs(script, frame, prompt, self.resolve_episode_assets(script))
             previous = (frame.status, frame.image_error, frame.image_generation_status, frame.image_generation_id, frame.image_prompt, frame.composition_data)
             generation_id = str(uuid.uuid4())
             frame.image_generation_status = GenerationStatus.PROCESSING
@@ -2824,7 +3101,7 @@ class ComicGenPipeline:
             ref_image_path = ref_image_paths[0] if ref_image_paths else None
             
             # Use the prompt as-is from frontend (already contains style)
-            final_prompt = prompt
+            final_prompt = generation_prompt
             
             # Update frame with final prompt
             frame.image_prompt = final_prompt
@@ -2866,7 +3143,7 @@ class ComicGenPipeline:
             with self._save_lock:
                 # Project reads replace the cached Script while the provider is running.
                 current = self.scripts.get(script_id)
-                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                target = next((f for f in [*current.frames, *current.production_previews] if f.id == frame_id), None) if current else None
                 if not target:
                     raise ValueError(f"Frame {frame_id} not found")
                 if target.image_generation_id != generation_id:
@@ -2874,7 +3151,7 @@ class ComicGenPipeline:
                 target.status = frame.status
                 target.image_generation_status = frame.status
                 target.image_error = frame.image_error
-                if target.image_prompt == prompt:
+                if target.image_prompt == prompt and not target.production_shot_id:
                     target.image_prompt = frame.image_prompt
                 generated = [v for v in frame.rendered_image_asset.variants if v.id not in original_variant_ids] if frame.rendered_image_asset else []
                 if generated:
@@ -2899,7 +3176,7 @@ class ComicGenPipeline:
         except Exception as error:
             with self._save_lock:
                 current = self.scripts.get(script_id)
-                target = next((f for f in current.frames if f.id == frame_id), None) if current else None
+                target = next((f for f in [*current.frames, *current.production_previews] if f.id == frame_id), None) if current else None
                 if target and target.image_generation_id == generation_id:
                     target.status = GenerationStatus.FAILED
                     target.image_generation_status = GenerationStatus.FAILED
@@ -2954,6 +3231,8 @@ class ComicGenPipeline:
                     refs[asset.id] = image
                     if kind == "characters" and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
                         params[asset.id] = [getattr(asset, key, None) for key in ("voice_id", "voice_speed", "voice_pitch", "voice_volume")]
+        if getattr(frame, "omni_reference_settings", None) is not None:
+            params["omni_reference_settings"] = frame.omni_reference_settings.model_dump()
         return compute_dependency_fingerprint("shot-video", refs, params)
 
     def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None, last_frame_url: Optional[str] = None) -> Tuple[Script, str]:
@@ -2966,6 +3245,26 @@ class ComicGenPipeline:
             raise ValueError(f"Frame not found: {frame_id}")
 
         frame = next((frame for frame in script.frames if frame.id == frame_id), None)
+        if frame and getattr(frame, "production_plan_id", None):
+            from .production_planning import reviewed_video_inputs
+            if generation_mode != "r2v":
+                raise ValueError("制作计划片段使用多参考生成，请返回计划确认生成方式")
+            prompt, reference_image_urls = reviewed_video_inputs(script, frame, self.resolve_episode_assets(script), model, duration)
+        reference_audio_urls = []
+        if frame and getattr(frame, "omni_reference_settings", None) is not None:
+            from .omni_reference import supports_omni_reference
+            settings = frame.omni_reference_settings
+            if not supports_omni_reference(model) or generation_mode != "r2v":
+                if settings.videos or settings.audios or settings.audio_mode != "post":
+                    raise ValueError("已保存全能参考，请使用 Seedance 2.5 全能参考，或先清空这些参考设置")
+            else:
+                reference_video_urls = [item.url for item in settings.videos]
+                audio_mode = settings.audio_mode
+                reference_audio_urls = [item.url for item in settings.audios] if audio_mode == "driven" else []
+                audio_url = reference_audio_urls[0] if reference_audio_urls else None
+                if audio_mode == "driven" and not reference_audio_urls:
+                    raise ValueError("请添加声音参考，或改用生成原声/后期配音")
+                prompt = settings.video_prompt(prompt)
         # Post-production keeps the first frame locked. Audio-driven H3 uses
         # reference mode instead; changing that choice silently breaks continuity.
         if audio_mode == "driven" and not audio_url and frame:
@@ -3038,7 +3337,8 @@ class ComicGenPipeline:
                 (reference_video_urls or []) if needs_video_refs
                 else (reference_image_urls or [])
             )
-            if not refs:
+            from .omni_reference import supports_omni_reference
+            if not refs and not (supports_omni_reference(model) and (reference_video_urls or reference_audio_urls or audio_options["audio_url"])):
                 kind = "video" if needs_video_refs else "image"
                 raise ValueError(
                     f"Model '{model}' is reference-to-video and requires {kind} references, "
@@ -3046,6 +3346,10 @@ class ComicGenPipeline:
                     "to reference characters / scenes / props) or switch to an I2V model "
                     "(e.g. wan2.7-i2v)."
                 )
+
+        from .omni_reference import validate_omni_counts
+        validate_omni_counts(model, reference_image_urls or [], reference_video_urls or [],
+                             reference_audio_urls or ([audio_options["audio_url"]] if audio_options["audio_url"] else []))
 
         # Snapshot the input image to ensure consistency
         snapshot_url = image_url
@@ -3108,8 +3412,8 @@ class ComicGenPipeline:
             duration=duration,
             seed=seed,
             resolution=resolution,
-            generate_audio=generate_audio,
-            audio_url=audio_url,
+            generate_audio=audio_options["audio"],
+            audio_url=audio_options["audio_url"],
             audio_mode=audio_mode,
             prompt_extend=prompt_extend,
             negative_prompt=negative_prompt,
@@ -3117,6 +3421,7 @@ class ComicGenPipeline:
             shot_type=shot_type,
             generation_mode=generation_mode,
             reference_video_urls=reference_video_urls or [],
+            reference_audio_urls=reference_audio_urls,
             reference_image_urls=reference_image_urls or [],
             ratio=ratio,
             watermark=watermark,
@@ -4975,6 +5280,7 @@ class ComicGenPipeline:
                     ref_image_urls=task.reference_image_urls if task.generation_mode == "r2v" else None,
                     ref_video_urls=task.reference_video_urls if task.generation_mode == "r2v" else None,
                     audio_url=final_audio_url,
+                    ref_audio_urls=task.reference_audio_urls,
                     # The CN line dedupes on this header, so a retried submit cannot be
                     # charged twice. The task id is the same key billing holds against.
                     idempotency_key=task_id,
@@ -5553,33 +5859,28 @@ class ComicGenPipeline:
         return self.scripts.get(script_id)
 
     def _select_variant_in_asset(self, image_asset: Any, variant_id: str) -> Any:
-        """Helper to select a variant in an ImageAsset. Returns the selected variant if found."""
-        if not image_asset or not image_asset.variants:
+        if image_asset is None:
             return None
-            
-        for variant in image_asset.variants:
-            if variant.id == variant_id:
-                image_asset.selected_id = variant_id
-                return variant
-        return None
+        variants = getattr(image_asset, "image_variants", getattr(image_asset, "variants", []))
+        variant = next((item for item in variants if item.id == variant_id), None)
+        if variant:
+            key = "selected_image_id" if hasattr(image_asset, "image_variants") else "selected_id"
+            setattr(image_asset, key, variant_id)
+        return variant
 
     def _delete_variant_in_asset(self, image_asset: Any, variant_id: str) -> bool:
-        """Helper to delete a variant in an ImageAsset. Returns True if found and deleted."""
-        if not image_asset or not image_asset.variants:
+        if image_asset is None:
             return False
-            
-        initial_len = len(image_asset.variants)
-        image_asset.variants = [v for v in image_asset.variants if v.id != variant_id]
-        
-        if len(image_asset.variants) < initial_len:
-            # If we deleted the selected one, select the last one or None
-            if image_asset.selected_id == variant_id:
-                if image_asset.variants:
-                    image_asset.selected_id = image_asset.variants[-1].id
-                else:
-                    image_asset.selected_id = None
-            return True
-        return False
+        variants_key = "image_variants" if hasattr(image_asset, "image_variants") else "variants"
+        selected_key = "selected_image_id" if variants_key == "image_variants" else "selected_id"
+        variants = getattr(image_asset, variants_key)
+        remaining = [item for item in variants if item.id != variant_id]
+        if len(remaining) == len(variants):
+            return False
+        setattr(image_asset, variants_key, remaining)
+        if getattr(image_asset, selected_key) == variant_id:
+            setattr(image_asset, selected_key, None)
+        return True
 
     def select_asset_variant(self, script_id: str, asset_id: str, asset_type: str, variant_id: str, generation_type: str = None) -> Script:
         """Selects a specific variant for an asset."""
@@ -5587,6 +5888,7 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
             
+        variant = None
         target_asset = None
         asset_is_series_level = False
         if asset_type == "character":
@@ -5600,7 +5902,9 @@ class ComicGenPipeline:
                         asset_is_series_level = True
             if target_asset:
                 # If generation_type is specified, only select from that specific asset
-                if generation_type == "full_body":
+                if generation_type == "holding_reference":
+                    variant = self._select_variant_in_asset(target_asset.holding_reference, variant_id)
+                elif generation_type == "full_body":
                     variant = self._select_variant_in_asset(target_asset.full_body_asset, variant_id)
                     if variant:
                         target_asset.full_body_image_url = variant.url
@@ -5626,7 +5930,7 @@ class ComicGenPipeline:
                         target_asset.image_url = variant.url
                 else:
                     # Legacy fallback: search all assets (for backward compatibility)
-                    variant = self._select_variant_in_asset(target_asset.full_body_asset, variant_id)
+                    variant = self._select_variant_in_asset(target_asset.reference_sheet, variant_id) or self._select_variant_in_asset(target_asset.full_body_asset, variant_id)
                     if variant:
                         target_asset.full_body_image_url = variant.url
                         target_asset.image_url = variant.url
@@ -5683,6 +5987,8 @@ class ComicGenPipeline:
                     # If sketch, maybe don't update main image_url if rendered exists?
                     # For now, let's assume we only select rendered variants for frames usually.
 
+        if variant is None:
+            raise ValueError("Reference variant not found")
         self._save_data()
         if asset_is_series_level:
             self._save_series_data()
@@ -5694,6 +6000,21 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
             
+        if asset_type == "character":
+            owner = script
+            target = next((c for c in script.characters if c.id == asset_id), None)
+            if target is None and script.series_id:
+                owner = self.series_store.get(script.series_id)
+                target = next((c for c in getattr(owner, "characters", []) if c.id == asset_id), None)
+            if target:
+                for unit_name in ("reference_sheet", "holding_reference"):
+                    unit = getattr(target, unit_name, None)
+                    if self._delete_variant_in_asset(unit, variant_id):
+                        if unit_name == "reference_sheet" and not unit.selected_image_id:
+                            target.image_url = None
+                        self._save_data() if owner is script else self._save_series_data()
+                        return script
+
         target_asset = None
         if asset_type == "character":
             target_asset = next((c for c in script.characters if c.id == asset_id), None)
@@ -5775,7 +6096,7 @@ class ComicGenPipeline:
             episode_overrides = sparse_model_settings(script.model_settings)
         shot_overrides: dict[str, Any] = {}
         if frame_id:
-            frame = next((candidate for candidate in script.frames if candidate.id == frame_id), None)
+            frame = next((candidate for candidate in [*script.frames, *script.production_previews] if candidate.id == frame_id), None)
             if frame is None:
                 raise ValueError(f"Frame not found: {frame_id}")
             shot_overrides = dict(getattr(frame, "model_settings_overrides", {}) or {})
@@ -5925,14 +6246,11 @@ class ComicGenPipeline:
         return series
 
     def _set_variant_favorite(self, image_asset: Any, variant_id: str, is_favorited: bool) -> bool:
-        """Helper to set favorite status of a variant. Returns True if found."""
-        if not image_asset or not image_asset.variants:
-            return False
-        for v in image_asset.variants:
-            if v.id == variant_id:
-                v.is_favorited = is_favorited
-                return True
-        return False
+        variants = getattr(image_asset, "image_variants", getattr(image_asset, "variants", [])) if image_asset else []
+        variant = next((item for item in variants if item.id == variant_id), None)
+        if variant:
+            variant.is_favorited = is_favorited
+        return variant is not None
 
     def toggle_variant_favorite(self, script_id: str, asset_id: str, asset_type: str, variant_id: str, is_favorited: bool, generation_type: str = None) -> Script:
         """Toggles the favorite status of a variant."""
@@ -5940,6 +6258,18 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
         
+        if asset_type == "character":
+            owner = script
+            target = next((c for c in script.characters if c.id == asset_id), None)
+            if target is None and script.series_id:
+                owner = self.series_store.get(script.series_id)
+                target = next((c for c in getattr(owner, "characters", []) if c.id == asset_id), None)
+            if target:
+                units = [generation_type] if generation_type in ("reference_sheet", "holding_reference") else ["reference_sheet", "holding_reference"]
+                if any(self._set_variant_favorite(getattr(target, key), variant_id, is_favorited) for key in units):
+                    self._save_data() if owner is script else self._save_series_data()
+                    return script
+
         found = False
         if asset_type == "character":
             target_asset = next((c for c in script.characters if c.id == asset_id), None)

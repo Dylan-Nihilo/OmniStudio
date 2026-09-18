@@ -4,6 +4,8 @@ import time
 from pydantic import BaseModel, Field
 
 from ...utils.model_catalog import get_default_model_settings
+from .production_planning import ProductionPlan, PlanningJob
+from .omni_reference import OmniReferenceSettings
 
 # Source-domain contracts live in their own module to keep this large legacy
 # model file focused, while remaining importable from the public model module.
@@ -143,6 +145,12 @@ class ProviderRoutingConfig(BaseModel):
         description="Provider backend for pixverse-* models: dashscope or vendor",
     )
 
+class AssetReferenceInput(BaseModel):
+    asset_type: Literal["character", "prop"]
+    asset_id: str = Field(min_length=1, max_length=200)
+    variant_id: str = Field(min_length=1, max_length=200)
+
+
 class ImageVariant(BaseModel):
     id: str = Field(..., description="Unique identifier for the variant")
     url: str = Field(..., description="URL of the image")
@@ -223,6 +231,7 @@ class VideoTask(BaseModel):
     shot_type: str = Field("single", description="Shot type: 'single' or 'multi' (only for wan I2V models)")
     generation_mode: str = Field("i2v", description="Generation mode: 'i2v' (image-to-video) or 'r2v' (reference-to-video)")
     reference_video_urls: List[str] = Field(default_factory=list, description="Reference video URLs for R2V generation (max 3)")
+    reference_audio_urls: List[str] = Field(default_factory=list, max_length=10)
     # Kling params
     mode: Optional[str] = Field(None, description="Kling mode: std/pro")
     sound: Optional[str] = Field(None, description="Kling sound: on/off")
@@ -292,6 +301,10 @@ class Character(BaseModel):
     reference_sheet: Optional[AssetUnit] = Field(
         default_factory=AssetUnit,
         description="Single master reference sheet (R2V v2). Multi-view or single portrait both supported.",
+    )
+    holding_reference: Optional[AssetUnit] = Field(
+        default_factory=AssetUnit,
+        description="Character holding confirmed props; kept separate from the base reference sheet.",
     )
 
     # === LEGACY (pre R2V v2): Asset Activation v2 — three separate units ===
@@ -388,9 +401,14 @@ class Prop(BaseModel):
 
 class StoryboardFrame(BaseModel):
     id: str = Field(..., description="Unique identifier for the frame")
+    omni_reference_settings: Optional[OmniReferenceSettings] = None
     scene_id: str = Field(..., description="Reference to the Scene ID")
     character_ids: List[str] = Field(default_factory=list, description="List of Character IDs present in the frame")
     prop_ids: List[str] = Field(default_factory=list, description="List of Prop IDs present in the frame")
+    production_plan_id: Optional[str] = None
+    production_segment_id: Optional[str] = None
+    production_shot_id: Optional[str] = None
+    production_review_fingerprint: Optional[str] = None
     
     # Legacy fields (kept for compatibility)
     action_description: str = Field("", description="What is happening in this frame (Legacy, use character_acting)")
@@ -602,6 +620,17 @@ class DialogueAudioBatch(BaseModel):
     error: Optional[str] = None
 
 
+class StoryboardVersion(BaseModel):
+    merged_video_url: Optional[str] = None
+    merge_verification: Optional[Dict[str, Any]] = None
+    id: str
+    created_at: float = Field(default_factory=time.time)
+    title: str
+    frames: List[StoryboardFrame] = Field(default_factory=list)
+    production_previews: List[StoryboardFrame] = Field(default_factory=list)
+    production_plan: Optional[ProductionPlan] = None
+
+
 class Script(BaseModel):
     id: str = Field(..., description="Unique identifier for the script project")
     title: str = Field(..., description="Title of the comic/video")
@@ -614,6 +643,11 @@ class Script(BaseModel):
     video_tasks: List[VideoTask] = Field(default_factory=list)
     dialogue_audio_batch: Optional[DialogueAudioBatch] = None
     storyboard_generation: Optional[StoryboardGeneration] = None
+    production_plan: Optional[ProductionPlan] = None
+    production_plan_draft: Optional[ProductionPlan] = None
+    production_planning_job: Optional[PlanningJob] = None
+    production_previews: List[StoryboardFrame] = Field(default_factory=list)
+    storyboard_versions: List[StoryboardVersion] = Field(default_factory=list)
     storyboard_ready: bool = Field(False, description="Whether deterministic storyboard readiness checks pass")
     storyboard_readiness: Optional[Dict[str, Any]] = Field(None, description="Latest storyboard readiness report")
     storyboard_continuity_ledger: Optional[Dict[str, Any]] = Field(None, description="Latest deterministic continuity ledger")

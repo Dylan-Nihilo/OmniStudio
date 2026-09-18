@@ -34,16 +34,17 @@ interface PipelineSidebarProps {
      *  stub). Sub-label is a short context line (e.g. "EP.03"); omitted →
      *  falls back to the version stub. */
     projectLabel?: string;
+    titleAction?: React.ReactNode;
     projectSubLabel?: string;
 }
 
-export default function PipelineSidebar({ activeStep, onStepChange, steps, breadcrumbSegments, headerActions, topSlot, projectLabel, projectSubLabel }: PipelineSidebarProps) {
+export default function PipelineSidebar({ activeStep, onStepChange, steps, breadcrumbSegments, headerActions, topSlot, projectLabel, projectSubLabel, titleAction }: PipelineSidebarProps) {
     const t = useTranslations("pipelineChrome");
     const parent = breadcrumbSegments?.slice(0, -1).reverse().find(segment => segment.hash);
     return <div className={styles.sidebar}>
         <header className={styles.header}>
             <p>{projectSubLabel || t("workspace")}</p>
-            <h1>{projectLabel || "Omni Studio"}</h1>
+            <div className={styles.titleRow}><h1>{projectLabel || "Omni Studio"}</h1>{titleAction}</div>
             {headerActions}
         </header>
         <p className={styles.eyebrow}>{t("workflow")}</p>

@@ -4,10 +4,11 @@ import { useEffect, useState, useMemo } from "react";
 import { Palette, Layout, Film, BookOpen, Users, Video, Clapperboard } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
-import { buildLocalizedPipelineSteps, resolveActivePipelineStep, type PipelineStepId } from "@/lib/pipelineSteps";
+import { buildLocalizedPipelineSteps, nextStepAfterExtraction, resolveActivePipelineStep, type PipelineStepId } from "@/lib/pipelineSteps";
 import PipelineSidebar from "@/components/layout/PipelineSidebar";
 import EpisodeMiniList from "@/components/layout/EpisodeMiniList";
 import type { BreadcrumbSegment } from "@/components/layout/BreadcrumbBar";
+import RenameProjectButton from "./RenameProjectButton";
 import ScriptProcessor from "@/components/modules/ScriptProcessor";
 import Cast from "@/components/modules/Cast";
 import VideoGenerator from "@/components/modules/VideoGenerator";
@@ -104,7 +105,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
                         : { status: "idle" };
                 case "storyboard_r2v":
                 case "storyboard":
-                    return frameCount > 0 ? { status: "ready", statusLabel: tp("railShots", { n: frameCount }) } : { status: "idle" };
+                    return frameCount > 0 ? { status: "ready", statusLabel: tp(currentProject?.production_plan ? "railSegments" : "railShots", { n: frameCount }) } : { status: "idle" };
                 case "assembly":
                     return hasMerged
                         ? { status: "ready", statusLabel: tp("railAssembled") }
@@ -166,7 +167,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         { id: "model", label: tChrome("modelSettings"), onAction: () => setModelSettingsOpen(true) },
     ]} />;
     const context = <PipelineSidebar activeStep={activeStep} onStepChange={setActiveStep} steps={steps}
-        projectLabel={currentProject.title} projectSubLabel={currentProject.episode_number ? `EP.${String(currentProject.episode_number).padStart(2, "0")}` : undefined}
+        projectLabel={currentProject.title} titleAction={<RenameProjectButton key={id} projectId={id} title={currentProject.title} />} projectSubLabel={currentProject.episode_number ? `EP.${String(currentProject.episode_number).padStart(2, "0")}` : undefined}
         breadcrumbSegments={segments} headerActions={settingsActions}
         topSlot={currentProject.series_id ? <EpisodeMiniList seriesId={currentProject.series_id} currentProjectId={id} activeStep={activeStep} /> : undefined} />;
 
@@ -195,7 +196,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
                 <EpisodeEditLeaseGuard scriptId={id}>
                     <div className={styles.content}>
                         {loadFailed && <div role="alert" className={styles.error}>{tChrome("refreshFailed")}<Button variant="quiet" onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button></div>}
-                        {activeStep === "script" && <ScriptProcessor />}
+                        {activeStep === "script" && <ScriptProcessor key={id} />}
                         {activeStep === "art_direction" && <ArtDirection />}
                         {activeStep === "cast" && <Cast />}
                         {activeStep === "assets" && <ConsistencyVault />}
@@ -221,11 +222,17 @@ function EntityExtractionConfirm() {
     const discardExtraction = useProjectStore((s) => s.discardExtraction);
 
     const handleConfirm = async (selection: Parameters<React.ComponentProps<typeof EntityConfirmModal>["onConfirm"]>[0]) => {
+        const projectId = currentProject?.id;
         try {
             await confirmExtraction(selection);
             const refreshed = useProjectStore.getState().currentProject;
+            if (!refreshed || refreshed.id !== projectId) return;
             if (refreshed?.series_id) {
                 document.dispatchEvent(new CustomEvent("omni_studio:openReconcile"));
+            } else {
+                document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", {
+                    detail: nextStepAfterExtraction(refreshed, useProjectStore.getState().currentSeries),
+                }));
             }
         } catch {
             const { toast } = await import("@/store/toastStore");
