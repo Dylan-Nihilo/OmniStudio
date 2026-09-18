@@ -112,6 +112,8 @@ from .job_adapters import ProductionJobAdapter
 from ...storage.legacy_claim import LegacyClaimService
 from ...storage.source_repository import SourceRepository, SourceRepositoryError
 from .revision import compute_dependency_fingerprint, compute_revision, evaluate_stale
+from .models import AssetReferenceInput
+from .asset_references import AssetReferenceError, AssetReferencePurpose, HoldingPosition
 from .director_plan import DirectorPlanPatch, DirectorPlanStore, DirectorPlanValue, preview_from_instruction
 from .script_writing import WritingRequest, ContinuityRequest, propose_writing, check_continuity
 
@@ -1295,6 +1297,9 @@ class GenerateAssetRequest(BaseModel):
     asset_type: str
     style_preset: str = "Cinematic"
     reference_image_url: Optional[str] = None
+    reference_inputs: List[AssetReferenceInput] = Field(default_factory=list, max_length=4)
+    reference_purpose: Optional[AssetReferencePurpose] = None
+    holding_position: Optional[HoldingPosition] = None
     style_prompt: Optional[str] = None
     generation_type: str = "all"  # 'full_body', 'three_view', 'headshot', 'all', 'reference_sheet'
     prompt: Optional[str] = None
@@ -2776,6 +2781,8 @@ def get_series_assets(series_id: str):
 def generate_series_asset(series_id: str, request: GenerateAssetRequest, background_tasks: BackgroundTasks):
     """Generate a single asset for a Series (async)."""
     try:
+        if request.reference_inputs or request.reference_purpose or request.holding_position:
+            raise HTTPException(status_code=400, detail="请在本集素材中使用人物与道具参考")
         series, task_id = pipeline.generate_series_asset(
             series_id,
             request.asset_id,
@@ -2803,6 +2810,8 @@ def generate_series_asset(series_id: str, request: GenerateAssetRequest, backgro
             response_data["_job_item_id"] = job_item.id
             response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -4914,12 +4923,16 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             request.model_name,
             request.aspect_ratio,
             request.candidate_type,
+            [ref.model_dump() for ref in request.reference_inputs],
+            request.reference_purpose,
+            request.holding_position,
         )
         
+        reference_key = json.dumps([request.reference_purpose, request.holding_position, [ref.model_dump() for ref in request.reference_inputs]], sort_keys=True)
         job_item = _create_production_item(
             "asset", script_id, None,
             {"legacy_task_id": task_id, "asset_id": request.asset_id, "asset_type": request.asset_type},
-            f"asset:{script_id}:{request.asset_id}:{request.asset_type}:{request.model_name or ''}:{request.prompt or ''}",
+            f"asset:{script_id}:{request.asset_id}:{request.asset_type}:{request.model_name or ''}:{request.prompt or ''}:{reference_key}",
         )
         if job_item is None:
             background_tasks.add_task(_context_call(pipeline.process_asset_generation_task, task_id))
@@ -4934,6 +4947,8 @@ def generate_single_asset(script_id: str, request: GenerateAssetRequest, backgro
             response_data["_job_id"] = job_item.job_id
         return signed_response(response_data)
 
+    except AssetReferenceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

@@ -143,6 +143,12 @@ class ProviderRoutingConfig(BaseModel):
         description="Provider backend for pixverse-* models: dashscope or vendor",
     )
 
+class AssetReferenceInput(BaseModel):
+    asset_type: Literal["character", "prop"]
+    asset_id: str = Field(min_length=1, max_length=200)
+    variant_id: str = Field(min_length=1, max_length=200)
+
+
 class ImageVariant(BaseModel):
     id: str = Field(..., description="Unique identifier for the variant")
     url: str = Field(..., description="URL of the image")
@@ -292,6 +298,10 @@ class Character(BaseModel):
     reference_sheet: Optional[AssetUnit] = Field(
         default_factory=AssetUnit,
         description="Single master reference sheet (R2V v2). Multi-view or single portrait both supported.",
+    )
+    holding_reference: Optional[AssetUnit] = Field(
+        default_factory=AssetUnit,
+        description="Character holding confirmed props; kept separate from the base reference sheet.",
     )
 
     # === LEGACY (pre R2V v2): Asset Activation v2 — three separate units ===

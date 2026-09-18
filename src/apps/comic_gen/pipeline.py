@@ -16,6 +16,7 @@ from io import BytesIO
 import zipfile
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings
+from .asset_references import AssetReferenceError, resolve_asset_references, reference_instruction
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
@@ -1149,7 +1150,7 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None, candidate_type: str = None) -> Script:
+    def generate_asset(self, script_id: str, asset_id: str, asset_type: str, style_preset: str = None, reference_image_url: str = None, style_prompt: str = None, generation_type: str = "all", prompt: str = None, apply_style: bool = True, negative_prompt: str = None, batch_size: int = 1, model_name: str = None, aspect_ratio: str = None, candidate_type: str = None, reference_inputs: list = None, reference_purpose: str = None, holding_position: str = None) -> Script:
         """Step 2: Generate a specific asset (character/scene/prop).
         If style_preset is None, uses the project's global style."""
         script = self.scripts.get(script_id)
@@ -1164,7 +1165,25 @@ class ComicGenPipeline:
         effective_settings = self.resolve_model_settings(script_id).settings
         t2i_model = model_name or effective_settings.t2i_model
         i2i_model = effective_settings.i2i_model
+        reference_snapshots = resolve_asset_references(self.resolve_episode_assets(script) if reference_inputs else {},
+            asset_type, asset_id, reference_purpose, reference_inputs, t2i_model, holding_position)
+        if reference_purpose and reference_image_url:
+            raise AssetReferenceError("请使用素材参考选择，不能同时指定额外图片地址")
+        if (generation_type == "holding_reference") != (reference_purpose == "character_holding"):
+            raise AssetReferenceError("持物图必须使用人物与道具参考生成")
+        if reference_purpose == "character_base" and generation_type != "reference_sheet":
+            raise AssetReferenceError("基础形象请使用人物参考图模式")
+        reference_paths = [self._resolve_media_path(ref["image_url"], suffix=".png") for ref in reference_snapshots]
+        if any(not path for path in reference_paths):
+            raise AssetReferenceError("参考图片不可用，请重新选择")
+        if reference_paths:
+            reference_image_path = reference_paths[0]
+        reference_options = {"reference_image_paths": reference_paths[1:], "reference_inputs": reference_snapshots,
+            "reference_purpose": reference_purpose} if reference_purpose else {}
         
+        if reference_purpose == "character_holding":
+            reference_options["holding_position"] = holding_position
+
         # Get effective size based on asset type (aspect_ratio param overrides model_settings)
         from .assets import ASPECT_RATIO_TO_SIZE
         if aspect_ratio:
@@ -1247,6 +1266,9 @@ class ComicGenPipeline:
         if not target_asset:
             raise ValueError(f"{asset_type.capitalize()} {asset_id} not found")
 
+        if reference_purpose:
+            prompt = (prompt or f"{target_asset.name}: {target_asset.description}") + reference_instruction(reference_purpose, reference_snapshots, holding_position)
+
         target_asset.status = GenerationStatus.PROCESSING
         self._save_data()
         if asset_is_series_level:
@@ -1277,12 +1299,12 @@ class ComicGenPipeline:
                     i2i_model_name=i2i_model,
                     size=effective_size,
                     candidate_type=candidate_type,
-                    reference_image_path=reference_image_path,
+                    reference_image_path=reference_image_path, **reference_options,
                 )
             elif asset_type == "scene":
-                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path)
+                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path, **reference_options)
             elif asset_type == "prop":
-                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path)
+                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size, prompt=prompt, reference_image_path=reference_image_path, **reference_options)
                 
             target_asset.status = GenerationStatus.COMPLETED
         except Exception as e:
@@ -1301,7 +1323,7 @@ class ComicGenPipeline:
                     if previous == generated:
                         continue
                     value = getattr(current, field)
-                    if field in {"reference_sheet", "full_body_asset", "three_view_asset", "headshot_asset", "image_asset"} and generated:
+                    if field in {"reference_sheet", "holding_reference", "full_body_asset", "three_view_asset", "headshot_asset", "image_asset"} and generated:
                         if value is None:
                             value = type(generated)()
                             setattr(current, field, value)
@@ -1324,12 +1346,26 @@ class ComicGenPipeline:
                                       prompt: str = None, apply_style: bool = True,
                                       negative_prompt: str = None, batch_size: int = 1,
                                       model_name: str = None, aspect_ratio: str = None,
-                                      candidate_type: str = None) -> Tuple[Script, str]:
+                                      candidate_type: str = None, reference_inputs: list = None,
+                                      reference_purpose: str = None, holding_position: str = None) -> Tuple[Script, str]:
         """Creates an async asset generation task and returns (script, task_id) immediately."""
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
         
+        if reference_purpose or reference_inputs or holding_position or generation_type == "holding_reference":
+            model_name = model_name or self.resolve_model_settings(script_id).settings.t2i_model
+            snapshots = resolve_asset_references(self.resolve_episode_assets(script) if reference_inputs else {},
+                asset_type, asset_id, reference_purpose, reference_inputs, model_name, holding_position)
+            if reference_image_url:
+                raise AssetReferenceError("请使用素材参考选择，不能同时指定额外图片地址")
+            if (generation_type == "holding_reference") != (reference_purpose == "character_holding"):
+                raise AssetReferenceError("持物图必须使用人物与道具参考生成")
+            if reference_purpose == "character_base" and generation_type != "reference_sheet":
+                raise AssetReferenceError("基础形象请使用人物参考图模式")
+            if any(not self._resolve_media_path(ref["image_url"], suffix=".png") for ref in snapshots):
+                raise AssetReferenceError("参考图片不可用，请重新选择")
+
         # Find the asset and set to PROCESSING
         asset_list = []
         if asset_type == "character":
@@ -1386,6 +1422,9 @@ class ComicGenPipeline:
                 "model_name": model_name,
                 "aspect_ratio": aspect_ratio,
                 "candidate_type": candidate_type,
+                "reference_inputs": reference_inputs or [],
+                "reference_purpose": reference_purpose,
+                "holding_position": holding_position,
             }
         }
         
@@ -1423,6 +1462,9 @@ class ComicGenPipeline:
                     params["model_name"],
                     params.get("aspect_ratio"),
                     params.get("candidate_type"),
+                    params.get("reference_inputs"),
+                    params.get("reference_purpose"),
+                    params.get("holding_position"),
                 )
             task["status"] = "completed"
             task["progress"] = 100
@@ -5553,33 +5595,28 @@ class ComicGenPipeline:
         return self.scripts.get(script_id)
 
     def _select_variant_in_asset(self, image_asset: Any, variant_id: str) -> Any:
-        """Helper to select a variant in an ImageAsset. Returns the selected variant if found."""
-        if not image_asset or not image_asset.variants:
+        if image_asset is None:
             return None
-            
-        for variant in image_asset.variants:
-            if variant.id == variant_id:
-                image_asset.selected_id = variant_id
-                return variant
-        return None
+        variants = getattr(image_asset, "image_variants", getattr(image_asset, "variants", []))
+        variant = next((item for item in variants if item.id == variant_id), None)
+        if variant:
+            key = "selected_image_id" if hasattr(image_asset, "image_variants") else "selected_id"
+            setattr(image_asset, key, variant_id)
+        return variant
 
     def _delete_variant_in_asset(self, image_asset: Any, variant_id: str) -> bool:
-        """Helper to delete a variant in an ImageAsset. Returns True if found and deleted."""
-        if not image_asset or not image_asset.variants:
+        if image_asset is None:
             return False
-            
-        initial_len = len(image_asset.variants)
-        image_asset.variants = [v for v in image_asset.variants if v.id != variant_id]
-        
-        if len(image_asset.variants) < initial_len:
-            # If we deleted the selected one, select the last one or None
-            if image_asset.selected_id == variant_id:
-                if image_asset.variants:
-                    image_asset.selected_id = image_asset.variants[-1].id
-                else:
-                    image_asset.selected_id = None
-            return True
-        return False
+        variants_key = "image_variants" if hasattr(image_asset, "image_variants") else "variants"
+        selected_key = "selected_image_id" if variants_key == "image_variants" else "selected_id"
+        variants = getattr(image_asset, variants_key)
+        remaining = [item for item in variants if item.id != variant_id]
+        if len(remaining) == len(variants):
+            return False
+        setattr(image_asset, variants_key, remaining)
+        if getattr(image_asset, selected_key) == variant_id:
+            setattr(image_asset, selected_key, None)
+        return True
 
     def select_asset_variant(self, script_id: str, asset_id: str, asset_type: str, variant_id: str, generation_type: str = None) -> Script:
         """Selects a specific variant for an asset."""
@@ -5587,6 +5624,7 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
             
+        variant = None
         target_asset = None
         asset_is_series_level = False
         if asset_type == "character":
@@ -5600,7 +5638,9 @@ class ComicGenPipeline:
                         asset_is_series_level = True
             if target_asset:
                 # If generation_type is specified, only select from that specific asset
-                if generation_type == "full_body":
+                if generation_type == "holding_reference":
+                    variant = self._select_variant_in_asset(target_asset.holding_reference, variant_id)
+                elif generation_type == "full_body":
                     variant = self._select_variant_in_asset(target_asset.full_body_asset, variant_id)
                     if variant:
                         target_asset.full_body_image_url = variant.url
@@ -5626,7 +5666,7 @@ class ComicGenPipeline:
                         target_asset.image_url = variant.url
                 else:
                     # Legacy fallback: search all assets (for backward compatibility)
-                    variant = self._select_variant_in_asset(target_asset.full_body_asset, variant_id)
+                    variant = self._select_variant_in_asset(target_asset.reference_sheet, variant_id) or self._select_variant_in_asset(target_asset.full_body_asset, variant_id)
                     if variant:
                         target_asset.full_body_image_url = variant.url
                         target_asset.image_url = variant.url
@@ -5683,6 +5723,8 @@ class ComicGenPipeline:
                     # If sketch, maybe don't update main image_url if rendered exists?
                     # For now, let's assume we only select rendered variants for frames usually.
 
+        if variant is None:
+            raise ValueError("Reference variant not found")
         self._save_data()
         if asset_is_series_level:
             self._save_series_data()
@@ -5694,6 +5736,21 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
             
+        if asset_type == "character":
+            owner = script
+            target = next((c for c in script.characters if c.id == asset_id), None)
+            if target is None and script.series_id:
+                owner = self.series_store.get(script.series_id)
+                target = next((c for c in getattr(owner, "characters", []) if c.id == asset_id), None)
+            if target:
+                for unit_name in ("reference_sheet", "holding_reference"):
+                    unit = getattr(target, unit_name, None)
+                    if self._delete_variant_in_asset(unit, variant_id):
+                        if unit_name == "reference_sheet" and not unit.selected_image_id:
+                            target.image_url = None
+                        self._save_data() if owner is script else self._save_series_data()
+                        return script
+
         target_asset = None
         if asset_type == "character":
             target_asset = next((c for c in script.characters if c.id == asset_id), None)
@@ -5925,14 +5982,11 @@ class ComicGenPipeline:
         return series
 
     def _set_variant_favorite(self, image_asset: Any, variant_id: str, is_favorited: bool) -> bool:
-        """Helper to set favorite status of a variant. Returns True if found."""
-        if not image_asset or not image_asset.variants:
-            return False
-        for v in image_asset.variants:
-            if v.id == variant_id:
-                v.is_favorited = is_favorited
-                return True
-        return False
+        variants = getattr(image_asset, "image_variants", getattr(image_asset, "variants", [])) if image_asset else []
+        variant = next((item for item in variants if item.id == variant_id), None)
+        if variant:
+            variant.is_favorited = is_favorited
+        return variant is not None
 
     def toggle_variant_favorite(self, script_id: str, asset_id: str, asset_type: str, variant_id: str, is_favorited: bool, generation_type: str = None) -> Script:
         """Toggles the favorite status of a variant."""
@@ -5940,6 +5994,18 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
         
+        if asset_type == "character":
+            owner = script
+            target = next((c for c in script.characters if c.id == asset_id), None)
+            if target is None and script.series_id:
+                owner = self.series_store.get(script.series_id)
+                target = next((c for c in getattr(owner, "characters", []) if c.id == asset_id), None)
+            if target:
+                units = [generation_type] if generation_type in ("reference_sheet", "holding_reference") else ["reference_sheet", "holding_reference"]
+                if any(self._set_variant_favorite(getattr(target, key), variant_id, is_favorited) for key in units):
+                    self._save_data() if owner is script else self._save_series_data()
+                    return script
+
         found = False
         if asset_type == "character":
             target_asset = next((c for c in script.characters if c.id == asset_id), None)
