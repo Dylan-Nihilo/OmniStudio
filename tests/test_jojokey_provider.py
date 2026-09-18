@@ -1,10 +1,4 @@
-"""JojoKey adapter: routing, reference roles, and the two-line split.
-
-The parts worth pinning are the ones a wrong guess would break silently rather than loudly:
-an i2v request that sends its storyboard frame as a reference instead of the first frame
-still produces a video, just not the shot that was drawn; a CN-line request that skips asset
-registration is rejected upstream; and a result left as a URL stops working 23 hours later.
-"""
+"""JojoKey routing, public reference URLs, optional storage, and downloaded results."""
 
 from __future__ import annotations
 
@@ -101,6 +95,125 @@ def test_missing_key_is_refused_before_any_request(monkeypatch):
         JojoKeyVideoModel({}).generate("a shot", "/tmp/out.mp4", model="seedance-2.0-i2v")
 
 
+class _LocalUploadRecorder(_Recorder):
+    def post(self, url, headers=None, json=None, timeout=None, files=None, data=None):
+        if files:
+            filename, stream, content_type = files["file"]
+            self.posts.append({"url": url, "headers": dict(headers or {}), "data": data,
+                               "filename": filename, "content": stream.read(), "type": content_type})
+            self._asset_seq += 1
+            return _Response(payload={"id": f"upload_{self._asset_seq}", "ready": False,
+                                      "source_url": f"https://cdn.example.cn/ref_{self._asset_seq}.png",
+                                      "url": f"https://cdn.example.cn/ref_{self._asset_seq}.png"})
+        return super().post(url, headers=headers, json=json, timeout=timeout)
+
+    def get(self, url, headers=None, timeout=None):
+        if "/assets/upload_" in url or "/uploads/upload_" in url:
+            self.gets.append(url)
+            number = url.rsplit("_", 1)[1]
+            return _Response(payload={"id": f"upload_{number}", "ready": False,
+                "source_url": f"https://cdn.example.cn/ref_{number}.png?fresh=true",
+                "url": f"https://cdn.example.cn/ref_{number}.png?fresh=true"})
+        return super().get(url, headers=headers, timeout=timeout)
+
+
+@pytest.mark.parametrize("line", ["cn", "overseas"])
+def test_local_references_upload_without_oss_and_preserve_reference_order(monkeypatch, tmp_path, line):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    rec = _LocalUploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    root = tmp_path / "output" / "assets"
+    root.mkdir(parents=True)
+    refs = []
+    for name in ("character", "scene", "prop"):
+        (root / f"{name}.png").write_bytes(name.encode())
+        refs.append(f"assets/{name}.png")
+    model = JojoKeyVideoModel({})
+    for index in range(2):
+        model.generate("three references", str(tmp_path / f"out{index}.mp4"),
+                       model="seedance-2.5-r2v", line=line, generation_mode="r2v",
+                       ref_image_urls=refs)
+    uploads = [p for p in rec.posts if "content" in p]
+    assert [p["content"] for p in uploads] == [b"character", b"scene", b"prop"]
+    assert all("Content-Type" not in p["headers"] for p in uploads)
+    assert all(p["headers"].get("Idempotency-Key") for p in uploads)
+    assert not any("/assets/from-url" in p["url"] for p in rec.posts)
+    assert _roles(_submit_body(rec)) == ["reference_image"] * 3
+    values = [block["image_url"]["url"] for block in _submit_body(rec)["content"][1:]]
+    if line == "cn":
+        assert all(p["data"]["register"] == "false" for p in uploads)
+        assert values == [f"https://cdn.example.cn/ref_{n}.png" for n in (1, 2, 3)]
+        assert len([url for url in rec.gets if "/assets/" in url]) == 3
+    else:
+        assert all(p["data"]["register_asset"] == "false" for p in uploads)
+        assert values == [f"https://cdn.example.cn/ref_{n}.png" for n in (1, 2, 3)]
+    last_submit = [p["json"] for p in rec.posts if p["url"].endswith("/videos")][-1]
+    assert [block["image_url"]["url"] for block in last_submit["content"][1:]] == [
+        f"https://cdn.example.cn/ref_{n}.png?fresh=true" for n in (1, 2, 3)]
+    assert last_submit["omni_reference_task_type"] == "reference"
+
+
+def test_local_upload_cache_is_scoped_to_account_and_file_contents(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    rec = _LocalUploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    (tmp_path / "output").mkdir()
+    ref = tmp_path / "output" / "reference.png"
+    ref.write_bytes(b"original")
+    model = JojoKeyVideoModel({})
+    for key, content in [("first-key", b"original"), ("second-key", b"original"), ("second-key", b"changed")]:
+        monkeypatch.setenv("JOJOKEY_API_KEY", key)
+        ref.write_bytes(content)
+        model.generate("ref", str(tmp_path / "out.mp4"), model="seedance-2.5-r2v",
+                       generation_mode="r2v", ref_image_urls=[str(ref)])
+    uploads = [p for p in rec.posts if "content" in p]
+    assert len(uploads) == 3
+    assert len({p["headers"]["Idempotency-Key"] for p in uploads}) == 3
+
+
+@pytest.mark.parametrize("ref", ["assets/missing.png", "assets/../../private.png"])
+def test_missing_or_escaping_local_reference_never_reaches_provider(monkeypatch, tmp_path, ref):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    (tmp_path / "output").mkdir()
+    (tmp_path / "private.png").write_bytes(b"private")
+    rec = _LocalUploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests", rec)
+    with pytest.raises((ValueError, FileNotFoundError)):
+        JojoKeyVideoModel({}).generate("ref", str(tmp_path / "out.mp4"),
+            model="seedance-2.5-r2v", generation_mode="r2v", ref_image_urls=[ref])
+    assert rec.posts == []
+
+
+def test_upload_failure_stops_video_submission_and_reuses_key_on_retry(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output/ref.png").write_bytes(b"image")
+    calls = []
+
+    def failed_upload(url, **kwargs):
+        calls.append({"url": url, "key": kwargs["headers"]["Idempotency-Key"]})
+        return _Response(503, {"error": "storage unavailable"})
+
+    monkeypatch.setattr("src.models.jojokey.requests.post", failed_upload)
+    model = JojoKeyVideoModel({})
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="media upload failed with HTTP 503"):
+            model.generate("ref", str(tmp_path / "out.mp4"), model="seedance-2.5-r2v",
+                           generation_mode="r2v", ref_image_urls=["output/ref.png"])
+    assert len(calls) == 2
+    assert all(call["url"].endswith("/video-cn/assets") for call in calls)
+    assert calls[0]["key"] == calls[1]["key"]
+
+
 def test_i2v_sends_the_storyboard_frame_as_the_first_frame(recorder, tmp_path):
     JojoKeyVideoModel({}).generate(
         "the character looks up", str(tmp_path / "out.mp4"),
@@ -137,95 +250,17 @@ def test_several_images_are_multi_reference_even_when_the_caller_said_i2v(record
     assert _roles(_submit_body(recorder)) == ["reference_image"] * 2
 
 
-def test_cn_line_registers_assets_before_submitting(recorder, tmp_path):
+def test_cn_line_uses_public_urls_without_paid_asset_registration(recorder, tmp_path):
     JojoKeyVideoModel({}).generate(
         "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.cn/frame.png",
         model="seedance-2.5-i2v", generation_mode="i2v", resolution="720p",
         idempotency_key="job-42")
-    registrations = [post for post in recorder.posts if "/assets/from-url" in post["url"]]
-    assert len(registrations) == 1
-    assert registrations[0]["json"]["asset_type"] == 1          # 1 = image
-    # content[] must carry the asset handle, not the raw URL the CN line will not accept.
+    assert not any("/assets" in post["url"] for post in recorder.posts)
     body = _submit_body(recorder)
-    assert body["content"][1]["image_url"]["url"].startswith("asset://")
+    assert body["content"][1]["image_url"]["url"] == "https://oss.example.cn/frame.png"
+    assert "omni_reference_task_type" not in body
     assert body["model"] == "video-cn-2.5"
-    submit = next(post for post in recorder.posts if "/videos" in post["url"])
-    assert submit["headers"]["Idempotency-Key"] == "job-42"
-
-
-def test_an_unsynced_asset_is_waited_on_before_submitting(monkeypatch, tmp_path):
-    """Registration is asynchronous. Submitting against an asset that still reads
-    sync_status 1 is rejected as InvalidVideoCnAsset, which is what happened in production
-    the first time round."""
-    class _SlowSync(_Recorder):
-        def __init__(self):
-            super().__init__()
-            self.checks = 0
-
-        def post(self, url, headers=None, json=None, timeout=None):
-            if "/assets/from-url" in url:
-                self.posts.append({"url": url, "headers": dict(headers or {}), "json": json})
-                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://a1",
-                                          "sync_status": 1, "ready": False})
-            return super().post(url, headers=headers, json=json, timeout=timeout)
-
-        def get(self, url, headers=None, timeout=None):
-            if "/assets/" in url:
-                self.checks += 1
-                self.gets.append(url)
-                ready = self.checks >= 2
-                return _Response(payload={"id": "cnasset_1", "ready": ready,
-                                          "sync_status": 2 if ready else 1})
-            return super().get(url, headers=headers, timeout=timeout)
-
-    rec = _SlowSync()
-    monkeypatch.setattr("src.models.jojokey.requests", rec)
-    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
-    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
-    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda *a, **k: object())
-    JojoKeyVideoModel({}).generate(
-        "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.cn/frame.png",
-        model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
-    assert rec.checks == 2
-    assert _submit_body(rec)["content"][1]["image_url"]["url"] == "asset://a1"
-
-
-def test_an_asset_that_never_syncs_says_why(monkeypatch, tmp_path):
-    class _NeverSync(_Recorder):
-        def post(self, url, headers=None, json=None, timeout=None):
-            if "/assets/from-url" in url:
-                return _Response(payload={"id": "cnasset_1", "asset_url": "asset://a1",
-                                          "sync_status": 1, "ready": False})
-            return super().post(url, headers=headers, json=json, timeout=timeout)
-
-        def get(self, url, headers=None, timeout=None):
-            if "/assets/" in url:
-                return _Response(payload={"id": "cnasset_1", "sync_status": 1, "ready": False})
-            return super().get(url, headers=headers, timeout=timeout)
-
-    monkeypatch.setattr("src.models.jojokey.requests", _NeverSync())
-    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
-    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
-    monkeypatch.setenv("JOJOKEY_ASSET_SYNC_SECONDS", "6")
-    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda *a, **k: object())
-    with pytest.raises(RuntimeError, match="reachable from inside China"):
-        JojoKeyVideoModel({}).generate(
-            "a shot", str(tmp_path / "out.mp4"), img_url="https://oss.example.cn/frame.png",
-            model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
-
-
-def test_a_reference_reused_across_jobs_is_registered_once(recorder, tmp_path):
-    """Registration is billed per asset, so a storyboard that points many shots at the same
-    character reference must not pay for it once per shot."""
-    model = JojoKeyVideoModel({})
-    for shot in range(3):
-        model.generate("a shot", str(tmp_path / f"out{shot}.mp4"),
-                       img_url="https://oss.example.cn/character.png",
-                       model="seedance-2.0-i2v", generation_mode="i2v", resolution="720p")
-    registrations = [post for post in recorder.posts if "/assets/from-url" in post["url"]]
-    assert len(registrations) == 1
-    # The key must not carry anything job-specific, or the vendor would bill each retry.
-    assert "omni-asset:image:" in registrations[0]["headers"]["Idempotency-Key"]
+    assert recorder.posts[0]["headers"]["Idempotency-Key"] == "job-42"
 
 
 def test_overseas_line_passes_urls_straight_through(recorder, tmp_path):

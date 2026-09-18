@@ -6,8 +6,8 @@ separate lines:
 ``cn``
     ``POST /v1/video-cn/videos`` — settles in CNY and returns ``actual_cost_cny``. This is
     the line we want for Seedance: our whole credit system prices purchases in yuan with no
-    exchange rate. It only carries Seedance, and every reference asset has to be registered
-    into an ``asset://`` handle before it can be used.
+    exchange rate. It carries Seedance and accepts public reference URLs directly; local
+    files are saved to the provider material library without paid pre-registration.
 ``overseas``
     ``POST /v1/videos`` — settles in USD, but it is the only line that carries MiniMax H3.
     It accepts public HTTPS URLs inline, so no asset registration step.
@@ -24,15 +24,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import mimetypes
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import requests
 
 from .base import VideoGenModel
 from ..utils.endpoints import get_provider_base_url
 from ..utils.model_catalog import get_catalog_accessor
+from ..utils.media_refs import resolve_local_media_path
 from ..utils.oss_utils import OSSImageUploader
 from ..utils.provider_media import resolve_media_inputs
 from ..utils.workspace_env import workspace_getenv
@@ -42,8 +45,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_LINE = "cn"
 DEFAULT_MAX_WAIT_SECONDS = 1800
 DEFAULT_POLL_INTERVAL_SECONDS = 8       # the API asks for one poll every 5-8 seconds
-DEFAULT_ASSET_SYNC_SECONDS = 120        # how long to wait for a reference asset to sync
-ASSET_POLL_INTERVAL_SECONDS = 3
 
 # Two request shapes share the /v1/videos endpoint. Seedance takes an OpenAI-style
 # ``content[]`` with a role per reference; MiniMax A takes flat ``first_frame`` / ``images[]``
@@ -71,10 +72,8 @@ class JojoKeyVideoModel(VideoGenModel):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self._api_key = config.get("api_key")
-        # CN asset handles, keyed by (modality, source url). Registration is billed per
-        # asset, and the adapter is cached per worker, so a storyboard that reuses the same
-        # character reference across shots pays for it once and skips the round trip after.
-        self._asset_cache: Dict[Tuple[str, str], str] = {}
+        # Keep stable upload IDs; fetch fresh URLs when signed source links expire.
+        self._upload_cache: Dict[Tuple[str, ...], str] = {}
 
     # ---- credentials and routing -------------------------------------------------
 
@@ -176,90 +175,65 @@ class JojoKeyVideoModel(VideoGenModel):
 
     # ---- reference assets --------------------------------------------------------
 
-    def _resolved_urls(self, refs: List[str], *, model_id: str, modality: str) -> List[str]:
-        """Turn project-side refs into public URLs JojoKey can fetch."""
+    def _resolved_urls(self, refs: List[str], *, model_id: str, modality: str,
+                       line: str = "overseas", group_id: Optional[str] = None) -> List[str]:
+        """Use provider uploads for local media when optional OSS is unavailable."""
         if not refs:
             return []
-        resolved = resolve_media_inputs(
-            refs,
-            model_name=model_id,
-            modality=modality,
-            backend="jojokey",
-            uploader=OSSImageUploader(),
-        )
-        return [item.value for item in resolved]
+        uploader = OSSImageUploader()
+        values = []
+        for ref in refs:
+            local_path = resolve_local_media_path(ref)
+            if local_path and not getattr(uploader, "is_configured", False):
+                values.append(self._upload_local_media(local_path, modality=modality,
+                                                       line=line, group_id=group_id))
+            else:
+                values.extend(item.value for item in resolve_media_inputs(
+                    [ref], model_name=model_id, modality=modality, backend="jojokey", uploader=uploader))
+        return values
 
-    def _register_cn_asset(self, url: str, *, modality: str, group_id: Optional[str]) -> str:
-        """Register a public URL as a CN-line ``asset://`` handle.
-
-        The CN line takes ``asset://`` references in ``content[]`` rather than raw URLs, so
-        every image and video goes through here first. Three things the docs understate:
-
-        * This endpoint requires an Idempotency-Key. They only mention needing one for asset
-          groups and for submission, but a registration without it is refused outright.
-        * Registration costs money (¥0.10 an asset at the time of writing), so the key is
-          derived from the source URL alone and nothing job-specific. The same reference image
-          reused across a hundred shots is then registered — and charged — once.
-        * Registration is asynchronous. It returns ``sync_status: 1`` / ``ready: false``, and
-          submitting against an asset in that state is rejected as InvalidVideoCnAsset.
-        """
-        cached = self._asset_cache.get((modality, url))
-        if cached:
-            return cached
-
+    def _upload_local_media(self, path: str, *, modality: str, line: str,
+                            group_id: Optional[str]) -> str:
+        content_type = mimetypes.guess_type(path)[0] or ""
+        if not content_type.startswith(f"{modality}/"):
+            raise ValueError(f"JojoKey {modality} upload has an unsupported file type")
+        limit = {"image": 30, "video": 50, "audio": 15}[modality] * 1024 * 1024
+        size = os.path.getsize(path)
+        if size == 0 or size > limit:
+            raise ValueError(f"JojoKey {modality} upload must be nonempty and at most {limit // 1024 // 1024} MB")
         base = get_provider_base_url("JOJOKEY")
-        digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:20]
-        payload: Dict[str, Any] = {
-            "url": url,
-            "asset_type": CN_ASSET_TYPES[modality],
-            "asset_name": os.path.basename(url.split("?")[0]) or f"omni-{modality}",
-        }
-        if group_id:
-            payload["group_id"] = group_id
-        response = requests.post(
-            f"{base}/video-cn/assets/from-url",
-            headers=self._headers(idempotency_key=f"omni-asset:{modality}:{digest}"),
-            json=payload,
-            timeout=60,
-        )
-        self._ensure_success(response, "asset registration")
+        endpoint = "/video-cn/assets" if line == "cn" else "/uploads"
+        with open(path, "rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+            scope = hashlib.sha256(self.api_key.encode()).hexdigest()
+            # Include intent so save-only uploads cannot replay older paid registration requests.
+            cache_key = ("upload-url", base, scope, line, modality, group_id or "", digest, content_type)
+            asset_id = self._upload_cache.get(cache_key)
+            if asset_id:
+                response = requests.get(base + endpoint + "/" + quote(asset_id, safe=""),
+                                        headers=self._headers(), timeout=30)
+            else:
+                key = "omni-upload:" + hashlib.sha256("\0".join(cache_key).encode()).hexdigest()
+                filename = f"omni-{digest}{mimetypes.guess_extension(content_type) or ''}"
+                data = {"register_asset": "false"}
+                if line == "cn":
+                    data = {"asset_type": str(CN_ASSET_TYPES[modality]),
+                            "asset_name": filename, "register": "false"}
+                    if group_id:
+                        data["group_id"] = group_id
+                headers = self._headers(idempotency_key=key)
+                del headers["Content-Type"]  # requests supplies the multipart boundary.
+                source.seek(0)
+                response = requests.post(base + endpoint, headers=headers, data=data,
+                                         files={"file": (filename, source, content_type)}, timeout=120)
+        self._ensure_success(response, "media upload" if not asset_id else "media lookup")
         body = response.json()
-        asset_url = body.get("asset_url") or body.get("url")
-        asset_id = body.get("id")
-        if not asset_url:
-            raise RuntimeError(f"JojoKey asset registration returned no asset_url: {body}")
-        if not self._asset_is_ready(body):
-            self._await_asset(base, str(asset_id), body)
-        self._asset_cache[(modality, url)] = str(asset_url)
-        return str(asset_url)
-
-    @staticmethod
-    def _asset_is_ready(body: Dict[str, Any]) -> bool:
-        # sync_status 2 is the vendor's "synced, safe to use"; `ready` mirrors it.
-        return bool(body.get("ready")) or body.get("sync_status") == 2
-
-    def _await_asset(self, base: str, asset_id: str, first: Dict[str, Any]) -> None:
-        """Poll a freshly registered asset until the upstream can read it."""
-        if not asset_id:
-            raise RuntimeError(f"JojoKey asset is not synced and has no id to poll: {first}")
-        deadline = self._env_number("JOJOKEY_ASSET_SYNC_SECONDS", DEFAULT_ASSET_SYNC_SECONDS)
-        waited = 0
-        while waited < deadline:
-            time.sleep(ASSET_POLL_INTERVAL_SECONDS)
-            waited += ASSET_POLL_INTERVAL_SECONDS
-            response = requests.get(f"{base}/video-cn/assets/{asset_id}",
-                                    headers=self._headers(), timeout=30)
-            self._ensure_success(response, "asset sync check")
-            body = response.json()
-            if self._asset_is_ready(body):
-                logger.info("[JojoKey] Asset %s synced after %ss", asset_id, waited)
-                return
-            error = (body.get("operation") or {}).get("result", {}).get("sync_error") or ""
-            if error:
-                raise RuntimeError(f"JojoKey asset {asset_id} failed to sync: {error}")
-        raise RuntimeError(
-            f"JojoKey asset {asset_id} was still unsynced after {deadline}s. The CN line has to "
-            "fetch the source URL itself, so it must be reachable from inside China.")
+        value = body.get("source_url") if line == "cn" else body.get("url")
+        if not isinstance(value, str) or not value.startswith("https://"):
+            raise RuntimeError("JojoKey uploaded material has no HTTPS URL")
+        if isinstance(body.get("id"), str) and body["id"]:
+            self._upload_cache[cache_key] = body["id"]
+        return value
 
     # ---- payload -----------------------------------------------------------------
 
@@ -351,10 +325,13 @@ class JojoKeyVideoModel(VideoGenModel):
             payload["seed"] = seed
         if kwargs.get("generate_audio") is not None:
             payload["generate_audio"] = bool(kwargs["generate_audio"])
+        if ("2.5" in upstream_model and any(
+                block.get("role") in {"reference_image", "reference_video", "reference_audio"}
+                for block in content)):
+            # Explicit reference generation permits the user's fixed duration and ratio.
+            payload["omni_reference_task_type"] = "reference"
         if line == "overseas":
-            # Pre-registering reference images as assets first makes the upstream far less
-            # likely to reject a bare face URL on privacy grounds. The CN line registers
-            # everything up front anyway, so this only applies here.
+            # Preserve the overseas portrait-registration behavior. CN uses public URLs.
             payload["metadata"] = {"audit_image": True}
         return payload
 
@@ -411,22 +388,13 @@ class JojoKeyVideoModel(VideoGenModel):
 
         image_urls = self._resolved_urls(
             ([first_frame] if first_frame else []) + ref_images,
-            model_id=model_id, modality="image")
+            model_id=model_id, modality="image", line=line, group_id=kwargs.get("asset_group_id"))
         video_urls = self._resolved_urls(
             [url for url in (kwargs.get("ref_video_urls") or []) if url],
-            model_id=model_id, modality="video")
+            model_id=model_id, modality="video", line=line, group_id=kwargs.get("asset_group_id"))
         audio_urls = self._resolved_urls(
-            [url for url in ([kwargs.get("audio_url")] if kwargs.get("audio_url") else []) if url],
-            model_id=model_id, modality="audio")
-
-        if line == "cn":
-            group_id = kwargs.get("asset_group_id")
-            image_urls = [self._register_cn_asset(url, modality="image", group_id=group_id)
-                          for url in image_urls]
-            video_urls = [self._register_cn_asset(url, modality="video", group_id=group_id)
-                          for url in video_urls]
-            audio_urls = [self._register_cn_asset(url, modality="audio", group_id=group_id)
-                          for url in audio_urls]
+            list(dict.fromkeys([url for url in [*(kwargs.get("ref_audio_urls") or []), kwargs.get("audio_url")] if url])),
+            model_id=model_id, modality="audio", line=line, group_id=kwargs.get("asset_group_id"))
 
         resolved_first_frame = image_urls[0] if first_frame and image_urls else None
         resolved_references = image_urls if not first_frame else []
@@ -435,7 +403,7 @@ class JojoKeyVideoModel(VideoGenModel):
                 if not resolved_first_frame or resolved_references or video_urls or audio_urls:
                     raise ValueError("MiniMax last frame requires keyframe mode without reference media")
                 kwargs = {**kwargs, "last_frame": self._resolved_urls(
-                    [kwargs["last_frame"]], model_id=model_id, modality="image")[0]}
+                    [kwargs["last_frame"]], model_id=model_id, modality="image", line=line)[0]}
             payload = self._build_minimax_a_payload(
                 prompt, upstream_model, first_frame=resolved_first_frame,
                 reference_images=resolved_references, reference_videos=video_urls,
