@@ -1,0 +1,17 @@
+.section { border-bottom: 1px solid var(--color-border-default); padding-bottom: 18px; margin-bottom: 18px; }
+.modes { display: flex; flex-wrap: wrap; gap: 6px; }
+.modes button { font-size: 12px; }
+.hint { font-size: 12px; line-height: 1.75; color: var(--color-text-secondary); margin: 9px 0 12px; }
+.label, .props legend { margin: 10px 0; font-size: 12px; font-weight: 500; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-block: 10px; }
+.check input, .prop input { accent-color: var(--color-primary); width: 16px; height: 16px; flex-shrink: 0; }
+.preview { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; border-radius: 6px; background: var(--color-bg-inset); font-size: 12px; }
+.preview img { width: 90px; height: 64px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+.preview span { overflow-wrap: anywhere; }
+.props { padding: 0; margin: 14px 0; border: 0; }
+.prop { display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 7px; }
+.prop .preview { flex: 1; }
+.prop:has(input:checked) .preview { outline: 1px solid var(--color-primary); }
+@media (max-width: 650px) { .preview img { width: 74px; height: 54px; } }
+
+.positions { display: flex; flex-wrap: wrap; column-gap: 16px; }

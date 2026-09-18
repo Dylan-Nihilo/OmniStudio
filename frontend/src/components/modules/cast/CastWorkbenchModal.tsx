@@ -23,6 +23,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Sparkles, Loader2, Check, RefreshCw, Wand2, Palette, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
+import { supportsAssetReferences } from '@/lib/modelCatalog';
+import { selectedAssetReference, referenceInput, type AssetReferenceSnapshot, type HoldingPosition } from '@/lib/assetReferences';
+import AssetReferenceControls, { type ReferenceMode } from './AssetReferenceControls';
 import { useProjectStore, IMAGE_MODELS } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import { getAssetUrl } from "@/lib/utils";
@@ -83,7 +86,7 @@ function startAssetPoll(
                 updateProject(projectId, fresh);
                 const entityPool = (kind === "character" ? fresh.characters : kind === "scene" ? fresh.scenes : fresh.props) || [];
                 const updatedEntity = entityPool.find((e: any) => e.id === entityId);
-                const count = updatedEntity ? readVariants(updatedEntity, kind).length : 0;
+                const count = updatedEntity ? readVariants(updatedEntity, kind, generationType === "holding_reference").length : 0;
                 toast.success(t("toastVariantDone"), { body: t("toastVariantDoneBody", { count }) });
             } catch {
                 toast.error(t("toastPollErr"), { body: t("toastPollErrBody") });
@@ -109,6 +112,7 @@ interface ImageVariant {
     url: string;
     is_favorited?: boolean;
     candidate_type?: CharacterTemplate;
+    params?: { reference_inputs?: AssetReferenceSnapshot[] };
 }
 
 type CharacterTemplate = "simple" | "detailed" | "design_sheet";
@@ -124,35 +128,45 @@ const CHARACTER_TEMPLATES: Record<CharacterTemplate, {
     simple: {
         labelKey: "tplSimpleLabel",
         descKey: "tplSimpleDesc",
-        compositionEn: "Composition: character reference sheet, single unified image, seamless layout without borders or frames, neutral gray background. Left half: large head close-up portrait (shoulders up, sharp facial details, front-facing, detailed skin texture). Right half: three equally-sized full-body standing poses arranged side by side (front view, side view, back view), head-to-toe fully visible, relaxed neutral pose. Consistent soft studio lighting across all views, no harsh shadows, even illumination.",
+        compositionEn: "Composition: character reference sheet, single unified image, seamless layout without borders or frames, neutral gray background. Left half: large head close-up portrait (shoulders up, sharp facial details, front-facing, consistent illustrated facial features). Right half: three equally-sized full-body standing poses arranged side by side (front view, side view, back view), head-to-toe fully visible, relaxed neutral pose. Consistent soft studio lighting across all views, no harsh shadows, even illumination.",
         negativeAppend: "text, labels, watermark, UI overlay, panel borders, frames, multiple separate images",
         exampleImage: "/assets/templates/simple-triview.png",
     },
     detailed: {
         labelKey: "tplDetailedLabel",
         descKey: "tplDetailedDesc",
-        compositionEn: "Composition: detailed character reference sheet, single unified image, seamless layout without borders or frames, neutral gray background. Left section: three full-body standing views side by side (front / side / back), head-to-toe visible, neutral relaxed pose. Upper right: large face close-up portrait (shoulders up, detailed skin texture, sharp eyes, pores visible). Lower right: three smaller head shots showing different angles (front, three-quarter, profile). Consistent soft studio lighting, no harsh shadows, even illumination across all panels.",
+        compositionEn: "Composition: detailed character reference sheet, single unified image, seamless layout without borders or frames, neutral gray background. Left section: three full-body standing views side by side (front / side / back), head-to-toe visible, neutral relaxed pose. Upper right: large face close-up portrait (shoulders up, consistent illustrated facial features, sharp eyes, clear facial contours). Lower right: three smaller head shots showing different angles (front, three-quarter, profile). Consistent soft studio lighting, no harsh shadows, even illumination across all panels.",
         negativeAppend: "text, labels, watermark, UI overlay, panel borders, frames, multiple separate images",
         exampleImage: "/assets/templates/detailed-reference.png",
     },
     design_sheet: {
         labelKey: "tplDesignSheetLabel",
         descKey: "tplDesignSheetDesc",
-        compositionEn: "Composition: professional character design sheet, single unified image with dark cyberpunk-themed background (deep blue-black with subtle neon circuit patterns). Layout divided into labeled panels with thin border frames: - Top left: large dramatic character portrait (bust shot, three-quarter angle, moody rim lighting, glowing blue cybernetic eye) - Center: three full-body standing views (front / side / back) with labels \"正面\" \"侧面\" \"背面\" - Top right: 4 expression close-ups in a row (neutral, smirking, intense focus, combat rage), labeled \"表情特写\" - Bottom left: 3-4 detail close-up panels showing cybernetic eye mechanism, neck circuit tattoo, armor texture, weapon holster, labeled \"细节特写\" - Bottom right: character info panel with dark translucent background containing text fields (name, age, traits, abilities). Cinematic lighting, high detail, concept art quality, game character sheet aesthetic.",
+        compositionEn: "Composition: character design sheet on a neutral background. Large face portrait, front/side/back full-body views, several restrained expression studies and close-ups of costume details. Same identity and costume throughout. Empty hands, no independent props, no text or labels.",
         negativeAppend: "watermark, UI overlay, signature, low quality, distorted anatomy, multiple separate images",
         comingSoon: true,
         exampleImage: "/assets/templates/design-sheet.png",
     },
 };
 
-function buildTemplate(kind: CastKind, entity: any, template?: CharacterTemplate): string {
+function buildTemplate(kind: CastKind, entity: any, template?: CharacterTemplate, mode?: ReferenceMode): string {
     const name = entity?.name || "";
     const desc = entity?.description || "";
     const charDesc = [name, entity?.age, entity?.gender, desc, entity?.clothing].filter(Boolean).join("，");
 
+    if (mode === 'character_holding') {
+        return `${name}的持物参考。以人物基础图确定身份和服装，以所选道具图确定道具外观。
+
+全身站姿，按所选持物方式使用道具；保持道具大小合理，手指结构清晰。浅灰背景、均匀柔光。只出现这一名人物与所选道具，不加文字。`;
+    }
+    if (mode === 'prop_extract') {
+        return `从所选人物参考图中提取「${name}」。${desc}
+
+保留原图中道具可见部分的轮廓、配色、材质和装饰。主图展示完整道具，可补充必要的局部细节。浅灰纯色背景，均匀柔光。不出现人物、手、文字或边框。未显示的部分仅按明确要求补充，不重新设计可见部分。`;
+    }
     if (kind === "character") {
         const tpl = CHARACTER_TEMPLATES[template || "simple"];
-        return `${charDesc}\n\n${tpl.compositionEn}`;
+        return `人物外貌与服装资料（其中涉及的独立道具在基础图中省略）：${charDesc}\n\n空手定妆，双手自然放松；不携带武器、剑鞘等独立道具，保留服装、腰带和固定配饰。\n\n${tpl.compositionEn}`;
     }
     if (kind === "scene") {
         return `${name}${desc ? "：" + desc : ""}\n\nComposition: wide establishing shot, environment fills the entire frame, single continuous space, no borders or neutral backdrop, no people. Emphasize atmosphere, architecture and terrain structure. Lighting and color palette match the scene mood. Soft volumetric lighting, depth of field.`;
@@ -173,23 +187,25 @@ function getTemplateNegative(kind: CastKind, template?: CharacterTemplate): stri
  *  · scene → image_asset.variants
  *  · prop → image_asset.variants
  *  Returns a normalized [{id, url, is_favorited?}] list. */
-function readVariants(entity: any, kind: CastKind): ImageVariant[] {
+function readVariants(entity: any, kind: CastKind, holding = false): ImageVariant[] {
     if (!entity) return [];
     if (kind === "character") {
+        if (holding) return entity.holding_reference?.image_variants || [];
         const sheet = entity?.reference_sheet?.image_variants ?? [];
         if (sheet.length > 0) {
-            return sheet.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited, candidate_type: v.candidate_type }));
+            return sheet.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited, candidate_type: v.candidate_type, params: v.params }));
         }
         const legacy = entity?.full_body_asset?.variants ?? [];
-        return legacy.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited }));
+        return legacy.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited, params: v.params }));
     }
     const arr = entity?.image_asset?.variants ?? [];
-    return arr.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited }));
+    return arr.map((v: any) => ({ id: v.id, url: v.url, is_favorited: v.is_favorited, params: v.params }));
 }
 
-function readSelectedId(entity: any, kind: CastKind): string | null {
+function readSelectedId(entity: any, kind: CastKind, holding = false): string | null {
     if (!entity) return null;
     if (kind === "character") {
+        if (holding) return entity.holding_reference?.selected_image_id ?? null;
         return entity?.reference_sheet?.selected_image_id
             ?? entity?.full_body_asset?.selected_id
             ?? null;
@@ -199,6 +215,7 @@ function readSelectedId(entity: any, kind: CastKind): string | null {
 
 export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: CastWorkbenchModalProps) {
     const t = useTranslations("castWorkbench");
+    const tw = useTranslations("assetWorkflow");
     const currentProject = useProjectStore((state) => state.currentProject);
     const currentSeries = useProjectStore((state) => state.currentSeries);
     const allProjects = useProjectStore((state) => state.projects);
@@ -219,10 +236,22 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
         return pool.find((e: any) => e.id === entityId) ?? null;
     }, [currentProject, entityId, kind]);
 
-    const variants = useMemo(() => readVariants(entity, kind ?? "character"), [entity, kind]);
-    const selectedId = useMemo(() => readSelectedId(entity, kind ?? "character"), [entity, kind]);
-
     const [prompt, setPrompt] = useState("");
+    const [referenceMode, setReferenceMode] = useState<ReferenceMode>('none');
+    const [holdingPosition, setHoldingPosition] = useState<HoldingPosition | ''>('');
+    const [sourceCharacterId, setSourceCharacterId] = useState('');
+    const [referencePropIds, setReferencePropIds] = useState<string[]>([]);
+    const [preserveIdentity, setPreserveIdentity] = useState(true);
+    const modeDrafts = useRef<Partial<Record<ReferenceMode, string>>>({});
+    const characterReferences = useMemo(() => (currentProject?.characters || []).flatMap(item => {
+        const ref = selectedAssetReference(item, 'character'); return ref ? [ref] : [];
+    }), [currentProject?.characters]);
+    const propReferences = useMemo(() => (currentProject?.props || []).flatMap(item => {
+        const ref = selectedAssetReference(item, 'prop'); return ref ? [ref] : [];
+    }), [currentProject?.props]);
+    const holding = referenceMode === 'character_holding';
+    const variants = useMemo(() => readVariants(entity, kind ?? 'character', holding), [entity, kind, holding]);
+    const selectedId = useMemo(() => readSelectedId(entity, kind ?? 'character', holding), [entity, kind, holding]);
     const [batchSize, setBatchSize] = useState(2);
     const [aspectRatioOverride, setAspectRatioOverride] = useState<string | null>(null);
     const [modelOverride, setModelOverride] = useState<string | null>(null);
@@ -254,11 +283,14 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     useEffect(() => {
         if (!isOpen || !entity || !kind) return;
         if (lastSeededEntityId.current !== entity.id) {
-            setPrompt(buildTemplate(kind, entity, selectedTemplate));
+            const mode = kind === 'character' ? 'character_base' : kind === 'prop' && characterReferences.length ? 'prop_extract' : 'none';
+            setReferenceMode(mode);
+            setSourceCharacterId(''); setReferencePropIds([]); setHoldingPosition(''); setPreserveIdentity(true); modeDrafts.current = {};
+            setPrompt(buildTemplate(kind, entity, selectedTemplate, mode));
             setPromptDirty(false);
             lastSeededEntityId.current = entity.id;
         }
-    }, [isOpen, entity, kind, selectedTemplate]);
+    }, [isOpen, entity, kind, selectedTemplate, characterReferences.length]);
 
     const [presets, setPresets] = useState<any[]>([]);
     useEffect(() => {
@@ -266,6 +298,26 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     }, []);
 
     if (!isOpen || !kind || !entity || !currentProject) return null;
+
+    const baseReference = characterReferences.find(item => item.asset_id === entity.id);
+    const sourceReference = characterReferences.find(item => item.asset_id === sourceCharacterId);
+    const chosenProps = referencePropIds.map(id => propReferences.find(item => item.asset_id === id)).filter((item): item is NonNullable<typeof item> => !!item);
+    const referenceImages = referenceMode === 'prop_extract' ? (sourceReference ? [sourceReference] : [])
+        : holding ? [...(baseReference ? [baseReference] : []), ...chosenProps]
+        : referenceMode === 'character_base' && preserveIdentity && baseReference ? [baseReference] : [];
+    const referenceErrorKey = referenceMode === 'prop_extract' && !sourceReference ? 'chooseSourceHint'
+        : holding && !baseReference ? 'needBase' : holding && !chosenProps.length ? 'needProp'
+        : holding && !holdingPosition ? 'chooseHoldingPosition' : holding && chosenProps.length !== referencePropIds.length ? 'sourceGone'
+        : referenceImages.length && !supportsAssetReferences(selectedModelId, referenceImages.length) ? 'modelUnsupported' : '';
+    const referenceError = referenceErrorKey ? tw(referenceErrorKey) : '';
+    const generationType = holding ? 'holding_reference' : kind === 'character' ? 'reference_sheet' : 'all';
+    const changeReferenceMode = (mode: ReferenceMode) => {
+        if (mode === referenceMode) return;
+        modeDrafts.current[referenceMode] = prompt;
+        setReferenceMode(mode);
+        setPrompt(modeDrafts.current[mode] ?? buildTemplate(kind, entity, selectedTemplate, mode));
+        setPromptDirty(!!modeDrafts.current[mode]);
+    };
 
     const resolvedArtDirection = currentProject.art_direction ?? currentSeries?.art_direction;
     const styleConfig = resolvedArtDirection?.style_config;
@@ -287,7 +339,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     const effectiveAspectRatio = aspectRatioOverride || defaultAspectRatio;
 
     const handleResetTemplate = () => {
-        setPrompt(buildTemplate(kind, entity, selectedTemplate));
+        setPrompt(buildTemplate(kind, entity, selectedTemplate, referenceMode));
         setPromptDirty(false);
     };
 
@@ -300,7 +352,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
             setPendingTemplate(tpl);
         } else {
             setSelectedTemplate(tpl);
-            setPrompt(buildTemplate(kind, entity, tpl));
+            setPrompt(buildTemplate(kind, entity, tpl, referenceMode));
             setPromptDirty(false);
         }
     };
@@ -308,7 +360,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     const confirmTemplateSwitch = () => {
         if (!pendingTemplate) return;
         setSelectedTemplate(pendingTemplate);
-        setPrompt(buildTemplate(kind, entity, pendingTemplate));
+        setPrompt(buildTemplate(kind, entity, pendingTemplate, referenceMode));
         setPromptDirty(false);
         setPendingTemplate(null);
     };
@@ -318,6 +370,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     };
 
     const handleGenerate = async () => {
+        if (generating || referenceError) return;
         if (!prompt.trim()) {
             toast.warning(t("toastPromptEmpty"), {
                 projectId: currentProject.id,
@@ -350,7 +403,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
         const effectiveBatchSize = Math.max(1, Math.min(4, batchSize));
         setBatchSummary({ requested: effectiveBatchSize, pending: effectiveBatchSize, succeeded: 0, failed: 0, canceled: 0 });
         setActiveJobId(null);
-        addGeneratingTask(entity.id, kind === "character" ? "reference_sheet" : "all", effectiveBatchSize);
+        addGeneratingTask(entity.id, generationType, effectiveBatchSize);
 
         const progressId = toast.progress(t("toastGenStart", { kind: t(`kind.${kind}`) }), {
             projectId: currentProject.id,
@@ -366,14 +419,15 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 kind,
                 currentProject.style_preset || "realistic",
                 applyStyle ? stylePositive : "",
-                kind === "character" ? "reference_sheet" : "all",
+                generationType,
                 prompt.trim(),
                 applyStyle,
                 [applyStyle ? styleNegative : "", getTemplateNegative(kind, selectedTemplate)].filter(Boolean).join(", "),
                 effectiveBatchSize,
                 modelOverride || currentProject.model_settings?.t2i_model,
                 aspectRatioOverride || undefined,
-                kind === "character" ? selectedTemplate : undefined,
+                kind === "character" && !holding ? selectedTemplate : undefined,
+                referenceMode !== 'none' ? { purpose: referenceMode, inputs: referenceImages.map(referenceInput), ...(holding && holdingPosition ? { holdingPosition } : {}) } : undefined,
             );
 
             const taskId = (resp as any)?._task_id;
@@ -382,7 +436,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 const capturedEntityId = entity.id;
                 const capturedKind = kind;
                 const capturedProjectId = currentProject.id;
-                startAssetPoll(capturedEntityId, taskId, capturedProjectId, capturedKind, kind === "character" ? "reference_sheet" : "all", t, () => ({
+                startAssetPoll(capturedEntityId, taskId, capturedProjectId, capturedKind, generationType, t, () => ({
                     updateProject: useProjectStore.getState().updateProject,
                     removeGeneratingTask: useProjectStore.getState().removeGeneratingTask,
                 }), progressId, setBatchSummary, effectiveBatchSize);
@@ -390,13 +444,13 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 toast.dismiss(progressId);
                 setActiveProgressToastId(null);
                 updateProject(currentProject.id, resp);
-                removeGeneratingTask(entity.id, kind === "character" ? "reference_sheet" : "all");
+                removeGeneratingTask(entity.id, generationType);
                 toast.success(t("toastGenDone", { kind: t(`kind.${kind}`) }));
             }
         } catch (err: any) {
             toast.dismiss(progressId);
             setActiveProgressToastId(null);
-            removeGeneratingTask(entity.id, kind === "character" ? "reference_sheet" : "all");
+            removeGeneratingTask(entity.id, generationType);
             const detail = err?.response?.data?.detail || err?.message || t("toastGenErrUnknown");
             toast.error(t("toastGenErr"), { body: String(detail) });
         }
@@ -411,7 +465,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
             const poll = activePolls.get(entityId);
             if (poll) clearInterval(poll);
             activePolls.delete(entityId);
-            removeGeneratingTask(entityId, kind === "character" ? "reference_sheet" : "all");
+            removeGeneratingTask(entityId, generationType);
             setBatchSummary((current) => current ? { ...current, pending: 0, canceled: current.pending + current.canceled } : current);
             setActiveJobId(null);
             setActiveProgressToastId(null);
@@ -429,6 +483,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 entity.id,
                 kind,
                 variantId,
+                kind === "character" ? generationType : undefined,
             );
             updateProject(currentProject.id, updated);
             toast.success(t("toastSelected"), {
@@ -454,6 +509,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                 kind,
                 variantId,
                 !currentFav,
+                kind === "character" ? generationType : undefined,
             );
             updateProject(currentProject.id, updated);
         } catch { /* silent — non-critical */ }
@@ -630,7 +686,12 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                         {/* CENTER — template cards → prompt → tags → preview → generation config → CTA */}
                         <div className="flex flex-col p-5 overflow-y-auto custom-scrollbar">
                             {/* Template selection cards — character only */}
-                            {kind === "character" && (
+                            <AssetReferenceControls kind={kind} mode={referenceMode} onModeChange={changeReferenceMode}
+                                characters={characterReferences} props={propReferences} base={baseReference}
+                                sourceId={sourceCharacterId} onSourceChange={setSourceCharacterId} propIds={referencePropIds} onPropsChange={setReferencePropIds}
+                                preserveIdentity={preserveIdentity} onPreserveIdentity={setPreserveIdentity} holdingPosition={holdingPosition} onHoldingPosition={setHoldingPosition} disabled={generating} />
+                            {(['modelUnsupported', 'sourceGone'].includes(referenceErrorKey) || (referenceErrorKey === 'needProp' && propReferences.length > 0)) && <p role="status" className="mb-3 text-xs text-amber-700">{referenceError}</p>}
+                            {kind === "character" && !holding && (
                                 <div className="mb-4">
                                     <p className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted mb-2.5">
                                         {t("templateSelectLabel")}
@@ -842,18 +903,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                 <span>{t("batchCanceled")}: {batchSummary.canceled}</span>
                                 {generating && activeJobId && <button type="button" aria-label={t("cancelGeneration")} onClick={handleCancelGeneration} disabled={canceling} className="ml-auto inline-flex items-center rounded border border-status-failed-border px-2 py-1 text-status-failed-fg disabled:opacity-50">{canceling ? t("canceling") : t("cancelGeneration")}</button>}
                             </div>}
-                            <button
-                                onClick={handleGenerate}
-                                disabled={generating || !prompt.trim()}
-                                className="mt-5 self-center inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.875rem] font-semibold"
-                            >
-                                {generating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                                {generating
-                                    ? t("generating")
-                                    : variants.length === 0
-                                        ? t("generateFirst")
-                                        : t("generateMore", { count: batchSize })}
-                            </button>
+
                         </div>
 
                         {/* RIGHT — variants gallery */}
@@ -861,7 +911,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                             {/* Gallery header with filter tabs */}
                             <div className="flex items-center justify-between mb-3">
                                 <h3 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted">
-                                    {t("variantsTitle")}
+                                    {holding ? tw("holdingCandidates") : t("variantsTitle")}
                                     <span className="text-text-muted/60"> ({variants.length})</span>
                                 </h3>
                                 {variants.length > 0 && (
@@ -897,7 +947,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                             <Sparkles size={18} />
                                         </div>
                                         <p className="text-[0.875rem] text-foreground">{t("emptyVariantsTitle")}</p>
-                                        <p className="text-[0.75rem] text-text-secondary mt-1">{t("emptyVariantsBody")}</p>
+                                        <p className="text-[0.75rem] text-text-secondary mt-1">{tw("emptyVariantsBody")}</p>
                                     </div>
                                 </div>
                             ) : filteredVariants.length === 0 ? (
@@ -917,7 +967,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                                         : "border-glass-border hover:border-foreground/30"
                                                 }`}
                                             >
-                                                <div className="cursor-pointer" onClick={() => !isSelected && handleSelectVariant(v.id)}>
+                                                <div className="cursor-pointer">
                                                     <PreviewImage
                                                         src={getAssetUrl(v.url)}
                                                         alt={`${entity.name} ${v.id}`}
@@ -925,7 +975,8 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                                         clickToLightbox
                                                     />
                                                 </div>
-                                                {v.candidate_type && <span className="absolute bottom-1.5 left-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[0.625rem] text-white">{t(`candidateType.${v.candidate_type}`)}</span>}
+                                                {v.params?.reference_inputs?.length ? <p className="px-2 py-1.5 text-[11px] text-text-secondary">{tw('sourceLabel')}: {v.params.reference_inputs.map(ref => ref.asset_name).join(' + ')}</p> : null}
+                                                {v.candidate_type && <span className="m-2 inline-flex rounded bg-surface-inset px-1.5 py-0.5 text-[0.625rem] text-text-secondary">{t(`candidateType.${v.candidate_type}`)}</span>}
                                                 {/* Favorite star */}
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); handleToggleFavorite(v.id, !!v.is_favorited); }}
@@ -943,22 +994,16 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                                         <Check size={12} strokeWidth={2.6} />
                                                     </div>
                                                 )}
-                                                {/* Select hint on hover */}
-                                                {!isSelected && (
-                                                    <div
-                                                        onClick={() => handleSelectVariant(v.id)}
-                                                        className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer pt-6 pb-1.5"
-                                                    >
-                                                        <p className="w-full text-center text-[0.625rem] uppercase tracking-[0.16em] text-foreground font-mono">
-                                                            {t("clickToSelect")}
-                                                        </p>
-                                                    </div>
-                                                )}
+                                                <button type="button" disabled={isSelected} onClick={() => handleSelectVariant(v.id)}
+                                                    className="w-full border-t border-glass-border px-3 py-2.5 text-xs font-medium text-primary hover:bg-hover-bg disabled:text-text-muted disabled:cursor-default">
+                                                    {isSelected ? tw('selectedReference') : holding ? tw('selectHolding') : t('clickToSelect')}
+                                                </button>
                                             </div>
                                         );
                                     })}
                                 </div>
                             )}
+                            <p className="mt-3 text-xs text-text-muted">{tw("selectedHint")}</p>
                             {/* Gallery bottom operations — always visible */}
                             {variants.length > 0 && (
                                 <div className="mt-auto pt-4 border-t border-glass-border flex items-center gap-2 flex-wrap">
@@ -972,11 +1017,24 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                         </div>
                     </div>
 
-                    {/* Footer — status only, no action button (state auto-saves) */}
-                    <footer className="flex items-center px-5 py-2.5 border-t border-glass-border">
+                    {/* Keep the generation action visible while editing references or prompts. */}
+                    <footer className="shrink-0 flex flex-wrap items-center gap-3 px-5 py-2.5 border-t border-glass-border">
                         <span className="font-mono text-[0.6875rem] uppercase tracking-[0.16em] text-text-muted">
                             {selectedId ? t("selectedFooter") : t("noneSelectedFooter")}
                         </span>
+                        <span className="ml-auto text-xs text-text-secondary">{tw('generateSummary', { count: batchSize, ratio: effectiveAspectRatio })}</span>
+                        <button
+                                onClick={handleGenerate}
+                                disabled={generating || !prompt.trim() || !!referenceError}
+                                className="shrink-0 inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.875rem] font-semibold"
+                            >
+                                {generating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                                {generating
+                                    ? t("generating")
+                                    : variants.length === 0
+                                        ? t("generateFirst")
+                                        : t("generateMore", { count: batchSize })}
+                            </button>
                     </footer>
                 </motion.div>
             </motion.div>
