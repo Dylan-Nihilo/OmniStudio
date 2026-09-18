@@ -29,6 +29,7 @@ import { useLightbox } from "@/components/shared/preview/LightboxProvider";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
+import ProductionGuide from "@/components/shared/ProductionGuide";
 import VoicePickerModal from "./cast/VoicePickerModal";
 import CastWorkbenchModal, { activePolls } from "./cast/CastWorkbenchModal";
 
@@ -232,6 +233,8 @@ export default function Cast() {
                     </>
                 ) : null}
             />
+            <ProductionGuide stage="assets" ready={qualityReady} />
+            <AssetWorkflowHint />
             {totalCast > 0 && (
                 <div className="shrink-0 flex flex-wrap items-center gap-2 px-7 pb-3 text-[0.6875rem] font-mono text-text-muted bg-surface">
                     <span>{t("qualityReady", { ready: qualityReady, total: totalCast })}</span>
@@ -1050,7 +1053,7 @@ function CastCard({ item, selected, onToggleSelect, onOpenWorkbench }: { item: C
                     </p>
                     <div className="flex items-center justify-between gap-1">
                         <span className="font-mono text-[0.625rem] uppercase tracking-[0.12em] text-text-muted">
-                            {t("appearancesCount", { count: item.appearances })}
+                            {currentProject?.frames?.length ? t("appearancesCount", { count: item.appearances }) : t("awaitingStoryboard")}
                         </span>
                         <StatusBadge status={item.status} />
                     </div>
@@ -1239,4 +1242,12 @@ function StatusBadge({ status }: { status: "ready" | "pending" | "new" }) {
             🆕 {t("statusNew")}
         </span>
     );
+}
+
+function AssetWorkflowHint() {
+    const t = useTranslations('assetWorkflow');
+    return <div className="shrink-0 px-6 pb-4 text-xs text-text-secondary">
+        <p className="font-medium text-foreground">{t('flow')}</p>
+        <p className="mt-1 leading-relaxed">{t('flowHint')}</p>
+    </div>;
 }

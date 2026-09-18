@@ -1,117 +1,153 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Check, RotateCcw, Save, Sparkles } from "lucide-react";
-import { Button, TextAreaField, TextField } from "@omnistudio/ui";
+import { useCallback, useEffect, useId, useState } from "react";
+import { ChevronDown, Clapperboard, RotateCcw, Save } from "lucide-react";
+import { Button } from "@omnistudio/ui";
+import { useTranslations } from "next-intl";
 import { directorPlanApi, type DirectorPlan, type DirectorPlanScope } from "@/lib/api";
+import styles from "./DirectorPlanEditor.module.css";
 
-const FIELDS: Array<{ key: keyof DirectorPlan; label: string; multiline?: boolean }> = [
-  { key: "tempo", label: "节奏" },
-  { key: "composition", label: "构图" },
-  { key: "lens", label: "焦段" },
-  { key: "blocking", label: "调度", multiline: true },
-  { key: "lighting", label: "灯光", multiline: true },
-  { key: "transition", label: "转场" },
-  { key: "sound", label: "声音", multiline: true },
-];
-
+type Field = Exclude<keyof DirectorPlan, "continuity_rules">;
+type Props = { projectId: string; episodeId?: string; shotId?: string };
+const FIELDS: Field[] = ["tempo", "composition", "blocking", "lighting", "sound", "lens", "transition"];
+const OPTIONS: Record<Field, Array<[string, string]>> = {
+  tempo: [["measured", "measured"], ["balanced", "balanced"], ["urgent", "urgent"]],
+  composition: [["natural", "natural"], ["centered", "centered composition"], ["opposed", "opposing subjects on either side of the frame"]],
+  blocking: [["clear", "clear subject separation"], ["still", "restrained movement and expressive gestures"], ["dynamic", "dynamic action with readable movement"]],
+  lighting: [["soft", "motivated soft light"], ["night", "cool night light with readable faces"], ["contrast", "high contrast directional lighting"]],
+  sound: [["ambient", "diegetic room tone"], ["dialogue", "clear dialogue over restrained ambience"], ["action", "distinct action sounds and environmental ambience"]],
+  lens: [["wide", "24mm"], ["natural", "35mm"], ["portrait", "85mm"]],
+  transition: [["cut", "cut"], ["dissolve", "dissolve"], ["match", "match cut"]],
+};
+const LIMITS: Record<Field, number> = { tempo: 120, composition: 240, lens: 80, blocking: 500, lighting: 500, transition: 160, sound: 500 };
 const DEFAULT_PLAN: DirectorPlan = {
   tempo: "balanced", composition: "natural", lens: "35mm", blocking: "clear subject separation",
   lighting: "motivated soft light", transition: "cut", sound: "diegetic room tone", continuity_rules: [],
 };
 
-export default function DirectorPlanEditor({ projectId, episodeId = projectId, shotId }: { projectId: string; episodeId?: string; shotId?: string }) {
-  const [scope, setScope] = useState<DirectorPlanScope>("episode");
+export default function DirectorPlanEditor({ projectId, episodeId = projectId, shotId }: Props) {
+  const t = useTranslations("directorPlan");
+  return <details className={styles.panel}>
+    <summary className={styles.summary}>
+      <Clapperboard size={19} aria-hidden="true" />
+      <span className={styles.heading}><strong>{t("title")}</strong><span>{t("subtitle")}</span></span>
+      <span className={styles.optional}>{t("optional")}</span>
+      <ChevronDown className={styles.chevron} size={17} aria-hidden="true" />
+    </summary>
+    <DirectorPlanForm key={`${projectId}:${episodeId}:${shotId || ""}`} projectId={projectId} episodeId={episodeId} shotId={shotId} />
+  </details>;
+}
+
+function DirectorPlanForm({ projectId, episodeId = projectId, shotId }: Props) {
+  const t = useTranslations("directorPlan");
+  const uid = useId();
+  const [scope, setScope] = useState<DirectorPlanScope>(shotId ? "shot" : "episode");
   const [plan, setPlan] = useState<DirectorPlan>(DEFAULT_PLAN);
-  const [sourceChain, setSourceChain] = useState<Record<string, string>>({});
-  const [finalPrompt, setFinalPrompt] = useState("");
-  const [instruction, setInstruction] = useState("");
-  const [preview, setPreview] = useState<{ id: string; payload: DirectorPlan } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<DirectorPlan>(DEFAULT_PLAN);
+  const [sources, setSources] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [retry, setRetry] = useState(0);
+  const targetId = scope === "project" ? projectId : scope === "episode" ? episodeId : shotId!;
+  const changes = Object.fromEntries(FIELDS.filter(key => plan[key] !== saved[key]).map(key => [key, plan[key]]));
+  const dirty = Object.keys(changes).length > 0;
+  const invalid = FIELDS.some(key => !plan[key].trim() || plan[key].length > LIMITS[key]);
+  const hasOverrides = Object.values(sources).includes(scope);
+  const scopes: DirectorPlanScope[] = [...(projectId !== episodeId ? ["project" as const] : []), "episode", ...(shotId ? ["shot" as const] : [])];
 
-  const targetId = scope === "project" ? projectId : scope === "episode" ? episodeId : shotId;
-  const load = async () => {
-    setBusy(true);
-    try {
-      const resolved = await directorPlanApi.resolve(episodeId, shotId);
-      setPlan(resolved.plan);
-      setSourceChain(resolved.source_chain);
-      setFinalPrompt(resolved.prompt || "");
-      setMessage("");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "加载导演计划失败");
-    } finally { setBusy(false); }
-  };
+  const read = useCallback(async () => {
+    if (scope === "project") {
+      const result = await directorPlanApi.get(scope, projectId);
+      return { plan: { ...DEFAULT_PLAN, ...result.payload }, source_chain: Object.fromEntries(Object.keys(result.payload).map(key => [key, "project"])) };
+    }
+    return directorPlanApi.resolve(episodeId, scope === "shot" ? shotId : undefined);
+  }, [scope, projectId, episodeId, shotId]);
 
-  useEffect(() => { void load(); }, [episodeId, shotId]);
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true); setLoaded(false); setError(""); setMessage("");
+    read().then(result => {
+      if (cancelled) return;
+      setPlan(result.plan); setSaved(result.plan); setSources(result.source_chain); setLoaded(true);
+    }).catch(() => { if (!cancelled) setError("loadFailed"); })
+      .finally(() => { if (!cancelled) setBusy(false); });
+    return () => { cancelled = true; };
+  }, [read, retry]);
 
-  const update = (key: keyof DirectorPlan, value: string) => setPlan((current) => ({ ...current, [key]: value }));
   const save = async () => {
-    setBusy(true);
+    if (busy || !loaded || !dirty || invalid) return;
+    setBusy(true); setError(""); setMessage("");
     try {
-      const payload = Object.fromEntries(FIELDS.map(({ key }) => [key, plan[key]]));
-      if (!targetId || (scope === "shot" && !shotId)) throw new Error("请选择要覆盖的镜头");
-      await directorPlanApi.update(scope, targetId, scope === "shot" ? { ...payload, episode_id: episodeId } : payload);
-      await load();
-      setMessage("导演计划已保存");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "保存失败"); } finally { setBusy(false); }
+      await directorPlanApi.update(scope, targetId, scope === "shot" ? { ...changes, episode_id: episodeId } : changes);
+      setSaved(plan);
+      setSources(current => ({ ...current, ...Object.fromEntries(Object.keys(changes).map(key => [key, scope])) }));
+      setMessage("saved");
+    } catch { setError("saveFailed"); }
+    finally { setBusy(false); }
   };
+
   const reset = async () => {
-    setBusy(true);
+    setBusy(true); setError(""); setMessage("");
     try {
-      if (!targetId || (scope === "shot" && !shotId)) throw new Error("请选择要恢复的镜头");
-      await directorPlanApi.remove(scope, targetId, scope === "shot" ? episodeId : undefined); await load(); setMessage("已恢复默认"); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "恢复失败"); } finally { setBusy(false); }
-  };
-  const createPreview = async () => {
-    if (!instruction.trim()) return;
-    setBusy(true);
+      await directorPlanApi.remove(scope, targetId, scope === "shot" ? episodeId : undefined);
+    } catch { setError("resetFailed"); setBusy(false); return; }
     try {
-      if (!targetId || (scope === "shot" && !shotId)) throw new Error("请选择要预览的镜头");
-      const result = await directorPlanApi.preview(scope, targetId, instruction); setPreview({ id: result.preview_id, payload: result.payload }); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "预览失败"); } finally { setBusy(false); }
-  };
-  const confirmPreview = async () => {
-    if (!preview) return;
-    setBusy(true);
-    try {
-      if (!targetId || (scope === "shot" && !shotId)) throw new Error("请选择要应用的镜头");
-      await directorPlanApi.confirm(scope, targetId, preview.id); setPreview(null); await load(); setMessage("AI 导演计划已确认"); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "确认失败"); } finally { setBusy(false); }
+      const result = await read();
+      setPlan(result.plan); setSaved(result.plan); setSources(result.source_chain); setMessage("resetDone");
+    } catch { setLoaded(false); setError("reloadAfterReset"); }
+    finally { setBusy(false); }
   };
 
-  const sourceLabel = useMemo(() => (key: keyof DirectorPlan) => sourceChain[key] || "system", [sourceChain]);
+  const renderField = (key: Field) => {
+    const option = OPTIONS[key].find(([, value]) => value === plan[key]);
+    const custom = !option;
+    const hint = `${uid}-${key}-hint`;
+    return <fieldset key={key} className={styles.field} disabled={busy || !loaded}>
+      <legend>{t(`fields.${key}.label`)}</legend>
+      <p className={styles.description}>{t(`fields.${key}.description`)}</p>
+      <div className={styles.choices}>
+        {[...OPTIONS[key], ["custom", ""]].map(([id, value]) => <label key={id} className={styles.choice}>
+          <input type="radio" name={`${uid}-${key}`} value={id} checked={id === "custom" ? custom : plan[key] === value}
+            aria-describedby={hint} onChange={() => { setPlan(current => ({ ...current, [key]: value })); setMessage(""); }} />
+          <span>{id === "custom" ? t("custom") : t(`options.${key}.${id}.label`)}</span>
+        </label>)}
+      </div>
+      <p id={hint} className={styles.hint}>{custom ? t("customHint") : t(`options.${key}.${option[0]}.hint`)}</p>
+      {custom && <textarea className={styles.custom} aria-label={t("customLabel", { field: t(`fields.${key}.label`) })}
+        placeholder={t(`fields.${key}.example`)} value={plan[key]} maxLength={LIMITS[key]} rows={2}
+        aria-invalid={!plan[key].trim()} onChange={event => { setPlan(current => ({ ...current, [key]: event.target.value })); setMessage(""); }} />}
+    </fieldset>;
+  };
 
-  return <section aria-label="导演计划" className="mt-6 rounded-xl border border-glass-border bg-surface/60 p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="text-base font-semibold text-foreground">导演计划</h2><p className="text-xs text-text-muted">逐层继承节奏、构图、焦段、调度、灯光、转场与声音规则</p></div>
-      <div className="flex gap-2" role="group" aria-label="计划作用域">
-        {(["project", "episode", "shot"] as DirectorPlanScope[]).map((value) => <Button key={value} variant={scope === value ? "primary" : "quiet"} isDisabled={value === "shot" && !shotId} onPress={() => setScope(value)}>{value === "project" ? "Project 基线" : value === "episode" ? "Episode 覆盖" : "Shot 覆盖"}</Button>)}
-      </div>
+  return <div className={styles.body} aria-busy={busy}>
+    <p className={styles.notice}>{t("noteOnly")}</p>
+    <div className={styles.scope}>
+      <span>{t("scopeLabel")}</span>
+      {scopes.length === 1 ? <strong>{t(`scope.${scope}`)}</strong> : <div role="group" aria-label={t("scopeLabel")}>
+        {scopes.map(value => <Button key={value} variant={scope === value ? "secondary" : "quiet"} aria-pressed={scope === value}
+          isDisabled={busy || dirty} onPress={() => setScope(value)}>{t(`scope.${value}`)}</Button>)}
+      </div>}
+      {dirty && scopes.length > 1 && <span className={styles.hint}>{t("scopeDirty")}</span>}
     </div>
-    <div className="mt-4 grid gap-3 md:grid-cols-2">
-      {FIELDS.map(({ key, label, multiline }) => multiline
-        ? <TextAreaField key={key} label={`${label} · ${sourceLabel(key)}`} value={String(plan[key] ?? "")} onChange={(value) => update(key, value)} rows={2} />
-        : <TextField key={key} label={`${label} · ${sourceLabel(key)}`} value={String(plan[key] ?? "")} onChange={(value) => update(key, value)} />)}
-    </div>
-    <div className="mt-3 flex flex-wrap gap-2">
-      <Button variant="primary" onPress={() => void save()} isPending={busy}><Save size={14} />保存计划</Button>
-      <Button variant="quiet" onPress={() => void reset()} isDisabled={busy}><RotateCcw size={14} />恢复默认</Button>
-    </div>
-    <div className="mt-5 border-t border-glass-border pt-4">
-      <TextAreaField label="AI 计划预览" value={instruction} onChange={setInstruction} placeholder="描述你希望的节奏、镜头和灯光变化" rows={2} />
-      <div className="mt-2 flex gap-2"><Button variant="secondary" onPress={() => void createPreview()} isPending={busy} isDisabled={!instruction.trim()}><Sparkles size={14} />生成预览</Button>
-        {preview && <Button variant="primary" onPress={() => void confirmPreview()} isDisabled={busy}><Check size={14} />确认并应用</Button>}</div>
-      {preview && <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-black/20 p-3 text-xs text-text-secondary">{JSON.stringify(preview.payload, null, 2)}</pre>}
-    </div>
-    {message && <p role="status" className="mt-3 text-xs text-text-secondary">{message}</p>}
-    <div className="mt-5 border-t border-glass-border pt-4" data-testid="director-plan-prompt-provenance">
-      <h3 className="text-xs font-semibold text-foreground">最终提示词与来源链</h3>
-      <p className="mt-2 whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-xs text-text-secondary">{finalPrompt || "保存计划后生成最终提示词"}</p>
-      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-text-muted">
-        {FIELDS.map(({ key, label }) => <span key={key}>{label}: {sourceLabel(key)}</span>)}
-      </div>
-    </div>
-  </section>;
+    {!loaded && <div role="status" className={styles.feedback}>{busy ? t("loading") : <Button variant="secondary" onPress={() => setRetry(value => value + 1)}>{t("retry")}</Button>}</div>}
+    {loaded && <>
+      <div className={styles.fields}>{FIELDS.slice(0, 5).map(renderField)}</div>
+      <details className={styles.advanced}>
+        <summary>{t("advanced")}<ChevronDown size={15} aria-hidden="true" /></summary>
+        <p className={styles.hint}>{t("advancedHint")}</p>
+        <div className={styles.fields}>{FIELDS.slice(5).map(renderField)}</div>
+      </details>
+      <footer className={styles.footer}>
+        <span role="status">{message ? t(message) : (dirty ? t("unsaved") : t("savedState"))}</span>
+        <div className={styles.actions}>
+          {dirty && <Button variant="quiet" isDisabled={busy} onPress={() => { setPlan(saved); setMessage(""); setError(""); }}>{t("undo")}</Button>}
+          <Button variant="quiet" isDisabled={busy || !hasOverrides || dirty} onPress={() => void reset()}><RotateCcw size={14} />{t("reset")}</Button>
+          <Button variant="primary" isPending={busy} isDisabled={!dirty || invalid || busy} onPress={() => void save()}><Save size={14} />{t("save")}</Button>
+        </div>
+      </footer>
+    </>}
+    {error && <p role="alert" className={styles.error}>{t(error)}</p>}
+  </div>;
 }

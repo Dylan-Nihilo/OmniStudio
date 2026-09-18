@@ -1,0 +1,43 @@
+.dialog {
+  width: min(720px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  max-height: min(820px, calc(100dvh - 48px));
+  padding: 24px;
+}
+.dialog :global(.modal__header), .dialog :global(.modal__footer) { flex-shrink: 0; }
+.dialog :global(.modal__heading) { font-size: 18px; font-weight: 600; line-height: 1.4; }
+.dialog :global(.modal__body) { min-height: 0; overflow-y: auto; overflow-x: hidden; margin: 14px 0 0; padding: 0 4px 2px 0; scrollbar-gutter: stable; }
+.dialog :global(.modal__footer) { gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--color-border-default); }
+.subtitle { margin: 0 0 22px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.7; }
+.sections { display: grid; gap: 22px; }
+.section { min-width: 0; }
+.sectionHeading { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; color: var(--color-text-secondary); }
+.sectionHeading h3 { margin: 0; font-size: 13px; line-height: 20px; font-weight: 600; }
+.count { margin-left: auto; color: var(--color-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.list { display: grid; gap: 8px; }
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  padding: 13px 15px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 10px;
+  background: var(--color-bg-surface);
+  text-align: left;
+}
+.item :global(.checkbox__content) { display: flex; align-items: flex-start; justify-content: flex-start; width: 100%; min-width: 0; gap: 10px; text-align: left; }
+.item :global(.checkbox__control) { flex-shrink: 0; margin-top: 2px; }
+.item > :global([data-slot="description"]) { width: auto; min-width: 0; padding: 0 0 0 26px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.75; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.name { flex: 1; min-width: 0; color: var(--color-text-primary); font-size: 14px; font-weight: 600; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+.empty { margin: 0; padding: 10px 0; color: var(--color-text-muted); font-size: 12px; }
+@media (max-width: 600px) {
+  .dialog { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 20px 16px 16px; }
+  .dialog :global(.modal__heading) { font-size: 17px; }
+  .subtitle { margin-bottom: 18px; }
+  .sections { gap: 18px; }
+  .item { padding: 12px; }
+}
