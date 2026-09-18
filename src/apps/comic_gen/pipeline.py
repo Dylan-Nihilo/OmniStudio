@@ -2487,6 +2487,9 @@ class ComicGenPipeline:
                     raise ValueError("out_point exceeds the selected video's duration")
 
         # Update only provided fields
+        if kwargs.get("omni_reference_settings") is not None:
+            from .omni_reference import OmniReferenceSettings
+            frame.omni_reference_settings = OmniReferenceSettings.model_validate(kwargs["omni_reference_settings"])
         if kwargs.get('image_prompt') is not None:
             frame.image_prompt = kwargs['image_prompt']
         if kwargs.get('action_description') is not None:
@@ -2996,6 +2999,8 @@ class ComicGenPipeline:
                     refs[asset.id] = image
                     if kind == "characters" and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
                         params[asset.id] = [getattr(asset, key, None) for key in ("voice_id", "voice_speed", "voice_pitch", "voice_volume")]
+        if frame.omni_reference_settings is not None:
+            params["omni_reference_settings"] = frame.omni_reference_settings.model_dump()
         return compute_dependency_fingerprint("shot-video", refs, params)
 
     def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None, last_frame_url: Optional[str] = None) -> Tuple[Script, str]:
@@ -3008,6 +3013,21 @@ class ComicGenPipeline:
             raise ValueError(f"Frame not found: {frame_id}")
 
         frame = next((frame for frame in script.frames if frame.id == frame_id), None)
+        reference_audio_urls = []
+        if frame and frame.omni_reference_settings is not None:
+            from .omni_reference import supports_omni_reference
+            settings = frame.omni_reference_settings
+            if not supports_omni_reference(model) or generation_mode != "r2v":
+                if settings.videos or settings.audios or settings.audio_mode != "post":
+                    raise ValueError("已保存全能参考，请使用 Seedance 2.5 全能参考，或先清空这些参考设置")
+            else:
+                reference_video_urls = [item.url for item in settings.videos]
+                audio_mode = settings.audio_mode
+                reference_audio_urls = [item.url for item in settings.audios] if audio_mode == "driven" else []
+                audio_url = reference_audio_urls[0] if reference_audio_urls else None
+                if audio_mode == "driven" and not reference_audio_urls:
+                    raise ValueError("请添加声音参考，或改用生成原声/后期配音")
+                prompt = settings.video_prompt(prompt)
         # Post-production keeps the first frame locked. Audio-driven H3 uses
         # reference mode instead; changing that choice silently breaks continuity.
         if audio_mode == "driven" and not audio_url and frame:
@@ -3080,7 +3100,8 @@ class ComicGenPipeline:
                 (reference_video_urls or []) if needs_video_refs
                 else (reference_image_urls or [])
             )
-            if not refs:
+            from .omni_reference import supports_omni_reference
+            if not refs and not (supports_omni_reference(model) and (reference_video_urls or reference_audio_urls or audio_options["audio_url"])):
                 kind = "video" if needs_video_refs else "image"
                 raise ValueError(
                     f"Model '{model}' is reference-to-video and requires {kind} references, "
@@ -3088,6 +3109,10 @@ class ComicGenPipeline:
                     "to reference characters / scenes / props) or switch to an I2V model "
                     "(e.g. wan2.7-i2v)."
                 )
+
+        from .omni_reference import validate_omni_counts
+        validate_omni_counts(model, reference_image_urls or [], reference_video_urls or [],
+                             reference_audio_urls or ([audio_options["audio_url"]] if audio_options["audio_url"] else []))
 
         # Snapshot the input image to ensure consistency
         snapshot_url = image_url
@@ -3150,8 +3175,8 @@ class ComicGenPipeline:
             duration=duration,
             seed=seed,
             resolution=resolution,
-            generate_audio=generate_audio,
-            audio_url=audio_url,
+            generate_audio=audio_options["audio"],
+            audio_url=audio_options["audio_url"],
             audio_mode=audio_mode,
             prompt_extend=prompt_extend,
             negative_prompt=negative_prompt,
@@ -3159,6 +3184,7 @@ class ComicGenPipeline:
             shot_type=shot_type,
             generation_mode=generation_mode,
             reference_video_urls=reference_video_urls or [],
+            reference_audio_urls=reference_audio_urls,
             reference_image_urls=reference_image_urls or [],
             ratio=ratio,
             watermark=watermark,
@@ -5017,6 +5043,7 @@ class ComicGenPipeline:
                     ref_image_urls=task.reference_image_urls if task.generation_mode == "r2v" else None,
                     ref_video_urls=task.reference_video_urls if task.generation_mode == "r2v" else None,
                     audio_url=final_audio_url,
+                    ref_audio_urls=task.reference_audio_urls,
                     # The CN line dedupes on this header, so a retried submit cannot be
                     # charged twice. The task id is the same key billing holds against.
                     idempotency_key=task_id,

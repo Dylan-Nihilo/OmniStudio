@@ -4,6 +4,7 @@ import time
 from pydantic import BaseModel, Field
 
 from ...utils.model_catalog import get_default_model_settings
+from .omni_reference import OmniReferenceSettings
 
 # Source-domain contracts live in their own module to keep this large legacy
 # model file focused, while remaining importable from the public model module.
@@ -229,6 +230,7 @@ class VideoTask(BaseModel):
     shot_type: str = Field("single", description="Shot type: 'single' or 'multi' (only for wan I2V models)")
     generation_mode: str = Field("i2v", description="Generation mode: 'i2v' (image-to-video) or 'r2v' (reference-to-video)")
     reference_video_urls: List[str] = Field(default_factory=list, description="Reference video URLs for R2V generation (max 3)")
+    reference_audio_urls: List[str] = Field(default_factory=list, max_length=10)
     # Kling params
     mode: Optional[str] = Field(None, description="Kling mode: std/pro")
     sound: Optional[str] = Field(None, description="Kling sound: on/off")
@@ -398,6 +400,7 @@ class Prop(BaseModel):
 
 class StoryboardFrame(BaseModel):
     id: str = Field(..., description="Unique identifier for the frame")
+    omni_reference_settings: Optional[OmniReferenceSettings] = None
     scene_id: str = Field(..., description="Reference to the Scene ID")
     character_ids: List[str] = Field(default_factory=list, description="List of Character IDs present in the frame")
     prop_ids: List[str] = Field(default_factory=list, description="List of Prop IDs present in the frame")

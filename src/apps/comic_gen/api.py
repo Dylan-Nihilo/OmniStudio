@@ -765,6 +765,7 @@ def _iter_media_strings(value, field: str = ""):
             "input_media",
             "reference_image_urls",
             "reference_video_urls",
+            "reference_audio_urls",
             "t2i_image_urls",
             "bg_audio_source_video",
         }:
@@ -4448,6 +4449,7 @@ def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, backg
 
 # === STORYBOARD DRAMATIZATION v2 ===
 
+from .omni_reference import OmniReferenceSettings
 class AnalyzeToStoryboardRequest(BaseModel):
     """Request to analyze script text into storyboard frames."""
     text: str
@@ -6180,6 +6182,7 @@ def toggle_frame_lock(script_id: str, request: ToggleFrameLockRequest):
 
 class UpdateFrameRequest(BaseModel):
     frame_id: str
+    omni_reference_settings: Optional[OmniReferenceSettings] = None
     image_prompt: Optional[str] = None
     action_description: Optional[str] = None
     visual_description: Optional[str] = None
@@ -6197,12 +6200,19 @@ class UpdateFrameRequest(BaseModel):
     out_point: Optional[float] = Field(None, gt=0)
 
 @app.post("/projects/{script_id}/frames/update", response_model=Script)
-def update_frame(script_id: str, request: UpdateFrameRequest):
+def update_frame(script_id: str, request: UpdateFrameRequest, http_request: Request):
     """Updates frame data (prompt, scene, characters, etc.)."""
+    if request.omni_reference_settings:
+        for item in request.omni_reference_settings.videos:
+            if not item.url.startswith("https://") and not _media_is_owned_by_workspace(
+                item.url, http_request.state.auth_context.workspace.id, pipeline
+            ):
+                raise HTTPException(status_code=404, detail="参考视频不存在或不属于当前工作区")
     try:
         updated_script = pipeline.update_frame(
             script_id,
             request.frame_id,
+            omni_reference_settings=request.omni_reference_settings,
             image_prompt=request.image_prompt,
             action_description=request.action_description,
             visual_description=request.visual_description,
