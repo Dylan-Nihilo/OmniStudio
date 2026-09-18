@@ -626,7 +626,7 @@ class MuleRouterImageModel(ImageGenModel):
     def _generate_via_openai_compatible(self, prompt: str, output_path: str, **kwargs) -> Tuple[str, float]:
         """Generate/edit through a standard OpenAI images API."""
         start_time = time.time()
-        config = _get_openai_image_config(kwargs.get("model") or "")
+        config = _get_openai_image_config(kwargs.get("model") or kwargs.get("model_name") or "")
         if not config["api_key"]:
             raise RuntimeError("OPEN302_API_KEY (or OPENAI_IMAGE_API_KEY) is not configured for the image route")
         headers = {"Authorization": f"Bearer {config['api_key']}"}

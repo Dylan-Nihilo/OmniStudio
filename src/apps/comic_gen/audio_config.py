@@ -14,7 +14,13 @@ def _provider_for_model(model: str) -> str:
         return "kling"
     if name.startswith("vidu"):
         return "vidu"
-    if name.startswith(("seedance", "mulerouter/")):
+    if name.startswith("seedance"):
+        from ...utils.provider_registry import resolve_provider_backend
+        try:
+            return resolve_provider_backend(name)
+        except (KeyError, ValueError):
+            return "mulerouter"
+    if name.startswith("mulerouter/"):
         return "mulerouter"
     if name.startswith(("minimax", "moma/")):
         return "moma"
@@ -74,7 +80,12 @@ def resolve_video_audio_options(
     if mode == "native" and provider == "mulerouter":
         raise ValueError(f"Provider for model '{model}' does not support native audio_mode")
 
-    enabled = mode == "native"
+    if mode == "driven" and provider == "jojokey":
+        from .omni_reference import public_https
+        if not public_https(audio_url or ""):
+            raise ValueError("当前声音参考需要可公开访问的 HTTPS 音频地址")
+
+    enabled = mode == "native" or (mode == "driven" and provider == "jojokey")
     driven_url = audio_url if mode == "driven" else None
     return {
         "mode": mode,

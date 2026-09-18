@@ -12,6 +12,9 @@ import ReconcileModal from "@/components/modules/ReconcileModal";
 import { getApiErrorCode } from "@/lib/apiClient";
 import { getAssetUrl } from "@/lib/utils";
 import { useEditLeaseStore } from "@/store/editLeaseStore";
+import ScriptWritingEditor from "./script-writing/ScriptWritingEditor";
+import ProductionGuide from "@/components/shared/ProductionGuide";
+import { useAuthStore } from "@/store/authStore";
 import styles from "./ScriptProcessor.module.css";
 
 export default function ScriptProcessor() {
@@ -35,14 +38,25 @@ export default function ScriptProcessor() {
     const [reconcileOpen, setReconcileOpen] = useState(false);
     const [selectedScene, setSelectedScene] = useState<string | null>(null);
     const fileInput = useRef<HTMLInputElement>(null);
-    const gutter = useRef<HTMLDivElement>(null);
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id) || "local";
+    const draftKey = `omni-script-draft:${workspaceId}:${currentProject?.id}`;
+    const [recoveredDraft, setRecoveredDraft] = useState<string | null>(null);
+    const tw = useTranslations("scriptWriting");
     const readOnly = leaseStatus !== "editing";
 
     useEffect(() => {
         setScript(projectText);
         setSavedText(projectText);
         setSaveError(null);
-    }, [currentProject?.id]);
+        setRecoveredDraft(null);
+        try {
+            const cached = JSON.parse(localStorage.getItem(draftKey) || 'null');
+            if (cached && typeof cached.text === 'string') {
+                if (cached.text === projectText && typeof cached.baseText === 'string') setSavedText(cached.baseText);
+                else if (cached.text !== projectText) setRecoveredDraft(cached.text);
+            }
+        } catch { /* Saving to the server remains available without browser storage. */ }
+    }, [currentProject?.id, workspaceId]);
     useEffect(() => {
         const open = () => setReconcileOpen(true);
         document.addEventListener("omni_studio:openReconcile", open);
@@ -51,6 +65,8 @@ export default function ScriptProcessor() {
 
     const changeScript = (text: string) => {
         setScript(text);
+        setSaveError(null);
+        try { localStorage.setItem(draftKey, JSON.stringify({ text, baseText: savedText })); } catch { /* beforeunload still protects unsaved work. */ }
         if (currentProject) updateProject(currentProject.id, { originalText: text, original_text: text } as any);
     };
     const save = async () => {
@@ -73,14 +89,31 @@ export default function ScriptProcessor() {
                     || useProjectStore.getState().currentProject?.id !== projectId) throw error;
                 saved = await api.updateScriptText(projectId, text, latest._revision, leaseToken, clientInstanceId);
             }
-            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            if (useProjectStore.getState().currentProject?.id !== projectId || (useAuthStore.getState().activeWorkspace?.id || 'local') !== workspaceId) return;
             setSavedText(text);
+            try {
+                const cached = JSON.parse(localStorage.getItem(draftKey) || 'null');
+                if (cached?.text === text) localStorage.removeItem(draftKey);
+                else if (cached && typeof cached.text === 'string') localStorage.setItem(draftKey, JSON.stringify({ text: cached.text, baseText: text }));
+            } catch { /* No effect on the successful server save. */ }
             if (saved._revision) setRevision(saved._revision);
         } catch (error) {
-            if (useProjectStore.getState().currentProject?.id !== projectId) return;
+            if (useProjectStore.getState().currentProject?.id !== projectId || (useAuthStore.getState().activeWorkspace?.id || 'local') !== workspaceId) return;
             setSaveError(getApiErrorCode(error) === "EDIT_REVISION_CONFLICT" ? t("conflict") : ts("saveFailed"));
         } finally { savingRef.current = false; setSaving(false); }
     };
+    useEffect(() => {
+        if (script === savedText || saving || readOnly || saveError) return;
+        const timer = setTimeout(() => void save(), 1200);
+        return () => clearTimeout(timer);
+    }, [script, savedText, saving, readOnly, saveError]);
+    useEffect(() => {
+        const warn = (event: BeforeUnloadEvent) => {
+            if (script !== savedText) { event.preventDefault(); event.returnValue = ''; }
+        };
+        window.addEventListener('beforeunload', warn);
+        return () => window.removeEventListener('beforeunload', warn);
+    }, [script, savedText]);
     const importScript = async (file?: File) => {
         if (!file || readOnly || reading) return;
         if (!/\.(txt|md)$/i.test(file.name) || file.size > 10 * 1024 * 1024) { setSaveError(t("fileTypes")); return; }
@@ -152,10 +185,6 @@ export default function ScriptProcessor() {
     const scene = scenes.find(item => item.id === selectedScene) || scenes[0];
     const reference = scene?.image_url || scene?.image_asset?.variants?.find(variant => variant.id === scene.image_asset?.selected_id)?.url || scene?.image_asset?.variants?.[0]?.url;
     const outline = scenes.length ? <ol className={styles.outline}>{scenes.map((item, index) => <li key={item.id}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{item.name}</h3><p>{item.description}</p></div></li>)}</ol> : <EmptyState title={t("emptyOutline")} description={t("analysisHint")} media={<Film size={28} />} />;
-    const editor = <div className={styles.editor}>
-        <div ref={gutter} className={styles.gutter} aria-hidden="true">{script.split("\n").map((_: string, index: number) => <div key={index}>{String(index + 1).padStart(3, "0")}</div>)}</div>
-        <textarea aria-label={ts("scriptEditor")} value={script} onChange={event => changeScript(event.target.value)} onBlur={() => void save()} onScroll={event => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} readOnly={readOnly || reading} placeholder={ts("scriptPlaceholder")} wrap="off" spellCheck={false} />
-    </div>;
     const analysis = <section className={styles.analysis}>
         <p className={styles.eyebrow}>{t("structure")}</p><h2>{t("sceneAnalysis")}</h2><p className={styles.counts}>{t("counts", { shots: currentProject?.frames?.length || 0, characters: characters.length, scenes: scenes.length })}</p>
         {scene ? <div className={styles.scene}>
@@ -170,14 +199,19 @@ export default function ScriptProcessor() {
             <Button variant="quiet" onPress={() => fileInput.current?.click()} isDisabled={readOnly} isPending={reading}><Upload size={16} />{t("import")}</Button>
             <Button onPress={handleAnalyze} isDisabled={readOnly || !script.trim() || reading} isPending={isAnalyzing}>{isAnalyzing ? ts("analyzingScript") : t("analyze")}</Button>
         </div></header>
-        <div className={styles.panels}>
-            <section className={styles.paper}>
-                <Tabs aria-label={t("editorView")} className={styles.editorTabs} defaultSelectedKey="script" items={[{ id: "outline", label: t("outline"), content: outline }, { id: "script", label: t("script"), content: editor }]} />
+        <ProductionGuide stage="script" />
+        {recoveredDraft !== null && <div className={styles.recovery}>
+            <span>{tw('recoverDraft')}</span>
+            <Button variant="secondary" isDisabled={readOnly} onPress={() => { changeScript(recoveredDraft); setRecoveredDraft(null); }}>{tw('restoreDraft')}</Button>
+            <Button variant="quiet" onPress={() => { localStorage.removeItem(draftKey); setRecoveredDraft(null); }}>{tw('dismissDraft')}</Button>
+        </div>}
+        <ScriptWritingEditor key={`${workspaceId}:${currentProject?.id}`} projectId={currentProject?.id || ''}
+            value={script} readOnly={readOnly || reading} onChange={changeScript} onSave={() => void save()}
+            outline={outline} reference={<Tabs aria-label={t("referencePanels")} items={[{ id: "analysis", label: t("structure"), content: analysis }, { id: "previous", label: t("previous"), content: <PreviousEpisodeSummary scriptId={currentProject?.id ?? null} /> }]} />}
+            footer={<>
                 <footer className={styles.status}><span role="status">{saving ? t("saving") : script !== savedText ? t("unsaved") : t("saved")}</span><span>{t("words", { count: script.length })}</span><Button variant="quiet" onPress={() => void save()} isPending={saving} isDisabled={readOnly || script === savedText}><Save size={14} />{t("save")}</Button></footer>
                 {saveError && <p role="alert" className={styles.error}>{saveError}</p>}
-            </section>
-            <aside className={styles.rail}><Tabs aria-label={t("referencePanels")} items={[{ id: "analysis", label: t("structure"), content: analysis }, { id: "previous", label: t("previous"), content: <PreviousEpisodeSummary scriptId={currentProject?.id ?? null} /> }]} /></aside>
-        </div>
+            </>} />
         <ReconcileModal isOpen={reconcileOpen} scriptId={currentProject?.id ?? null} onClose={() => setReconcileOpen(false)} />
     </div>;
 }

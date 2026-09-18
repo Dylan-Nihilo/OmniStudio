@@ -21,8 +21,9 @@ interface EditLeaseStore {
   token: string | null;
   revision: string | null;
   holderDisplayName: string | null;
+  holderUserId: string | null;
   clientInstanceId: string;
-  acquire: (scriptId: string) => Promise<void>;
+  acquire: (scriptId: string, loadedRevision?: string) => Promise<void>;
   heartbeat: () => Promise<void>;
   release: () => Promise<void>;
   setRevision: (revision: string) => void;
@@ -57,11 +58,14 @@ export const useEditLeaseStore = create<EditLeaseStore>((set, get) => ({
   token: null,
   revision: null,
   holderDisplayName: null,
+  holderUserId: null,
   clientInstanceId,
 
-  acquire: async (scriptId) => {
+  acquire: async (scriptId, loadedRevision) => {
     const version = ++acquisitionVersion;
-    set({ status: "acquiring", scriptId, token: null, holderDisplayName: null });
+    // Reacquiring edit access must not rebase a local draft onto unseen changes.
+    const revision = (get().scriptId === scriptId ? get().revision : null) ?? loadedRevision ?? null;
+    set({ status: "acquiring", scriptId, token: null, revision, holderDisplayName: null, holderUserId: null });
     try {
       const data = await requestLease(scriptId, get().clientInstanceId);
       if (version !== acquisitionVersion) {
@@ -77,8 +81,9 @@ export const useEditLeaseStore = create<EditLeaseStore>((set, get) => ({
         status: "editing",
         scriptId,
         token: data.token,
-        revision: data.revision,
+        revision: revision ?? data.revision,
         holderDisplayName: data.holder_display_name,
+        holderUserId: data.holder_user_id,
       });
     } catch (error) {
       if (version !== acquisitionVersion) return;
@@ -88,8 +93,9 @@ export const useEditLeaseStore = create<EditLeaseStore>((set, get) => ({
           status: "locked",
           scriptId,
           token: null,
-          revision: lease?.revision ?? null,
+          revision: revision ?? lease?.revision ?? null,
           holderDisplayName: lease?.holder_display_name ?? "其他成员",
+          holderUserId: lease?.holder_user_id ?? null,
         });
         return;
       }
@@ -108,14 +114,16 @@ export const useEditLeaseStore = create<EditLeaseStore>((set, get) => ({
         { headers: { "X-Edit-Lease": token } },
       );
     } catch {
-      set({ status: "lost", token: null });
+      if (get().scriptId === scriptId && get().token === token) {
+        set({ status: "lost", token: null });
+      }
     }
   },
 
   release: async () => {
     acquisitionVersion += 1;
     const { scriptId, token, clientInstanceId } = get();
-    set({ status: "idle", scriptId: null, token: null, revision: null, holderDisplayName: null });
+    set({ status: "idle", scriptId: null, token: null, revision: null, holderDisplayName: null, holderUserId: null });
     if (!scriptId || !token) return;
     try {
       await apiClient.delete(`${API_URL}/projects/${scriptId}/edit-lease`, {

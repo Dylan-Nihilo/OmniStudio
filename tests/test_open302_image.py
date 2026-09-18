@@ -61,6 +61,45 @@ def test_a_tier_is_sent_to_the_relay_under_its_own_upstream_name(relay, monkeypa
     assert calls[0][1] == "https://open302.com/v1/images/generations"
 
 
+@pytest.mark.parametrize("model_name", ["gemini-3.1-flash-image", "gpt-image-2", "gpt-image-2.5-sunburst"])
+@pytest.mark.parametrize("consumer", ["holding_reference", "storyboard"])
+def test_production_image_consumers_preserve_the_selected_tier(relay, monkeypatch, model_name, consumer):
+    from pathlib import Path
+
+    from src.apps.comic_gen.assets import AssetGenerator
+    from src.apps.comic_gen.models import Character, GenerationStatus, StoryboardFrame
+    from src.apps.comic_gen.storyboard import StoryboardGenerator
+    from src.models.image import WanxImageModel
+    from src.utils.oss_utils import OSSImageUploader
+
+    monkeypatch.chdir(relay)
+    monkeypatch.setattr(OSSImageUploader, "is_configured", property(lambda _: False))
+    monkeypatch.setattr(WanxImageModel, "generate", lambda *args, **kwargs: pytest.fail("Image tier reached DashScope"))
+    reference = relay / "reference.png"
+    reference.write_bytes(b"fixture reference")
+    sent = []
+
+    def capture(method, url, **kwargs):
+        sent.append((method, url, kwargs["data"]["model"], [item[1][1].read() for item in kwargs["files"]]))
+        return _Response({"data": [{"url": "https://cdn/fixture.png"}]})
+
+    monkeypatch.setattr(mulerouter, "_request_with_retry", capture)
+    if consumer == "holding_reference":
+        character = Character(id="actor", name="Actor", description="Holding a sword")
+        result = AssetGenerator().generate_character(character, generation_type="holding_reference",
+            model_name=model_name, reference_image_path=str(reference), prompt="Hold the reference prop")
+        image_url = result.holding_reference.image_variants[0].url
+    else:
+        frame = StoryboardFrame(id="frame", scene_id="scene", action_description="An actor holds a sword")
+        result = StoryboardGenerator().generate_frame(frame, [], None, model_name=model_name,
+            ref_image_paths=[str(reference)])
+        image_url = result.image_url
+
+    assert result.status == GenerationStatus.COMPLETED
+    assert Path("output", image_url).read_bytes() == b"PNG"
+    assert sent == [("POST", "https://open302.com/v1/images/edits", model_name, [b"fixture reference"])]
+
+
 def test_an_inline_image_is_used_directly(relay, monkeypatch):
     fake, calls = _script([{"data": [{"url": "https://cdn/img.png"}]}])
     monkeypatch.setattr(mulerouter, "_request_with_retry", fake)

@@ -7,11 +7,13 @@ import { api } from '@/lib/api';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
 vi.mock('@/lib/api', () => ({ api: { updateScriptText: vi.fn(), extractPreview: vi.fn(), getProject: vi.fn() } }));
+vi.mock('./script-writing/ScriptWritingEditor', () => ({ default: ({ value, readOnly, onChange, onSave, footer }: any) => <><textarea aria-label="scriptEditor" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)} onBlur={onSave} />{footer}</> }));
 vi.mock('./PreviousEpisodeSummary', () => ({ default: () => <p>Previous episode</p> }));
 vi.mock('./ReconcileModal', () => ({ default: () => null }));
 const project = { id: 'script-one', title: 'Episode one', originalText: 'Opening scene', characters: [], scenes: [], props: [], frames: [] };
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  localStorage.clear();
   useProjectStore.setState({ currentProject: { ...project } as never, projects: [], isAnalyzing: false, pendingExtraction: null, pendingExtractionScript: null });
   useEditLeaseStore.setState({ status: 'editing', scriptId: project.id, token: 'lease', revision: '1', clientInstanceId: 'tab' });
 });
@@ -81,4 +83,33 @@ it('does not attach an old extraction to a newly selected project', async () => 
   act(() => useProjectStore.setState({ currentProject: { ...project, id: 'script-two' } as never }));
   await act(async () => finish({ characters: [{ name: 'Old cast' }], scenes: [], props: [] }));
   expect(useProjectStore.getState().pendingExtraction).toBeNull();
+});
+it('keeps a failed draft dirty after leaving and returning to the script step', async () => {
+  vi.mocked(api.updateScriptText).mockRejectedValueOnce(new Error('offline'));
+  const view = render(<ScriptProcessor />);
+  fireEvent.change(screen.getByRole('textbox', { name: 'scriptEditor' }), { target: { value: 'Do not lose this scene' } });
+  fireEvent.blur(screen.getByRole('textbox', { name: 'scriptEditor' }));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('saveFailed'));
+  view.unmount();
+  render(<ScriptProcessor />);
+  expect(screen.getByRole('textbox', { name: 'scriptEditor' })).toHaveValue('Do not lose this scene');
+  expect(screen.getByRole('status')).toHaveTextContent('unsaved');
+  expect(screen.getByRole('button', { name: 'save' })).toBeEnabled();
+  vi.mocked(api.updateScriptText).mockResolvedValueOnce({ _revision: '2' } as never);
+  fireEvent.click(screen.getByRole('button', { name: 'save' }));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('saved'));
+});
+it('keeps later edits dirty across remount after an earlier save finishes', async () => {
+  let finish!: (value: unknown) => void;
+  vi.mocked(api.updateScriptText).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }) as never);
+  const view = render(<ScriptProcessor />);
+  const editor = screen.getByRole('textbox', { name: 'scriptEditor' });
+  fireEvent.change(editor, { target: { value: 'First version' } });
+  fireEvent.blur(editor);
+  fireEvent.change(editor, { target: { value: 'Second version' } });
+  await act(async () => finish({ _revision: '2' }));
+  view.unmount();
+  render(<ScriptProcessor />);
+  expect(screen.getByRole('textbox', { name: 'scriptEditor' })).toHaveValue('Second version');
+  expect(screen.getByRole('status')).toHaveTextContent('unsaved');
 });

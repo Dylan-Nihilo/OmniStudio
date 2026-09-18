@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { GenerationBanner } from './GenerationBanner';
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
@@ -41,6 +41,7 @@ it('keeps the refinement retry focused during recovery and exposes a failed stat
     const storyboard = { id: 'refinement', phase: 'refine' as const, status: 'failed' as const, frame_ids: ['one', 'two'], results: { one: 'completed' as const, two: 'failed' as const } };
     const props = { storyboard, refinementCount: 1, phase1Captions: [], onRefine: refine, onRefresh: refresh };
     const { rerender } = render(<GenerationBanner {...props} state="summary" />);
+    fireEvent.click(screen.getByRole('button', { name: 'storyboardShowRefinement' }));
     const retry = screen.getByRole('button', { name: 'storyboardRetryRefinement' });
     retry.focus();
     fireEvent.click(retry);
@@ -54,4 +55,25 @@ it('keeps the refinement retry focused during recovery and exposes a failed stat
     expect(refine).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'refreshStatus' }));
     expect(refresh).toHaveBeenCalledOnce();
+});
+
+it('keeps failure details collapsed until requested and lets creators close them without retrying', async () => {
+    const refine = vi.fn(), openShot = vi.fn();
+    const storyboard = { id: 'optional-refinement', phase: 'refine' as const, status: 'completed' as const,
+        frame_ids: ['unfinished'], results: { unfinished: 'failed' as const }, error: 'Upstream overloaded' };
+    render(<GenerationBanner state="summary" phase1Captions={[]} storyboard={storyboard}
+        refinementCount={1} refinementShots={[{ id: 'unfinished', number: 11 }]}
+        onOpenShot={openShot} onRefine={refine} />);
+    expect(screen.queryByText('storyboardManualEditingHint')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'storyboardRetryRefinement' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'storyboardShowRefinement' }));
+    await waitFor(() => expect(screen.getByText('storyboardManualEditingHint')).toBeVisible());
+    fireEvent.click(screen.getByRole('button', { name: 'storyboardOpenRefinementShot' }));
+    expect(openShot).toHaveBeenCalledWith('unfinished');
+    fireEvent.click(screen.getByRole('button', { name: 'storyboardHideRefinement' }));
+    expect(screen.queryByRole('button', { name: 'storyboardRetryRefinement' })).not.toBeInTheDocument();
+    expect(screen.getByText('storyboardRefinementRemaining')).toBeVisible();
+    expect(refine).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'storyboardShowRefinement' }));
+    expect(screen.getByRole('button', { name: 'storyboardRetryRefinement' })).toBeEnabled();
 });

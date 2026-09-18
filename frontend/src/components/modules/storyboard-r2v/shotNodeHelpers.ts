@@ -226,6 +226,7 @@ export function frameToShotNode(
         promptMode: frame.prompt_mode ?? "structured",
         tabMode: (frame.workbench_tab_mode as "t2i_i2v" | "direct_r2v" | undefined) ?? defaultTabMode,
         modelSettingsOverrides: frame.model_settings_overrides ?? {},
+        omniReferences: frame.omni_reference_settings ?? undefined,
         videoUrl,
         videoStatus,
         videoTaskId,

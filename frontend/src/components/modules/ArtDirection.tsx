@@ -8,6 +8,8 @@ import { useProjectStore, type StyleConfig, type StylePreset, type StylePresetCa
 import { api } from "@/lib/api";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
+import ProductionGuide from "@/components/shared/ProductionGuide";
+import { materialStep } from "@/lib/pipelineSteps";
 import { toast } from "@/store/toastStore";
 import DirectorPlanEditor from "@/components/modules/DirectorPlan/DirectorPlanEditor";
 
@@ -419,6 +421,9 @@ export default function ArtDirection() {
                 projectTitle: currentProject.title,
                 body: ta("styleAppliedBody", { name: finalConfig.name }),
             });
+            if (useProjectStore.getState().currentProject?.id === currentProject.id) {
+                document.dispatchEvent(new CustomEvent("omni_studio:navigateStep", { detail: materialStep(refreshed.workflow_mode) }));
+            }
         } catch (error) {
             console.error("Failed to save art direction:", error);
             toast.error(ta("saveFailedShort"), {
@@ -442,6 +447,7 @@ export default function ArtDirection() {
                 ) : null}
             />
 
+            <ProductionGuide stage="style" />
             {/* Scrollable content — full width */}
             <div className="flex-1 min-h-0 overflow-y-auto p-8 space-y-8 bg-surface">
                 {currentProject && <DirectorPlanEditor projectId={currentProject.id} />}

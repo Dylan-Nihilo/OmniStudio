@@ -1,10 +1,11 @@
 "use client";
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Mic, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Mic, Sparkles } from "lucide-react";
 import { Button, LoadingState } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import type { DialogueAudioBatch, StoryboardGeneration } from "@/lib/api";
+import styles from "./GenerationBanner.module.css";
 
 export type BannerState = "idle" | "phase1" | "phase2" | "dialogue" | "summary";
 export interface GenerationBannerProps {
@@ -24,27 +25,39 @@ export interface GenerationBannerProps {
     storyboardRecovering?: boolean;
     refinementCount?: number;
     onRefine?: () => void;
+    refinementShots?: Array<{ id: string; number: number }>;
+    onOpenShot?: (id: string) => void;
 }
-export function GenerationBanner({ state, phase1Captions, refineProgress, dialogueProgress, summary, onGenerateDialogue, batch, batchError, refreshFailed, refreshing, onRefresh, storyboard, storyboardError, storyboardRecovering, refinementCount = 0, onRefine }: GenerationBannerProps) {
+export function GenerationBanner({ state, phase1Captions, refineProgress, dialogueProgress, summary, onGenerateDialogue, batch, batchError, refreshFailed, refreshing, onRefresh, storyboard, storyboardError, storyboardRecovering, refinementCount = 0, onRefine, refinementShots = [], onOpenShot }: GenerationBannerProps) {
     const t = useTranslations("storyboardR2V");
     const tAudio = useTranslations("dialogueAudio");
+    const [detailsOpen, setDetailsOpen] = useState(false);
     if (state === "phase1" || state === "phase2" || storyboardError || refinementCount > 0 || storyboard?.status === "failed") {
         const pending = state === "phase1" || state === "phase2";
         const retry = storyboard?.phase === "refine";
-        const error = storyboardError || (!pending && storyboard?.status === "failed" ? storyboard.error || t("storyboardInterrupted") : undefined);
+        const error = storyboardError || (!pending ? storyboard?.error || (storyboard?.status === "failed" ? t("storyboardInterrupted") : undefined) : undefined);
+        const canDefer = !pending && retry && refinementCount > 0;
         const label = storyboardRecovering ? t("storyboardChecking") : state === "phase1"
             ? phase1Captions[0] || t("genInFlight")
             : t("bannerRefineProgress", { current: refineProgress?.current ?? 0, total: refineProgress?.total ?? 0 });
         return <BannerShell>
-            <div className="min-w-0 basis-full space-y-1 text-xs text-text-secondary sm:flex-1 sm:basis-0">
+            <div className={styles.copy}>
                 {pending ? <LoadingState inline className="justify-start" label={label} />
                     : refinementCount > 0 && <p role="status">{t(retry ? "storyboardRefinementRemaining" : "storyboardReadyToRefine", { count: refinementCount })}</p>}
-                {error && <p role="alert" className="break-words text-status-failed-fg">{error}</p>}
+                {canDefer && detailsOpen && <>
+                    <p>{t("storyboardManualEditingHint")}</p>
+                    {onOpenShot && <div className={styles.shotLinks}>{refinementShots.map(shot => <Button key={shot.id} variant="quiet" onPress={() => onOpenShot(shot.id)}>{t("storyboardOpenRefinementShot", { number: shot.number })}</Button>)}</div>}
+                </>}
+                {error && (canDefer ? detailsOpen && <details className={styles.errorDetails}><summary>{t("storyboardErrorDetails")}</summary><p>{error}</p></details>
+                    : <p role="alert" className="break-words text-status-failed-fg">{error}</p>)}
                 {refreshFailed && <p role="alert">{t("storyboardRefreshFailed")}</p>}
             </div>
             {(refreshFailed || storyboardError) && onRefresh && <Button variant="quiet" isPending={refreshing} onPress={onRefresh}>{tAudio("refreshStatus")}</Button>}
-            {(refinementCount > 0 || state === "phase2") && onRefine && <Button variant="quiet" isPending={pending} isDisabled={state === "dialogue"} onPress={onRefine}>
+            {(refinementCount > 0 || state === "phase2") && onRefine && <span key="refine" hidden={canDefer && !detailsOpen}><Button variant="quiet" isPending={pending} isDisabled={state === "dialogue"} onPress={onRefine}>
                 {!pending && <Sparkles size={14} aria-hidden="true" />}{t(pending ? "refiningPrompt" : retry ? "storyboardRetryRefinement" : "storyboardContinueRefinement")}
+            </Button></span>}
+            {canDefer && <Button key="details" variant="quiet" aria-expanded={detailsOpen} onPress={() => setDetailsOpen(open => !open)}>
+                {t(detailsOpen ? "storyboardHideRefinement" : "storyboardShowRefinement")}{detailsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </Button>}
         </BannerShell>;
     }
@@ -84,7 +97,7 @@ export function GenerationBanner({ state, phase1Captions, refineProgress, dialog
 function BannerShell({ children }: { children: ReactNode }) {
     const reducedMotion = useReducedMotion();
     return <motion.div initial={reducedMotion ? false : { opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : .18 }}
-        className="mx-4 mb-3 flex shrink-0 flex-wrap items-center gap-3 rounded-lg border border-glass-border bg-surface px-3 py-2 sm:mx-8">
+        className={styles.shell}>
         {children}
     </motion.div>;
 }

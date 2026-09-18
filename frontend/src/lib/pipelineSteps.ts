@@ -22,6 +22,23 @@ export interface LocalizedPipelineStep {
     label: string;
 }
 
+type StyleSource = { style_config?: { id?: string; name?: string; positive_prompt?: string } } | null;
+type PreparationProject = { workflow_mode?: string; series_id?: string | null; art_direction?: StyleSource };
+
+export function materialStep(workflowMode?: string): PipelineStepId {
+    return workflowMode === "r2v" ? "cast" : "assets";
+}
+
+export function preparationStyle(project: PreparationProject, series?: { id: string; art_direction?: StyleSource } | null) {
+    const inherited = project.series_id && series?.id === project.series_id ? series.art_direction : null;
+    return (project.art_direction ?? inherited)?.style_config ?? null;
+}
+
+export function nextStepAfterExtraction(project: PreparationProject, series?: { id: string; art_direction?: StyleSource } | null): PipelineStepId {
+    const style = preparationStyle(project, series);
+    return style?.positive_prompt?.trim() || style?.id?.trim() ? materialStep(project.workflow_mode) : "art_direction";
+}
+
 export function resolveActivePipelineStep(
     activeStep: string,
     steps: ReadonlyArray<Pick<LocalizedPipelineStep, "id">>,

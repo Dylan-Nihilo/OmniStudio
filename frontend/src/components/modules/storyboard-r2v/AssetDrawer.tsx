@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, User, MapPin, Package } from "lucide-react";
 import { useTranslations } from "next-intl";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
+import { holdingReferenceName } from '@/lib/assetReferences';
 import { selectedVariantUrl } from "@/lib/characterImage";
 
 interface AssetDrawerProps {
@@ -13,6 +14,7 @@ interface AssetDrawerProps {
     scenes: any[];
     props: any[];
     onSelectAsset: (type: string, name: string) => void;
+    selectedNames?: string[];
 }
 
 function getAssetThumbnail(item: any, type: "character" | "scene" | "prop"): string | null {
@@ -37,10 +39,15 @@ function getAssetThumbnail(item: any, type: "character" | "scene" | "prop"): str
     return null;
 }
 
-export default function AssetDrawer({ isOpen, onClose, characters, scenes, props, onSelectAsset }: AssetDrawerProps) {
+export default function AssetDrawer({ isOpen, onClose, characters, scenes, props, onSelectAsset, selectedNames = [] }: AssetDrawerProps) {
     const t = useTranslations("storyboardR2V");
+    const referenceCharacters = characters.flatMap(c => {
+        const unit = c.holding_reference;
+        const selected = unit?.image_variants?.find((v: any) => v.id === unit.selected_image_id);
+        return selected ? [c, { ...c, id: `${c.id}:holding`, name: holdingReferenceName(c.name), reference_sheet: unit }] : [c];
+    });
 
-    const hasAnyAssets = characters.length > 0 || scenes.length > 0 || props.length > 0;
+    const hasAnyAssets = referenceCharacters.length > 0 || scenes.length > 0 || props.length > 0;
 
     return (
         <AnimatePresence>
@@ -67,6 +74,7 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                             <h3 className="text-sm font-semibold text-foreground">{t("assetLibrary")}</h3>
                             <button
                                 onClick={onClose}
+                                aria-label={t("close")}
                                 className="p-1.5 rounded-lg hover:bg-hover-bg text-text-secondary hover:text-foreground transition-colors"
                             >
                                 <X size={16} />
@@ -83,18 +91,20 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                             ) : (
                                 <>
                                     {/* Characters */}
-                                    {characters.length > 0 && (
+                                    {referenceCharacters.length > 0 && (
                                         <div>
                                             <div className="flex items-center gap-1.5 mb-2">
                                                 <User size={12} className="text-blue-400" />
                                                 <span className="text-[0.6875rem] font-medium text-text-secondary uppercase tracking-wide">{t("characters")}</span>
                                             </div>
                                             <div className="grid grid-cols-2 gap-2">
-                                                {characters.map((c: any, i: number) => {
+                                                {referenceCharacters.map((c: any, i: number) => {
                                                     const thumb = getAssetThumbnail(c, "character");
                                                     return (
                                                         <button
                                                             key={c.id}
+                                                            disabled={selectedNames.includes(c.name)}
+                                                            aria-label={selectedNames.includes(c.name) ? t("referenceAlreadyAdded", { name: c.name }) : c.name}
                                                             onClick={() => {
                                                                 onSelectAsset(`character${i + 1}`, c.name);
                                                                 onClose();
@@ -109,6 +119,7 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                                                                 )}
                                                             </div>
                                                             <span className="text-[0.6875rem] text-foreground group-hover:text-primary truncate w-full text-center">{c.name}</span>
+                                                            {selectedNames.includes(c.name) && <span className="text-xs text-primary">{t("referenceSelected")}</span>}
                                                         </button>
                                                     );
                                                 })}
@@ -129,6 +140,8 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                                                     return (
                                                         <button
                                                             key={s.id}
+                                                            disabled={selectedNames.includes(s.name)}
+                                                            aria-label={selectedNames.includes(s.name) ? t("referenceAlreadyAdded", { name: s.name }) : s.name}
                                                             onClick={() => {
                                                                 onSelectAsset("scene", s.name);
                                                                 onClose();
@@ -143,6 +156,7 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                                                                 )}
                                                             </div>
                                                             <span className="text-[0.6875rem] text-foreground group-hover:text-primary truncate w-full text-center">{s.name}</span>
+                                                            {selectedNames.includes(s.name) && <span className="text-xs text-primary">{t("referenceSelected")}</span>}
                                                         </button>
                                                     );
                                                 })}
@@ -163,6 +177,8 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                                                     return (
                                                         <button
                                                             key={p.id}
+                                                            disabled={selectedNames.includes(p.name)}
+                                                            aria-label={selectedNames.includes(p.name) ? t("referenceAlreadyAdded", { name: p.name }) : p.name}
                                                             onClick={() => {
                                                                 onSelectAsset("prop", p.name);
                                                                 onClose();
@@ -177,6 +193,7 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                                                                 )}
                                                             </div>
                                                             <span className="text-[0.6875rem] text-foreground group-hover:text-primary truncate w-full text-center">{p.name}</span>
+                                                            {selectedNames.includes(p.name) && <span className="text-xs text-primary">{t("referenceSelected")}</span>}
                                                         </button>
                                                     );
                                                 })}

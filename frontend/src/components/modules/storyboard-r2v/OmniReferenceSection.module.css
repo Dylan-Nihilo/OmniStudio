@@ -1,0 +1,19 @@
+.root { padding: 16px 20px; border-top: 1px solid var(--color-border-default); min-width: 0; }
+.root header, .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.root h3 { font-size: 14px; font-weight: 600; }
+.root header > span, .hint { color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
+.hint { margin: 8px 0; }
+.fields { border: 0; padding: 0; margin: 12px 0 0; min-width: 0; display: grid; gap: 16px; }
+.group { display: grid; gap: 8px; min-width: 0; }
+.group h4 { font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; }
+.group h4 span { color: var(--color-text-secondary); font-weight: 400; }
+.group > p { margin: 0; }
+.reference { display: grid; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--color-border-default); border-radius: 10px; }
+.reference strong { font-size: 12px; }
+.reference video { width: 100%; max-height: 160px; border-radius: 6px; background: #15191e; }
+.reference audio { width: 100%; min-width: 0; height: 36px; }
+.add { display: grid; gap: 8px; }
+.add label { display: grid; gap: 5px; font-size: 12px; }
+.add input { width: 100%; min-width: 0; border: 1px solid var(--color-border-default); background: var(--color-bg-inset); color: inherit; border-radius: 8px; padding: 8px 10px; }
+.file { display: none; }
+.error { font-size: 12px; color: var(--color-status-failed-fg); }
