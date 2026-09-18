@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo } from "react";
 import { Palette, Layout, Film, BookOpen, Users, Video, Clapperboard } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
+import { episodeAssets } from "@/lib/episodeAssets";
+import { buildProjectStepHash, readProjectStep } from "@/lib/pipelineNavigation";
 import { buildLocalizedPipelineSteps, nextStepAfterExtraction, resolveActivePipelineStep, type PipelineStepId } from "@/lib/pipelineSteps";
 import PipelineSidebar from "@/components/layout/PipelineSidebar";
 import EpisodeMiniList from "@/components/layout/EpisodeMiniList";
@@ -40,7 +42,7 @@ const STEP_ICONS: Record<PipelineStepId, typeof BookOpen> = {
 };
 
 export default function ProjectClient({ id, breadcrumbSegments }: { id: string; breadcrumbSegments?: BreadcrumbSegment[] }) {
-    const [activeStep, setActiveStep] = useState(() => window.location.hash.split("#")[2] || "script");
+    const [activeStep, setActiveStep] = useState(() => readProjectStep(window.location.hash)?.stepId || "script");
     const [loading, setLoading] = useState(true);
     const [loadFailed, setLoadFailed] = useState(false);
     const [reload, setReload] = useState(0);
@@ -88,7 +90,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         // (lock + label) when there are no shots yet, but stays CLICKABLE
         // (no navigation behavior change).
         const frames = currentProject?.frames ?? [];
-        const chars = currentProject?.characters ?? [];
+        const chars = episodeAssets(currentProject).characters;
         const bound = chars.filter(c => c.voice_id).length;
         const frameCount = frames.length;
         const hasArt = !!currentProject?.art_direction;
@@ -117,7 +119,15 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         return base.map(s => ({ ...s, ...statusFor(s.id) }));
     }, [currentProject, seriesContentMode, tp]);
 
-    useEffect(() => { setActiveStep(window.location.hash.split("#")[2] || "script"); }, [id]);
+    useEffect(() => {
+        const syncFromHash = () => {
+            const location = readProjectStep(window.location.hash);
+            if (location?.projectId === id) setActiveStep(location.stepId);
+        };
+        syncFromHash();
+        window.addEventListener("hashchange", syncFromHash);
+        return () => window.removeEventListener("hashchange", syncFromHash);
+    }, [id]);
 
     useEffect(() => {
         if (loading || currentProject?.id !== id) return;
@@ -129,6 +139,11 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         window.location.hash = '';
     };
 
+    const navigateStep = (stepId: string) => {
+        if (!steps.some(step => step.id === stepId) || stepId === activeStep) return;
+        window.location.hash = buildProjectStepHash(id, stepId);
+    };
+
     // Cross-module step navigation event (used by intra-module
     // affordances like Storyboard's "画风" pill that wants to jump
     // to Art Direction without prop-drilling setActiveStep into
@@ -138,12 +153,12 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
             const detail = (e as CustomEvent<string>).detail;
             if (typeof detail !== "string") return;
             if (steps.some((s) => s.id === detail)) {
-                setActiveStep(detail);
+                navigateStep(detail);
             }
         };
         document.addEventListener("omni_studio:navigateStep", handler);
         return () => document.removeEventListener("omni_studio:navigateStep", handler);
-    }, [steps]);
+    }, [steps, activeStep, id]);
 
     useEffect(() => {
         let cancelled = false;
@@ -166,7 +181,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         { id: "prompt", label: tChrome("promptSettings"), onAction: () => setPromptConfigOpen(true) },
         { id: "model", label: tChrome("modelSettings"), onAction: () => setModelSettingsOpen(true) },
     ]} />;
-    const context = <PipelineSidebar activeStep={activeStep} onStepChange={setActiveStep} steps={steps}
+    const context = <PipelineSidebar activeStep={activeStep} onStepChange={navigateStep} steps={steps}
         projectLabel={currentProject.title} titleAction={<RenameProjectButton key={id} projectId={id} title={currentProject.title} />} projectSubLabel={currentProject.episode_number ? `EP.${String(currentProject.episode_number).padStart(2, "0")}` : undefined}
         breadcrumbSegments={segments} headerActions={settingsActions}
         topSlot={currentProject.series_id ? <EpisodeMiniList seriesId={currentProject.series_id} currentProjectId={id} activeStep={activeStep} /> : undefined} />;
