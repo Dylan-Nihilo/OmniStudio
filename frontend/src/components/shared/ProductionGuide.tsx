@@ -35,7 +35,7 @@ export default function ProductionGuide({ stage, ready = 0 }: { stage: 'script' 
     }
     return <section className={styles.guide} aria-label={t('nextStep')}>
         <CheckCircle2 size={18} aria-hidden="true" />
-        <div className={styles.copy}><h2>{title}</h2><p>{t('counts', counts)} · {body}</p></div>
+        <details className={styles.copy}><summary>{title}</summary><p>{t('counts', counts)} · {body}</p></details>
         <div className={styles.actions}>
             {stage === 'script' && needsStyle && <Button variant="quiet" onPress={() => navigate(materialStep(project.workflow_mode))}>{t('viewInventory')}</Button>}
             {destination && <Button variant="secondary" onPress={() => navigate(destination!)}>{action}<ChevronRight size={15} /></Button>}
