@@ -475,6 +475,8 @@
     "sync": "Sync",
     "open": "Open",
     "close": "Close",
+    "keepEditing": "Keep editing",
+    "discardChanges": "Discard changes",
     "recommended": "Recommended",
     "offlineTooltip": "You're offline — reconnect to use this",
     "noMatchHint": "Try adjusting filters or search keywords",

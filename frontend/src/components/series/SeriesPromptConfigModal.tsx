@@ -123,6 +123,7 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
     return (
         <AnimatePresence>
             <motion.div
+                key="series-prompt-config"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -250,7 +251,7 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
                 </motion.div>
             </motion.div>
             {confirmClose && (
-                <div role="dialog" aria-label={t("unsavedChangesTitle")} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+                <div key="unsaved-confirm" role="dialog" aria-label={t("unsavedChangesTitle")} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
                     <div className="w-full max-w-md rounded-xl border border-glass-border bg-elevated p-5 shadow-2xl">
                         <h3 className="text-base font-semibold text-foreground">{t("unsavedChangesTitle")}</h3>
                         <p className="mt-2 text-sm text-text-secondary">{t("unsavedChangesHint")}</p>

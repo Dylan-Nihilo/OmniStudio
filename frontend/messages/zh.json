@@ -475,6 +475,8 @@
     "sync": "同步",
     "open": "打开",
     "close": "关闭",
+    "keepEditing": "继续编辑",
+    "discardChanges": "放弃修改",
     "recommended": "推荐",
     "offlineTooltip": "网络已断开 — 重新连接后可用",
     "noMatchHint": "试试调整筛选条件或搜索关键词",
