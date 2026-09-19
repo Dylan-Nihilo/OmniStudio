@@ -29,6 +29,7 @@ class _Response:
 @pytest.fixture
 def relay(monkeypatch, tmp_path):
     monkeypatch.setenv("OPEN302_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_IMAGE_BASE_URL", "https://open302.com/v1")
     monkeypatch.setattr(mulerouter.time, "sleep", lambda _: None)
     monkeypatch.setattr(mulerouter, "_download_file", lambda url, path: open(path, "wb").write(b"PNG"))
     return tmp_path
