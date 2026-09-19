@@ -742,10 +742,11 @@ function AIRecommendationCard({ style, isSelected, onClick }: {
     onClick: () => void;
 }) {
     return (
-        <motion.div
+        <motion.button
+            type="button"
             layout
             onClick={onClick}
-            className={`group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
+            className={`text-left group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
                 isSelected
                     ? "border-yellow-400/60 shadow-lg shadow-yellow-500/15 ring-1 ring-yellow-400/30"
                     : "border-glass-border hover:border-foreground/30 hover:shadow-sm"
@@ -782,7 +783,7 @@ function AIRecommendationCard({ style, isSelected, onClick }: {
                     </p>
                 )}
             </div>
-        </motion.div>
+        </motion.button>
     );
 }
 
@@ -955,10 +956,11 @@ function StylePresetCardV2({ style, isSelected, onClick }: {
     onClick: () => void;
 }) {
     return (
-        <motion.div
+        <motion.button
+            type="button"
             layout
             onClick={onClick}
-            className={`group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
+            className={`text-left group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
                 isSelected
                     ? "border-primary shadow-lg shadow-primary/20 ring-1 ring-primary/40"
                     : "border-glass-border hover:border-foreground/30 hover:shadow-sm"
@@ -996,7 +998,7 @@ function StylePresetCardV2({ style, isSelected, onClick }: {
                     </p>
                 )}
             </div>
-        </motion.div>
+        </motion.button>
     );
 }
 
