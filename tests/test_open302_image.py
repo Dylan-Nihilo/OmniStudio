@@ -161,37 +161,48 @@ class _Refusal:
         raise ValueError("not json")
 
 
-def test_a_refusal_keeps_what_the_upstream_said():
-    """raise_for_status() reports the status line and the URL and discards the body, so a
-    refused image reached a user as "451 Client Error: Unavailable For Legal Reasons for
-    url: ..." — nothing to act on, and nothing to diagnose from afterwards."""
-    message = mulerouter._describe_http_failure(
-        _Refusal(451, '{"error":{"message":"content blocked by provider policy"}}'))
-    assert "content blocked by provider policy" in message
-    assert "451" in message
+def test_a_user_is_told_the_cause_and_not_our_endpoint(caplog):
+    """Deliberate reversal of what this file asserted an hour ago.
+
+    The first attempt at fixing the opaque "451 Client Error ... for url: ..." put the
+    upstream's own text and the endpoint into the user-facing message. That leaks which
+    vendor we buy capacity from and where we call it, which is not a customer's business —
+    and the provider's raw wording is not something they can act on anyway. The detail
+    belongs in the log; the user gets a cause.
+    """
+    resp = _Refusal(451, '{"error":{"message":"content blocked by upstream policy"}}')
+    with caplog.at_level("ERROR"):
+        mulerouter._log_http_failure(resp)
+    message = mulerouter._describe_http_failure(resp)
+
+    assert "open302.com" not in message and "http" not in message.lower()
+    assert "content blocked" not in message, "the provider's own wording is not shown"
+    assert "改写画面描述" in message and "重试不会有帮助" in message
+    # The same facts are still recoverable, just not by the customer.
+    assert "open302.com" in caplog.text and "content blocked" in caplog.text
 
 
-def test_a_content_refusal_says_what_to_do_about_it():
-    """451 is "Unavailable For Legal Reasons", which reads like an outage. On this route it
-    means this particular request was refused, so the description is the thing to change —
-    not a setting, and not a retry."""
-    message = mulerouter._describe_http_failure(_Refusal(451, ""))
-    assert "改写画面描述" in message
-    assert "限流" in message, "must rule out the two things people would try first"
+def test_the_log_keeps_the_blocking_party_for_a_451(caplog):
+    """RFC 7725 names whoever demanded the block, which separates "this prompt was refused"
+    from "this account or region is blocked"."""
+    resp = _Refusal(451, "", headers={"Link": '<https://example.test/policy>; rel="blocked-by"'})
+    with caplog.at_level("ERROR"):
+        mulerouter._log_http_failure(resp)
+    assert "blocked-by" in caplog.text
 
 
-def test_other_failures_still_report_status_and_body():
-    message = mulerouter._describe_http_failure(_Refusal(400, '{"error":"size not supported"}'))
-    assert "400" in message and "size not supported" in message
-    # The query string can carry a credential, so only the path is echoed back.
-    assert "?x=1" not in message
+def test_every_cause_a_user_sees_is_free_of_vendor_detail():
+    for status in (400, 401, 402, 403, 404, 413, 429, 451, 500, 503, 418):
+        message = mulerouter._describe_http_failure(_Refusal(status, "vendor said something"))
+        assert message and "vendor said" not in message
+        assert "http" not in message.lower() and str(status) not in message
 
 
-def test_a_failed_request_raises_with_the_explanation(monkeypatch):
+def test_a_failed_request_raises_the_cause_not_the_status_line(monkeypatch):
     monkeypatch.setattr(mulerouter.time, "sleep", lambda _s: None)
     monkeypatch.setattr(mulerouter.requests, "request",
                         lambda *a, **k: _Refusal(451, "policy refusal"))
-    with pytest.raises(RuntimeError, match="policy refusal"):
+    with pytest.raises(RuntimeError, match="改写画面描述"):
         mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
 
 
@@ -208,11 +219,3 @@ def test_a_content_refusal_is_not_retried(monkeypatch):
     with pytest.raises(RuntimeError):
         mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
     assert calls["n"] == 1
-
-
-def test_a_refusal_names_whoever_demanded_the_block_when_it_is_told():
-    """RFC 7725 puts the blocking party in a Link header. It separates "this prompt was
-    refused" from "this account or region is blocked", which are acted on differently."""
-    message = mulerouter._describe_http_failure(_Refusal(
-        451, "", headers={"Link": '<https://example.test/policy>; rel="blocked-by"'}))
-    assert "blocked-by" in message and "拦截方" in message

@@ -362,36 +362,46 @@ def _submit_task(base_url: str, api_path: str, body: Dict[str, Any]) -> str:
 
 _POLICY_REFUSAL_CODES = {451}
 
+# What a user is told, by status. Deliberately free of endpoints, vendor names and raw
+# upstream text: an error shown to a customer should not disclose who we buy capacity from
+# or where we call, and a provider's own wording is rarely something they can act on. The
+# full detail goes to the log instead, which is where diagnosing actually happens.
+_IMAGE_FAILURE_REASONS = {
+    400: "图片服务不接受这次请求的参数（例如尺寸或图片格式），请调整后重试。",
+    401: "图片服务鉴权失败，请联系管理员检查平台配置。",
+    403: "图片服务拒绝了访问，请联系管理员检查平台配置。",
+    402: "图片服务额度不足，请联系管理员。",
+    404: "当前所选图片模型不可用，请换一个模型或联系管理员。",
+    413: "参考图太大，请压缩后重试。",
+    429: "图片服务当前繁忙，请稍后重试。",
+    451: "图片服务以内容或版权理由拒绝了这次生成。这不是配置问题也不是限流，"
+         "重试不会有帮助，请改写画面描述后再试。",
+}
 
-def _describe_http_failure(resp: requests.Response) -> str:
-    """Build a failure message that keeps what the upstream said.
 
-    `raise_for_status()` reports the status line and the URL and throws the body away, which
-    is the only part that says *why* — an image refused with 451 reached a user as
-    "451 Client Error: Unavailable For Legal Reasons for url: ..." and nothing else, leaving
-    nothing to act on and nothing to diagnose from.
+def _log_http_failure(resp: requests.Response) -> None:
+    """Put everything worth diagnosing where only we can read it.
+
+    `raise_for_status()` used to report the status line and the URL and throw the body away
+    — the body being the only part that says *why*. Both halves were wrong: the explanation
+    was lost, and the endpoint was handed to the user.
     """
     body = " ".join((resp.text or "").split())[:800]
-    location = resp.url.split("?")[0]
-    if resp.status_code in _POLICY_REFUSAL_CODES:
-        # 451 is "Unavailable For Legal Reasons", which tells a user nothing. On an image
-        # route it means the upstream refused this particular request on content or rights
-        # grounds, so the description is the thing to change — not a setting, and not a retry.
-        refusal = ("图片服务以内容/版权理由拒绝了这次请求（HTTP 451）。"
-                   "这不是配置问题也不是限流，重试不会变好，请改写画面描述后重试。")
-        # RFC 7725 puts the identity of whoever demanded the block in a Link header, which
-        # is the one field that separates "this prompt was refused" from "this whole region
-        # or account is blocked" — a distinction that changes what you do next entirely.
-        blocked_by = (resp.headers or {}).get("Link") if hasattr(resp, "headers") else None
-        parts = [refusal]
-        if body:
-            parts.append(f"上游原文：{body}")
-        if blocked_by:
-            parts.append(f"拦截方：{blocked_by[:200]}")
-        return " ".join(parts)
-    if body:
-        return f"HTTP {resp.status_code} from {location}: {body}"
-    return f"HTTP {resp.status_code} from {location}"
+    # RFC 7725 names whoever demanded a 451 in a Link header. It separates "this prompt was
+    # refused" from "this account or region is blocked" — a distinction that changes what
+    # we do next, so it is worth capturing even though a user never sees it.
+    blocked_by = (getattr(resp, "headers", None) or {}).get("Link") if resp.status_code in _POLICY_REFUSAL_CODES else None
+    logger.error("[image] upstream refused: HTTP %s %s%s%s",
+                 resp.status_code, (resp.url or "").split("?")[0],
+                 f" | body={body}" if body else "",
+                 f" | blocked-by={blocked_by[:200]}" if blocked_by else "")
+
+
+def _describe_http_failure(resp: requests.Response) -> str:
+    """The cause, in words a user can act on — and nothing else."""
+    return _IMAGE_FAILURE_REASONS.get(
+        resp.status_code,
+        "服务暂时不可用，请稍后重试。" if resp.status_code >= 500 else "图片生成失败，请稍后重试。")
 
 
 def _request_with_retry(method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
@@ -405,6 +415,7 @@ def _request_with_retry(method: str, url: str, max_retries: int = 3, **kwargs) -
                 time.sleep(wait)
                 continue
             if resp.status_code >= 400:
+                _log_http_failure(resp)
                 raise RuntimeError(_describe_http_failure(resp))
             return resp
         except requests.exceptions.ConnectionError:
