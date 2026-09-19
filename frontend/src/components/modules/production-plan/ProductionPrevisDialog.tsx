@@ -16,7 +16,11 @@ type Preview = NonNullable<Project['production_previews']>[number];
 const imageUrl = (frame?: Preview) => frame?.t2i_image_urls?.[frame.t2i_selected_index ?? 0] || frame?.rendered_image_url || frame?.image_url;
 function errorMessage(error: any) {
     const detail = error?.response?.data?.detail;
-    return typeof detail === 'string' ? detail : detail?.message || error?.message;
+    if (typeof detail === 'string') return detail;
+    if (detail?.message) return detail.message;
+    // Transport failures need the localized action/retry explanation below;
+    // Axios' generic English status text does not tell creators what to do.
+    return error?.isAxiosError ? undefined : error?.message;
 }
 interface Props {
     project: Project;

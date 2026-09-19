@@ -101,6 +101,17 @@ it('lets a read-only viewer retry a failed refresh without enabling mutations', 
     expect(screen.getByRole('button', { name: '生成缺少的分镜图（2 张）' })).toBeDisabled();
 });
 
+it.each(['Network Error', 'Request failed with status code 500'])(
+    'explains a transport failure and preserves the preview for retry: %s', async message => {
+        mocks.get.mockRejectedValueOnce(Object.assign(new Error(message), { isAxiosError: true }));
+        renderWithIntl(<Harness />);
+        expect(await screen.findByRole('alert')).toHaveTextContent('刷新失败，已保留当前内容，请重试。');
+        expect(screen.getByRole('heading', { name: '片段 1 · 对峙' })).toBeVisible();
+        fireEvent.click(screen.getByRole('button', { name: '刷新状态' }));
+        await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    },
+);
+
 it('keeps an unsaved preview prompt when closing is cancelled', async () => {
     renderWithIntl(<Harness />);
     fireEvent.click(screen.getAllByText('分镜图描述', { selector: 'summary' })[0]);
