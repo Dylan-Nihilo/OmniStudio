@@ -12,6 +12,17 @@ it('keeps actual steps and status labels, permits gated navigation and returns t
   expect(screen.getByRole('row', { name: 'Script' })).toHaveAttribute('aria-current', 'page');
   fireEvent.click(screen.getByRole('row', { name: 'Export · Add shots to export' }));
   expect(navigate).toHaveBeenCalledWith('assembly');
-  fireEvent.click(screen.getByRole('button', { name: 'Parent series' }));
+  fireEvent.click(screen.getByRole('button', { name: 'backToSeries' }));
   expect(window.location.hash).toBe('#/series/parent');
+});
+
+it('separates previous-page navigation from returning to the workspace', () => {
+  window.location.hash = '#/project/ep-1#cast';
+  const back = vi.fn();
+  render(<PipelineSidebar activeStep="cast" onStepChange={() => {}} steps={[]} canGoBack onBack={back} />);
+  fireEvent.click(screen.getByRole('button', { name: 'previousPage' }));
+  expect(back).toHaveBeenCalledTimes(1);
+  expect(window.location.hash).toBe('#/project/ep-1#cast');
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(window.location.hash).toBe('#/workspace');
 });

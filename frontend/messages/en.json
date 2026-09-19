@@ -533,6 +533,8 @@
     "workspace": "STUDIO",
     "workflow": "Production workflow",
     "switchEpisode": "Switch episode",
+    "previousPage": "Previous page",
+    "backToSeries": "Back to series",
     "back": "Back to workspace",
     "settings": "Project settings",
     "modelSettings": "Generation settings",

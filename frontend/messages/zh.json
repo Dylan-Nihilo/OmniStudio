@@ -533,6 +533,8 @@
     "workspace": "制作台",
     "workflow": "制作流程",
     "switchEpisode": "切换单集",
+    "previousPage": "返回上一页",
+    "backToSeries": "返回系列",
     "back": "返回工作区",
     "settings": "项目设置",
     "modelSettings": "生成设置",

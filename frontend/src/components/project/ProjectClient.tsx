@@ -5,7 +5,8 @@ import { Palette, Layout, Film, BookOpen, Users, Video, Clapperboard } from "luc
 import { useTranslations } from "next-intl";
 import { useProjectStore } from "@/store/projectStore";
 import { episodeAssets } from "@/lib/episodeAssets";
-import { buildProjectStepHash, readProjectStep } from "@/lib/pipelineNavigation";
+import { canGoBackProjectStep, goBackProjectStep, initializeProjectHistory, navigateProjectStep, readProjectStep } from "@/lib/pipelineNavigation";
+import { useAuthStore } from "@/store/authStore";
 import { buildLocalizedPipelineSteps, nextStepAfterExtraction, resolveActivePipelineStep, type PipelineStepId } from "@/lib/pipelineSteps";
 import PipelineSidebar from "@/components/layout/PipelineSidebar";
 import EpisodeMiniList from "@/components/layout/EpisodeMiniList";
@@ -55,6 +56,10 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
 
     const selectProject = useProjectStore((state) => state.selectProject);
     const currentProject = useProjectStore((state) => state.currentProject);
+    const userId = useAuthStore(state => state.user?.id) || 'local';
+    const workspaceId = useAuthStore(state => state.activeWorkspace?.id) || 'local';
+    const historyScope = useMemo(() => ({ userId, workspaceId, projectId: id }), [userId, workspaceId, id]);
+    const [canGoBack, setCanGoBack] = useState(false);
 
     // R2V v2 Phase 6 — content_mode lives on the parent series; fetch on
     // mount when project has series_id, default to "scripted" otherwise.
@@ -122,26 +127,37 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
     useEffect(() => {
         const syncFromHash = () => {
             const location = readProjectStep(window.location.hash);
-            if (location?.projectId === id) setActiveStep(location.stepId);
+            if (location?.projectId === id) {
+                initializeProjectHistory(historyScope);
+                setActiveStep(location.stepId);
+                setCanGoBack(canGoBackProjectStep(historyScope));
+            }
         };
         syncFromHash();
         window.addEventListener("hashchange", syncFromHash);
-        return () => window.removeEventListener("hashchange", syncFromHash);
-    }, [id]);
+        window.addEventListener("popstate", syncFromHash);
+        return () => {
+            window.removeEventListener("hashchange", syncFromHash);
+            window.removeEventListener("popstate", syncFromHash);
+        };
+    }, [id, historyScope]);
 
     useEffect(() => {
         if (loading || currentProject?.id !== id) return;
         const resolved = resolveActivePipelineStep(activeStep, steps);
-        if (resolved !== activeStep) setActiveStep(resolved);
-    }, [activeStep, steps, loading, currentProject?.id, id]);
+        // Read the current URL instead of a stale render during rapid back/forward navigation.
+        const location = readProjectStep(window.location.hash);
+        if (location?.projectId !== id || location.stepId !== activeStep) return;
+        navigateProjectStep(historyScope, resolved, true);
+    }, [activeStep, steps, loading, currentProject?.id, id, historyScope]);
 
     const handleBackToHome = () => {
-        window.location.hash = '';
+        window.location.hash = breadcrumbSegments?.slice(0, -1).reverse().find(segment => segment.hash)?.hash || '#/workspace';
     };
 
     const navigateStep = (stepId: string) => {
         if (!steps.some(step => step.id === stepId) || stepId === activeStep) return;
-        window.location.hash = buildProjectStepHash(id, stepId);
+        navigateProjectStep(historyScope, stepId);
     };
 
     // Cross-module step navigation event (used by intra-module
@@ -158,7 +174,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         };
         document.addEventListener("omni_studio:navigateStep", handler);
         return () => document.removeEventListener("omni_studio:navigateStep", handler);
-    }, [steps, activeStep, id]);
+    }, [steps, activeStep, id, historyScope]);
 
     useEffect(() => {
         let cancelled = false;
@@ -174,7 +190,11 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         return <div className={styles.root}><EmptyState title={tChrome("loadFailed")} action={<><Button onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button><Button variant="quiet" onPress={handleBackToHome}>{t("backToList")}</Button></>} /></div>;
     }
 
-    const segments = breadcrumbSegments || [{ label: "Omni Studio", hash: "#/" }, { label: currentProject.title }];
+    const route = readProjectStep(window.location.hash);
+    const seriesId = route?.seriesId || currentProject.series_id;
+    const segments = breadcrumbSegments || [{ label: tChrome("back"), hash: "#/workspace" },
+        ...(seriesId ? [{ label: tChrome("backToSeries"), hash: `#/series/${encodeURIComponent(seriesId)}` }] : []), { label: currentProject.title }];
+    const parentHash = segments.slice(0, -1).reverse().find(segment => segment.hash)?.hash || '#/workspace';
 
     const settingsActions = <ActionMenu label={tChrome("settings")} items={[
         { id: "env", label: t("apiKeyConfig"), onAction: () => setEnvDialogOpen(true) },
@@ -182,6 +202,7 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         { id: "model", label: tChrome("modelSettings"), onAction: () => setModelSettingsOpen(true) },
     ]} />;
     const context = <PipelineSidebar activeStep={activeStep} onStepChange={navigateStep} steps={steps}
+        canGoBack={canGoBack} onBack={() => goBackProjectStep(historyScope, parentHash)}
         projectLabel={currentProject.title} titleAction={<RenameProjectButton key={id} projectId={id} title={currentProject.title} />} projectSubLabel={currentProject.episode_number ? `EP.${String(currentProject.episode_number).padStart(2, "0")}` : undefined}
         breadcrumbSegments={segments} headerActions={settingsActions}
         topSlot={currentProject.series_id ? <EpisodeMiniList seriesId={currentProject.series_id} currentProjectId={id} activeStep={activeStep} /> : undefined} />;
