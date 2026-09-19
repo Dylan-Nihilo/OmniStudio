@@ -16,6 +16,7 @@ import { api, crudApi } from "@/lib/api";
 import { getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
 import { toast } from "@/store/toastStore";
 import { selectedVariantUrl } from "@/lib/characterImage";
+import { useConfirmation } from "@/components/shared/useConfirmation";
 import StepHeader from "@/components/shared/StepHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
 import StoryboardAnalysisFeedback from "./StoryboardAnalysisFeedback";
@@ -27,6 +28,7 @@ export function getStoryboardError(error: unknown, fallback: string): string {
 }
 
 export default function StoryboardComposer() {
+    const { confirm: confirmAction, dialog: confirmationDialog } = useConfirmation();
     const t = useTranslations("storyboard");
     const tStep = useTranslations("stepHeader");
     const tSave = useTranslations("storyboardR2V");
@@ -80,7 +82,7 @@ export default function StoryboardComposer() {
         }
 
         if (currentProject.frames?.length > 0) {
-            if (!confirm(t("overwriteConfirm"))) return;
+            if (!await confirmAction(t("overwriteConfirm"))) return;
         }
 
         setAnalysisError("");
@@ -116,7 +118,7 @@ export default function StoryboardComposer() {
     const handleDeleteFrame = async (frameId: string, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!currentProject) return;
-        if (!confirm(t("confirmDeleteFrame"))) return;
+        if (!await confirmAction(t("confirmDeleteFrame"))) return;
 
         const ownsStructure = structure.begin();
         if (!ownsStructure) return;
@@ -361,6 +363,7 @@ export default function StoryboardComposer() {
 
     return (
         <div className="flex flex-col h-full text-foreground overflow-hidden" aria-busy={structure.pending}>
+            {confirmationDialog}
             <StepHeader
                 stepNumber={4}
                 totalSteps={6}

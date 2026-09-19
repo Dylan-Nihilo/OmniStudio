@@ -1767,6 +1767,8 @@
     "motionRef": "动态参考"
   },
   "vault": {
+    "confirmDeleteAsset": "删除这个素材？生成的源文件不会被删除。",
+    "confirmDeleteVideo": "移除这个视频候选？",
     "title": "一致性金库",
     "characters": "角色",
     "scenes": "场景",

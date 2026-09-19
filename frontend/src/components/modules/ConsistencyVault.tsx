@@ -11,11 +11,13 @@ import CharacterWorkbench from "./CharacterWorkbench";
 import { VariantSelector } from "../common/VariantSelector";
 import { VideoVariantSelector } from "../common/VideoVariantSelector";
 import UploadAssetModal from "../modals/UploadAssetModal";
+import { useConfirmation } from "@/components/shared/useConfirmation";
 import StepHeader from "@/components/shared/StepHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
 import { toast } from "@/store/toastStore";
 
 export default function ConsistencyVault() {
+    const { confirm: confirmAction, dialog: confirmationDialog } = useConfirmation();
     const tv = useTranslations("vault");
     const tStep = useTranslations("stepHeader");
     const currentProject = useProjectStore((state) => state.currentProject);
@@ -168,7 +170,7 @@ export default function ConsistencyVault() {
     // Delete asset handler
     const handleDeleteAsset = async (assetId: string, type: string) => {
         if (!currentProject) return;
-        if (!confirm(`Are you sure you want to delete this ${type}?`)) return;
+        if (!await confirmAction(tv("confirmDeleteAsset"))) return;
 
         try {
             if (type === "character") {
@@ -304,7 +306,7 @@ export default function ConsistencyVault() {
 
     const handleDeleteVideo = async (assetId: string, type: string, videoId: string) => {
         if (!currentProject) return;
-        if (!confirm("Are you sure you want to delete this video? This action cannot be undone.")) return;
+        if (!await confirmAction(tv("confirmDeleteVideo"))) return;
 
         try {
             await api.deleteAssetVideo(currentProject.id, type, assetId, videoId);
@@ -320,7 +322,7 @@ export default function ConsistencyVault() {
     const handleSyncDescriptions = async () => {
         if (!currentProject) return;
 
-        const confirmed = confirm(
+        const confirmed = await confirmAction(
             tv("syncDescription")
         );
 
@@ -361,6 +363,7 @@ export default function ConsistencyVault() {
 
     return (
         <div className="flex flex-col h-full text-foreground">
+            {confirmationDialog}
             <StepHeader
                 stepNumber={3}
                 totalSteps={6}
