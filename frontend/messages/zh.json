@@ -461,6 +461,8 @@
     "locked": "已锁定"
   },
   "common": {
+    "unsavedChangesTitle": "有未保存的修改",
+    "unsavedChangesMessage": "离开会丢弃尚未应用的修改，是否继续？",
     "polishInheritProject": "沿用系列 / 工作区模型",
     "polishInheritWorkspace": "沿用工作区模型",
     "polishInheritProjectHint": "未单独选择时沿用系列或工作区的文本模型。",

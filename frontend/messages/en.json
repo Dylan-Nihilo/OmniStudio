@@ -461,6 +461,8 @@
     "locked": "Locked"
   },
   "common": {
+    "unsavedChangesTitle": "Unsaved changes",
+    "unsavedChangesMessage": "Leaving will discard changes that have not been applied. Continue?",
     "polishInheritProject": "Use series / workspace model",
     "polishInheritWorkspace": "Use workspace model",
     "polishInheritProjectHint": "Use the series or workspace text model unless you select an override.",

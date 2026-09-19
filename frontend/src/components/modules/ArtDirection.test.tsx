@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest';
 import { api } from '@/lib/api';
 import { useProjectStore, type Project } from '@/store/projectStore';
 import { renderWithIntl } from '@/test/renderWithIntl';
-import ArtDirection from './ArtDirection';
+import ArtDirection, { PresetDetailModal } from './ArtDirection';
 
 vi.mock('./DirectorPlan/DirectorPlanEditor', () => ({ default: () => null }));
 
@@ -35,4 +35,19 @@ it('keeps style setup open on a failed save and continues to assets after a succ
         vi.restoreAllMocks();
         useProjectStore.setState(useProjectStore.getInitialState(), true);
     }
+});
+
+
+it('protects custom style edits when closing or switching presets', async () => {
+    const close = vi.fn(), switchPreset = vi.fn();
+    const preset = { id: 'a', name: 'Anime', name_zh: '动漫', positive_prompt: 'anime', negative_prompt: '', category: 'anime' } as any;
+    renderWithIntl(<PresetDetailModal preset={preset} isSelected={false} editing positivePrompt="my draft" negativePrompt="" onPositiveChange={vi.fn()} onNegativeChange={vi.fn()} onStartEditing={vi.fn()} onApply={vi.fn()} onClose={close} sameCategoryPresets={[{...preset, id:'b', name_zh:'另一风格'}]} onSwitchPreset={switchPreset} />);
+    expect(screen.getByRole('dialog', {name:'动漫'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name:'取消'}));
+    expect(await screen.findByRole('dialog', {name:'有未保存的修改'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name:'继续编辑'}));
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', {name:'另一风格'}));
+    fireEvent.click(await screen.findByRole('button', {name:'放弃修改'}));
+    expect(switchPreset).toHaveBeenCalledOnce();
 });
