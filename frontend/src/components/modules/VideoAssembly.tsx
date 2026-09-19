@@ -177,6 +177,8 @@ export default function VideoAssembly() {
         ((currentProject as any)?.merge_verification as MergeVerification | null | undefined) ?? null
     );
     const mergePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const mergeRunning = useRef(false);
+    const mergeScope = useRef(0);
 
     // Group videos by frame
     const videosByFrame = useMemo(() => {
@@ -201,6 +203,7 @@ export default function VideoAssembly() {
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to select video:", error);
+            toast.error(extractErrorDetail(error, ta("selectionFailed")));
         }
     };
 
@@ -211,6 +214,7 @@ export default function VideoAssembly() {
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to clear video selection:", error);
+            toast.error(extractErrorDetail(error, ta("selectionFailed")));
         }
     };
 
@@ -280,6 +284,12 @@ export default function VideoAssembly() {
         setMergeVerification((project?.merge_verification as MergeVerification | null | undefined) ?? null);
         setMergeError(null);
         stopMergePolling();
+        const stage = project?.merge_progress?.stage;
+        const ongoing = !!stage && stage !== 'done' && stage !== 'failed';
+        mergeRunning.current = ongoing;
+        setIsMerging(ongoing);
+        if (ongoing && project?.id) startMergePolling(project.id);
+        return () => { mergeScope.current += 1; stopMergePolling(); };
     }, [currentProject?.id]);
 
     useEffect(() => {
@@ -288,9 +298,14 @@ export default function VideoAssembly() {
 
     const startMergePolling = (scriptId: string) => {
         stopMergePolling();
+        const scope = mergeScope.current;
+        let polling = false;
         mergePollRef.current = setInterval(async () => {
+            if (polling) return;
+            polling = true;
             try {
                 const project = await api.getProject(scriptId);
+                if (scope !== mergeScope.current) return;
                 const progress = (project?.merge_progress as MergeProgress | null | undefined) ?? null;
                 const verification = (project?.merge_verification as MergeVerification | null | undefined) ?? null;
                 setMergeProgress(progress);
@@ -298,11 +313,14 @@ export default function VideoAssembly() {
 
                 if (progress?.stage === "done" || progress?.stage === "failed") {
                     stopMergePolling();
+                    mergeRunning.current = false;
+                    setIsMerging(false);
+                    setMergeError(progress.stage === 'failed' ? progress.message : null);
                     updateProject(scriptId, project);
                 }
             } catch (error) {
-                console.error("Failed to poll merge progress:", error);
-            }
+                if (scope === mergeScope.current) setMergeError(ta("mergeUncertain"));
+            } finally { polling = false; }
         }, 2000);
     };
 
@@ -338,7 +356,9 @@ export default function VideoAssembly() {
     };
 
     const handleMerge = async () => {
-        if (!currentProject) return;
+        if (!currentProject || mergeRunning.current) return;
+        const scope = mergeScope.current;
+        mergeRunning.current = true;
         setIsMerging(true);
         setMergeError(null);  // Clear previous errors
         setMergeVerification(null);
@@ -347,20 +367,29 @@ export default function VideoAssembly() {
 
         try {
             const updatedProject = await api.mergeVideos(currentProject.id);
+            if (scope !== mergeScope.current) return;
             updateProject(currentProject.id, updatedProject);
             setMergeProgress((updatedProject?.merge_progress as MergeProgress | null | undefined) ?? null);
             setMergeVerification((updatedProject?.merge_verification as MergeVerification | null | undefined) ?? null);
+            setMergeError(null);
+            stopMergePolling();
+            mergeRunning.current = false;
+            setIsMerging(false);
             // Success - error will be null, merged video will show below
         } catch (error: any) {
+            if (scope !== mergeScope.current || !mergeRunning.current) return;
             console.error("Failed to merge videos:", error);
 
             // Extract detailed error message from backend
             const errorDetail = getAssemblyError(error, "Unknown error occurred during video merge");
 
-            setMergeError(errorDetail);
-        } finally {
-            stopMergePolling();
-            setIsMerging(false);
+            const uncertain = !error?.response || error?.code === 'ECONNABORTED';
+            setMergeError(uncertain ? ta("mergeUncertain") : errorDetail);
+            if (!uncertain) {
+                stopMergePolling();
+                mergeRunning.current = false;
+                setIsMerging(false);
+            }
         }
     };
 

@@ -1568,6 +1568,8 @@
     "unknown": "未知"
   },
   "assembly": {
+    "selectionFailed": "更新视频选择失败，请重试。",
+    "mergeUncertain": "连接中断，导出状态待确认。正在查询后台进度，请勿重复提交。",
     "nextTransition": "转到下一镜",
     "transitionCut": "直接切换",
     "transitionMatch": "动作匹配切换",

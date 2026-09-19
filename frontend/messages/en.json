@@ -1568,6 +1568,8 @@
     "unknown": "Unknown"
   },
   "assembly": {
+    "selectionFailed": "Could not update the selected take. Try again.",
+    "mergeUncertain": "Connection interrupted. Checking export status before allowing another submission.",
     "nextTransition": "Transition to next shot",
     "transitionCut": "Cut",
     "transitionMatch": "Match cut",
