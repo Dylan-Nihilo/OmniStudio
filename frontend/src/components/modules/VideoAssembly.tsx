@@ -112,6 +112,10 @@ export function countReadyFrames(frames: any[] | undefined, videoTasks: any[] | 
     return (frames ?? []).filter((frame) => Boolean(frame?.selected_video_id) && completedTaskIds.has(frame.selected_video_id)).length;
 }
 
+export function getAssemblyError(error: unknown, fallback: string): string {
+    return extractErrorDetail(error, fallback);
+}
+
 const EXPORT_SETTINGS_DEFAULTS: ExportSettingsDraft = {
     resolution: "",
     fps: "",
@@ -351,12 +355,9 @@ export default function VideoAssembly() {
             console.error("Failed to merge videos:", error);
 
             // Extract detailed error message from backend
-            const errorDetail = extractErrorDetail(error, "Unknown error occurred during video merge");
+            const errorDetail = getAssemblyError(error, "Unknown error occurred during video merge");
 
             setMergeError(errorDetail);
-
-            // Also show alert for immediate feedback
-            alert(`${ta("mergeFailedAlert")}:\n\n${errorDetail}`);
         } finally {
             stopMergePolling();
             setIsMerging(false);
@@ -379,7 +380,10 @@ export default function VideoAssembly() {
             setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
         } catch (error) {
             console.error("Failed to download video:", error);
-            alert(ta("downloadFailed"));
+            toast.error(ta("downloadFailed"), {
+                projectId: currentProject.id,
+                projectTitle: currentProject.title,
+            });
         } finally {
             setIsDownloading(false);
         }
