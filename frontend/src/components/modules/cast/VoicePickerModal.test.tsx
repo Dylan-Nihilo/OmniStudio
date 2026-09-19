@@ -59,3 +59,18 @@ it('lets creators select a Qwen Audio voice from the system catalog', async () =
   fireEvent.click(screen.getByRole('button', { name: 'apply' }));
   expect(apply).toHaveBeenCalledWith('longanlingxin', '龙安灵心');
 });
+
+
+it('keeps the selected voice and dialog open when applying fails, then retries', async () => {
+  const {api} = await import('@/lib/api');
+  vi.mocked(api.getVoices).mockResolvedValueOnce([{id:'v',name:'Voice test',family:'cosyvoice',origin:'system'}] as any);
+  const close=vi.fn(), apply=vi.fn().mockRejectedValueOnce(new Error('save offline')).mockResolvedValue(undefined);
+  render(<VoicePickerModal isOpen onClose={close} characterName="Rae" onApply={apply} />);
+  fireEvent.click((await screen.findByText('Voice test')).closest('div.relative')!);
+  fireEvent.click(screen.getByRole('button',{name:'apply'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('save offline');
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'apply'}));
+  await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+  expect(apply).toHaveBeenCalledTimes(2);
+});
