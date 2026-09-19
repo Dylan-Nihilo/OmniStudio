@@ -526,7 +526,7 @@ function VoiceCard({
             }`}
         >
             <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
+                <button type="button" aria-label={voice.name} aria-pressed={selected} onClick={event => { event.stopPropagation(); onSelect(); }} className="min-w-0 flex-1 text-left">
                     <p className="truncate text-[0.8125rem] font-medium text-foreground" title={voice.name}>
                         {voice.name}
                     </p>
@@ -537,7 +537,7 @@ function VoiceCard({
                         {voice.supports_instruction ? " · instr" : ""}
                     </p>
                     {recommendationReasons?.length ? <p className="mt-1 text-[0.625rem] text-primary/80">{recommendationReasons.join(" · ")}</p> : null}
-                </div>
+                </button>
                 <button
                     onClick={(e) => { e.stopPropagation(); onPreview(); }}
                     aria-label={playing ? "Stop preview" : "Play preview"}
@@ -635,7 +635,7 @@ function CustomVoiceList({
                                 }`}
                             >
                                 <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0 flex-1">
+                                    <button type="button" aria-label={cv.label} aria-pressed={isSelected} onClick={event => { event.stopPropagation(); onSelect(cv.id); }} className="min-w-0 flex-1 text-left">
                                         <p className="truncate text-[0.8125rem] font-medium text-foreground" title={cv.label}>
                                             {cv.label}
                                         </p>
@@ -644,7 +644,7 @@ function CustomVoiceList({
                                             <span className="mx-1 text-text-muted/40">·</span>
                                             {cv.target_model}
                                         </p>
-                                    </div>
+                                    </button>
                                     <div className="flex shrink-0 items-center gap-1">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onPreview(cv); }}
