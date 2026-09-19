@@ -55,6 +55,7 @@ export default function ImportAssetsDialog({ isOpen, onClose, seriesId, onImport
     const [isLoadingSeries, setIsLoadingSeries] = useState(false);
     const [isLoadingSource, setIsLoadingSource] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [importError, setImportError] = useState<string | null>(null);
 
     const t = useTranslations("series");
     const tc = useTranslations("common");
@@ -67,6 +68,7 @@ export default function ImportAssetsDialog({ isOpen, onClose, seriesId, onImport
             setSourceSeries(null);
             setSelectedAssetIds(new Set());
             setActiveTab("characters");
+            setImportError(null);
             setIsLoadingSeries(true);
             api.listSeries()
                 .then((data: Series[]) => setAllSeries(data.filter(s => s.id !== seriesId)))
@@ -145,16 +147,21 @@ export default function ImportAssetsDialog({ isOpen, onClose, seriesId, onImport
     const handleImport = async () => {
         if (!selectedSourceId || selectedAssetIds.size === 0) return;
         setIsImporting(true);
+        setImportError(null);
         try {
             await api.importSeriesAssets(seriesId, selectedSourceId, Array.from(selectedAssetIds));
             onImported?.();
             onClose();
         } catch (err) {
             console.error("Failed to import assets:", err);
-            alert(t("importFailed"));
+            setImportError(t("importFailed"));
         } finally {
             setIsImporting(false);
         }
+    };
+
+    const requestClose = () => {
+        if (!isImporting) onClose();
     };
 
     if (!isOpen) return null;
@@ -177,7 +184,7 @@ export default function ImportAssetsDialog({ isOpen, onClose, seriesId, onImport
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 z-50 bg-overlay backdrop-blur-sm flex items-center justify-center p-4"
-                onClick={onClose}
+                onClick={requestClose}
             >
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -197,7 +204,7 @@ export default function ImportAssetsDialog({ isOpen, onClose, seriesId, onImport
                                 <p className="text-xs text-text-secondary">{t("importAssetsDesc")}</p>
                             </div>
                         </div>
-                        <button onClick={onClose} className="p-2 hover:bg-hover-bg rounded-lg transition-colors">
+                        <button onClick={requestClose} disabled={isImporting} className="p-2 hover:bg-hover-bg rounded-lg transition-colors disabled:cursor-wait disabled:opacity-50">
                             <X size={20} className="text-text-secondary" />
                         </button>
                     </div>
@@ -437,11 +444,12 @@ export default function ImportAssetsDialog({ isOpen, onClose, seriesId, onImport
                     <div className="p-5 border-t border-glass-border flex items-center justify-between bg-surface">
                         <div className="text-xs text-text-secondary">
                             {step === 2 && t("assetsSelected", { count: selectedAssetIds.size })}
+                            {importError ? <p role="alert" className="mt-1 text-sm text-red-300">{importError}</p> : null}
                         </div>
                         <div className="flex items-center gap-3">
                             {step === 1 && (
                                 <>
-                                    <button onClick={onClose} className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors">
+                                    <button onClick={requestClose} disabled={isImporting} className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors disabled:cursor-wait disabled:opacity-50">
                                         {tc("cancel")}
                                     </button>
                                     <button
