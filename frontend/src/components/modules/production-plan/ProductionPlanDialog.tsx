@@ -46,13 +46,14 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         const state = await api.getProductionPlan(project.id);
         if (!active.current) return;
         setOverview(state);
+        if (state.job?.status === 'failed') setError(state.job.error || t('failed'));
         onUpdate({ production_plan_draft: state.draft, production_plan: state.active, production_planning_job: state.job });
         if (!dirtyRef.current && state.draft?.revision !== savedRevision.current) {
             savedRevision.current = state.draft?.revision;
             setDraft(state.draft);
         }
         return state;
-    }, [project.id, onUpdate]);
+    }, [project.id, onUpdate, t]);
     useEffect(() => {
         if (!isOpen) return;
         void refresh().catch(e => { if (active.current) setError(message(e)); });

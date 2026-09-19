@@ -86,6 +86,19 @@ it('retains the existing plan and shots after planning or saving fails', async (
     expect(close).not.toHaveBeenCalled();
 });
 
+it('surfaces a failed planning job returned by polling instead of leaving the spinner active', async () => {
+    mocks.get.mockResolvedValueOnce({
+        draft: null,
+        active: null,
+        job: { status: 'failed', error: '制作计划未生成成功，请重试' },
+        storyboard_fingerprint: 'frames',
+        versions: [],
+    });
+    renderWithIntl(<Harness />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('制作计划未生成成功，请重试');
+    expect(screen.getByRole('button', { name: '生成制作计划' })).toBeEnabled();
+});
+
 it('keeps planning and application disabled in a read-only edit session', async () => {
     renderWithIntl(<ProductionPlanDialog isOpen onClose={close} project={initial} modelId="seedance-2.5-r2v"
         beforeChange={before} onUpdate={vi.fn()} onPrevis={previs} readOnly />);
