@@ -871,6 +871,7 @@ function CastCard({ item, selected, onToggleSelect, onOpenWorkbench }: { item: C
             updateProject(currentProject.id, updated);
         } catch (e) {
             console.error("Failed to bind voice:", e);
+            throw e;
         }
     };
 

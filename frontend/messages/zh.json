@@ -60,7 +60,7 @@
     "errorTooLarge": "文件超过 10MB",
     "characterContext": "角色参考",
     "confirmCloseTitle": "确定要离开吗？",
-    "confirmCloseBody": "当前正在复刻音色，离开将取消本次操作。",
+    "confirmCloseBody": "离开不会取消已提交的服务请求。再次打开可查看当前状态，已创建的音色会保留在音色库。",
     "confirmCloseStay": "继续等待",
     "confirmCloseLeave": "离开"
   },
@@ -314,7 +314,7 @@
     "playFailed": "试听失败，请重试",
     "characterContext": "角色参考",
     "confirmCloseTitle": "确定要离开吗？",
-    "confirmCloseBody": "当前正在生成音色，离开将取消本次操作。",
+    "confirmCloseBody": "离开不会取消已提交的服务请求。再次打开可查看当前状态，已创建的音色会保留在音色库。",
     "confirmCloseStay": "继续等待",
     "confirmCloseLeave": "离开",
     "previewTextDefault": "你好，这是一段音色测试。请仔细听一听是否符合预期。"

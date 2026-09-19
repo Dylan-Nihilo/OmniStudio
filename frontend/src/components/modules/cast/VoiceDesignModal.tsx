@@ -13,6 +13,8 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Loader2, Check, Play, Pause, Sparkles, RefreshCw, Users } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { Dialog } from "@omnistudio/ui";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import { api, type CustomVoice } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
 
@@ -36,6 +38,11 @@ export default function VoiceDesignModal({
     onCreated,
 }: VoiceDesignModalProps) {
     const t = useTranslations("voiceDesign");
+    const tc = useTranslations('common');
+    const operation = useRef(false);
+    const alive = useRef(true);
+    const visible = useRef(isOpen); visible.current = isOpen;
+    useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     const defaultPreviewText = t("previewTextDefault");
     const [voicePrompt, setVoicePrompt] = useState("");
     const [previewText, setPreviewText] = useState(defaultPreviewText);
@@ -77,7 +84,7 @@ export default function VoiceDesignModal({
     const inFlight = phase === "translating" || phase === "previewing" || phase === "saving";
 
     const handleClose = () => {
-        if (inFlight) {
+        if (inFlight || !!voicePrompt.trim() || !!label.trim() || previewText !== defaultPreviewText) {
             setConfirmClose(true);
             return;
         }
@@ -86,22 +93,27 @@ export default function VoiceDesignModal({
     };
 
     const handleForceClose = () => {
-        reset();
+        if (!inFlight) reset();
+        else setConfirmClose(false);
         onClose();
     };
 
     const handleTranslate = async () => {
         if (!characterDescription?.trim()) return;
+        if (operation.current) return;
+        operation.current = true;
         setErrorMsg(null);
         setPhase("translating");
         try {
             const { voice_prompt } = await api.translateVoicePrompt(characterDescription);
+            if (!alive.current) return;
             setVoicePrompt(voice_prompt);
             setPhase("draft");
         } catch (e: any) {
+            if (!alive.current) return;
             setErrorMsg(e?.message || "Translate failed");
             setPhase("error");
-        }
+        } finally { operation.current = false; }
     };
 
     const handlePreview = async () => {
@@ -111,6 +123,8 @@ export default function VoiceDesignModal({
             audioRef.current = null;
             setPlaying(false);
         }
+        if (operation.current) return;
+        operation.current = true;
         setErrorMsg(null);
         setPhase("previewing");
         try {
@@ -118,6 +132,7 @@ export default function VoiceDesignModal({
                 voice_prompt: voicePrompt.trim(),
                 preview_text: previewText.trim() || defaultPreviewText,
             });
+            if (!alive.current) return;
             setPreviewVoiceId(voice_id);
             setPreviewUrl(preview_url);
             setPhase("preview_ready");
@@ -134,9 +149,10 @@ export default function VoiceDesignModal({
             setPlaying(true);
             await audio.play();
         } catch (e: any) {
+            if (!alive.current) return;
             setErrorMsg(e?.message || "Preview failed");
             setPhase("error");
-        }
+        } finally { operation.current = false; }
     };
 
     const handleReplay = async () => {
@@ -158,6 +174,8 @@ export default function VoiceDesignModal({
 
     const handleAccept = async () => {
         if (!previewVoiceId || !label.trim()) return;
+        if (operation.current) return;
+        operation.current = true;
         setErrorMsg(null);
         setPhase("saving");
         try {
@@ -167,36 +185,36 @@ export default function VoiceDesignModal({
                 voice_prompt: voicePrompt.trim(),
                 label: label.trim(),
             });
+            if (!alive.current) return;
             setPhase("done");
-            setTimeout(() => {
-                onCreated(voice);
-                reset();
-                onClose();
-            }, 600);
+            onCreated(voice);
+            reset();
+            if (visible.current) onClose();
         } catch (e: any) {
+            if (!alive.current) return;
             setErrorMsg(e?.message || "Save failed");
             setPhase("error");
-        }
+        } finally { operation.current = false; }
     };
 
-    return (
-        <div className="fixed inset-0 z-[110] grid place-items-center bg-overlay backdrop-blur-sm" onClick={handleClose}>
-            <div
-                className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-glass-border">
-                    <h2 className="text-display font-medium text-foreground">{t("title")}</h2>
+    return <><Dialog isOpen title={t('title')} closeLabel={t('close')} onOpenChange={open => { if (!open) handleClose(); }}
+        className="!w-[min(700px,calc(100vw-2rem))] !max-w-none" isDismissable={phase !== 'saving'} footer={<>
                     <button
-                        onClick={handleClose}
-                        aria-label={t("close")}
-                        className="p-1.5 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors"
+                        onClick={handleClose} disabled={phase === "saving"}
+                        className="inline-flex items-center px-3 py-1.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
                     >
-                        <X size={15} />
+                        {t("cancel")}
                     </button>
-                </div>
-
+                    <button
+                        onClick={handleAccept}
+                        disabled={!previewVoiceId || !label.trim() || inFlight || phase === "done"}
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.75rem] font-semibold"
+                    >
+                        {phase === "saving" ? <Loader2 size={12} className="animate-spin" /> : null}
+                        {phase === "done" ? <Check size={12} /> : null}
+                        {phase === "done" ? t("done") : t("acceptBtn")}
+                    </button>
+                </>}>
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 custom-scrollbar">
                     {/* Character context panel */}
@@ -241,7 +259,7 @@ export default function VoiceDesignModal({
                             )}
                         </div>
                         <textarea
-                            value={voicePrompt}
+                            aria-label={t("voicePromptLabel")} value={voicePrompt}
                             onChange={(e) => setVoicePrompt(e.target.value.slice(0, 500))}
                             placeholder={t("voicePromptPlaceholder")}
                             disabled={inFlight}
@@ -261,7 +279,7 @@ export default function VoiceDesignModal({
                         </label>
                         <input
                             type="text"
-                            value={previewText}
+                            aria-label={t("previewTextLabel")} value={previewText}
                             onChange={(e) => setPreviewText(e.target.value)}
                             disabled={inFlight}
                             className="w-full rounded-md border border-glass-border bg-black/30 px-3 py-2.5 text-[0.8125rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 disabled:opacity-60"
@@ -301,14 +319,14 @@ export default function VoiceDesignModal({
                     )}
 
                     {/* Label input (only after first preview) */}
-                    {(phase === "preview_ready" || phase === "saving" || phase === "done") && (
+                    {(previewVoiceId !== null) && (
                         <div>
                             <label className="block font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted mb-1.5">
                                 {t("labelLabel")}
                             </label>
                             <input
                                 type="text"
-                                value={label}
+                                aria-label={t("labelLabel")} value={label}
                                 onChange={(e) => setLabel(e.target.value.slice(0, 30))}
                                 placeholder={t("labelPlaceholder")}
                                 disabled={inFlight || phase === "done"}
@@ -334,55 +352,10 @@ export default function VoiceDesignModal({
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-glass-border">
-                    <button
-                        onClick={handleClose}
-                        className="inline-flex items-center px-3 py-1.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
-                    >
-                        {t("cancel")}
-                    </button>
-                    <button
-                        onClick={handleAccept}
-                        disabled={!previewVoiceId || !label.trim() || inFlight || phase === "done"}
-                        className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.75rem] font-semibold"
-                    >
-                        {phase === "saving" ? <Loader2 size={12} className="animate-spin" /> : null}
-                        {phase === "done" ? <Check size={12} /> : null}
-                        {phase === "done" ? t("done") : t("acceptBtn")}
-                    </button>
-                </div>
-            </div>
-
-            {/* Confirm close dialog during generation */}
-            {confirmClose && (
-                <div
-                    className="fixed inset-0 z-[120] grid place-items-center bg-overlay/60"
-                    onClick={(e) => { e.stopPropagation(); setConfirmClose(false); }}
-                >
-                    <div
-                        className="w-full max-w-xs rounded-xl border border-glass-border bg-elevated p-5 shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)]"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <p className="text-[0.8125rem] text-foreground font-medium mb-1">{t("confirmCloseTitle")}</p>
-                        <p className="text-[0.75rem] text-text-secondary mb-4">{t("confirmCloseBody")}</p>
-                        <div className="flex items-center gap-2 justify-end">
-                            <button
-                                onClick={() => setConfirmClose(false)}
-                                className="px-3 py-1.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground text-[0.75rem] transition-colors"
-                            >
-                                {t("confirmCloseStay")}
-                            </button>
-                            <button
-                                onClick={handleForceClose}
-                                className="px-3 py-1.5 rounded-md bg-status-failed-bg border border-status-failed-border text-status-failed-fg hover:bg-status-failed-bg/80 text-[0.75rem] font-medium transition-colors"
-                            >
-                                {t("confirmCloseLeave")}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+    </Dialog><ConfirmDialog open={confirmClose}
+        title={inFlight ? t('confirmCloseTitle') : tc('unsavedChangesTitle')}
+        message={inFlight ? t('confirmCloseBody') : tc('unsavedChangesMessage')}
+        confirmLabel={inFlight ? t('confirmCloseLeave') : tc('discardChanges')}
+        cancelLabel={inFlight ? t('confirmCloseStay') : tc('keepEditing')}
+        onCancel={() => setConfirmClose(false)} onConfirm={handleForceClose} /></>;
 }

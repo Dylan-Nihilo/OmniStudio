@@ -60,7 +60,7 @@
     "errorTooLarge": "File exceeds 10MB",
     "characterContext": "Character Reference",
     "confirmCloseTitle": "Leave this page?",
-    "confirmCloseBody": "Voice cloning is in progress. Leaving will cancel the current operation.",
+    "confirmCloseBody": "Leaving does not cancel a submitted service request. Reopen to check its status; created voices remain in the voice library.",
     "confirmCloseStay": "Stay",
     "confirmCloseLeave": "Leave"
   },
@@ -314,7 +314,7 @@
     "playFailed": "Preview failed — please retry",
     "characterContext": "Character Reference",
     "confirmCloseTitle": "Leave this page?",
-    "confirmCloseBody": "Voice generation is in progress. Leaving will cancel the current operation.",
+    "confirmCloseBody": "Leaving does not cancel a submitted service request. Reopen to check its status; created voices remain in the voice library.",
     "confirmCloseStay": "Stay",
     "confirmCloseLeave": "Leave",
     "previewTextDefault": "Hi, this is a voice test. Please listen carefully and check whether it matches your expectations."
