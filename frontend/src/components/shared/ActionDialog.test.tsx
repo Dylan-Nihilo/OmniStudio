@@ -3,6 +3,17 @@ import { expect, it, vi } from "vitest";
 import { renderWithIntl } from "@/test/renderWithIntl";
 import ActionDialog from "./ActionDialog";
 
+it('protects an edited name when cancelling', async () => {
+  const close = vi.fn();
+  renderWithIntl(<ActionDialog title="命名" fieldLabel="名称" onConfirm={vi.fn()} onClose={close} />);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '我的模板' } });
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  expect(await screen.findByRole('dialog', { name: '有未保存的修改' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
+  expect(screen.getByRole('textbox')).toHaveValue('我的模板');
+  expect(close).not.toHaveBeenCalled();
+});
+
 it("retains a rename after failure, blocks duplicate submissions and closes only after success", async () => {
   let finish!: () => void;
   const onConfirm = vi.fn().mockRejectedValueOnce(new Error("保存失败")).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
