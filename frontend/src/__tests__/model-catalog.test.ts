@@ -50,7 +50,7 @@ describe('model catalog selectors', () => {
         expect(DEFAULT_MODEL_SETTINGS).toMatchObject({
             t2i_model: 'gpt-image-2',
             i2i_model: 'gpt-image-2',
-            i2v_model: 'seedance-2.0-i2v',
+            i2v_model: 'wan2.7-i2v',
             image_model: 'gpt-image-2',
         });
 
@@ -61,13 +61,11 @@ describe('model catalog selectors', () => {
         expect(GLOBAL_T2I_MODELS.map((model) => model.id)).toEqual(GLOBAL_IMAGE_MODELS.map((m) => m.id));
         expect(GLOBAL_I2I_MODELS.map((model) => model.id)).toEqual(GLOBAL_IMAGE_MODELS.map((m) => m.id));
 
-        // Ordered DESC by ui.order; ties broken by display_name asc. Every entry is priced:
-        // the three Seedance 2.0 tiers, 2.5, and MiniMax.
+        // The integrated catalog restores Wan 2.7 while other hidden families remain excluded.
         expect(GLOBAL_I2V_MODELS.map((model) => model.id)).toEqual([
             'minimax/minimax-h3',
-            'seedance-2.5-i2v',
-            'seedance-2.0-i2v',
-            'seedance-2.0-fast-i2v',
+            'seedance-2.5-i2v', 'seedance-2.0-i2v',
+            'wan2.7-i2v', 'seedance-2.0-fast-i2v',
             'seedance-2.0-mini-i2v',
         ]);
     });
@@ -92,7 +90,7 @@ describe('model catalog fallbacks', () => {
         ).toMatchObject({
             t2i_model: 'gpt-image-2',
             i2i_model: 'gpt-image-2',
-            i2v_model: 'seedance-2.0-i2v',
+            i2v_model: 'wan2.7-i2v',
         });
     });
 
@@ -147,7 +145,7 @@ describe('model catalog fallbacks', () => {
         // After 524f3a1 deprecated the wan2.6 series, 'wan2.6-i2v' is hidden
         // (visible_in: []), so the canonical → legacy normalization is filtered
         // out by the visibility check and the resolver falls back to the current
-        // i2v default (happyhorse-1.1-i2v). The raw normalization contract is
+        // i2v default (wan2.7-i2v). The raw normalization contract is
         // covered directly by the Phase 2 canonical helpers below.
         expect(
             resolveCompatModelSettings(
@@ -156,11 +154,11 @@ describe('model catalog fallbacks', () => {
                 },
                 'global_settings'
             ).i2v_model
-        ).toBe('seedance-2.0-i2v');
+        ).toBe('wan2.7-i2v');
 
         // An r2v canonical id normalizes to the matching legacy id
         // (wan2.6-r2v), which is hidden in the i2v surface — so the
-        // resolver falls back to the current i2v default (happyhorse-1.1-i2v
+        // resolver falls back to the current i2v default (wan2.7-i2v
         // since the 2026-05-26 catalog meta switch). Previously this
         // assertion expected the resolver to remap r2v into the parent
         // i2v legacy id; that behavior was dropped when r2v ids gained
@@ -172,27 +170,27 @@ describe('model catalog fallbacks', () => {
                 },
                 'global_settings'
             ).i2v_model
-        ).toBe('seedance-2.0-i2v');
+        ).toBe('wan2.7-i2v');
 
         expect(compatI2vModels.map((model) => model.id)).not.toContain('wan2.6-i2v');
         expect(compatI2vModels.some((model) => model.id === 'wan/wan2.6-video#i2v')).toBe(false);
         // R2V selection/route ids follow the catalog meta default
-        // (defaults.model_settings.r2v_model = seedance-2.0-r2v) via
+        // (defaults.model_settings.r2v_model = wan2.7-r2v) via
         // getFallbackVisibleModelId, not raw ui.order. Anchoring to the explicit meta
         // default keeps the route deterministic when visible R2V models tie on ui.order.
         // Selection and route are unified (R2V_ROUTE_MODEL_ID = R2V_SELECTION_MODEL_ID).
-        expect(compatR2vSelectionModelId).toBe('seedance-2.0-r2v');
-        expect(compatR2vRouteModelId).toBe('seedance-2.0-r2v');
+        expect(compatR2vSelectionModelId).toBe('wan2.7-r2v');
+        expect(compatR2vRouteModelId).toBe('wan2.7-r2v');
     });
 });
 
 describe('model catalog runtime helpers', () => {
     it('derives the current R2V selection and route ids from catalog data', () => {
         // Selection and route both resolve to the catalog meta default R2V model
-        // (defaults.model_settings.r2v_model = seedance-2.0-r2v) via
+        // (defaults.model_settings.r2v_model = wan2.7-r2v) via
         // getFallbackVisibleModelId, not raw ui.order.
-        expect(R2V_SELECTION_MODEL_ID).toBe('seedance-2.0-r2v');
-        expect(R2V_ROUTE_MODEL_ID).toBe('seedance-2.0-r2v');
+        expect(R2V_SELECTION_MODEL_ID).toBe('wan2.7-r2v');
+        expect(R2V_ROUTE_MODEL_ID).toBe('wan2.7-r2v');
     });
 
     it('reads per-model reference image limits from catalog metadata', () => {

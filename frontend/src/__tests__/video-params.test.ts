@@ -273,7 +273,7 @@ describe('模型切换参数重置逻辑', () => {
 
     it('切换到已下架模型 → 回落到内置默认值而不是崩溃', () => {
         // A stored project may still name a retired model; the reset must not throw.
-        const result = simulateModelSwitch('wan2.7-i2v');
+        const result = simulateModelSwitch('wan2.6-i2v');
         expect(result.resolution).toBe('720p');
         expect(result.promptExtend).toBe(false);
         expect(result.mode).toBe('std');
