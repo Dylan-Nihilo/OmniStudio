@@ -3013,6 +3013,7 @@ def create_series_character(series_id: str, request: CreateSeriesAssetRequest):
 @app.post("/series/{series_id}/scenes")
 def create_series_scene(series_id: str, request: CreateSeriesAssetRequest):
     from .models import Scene
+    from .pipeline import _set_asset_master_image
     series = pipeline.get_series(series_id)
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
@@ -3023,6 +3024,8 @@ def create_series_scene(series_id: str, request: CreateSeriesAssetRequest):
         description=request.description or "",
         image_url=request.image_url,
     )
+    if request.image_url:
+        _set_asset_master_image(scene, "scene", request.image_url)
     series.scenes.append(scene)
     series.updated_at = time.time()
     pipeline.series_store[series_id] = series
@@ -3033,6 +3036,7 @@ def create_series_scene(series_id: str, request: CreateSeriesAssetRequest):
 @app.post("/series/{series_id}/props")
 def create_series_prop(series_id: str, request: CreateSeriesAssetRequest):
     from .models import Prop
+    from .pipeline import _set_asset_master_image
     series = pipeline.get_series(series_id)
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
@@ -3043,6 +3047,8 @@ def create_series_prop(series_id: str, request: CreateSeriesAssetRequest):
         description=request.description or "",
         image_url=request.image_url,
     )
+    if request.image_url:
+        _set_asset_master_image(prop, "prop", request.image_url)
     series.props.append(prop)
     series.updated_at = time.time()
     pipeline.series_store[series_id] = series
@@ -7610,6 +7616,7 @@ class CreatePropRequest(BaseModel):
 @app.post("/projects/{script_id}/props")
 def create_prop(script_id: str, request: CreatePropRequest):
     """Creates a new prop in the project."""
+    from .pipeline import _set_asset_master_image
     script = pipeline.get_script(script_id)
     if not script:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -7625,6 +7632,8 @@ def create_prop(script_id: str, request: CreatePropRequest):
         status=GenerationStatus.PENDING
     )
 
+    if request.image_url:
+        _set_asset_master_image(new_prop, "prop", request.image_url)
     script.props.append(new_prop)
     script.updated_at = time.time()
     pipeline._save_data()

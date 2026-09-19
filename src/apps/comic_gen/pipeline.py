@@ -1656,6 +1656,8 @@ class ComicGenPipeline:
             voice_id=voice_id,
             full_body_image_url=image_url,
         )
+        if image_url:
+            _set_asset_master_image(new_char, "character", image_url)
         script.characters.append(new_char)
         self._save_data()
         return script
@@ -1680,6 +1682,8 @@ class ComicGenPipeline:
             description=description,
             image_url=image_url,
         )
+        if image_url:
+            _set_asset_master_image(new_scene, "scene", image_url)
         script.scenes.append(new_scene)
         self._save_data()
         return script

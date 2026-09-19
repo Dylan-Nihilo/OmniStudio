@@ -10,6 +10,38 @@ from src.apps.comic_gen.models import AssetUnit, ImageAsset, ImageVariant
 from tests.test_w2_project_api import api_client, _create_project
 
 
+@pytest.mark.parametrize('scope', ['projects', 'series'])
+@pytest.mark.parametrize('kind', ['characters', 'scenes', 'props'])
+def test_create_uploaded_asset_is_selected_reference_after_reload(api_client, scope, kind):
+    from src.apps.comic_gen.models import Script, Series
+    from src.apps.comic_gen.production_planning import reference_assets
+
+    if scope == 'projects':
+        parent = _create_project(api_client, 'Uploaded master')
+    else:
+        response = api_client.post('/series', json={'title': 'Uploaded master'})
+        assert response.status_code == 200, response.text
+        parent = response.json()
+    route = f"/{scope}/{parent['id']}"
+    response = api_client.post(route + '/' + kind, json={
+        'name': 'Uploaded reference', 'image_url': 'uploads/master.png',
+    })
+    assert response.status_code == 200, response.text
+    response = api_client.get(route)
+    assert response.status_code == 200, response.text
+    model = Script if scope == 'projects' else Series
+    restored = model.model_validate(response.json())
+    assets = {key: getattr(restored, key) for key in ('characters', 'scenes', 'props')}
+    asset = assets[kind][0]
+    assert reference_assets(assets)[asset.name][2] == 'uploads/master.png'
+    unit = asset.reference_sheet if kind == 'characters' else asset.image_asset
+    variants = unit.image_variants if kind == 'characters' else unit.variants
+    selected = unit.selected_image_id if kind == 'characters' else unit.selected_id
+    assert len(variants) == 1
+    assert variants[0].id == selected
+    assert variants[0].is_uploaded_source
+
+
 def setup_assets(client, monkeypatch):
     project = _create_project(client, 'Reference workflow')
     route = f"/projects/{project['id']}"
