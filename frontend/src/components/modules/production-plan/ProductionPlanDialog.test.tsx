@@ -121,3 +121,34 @@ it('ignores a completed planning response after the project view is unmounted', 
     await act(async () => { finish({ production_plan_draft: plan, production_planning_job: { status: 'completed' } }); });
     expect(update).not.toHaveBeenCalled();
 });
+
+it('recovers the persisted planning job without resubmitting', async () => {
+    const state = { draft: null as ProductionPlan | null, active: null, job: { status: 'processing' }, storyboard_fingerprint: 'frames', versions: [] };
+    mocks.get.mockImplementation(async () => ({ ...state }));
+    renderWithIntl(<Harness />);
+    await screen.findByRole('button', { name: '正在规划…' });
+    state.job = { status: 'completed' };
+    state.draft = plan;
+    // The persisted job is polled; reopening must also retrieve its final state.
+    await waitFor(() => expect(screen.getByText('2 个生成片段')).toBeVisible(), { timeout: 4000 });
+    expect(screen.queryByText('正在规划…')).not.toBeInTheDocument();
+    expect(mocks.generate).not.toHaveBeenCalled();
+});
+
+it('clears a request timeout once reopening finds the completed plan', async () => {
+    mocks.generate.mockRejectedValueOnce(Object.assign(new Error('timeout of 180000ms exceeded'), { code: 'ECONNABORTED' }));
+    const update = vi.fn();
+    function ReopeningHarness() {
+        const [open, setOpen] = useState(true);
+        return <><button onClick={() => setOpen(true)}>重新打开</button><ProductionPlanDialog isOpen={open} onClose={() => setOpen(false)} project={initial} modelId="seedance-2.5-r2v" beforeChange={before} onUpdate={update} onPrevis={previs} /></>;
+    }
+    renderWithIntl(<ReopeningHarness />);
+    fireEvent.click(screen.getByRole('button', { name: '生成制作计划' }));
+    await waitFor(() => expect(mocks.generate).toHaveBeenCalledOnce());
+    await screen.findByRole('alert');
+    mocks.get.mockResolvedValue({ draft: plan, active: null, job: { status: 'completed' }, storyboard_fingerprint: 'frames', versions: [] });
+    fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: '重新打开' }));
+    expect(await screen.findByText('2 个生成片段')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});

@@ -3511,6 +3511,7 @@
     "generate": "Generate plan",
     "regenerate": "Replan",
     "planning": "Planning…",
+    "planningUncertain": "The request was interrupted. Checking the background task before allowing another submission. You can close this dialog and return later.",
     "failed": "Planning failed. Your previous plan is retained.",
     "saveBeforeRegenerate": "Save your changes first.",
     "save": "Save plan",

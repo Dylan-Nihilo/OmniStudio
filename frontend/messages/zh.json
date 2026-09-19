@@ -3511,6 +3511,7 @@
     "generate": "生成制作计划",
     "regenerate": "重新规划",
     "planning": "正在规划…",
+    "planningUncertain": "请求已中断，正在核对后台任务状态。请勿重复生成；可关闭弹窗后再回来查看。",
     "failed": "规划失败，原方案已保留。",
     "saveBeforeRegenerate": "请先保存当前修改。",
     "save": "保存方案",
