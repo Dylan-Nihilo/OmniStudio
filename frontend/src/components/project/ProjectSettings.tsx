@@ -28,6 +28,7 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
     const [stylePreset, setStylePreset] = useState(project?.style_preset || "realistic");
     const [stylePrompt, setStylePrompt] = useState(project?.style_prompt || "");
     const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const t = useTranslations("project");
     const tc = useTranslations("common");
 
@@ -35,13 +36,16 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
         if (project) {
             setStylePreset(project.style_preset || "realistic");
             setStylePrompt(project.style_prompt || "");
+            setSaveError(null);
         }
     }, [project]);
 
     const handleSave = async () => {
         if (!project) return;
 
+        if (isSaving) return;
         setIsSaving(true);
+        setSaveError(null);
         try {
             // Add timeout protection
             const timeoutPromise = new Promise((_, reject) =>
@@ -56,10 +60,14 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
         } catch (error: any) {
             console.error("Failed to update style:", error);
             const errorMessage = error?.response?.data?.detail || error?.message || t("updateFailed");
-            alert(t("updateFailedDetail", { error: errorMessage }));
+            setSaveError(t("updateFailedDetail", { error: errorMessage }));
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const requestClose = () => {
+        if (!isSaving) onClose();
     };
 
     const selectedStyle = STYLE_PRESETS.find(s => s.value === stylePreset);
@@ -72,7 +80,7 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm p-4"
-                    onClick={onClose}
+                    onClick={requestClose}
                 >
                     <motion.div
                         initial={{ scale: 0.9, opacity: 0 }}
@@ -93,7 +101,8 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
                                 </div>
                             </div>
                             <button
-                                onClick={onClose}
+                                onClick={requestClose}
+                                disabled={isSaving}
                                 className="p-2 hover:bg-hover-bg rounded-lg transition-colors"
                             >
                                 <X size={20} className="text-text-secondary" />
@@ -119,10 +128,10 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
                                     {t("stylePreset")}
                                 </label>
                                 <div className="grid grid-cols-2 gap-3">
-                                    {STYLE_PRESETS.map((style) => (
+                                        {STYLE_PRESETS.map((style) => (
                                         <button
                                             key={style.value}
-                                            onClick={() => setStylePreset(style.value)}
+                                            onClick={() => { setStylePreset(style.value); setSaveError(null); }}
                                             className={`p-4 rounded-xl border-2 text-left transition-all ${stylePreset === style.value
                                                 ? "bg-primary/20 border-primary shadow-lg shadow-primary/20"
                                                 : "bg-glass border-glass-border hover:border-glass-border hover:bg-hover-bg"
@@ -142,7 +151,7 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
                                 </label>
                                 <textarea
                                     value={stylePrompt}
-                                    onChange={(e) => setStylePrompt(e.target.value)}
+                                    onChange={(e) => { setStylePrompt(e.target.value); setSaveError(null); }}
                                     placeholder="例如: vibrant colors, soft lighting, dreamlike atmosphere"
                                     className="w-full bg-glass border border-glass-border rounded-lg p-3 text-sm text-foreground placeholder-text-muted focus:border-primary focus:outline-none resize-none"
                                     rows={3}
@@ -165,8 +174,12 @@ export default function ProjectSettings({ project, isOpen, onClose, onUpdate }: 
 
                         {/* Footer */}
                         <div className="flex items-center justify-end gap-3 p-6 border-t border-glass-border">
+                            {saveError ? (
+                                <p role="alert" className="mr-auto text-sm text-red-300">{saveError}</p>
+                            ) : null}
                             <button
-                                onClick={onClose}
+                                onClick={requestClose}
+                                disabled={isSaving}
                                 className="px-4 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-hover-bg rounded-lg transition-colors"
                             >
                                 {tc("cancel")}
