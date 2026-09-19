@@ -121,7 +121,6 @@ describe("ArtDirection shared asset refresh", () => {
     });
 
     it("loads, edits, saves, and reuses visual handbook templates", async () => {
-        const prompt = vi.spyOn(window, "prompt").mockReturnValue("Revised");
         render(<ArtDirection />);
 
         const editor = await screen.findByRole("textbox", { name: "visualHandbook" });
@@ -140,6 +139,8 @@ describe("ArtDirection shared asset refresh", () => {
         });
 
         fireEvent.click(screen.getByRole("button", { name: "saveHandbookTemplate" }));
+        fireEvent.change(await screen.findByRole('textbox', { name: 'handbookTemplateName' }), { target: { value: 'Revised' } });
+        fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
         await waitFor(() => {
             expect(saveVisualHandbookTemplate).toHaveBeenCalledWith(
                 "episode-1",
@@ -148,6 +149,5 @@ describe("ArtDirection shared asset refresh", () => {
             );
         });
         expect(await screen.findByRole("button", { name: "Revised" })).toBeInTheDocument();
-        prompt.mockRestore();
     });
 });
