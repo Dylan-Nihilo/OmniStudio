@@ -10,6 +10,34 @@ from src.apps.comic_gen.models import AssetUnit, ImageAsset, ImageVariant
 from tests.test_w2_project_api import api_client, _create_project
 
 
+@pytest.mark.parametrize('kind', ['characters', 'scenes', 'props'])
+def test_legacy_master_migrates_once_without_reviving_cleared_candidates(kind):
+    from src.apps.comic_gen.models import Character, Scene, Prop
+    from src.apps.comic_gen.production_planning import reference_assets
+
+    model = {'characters': Character, 'scenes': Scene, 'props': Prop}[kind]
+    field = 'full_body_image_url' if kind == 'characters' else 'image_url'
+    asset = model.model_validate({'id': 'legacy', 'name': 'Old master',
+                                 'description': '', field: 'uploads/old.png'})
+    assets = {key: [asset] if key == kind else [] for key in ('characters', 'scenes', 'props')}
+    assert reference_assets(assets)[asset.name][2] == 'uploads/old.png'
+    unit = asset.reference_sheet if kind == 'characters' else asset.image_asset
+    variants = unit.image_variants if kind == 'characters' else unit.variants
+    original_id = variants[0].id
+    restored = model.model_validate(asset.model_dump())
+    restored_unit = restored.reference_sheet if kind == 'characters' else restored.image_asset
+    assert (restored_unit.image_variants if kind == 'characters' else restored_unit.variants)[0].id == original_id
+    variants.clear()
+    if kind == 'characters':
+        unit.selected_image_id = None
+    else:
+        unit.selected_id = None
+    # Even a stale legacy URL must not resurrect a deliberately cleared pool.
+    restored = model.model_validate(asset.model_dump())
+    assets[kind] = [restored]
+    assert reference_assets(assets)[asset.name][2] is None
+
+
 @pytest.mark.parametrize('scope', ['projects', 'series'])
 @pytest.mark.parametrize('kind', ['characters', 'scenes', 'props'])
 def test_create_uploaded_asset_is_selected_reference_after_reload(api_client, scope, kind):
@@ -40,6 +68,24 @@ def test_create_uploaded_asset_is_selected_reference_after_reload(api_client, sc
     assert len(variants) == 1
     assert variants[0].id == selected
     assert variants[0].is_uploaded_source
+
+
+@pytest.mark.parametrize('kind', ['characters', 'scenes', 'props'])
+def test_legacy_master_does_not_override_existing_selection(kind):
+    from src.apps.comic_gen.models import Character, Scene, Prop
+
+    model = {'characters': Character, 'scenes': Scene, 'props': Prop}[kind]
+    container = {'image_variants': [{'id': 'keep', 'url': 'uploads/selected.png'}],
+                 'selected_image_id': 'keep'} if kind == 'characters' else {
+                     'variants': [{'id': 'keep', 'url': 'uploads/selected.png'}], 'selected_id': 'keep'}
+    asset = model.model_validate({
+        'id': 'legacy', 'name': 'Existing selection', 'description': '', 'image_url': 'uploads/stale.png',
+        'reference_sheet' if kind == 'characters' else 'image_asset': container,
+    })
+    unit = asset.reference_sheet if kind == 'characters' else asset.image_asset
+    variants = unit.image_variants if kind == 'characters' else unit.variants
+    assert [variant.id for variant in variants] == ['keep']
+    assert (unit.selected_image_id if kind == 'characters' else unit.selected_id) == 'keep'
 
 
 def setup_assets(client, monkeypatch):

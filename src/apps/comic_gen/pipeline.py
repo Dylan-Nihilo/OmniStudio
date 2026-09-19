@@ -152,6 +152,9 @@ def _set_asset_master_image(asset, asset_type: str, image_url: str) -> None:
     if variant is None:
         variant = ImageVariant(id=str(uuid.uuid4()), url=image_url, source="uploaded", is_uploaded_source=True)
         variants.append(variant)
+    elif variant.source == "legacy":
+        variant.source = "uploaded"
+        variant.is_uploaded_source = True
     if asset_type == "character":
         unit.selected_image_id = variant.id
         unit.image_updated_at = time.time()
