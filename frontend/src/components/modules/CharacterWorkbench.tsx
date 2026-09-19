@@ -11,6 +11,7 @@ import { VideoVariantSelector } from "../common/VideoVariantSelector";
 import { useProjectStore } from "@/store/projectStore";
 import { Image as PhotoIcon } from "lucide-react";
 import { getAssetUrl } from "@/lib/utils";
+import { toast } from "@/store/toastStore";
 
 
 interface CharacterWorkbenchProps {
@@ -114,7 +115,7 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
             : (asset.headshot_image_url || asset.headshot_asset?.variants?.length > 0);
 
         if (!hasSourceImage) {
-            alert(tc('generateFirstStatic', { type: assetType === 'full_body' ? tc('fullBodyType') : tc('avatarType') }));
+            toast.warning(tc('generateFirstStatic', { type: assetType === 'full_body' ? tc('fullBodyType') : tc('avatarType') }));
             return;
         }
 
@@ -129,13 +130,13 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
 
         // Validate file type
         if (!file.type.startsWith('audio/')) {
-            alert(tc('invalidAudioFile'));
+            toast.warning(tc('invalidAudioFile'));
             return;
         }
 
         // Validate file size (max 10MB)
         if (file.size > 10 * 1024 * 1024) {
-            alert(tc('audioTooLarge'));
+            toast.warning(tc('audioTooLarge'));
             return;
         }
 
@@ -166,7 +167,7 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
             }
         } catch (error: any) {
             console.error('Failed to upload audio:', error);
-            alert(tc('audioUploadFailed', { error: error.message }));
+            toast.error(tc('audioUploadFailed', { error: error.message }));
         } finally {
             setIsUploadingAudio(false);
         }
@@ -592,7 +593,7 @@ function WorkbenchPanel({
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     if (!hasStaticImage) {
-                                        alert(tc('generateFirstStatic', { type: tc('fullBodyType') }));
+                                        toast.warning(tc('generateFirstStatic', { type: tc('fullBodyType') }));
                                         return;
                                     }
                                     onModeChange?.('motion');
