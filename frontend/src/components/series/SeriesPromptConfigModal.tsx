@@ -20,7 +20,7 @@ function textModelOptions(inheritLabel: string, current: string): { id: string; 
     const tiers = getTextTiers();
     const options = [
         { id: "__default__", label: inheritLabel },
-        ...tiers.map(tier => ({ id: tier.id, label: tier.name })),
+        ...tiers.filter(tier => tier.id && tier.name).filter((tier, index, all) => all.findIndex(item => item.id === tier.id) === index).map(tier => ({ id: tier.id, label: tier.name })),
     ];
     if (current && !tiers.some(tier => tier.id === current)) {
         options.push({ id: current, label: current });
@@ -63,20 +63,26 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
     const t = useTranslations("series");
     const tc = useTranslations("common");
     const [config, setConfig] = useState({ storyboard_polish: '', video_polish: '', r2v_polish: '', polish_model: '' });
+    const [initialConfig, setInitialConfig] = useState<typeof config | null>(null);
     const [defaults, setDefaults] = useState<PromptDefaults | null>(null);
     const [expandedDefault, setExpandedDefault] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [confirmClose, setConfirmClose] = useState(false);
 
     useEffect(() => {
         if (isOpen && seriesId) {
             setIsLoading(true);
             setLoadError(null);
+            setSaveError(null);
+            setConfirmClose(false);
             setExpandedDefault(null);
             api.getSeriesPromptConfig(seriesId)
                 .then((data) => {
                     setConfig(data.prompt_config);
+                    setInitialConfig(data.prompt_config);
                     setDefaults(data.defaults);
                 })
                 .catch((err) => {
@@ -89,16 +95,23 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
 
     const handleSave = async () => {
         setIsSaving(true);
+        setSaveError(null);
         try {
             await api.updateSeriesPromptConfig(seriesId, config);
             onSaved?.();
             onClose();
         } catch (error) {
-            console.error("Failed to save series prompt config:", error);
-            alert(t("promptSaveFailed"));
+            setSaveError(t("promptSaveFailed"));
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const isDirty = !!initialConfig && JSON.stringify(config) !== JSON.stringify(initialConfig);
+    const requestClose = () => {
+        if (isSaving) return;
+        if (isDirty) setConfirmClose(true);
+        else onClose();
     };
 
     const handleReset = (key: keyof PromptDefaults) => {
@@ -114,7 +127,7 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 z-50 bg-overlay backdrop-blur-sm flex items-center justify-center p-4"
-                onClick={onClose}
+                onClick={requestClose}
             >
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -134,7 +147,7 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
                                 <p className="text-xs text-text-secondary">{t("seriesPromptConfigSub")}</p>
                             </div>
                         </div>
-                        <button onClick={onClose} className="p-2 hover:bg-hover-bg rounded-lg transition-colors">
+                        <button onClick={requestClose} aria-label={tc("close")} className="p-2 hover:bg-hover-bg rounded-lg transition-colors">
                             <X size={20} className="text-text-secondary" />
                         </button>
                     </div>
@@ -218,8 +231,9 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
 
                     {/* Footer */}
                     <div className="p-6 border-t border-glass-border flex justify-end gap-3">
+                        {saveError && <div role="alert" className="mr-auto self-center text-sm text-red-300">{saveError}</div>}
                         <button
-                            onClick={onClose}
+                            onClick={requestClose}
                             className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
                         >
                             {tc("cancel")}
@@ -235,6 +249,18 @@ export default function SeriesPromptConfigModal({ isOpen, onClose, seriesId, onS
                     </div>
                 </motion.div>
             </motion.div>
+            {confirmClose && (
+                <div role="dialog" aria-label={t("unsavedChangesTitle")} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+                    <div className="w-full max-w-md rounded-xl border border-glass-border bg-elevated p-5 shadow-2xl">
+                        <h3 className="text-base font-semibold text-foreground">{t("unsavedChangesTitle")}</h3>
+                        <p className="mt-2 text-sm text-text-secondary">{t("unsavedChangesHint")}</p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button onClick={() => setConfirmClose(false)} className="px-4 py-2 text-sm text-text-secondary hover:text-foreground">{tc("keepEditing")}</button>
+                            <button onClick={onClose} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-foreground hover:bg-red-500">{tc("discardChanges")}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </AnimatePresence>
     );
 }
