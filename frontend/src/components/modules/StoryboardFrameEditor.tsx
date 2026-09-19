@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, RefreshCw, Check, AlertTriangle, Image as ImageIcon, Lock, Unlock, ChevronRight, Maximize2 } from "lucide-react";
+import { Button } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import { api, API_URL } from "@/lib/api";
 import { VariantSelector } from "../common/VariantSelector";
@@ -26,6 +27,8 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
 
     const [prompt, setPrompt] = useState(frame.image_prompt || frame.action_description || "");
     const [isGenerating, setIsGenerating] = useState(false);
+    const [generationError, setGenerationError] = useState<string | null>(null);
+    const [retryBatchSize, setRetryBatchSize] = useState(1);
 
     // Sync prompt when frame changes
     useEffect(() => {
@@ -35,6 +38,8 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
     const handleGenerate = async (batchSize: number) => {
         if (!currentProject) return;
 
+        setRetryBatchSize(batchSize);
+        setGenerationError(null);
         setIsGenerating(true);
         try {
             // Construct composition data (simplified for now, ideally passed from parent or re-calculated)
@@ -50,9 +55,10 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                 batchSize
             );
             updateProject(currentProject.id, updatedProject);
+            setGenerationError(null);
         } catch (error) {
             console.error("Failed to generate frame:", error);
-            alert(ts("generateFailed"));
+            setGenerationError(ts("generateFailed"));
         } finally {
             setIsGenerating(false);
         }
@@ -119,6 +125,12 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                             aspectRatio="16:9"
                             className="h-full"
                         />
+                        {generationError && <div role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                            <p>{generationError}</p>
+                            <Button variant="secondary" size="sm" className="mt-2" isDisabled={isGenerating} isPending={isGenerating} onPress={() => void handleGenerate(retryBatchSize)}>
+                                {ts("retry")}
+                            </Button>
+                        </div>}
                     </div>
 
                     {/* Right: Controls & Prompt */}

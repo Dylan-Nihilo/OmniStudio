@@ -1237,6 +1237,7 @@
     "promptPlaceholder": "Enter prompt description...",
     "promptHint": "Modify the prompt to refine the generated image.",
     "generateFailed": "Failed to generate frame",
+    "retry": "Retry",
     "generatedAssets": "Generated Assets",
     "upload": "Upload",
     "generateAll": "Generate All",

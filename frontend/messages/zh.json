@@ -1237,6 +1237,7 @@
     "promptPlaceholder": "输入提示词描述...",
     "promptHint": "修改提示词以优化生成图片。",
     "generateFailed": "生成分镜失败",
+    "retry": "重试",
     "generatedAssets": "生成的资源",
     "upload": "上传",
     "generateAll": "生成全部",
