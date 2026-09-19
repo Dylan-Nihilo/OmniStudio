@@ -5,6 +5,6 @@ defaults:
   model_settings:
     t2i_model: gpt-image-2
     i2i_model: gpt-image-2
-    i2v_model: wan2.7-i2v
-    r2v_model: wan2.7-r2v
+    i2v_model: seedance-2.0-i2v
+    r2v_model: seedance-2.0-r2v
     image_model: gpt-image-2
