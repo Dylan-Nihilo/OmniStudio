@@ -34,6 +34,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const [prompts, setPrompts] = useState<Record<string, string>>({});
     const [playing, setPlaying] = useState(false);
     const [playIndex, setPlayIndex] = useState(0);
+    const [clearTarget, setClearTarget] = useState<Preview | null>(null);
     const running = useRef(false);
     const mutationVersion = useRef(0);
     const stopBulk = useRef(false);
@@ -96,7 +97,8 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const playingShot = allShots[playIndex];
     const playingPreview = previews.find(preview => preview.id === playingShot?.id);
     const hasDirtyPrompts = previews.some(preview => prompts[preview.id] !== undefined && prompts[preview.id] !== preview.image_prompt);
-    return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) { stopBulk.current = true; onClose(); } }} title={t('previsTitle')} closeLabel={t('close')} className={styles.dialog}
+    return <>
+    <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) { stopBulk.current = true; onClose(); } }} title={t('previsTitle')} closeLabel={t('close')} className={styles.dialog}
         footer={<Button onPress={() => { stopBulk.current = true; onClose(); }}>{t('goGenerate')}</Button>}>
         {!plan ? <p>{t('noActivePlan')}</p> : <fieldset disabled={readOnly} className={styles.stack}>
             <p className={styles.hint}>{t(readOnly ? 'readOnly' : 'previsIntro')}</p>
@@ -155,13 +157,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                                     const result = await api.removeProductionPreviewCandidate(project.id, preview.id, preview.t2i_selected_index ?? 0, project._revision ?? '');
                                     if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
                                 })}>{t('imageRemove')}</Button>
-                                <Button variant="quiet" isDisabled={!!busy || imageRunning} onPress={() => {
-                                    if (!window.confirm(t('imageClearConfirm'))) return;
-                                    void run(`${preview.id}:clear`, async () => {
-                                        const result = await api.clearProductionPreviewCandidates(project.id, preview.id, project._revision ?? '');
-                                        if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
-                                    });
-                                }}>{t('imageClear')}</Button>
+                                <Button variant="quiet" isDisabled={!!busy || imageRunning} onPress={() => setClearTarget(preview)}>{t('imageClear')}</Button>
                             </div>}
                             <details><summary>{t('imagePrompt')}</summary><TextAreaField label={t('imagePrompt')} rows={3} value={prompts[preview.id] ?? preview.image_prompt ?? ''} onChange={value => setPrompts(current => ({ ...current, [preview.id]: value }))} />
                                 <Button variant="quiet" isDisabled={!!busy || imageRunning || !prompts[preview.id]} onPress={() => void run(preview.id, async () => {
@@ -182,5 +178,26 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                 </section>;
             })}
         </fieldset>}
-    </Dialog>;
+    </Dialog>
+    <Dialog
+        isOpen={!!clearTarget}
+        onOpenChange={open => { if (!open) setClearTarget(null); }}
+        title={t('imageClear')}
+        closeLabel={t('close')}
+        footer={<>
+            <Button variant="quiet" onPress={() => setClearTarget(null)}>{t('imageClearCancel')}</Button>
+            <Button variant="danger" onPress={() => {
+                const target = clearTarget;
+                if (!target) return;
+                setClearTarget(null);
+                void run(`${target.id}:clear`, async () => {
+                    const result = await api.clearProductionPreviewCandidates(project.id, target.id, project._revision ?? '');
+                    if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
+                });
+            }}>{t('imageClearConfirmAction')}</Button>
+        </>}
+    >
+        <p>{t('imageClearConfirm')}</p>
+    </Dialog>
+    </>;
 }

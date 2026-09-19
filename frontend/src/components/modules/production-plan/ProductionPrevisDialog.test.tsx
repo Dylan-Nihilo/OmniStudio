@@ -76,5 +76,18 @@ it('removes the selected preview candidate and clears the preview through the se
     fireEvent.click(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[0]);
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('project', 'a', 1, 'revision-1'));
     fireEvent.click(screen.getAllByRole('button', { name: '清空本镜头候选图' })[0]);
+    expect(screen.getByRole('dialog', { name: '清空本镜头候选图' })).toBeVisible();
+    fireEvent.click(within(screen.getByRole('dialog', { name: '清空本镜头候选图' })).getByRole('button', { name: '确认清空' }));
     await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith('project', 'a', 'revision-2'));
+});
+
+it('keeps the preview unchanged when clearing candidates is cancelled', async () => {
+    stored = { ...stored, _revision: 'revision-1', production_previews: stored.production_previews!.map(p => ({ ...p, t2i_image_urls: ['/a.png'], t2i_selected_index: 0 })) } as Project;
+    mocks.get.mockImplementation(async () => stored);
+    renderWithIntl(<Harness />);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '清空本镜头候选图' })[0]).toBeVisible());
+    fireEvent.click(screen.getAllByRole('button', { name: '清空本镜头候选图' })[0]);
+    const dialog = screen.getByRole('dialog', { name: '清空本镜头候选图' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    expect(mocks.clear).not.toHaveBeenCalled();
 });

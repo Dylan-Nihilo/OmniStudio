@@ -3568,6 +3568,8 @@
     "imageRemove": "移除当前分镜候选图",
     "imageClear": "清空本镜头候选图",
     "imageClearConfirm": "清空本镜头的全部候选图？项目源文件和历史版本会保留。",
+    "imageClearCancel": "取消",
+    "imageClearConfirmAction": "确认清空",
     "saveImagePrompt": "保存画面描述",
     "busyImage": "分镜图生成中…",
     "previsCount": "片段内 {count} 个镜头",

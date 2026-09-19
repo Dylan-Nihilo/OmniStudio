@@ -3568,6 +3568,8 @@
     "imageRemove": "Remove current storyboard candidate",
     "imageClear": "Clear shot candidates",
     "imageClearConfirm": "Clear all candidates for this shot? Source files and history will be kept.",
+    "imageClearCancel": "Cancel",
+    "imageClearConfirmAction": "Clear candidates",
     "saveImagePrompt": "Save image description",
     "busyImage": "Generating storyboard image…",
     "previsCount": "{count} shots in this segment",
