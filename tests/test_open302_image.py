@@ -150,10 +150,12 @@ def test_a_task_that_never_finishes_gives_up(relay, monkeypatch):
 class _Refusal:
     """A 4xx carrying the only text that explains itself."""
 
-    def __init__(self, status_code, text, url="https://open302.com/v1/images/generations?x=1"):
+    def __init__(self, status_code, text, url="https://open302.com/v1/images/generations?x=1",
+                 headers=None):
         self.status_code = status_code
         self.text = text
         self.url = url
+        self.headers = headers or {}
 
     def json(self):
         raise ValueError("not json")
@@ -206,3 +208,11 @@ def test_a_content_refusal_is_not_retried(monkeypatch):
     with pytest.raises(RuntimeError):
         mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
     assert calls["n"] == 1
+
+
+def test_a_refusal_names_whoever_demanded_the_block_when_it_is_told():
+    """RFC 7725 puts the blocking party in a Link header. It separates "this prompt was
+    refused" from "this account or region is blocked", which are acted on differently."""
+    message = mulerouter._describe_http_failure(_Refusal(
+        451, "", headers={"Link": '<https://example.test/policy>; rel="blocked-by"'}))
+    assert "blocked-by" in message and "拦截方" in message

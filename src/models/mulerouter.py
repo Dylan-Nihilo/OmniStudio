@@ -379,7 +379,16 @@ def _describe_http_failure(resp: requests.Response) -> str:
         # grounds, so the description is the thing to change — not a setting, and not a retry.
         refusal = ("图片服务以内容/版权理由拒绝了这次请求（HTTP 451）。"
                    "这不是配置问题也不是限流，重试不会变好，请改写画面描述后重试。")
-        return f"{refusal} 上游原文：{body}" if body else refusal
+        # RFC 7725 puts the identity of whoever demanded the block in a Link header, which
+        # is the one field that separates "this prompt was refused" from "this whole region
+        # or account is blocked" — a distinction that changes what you do next entirely.
+        blocked_by = (resp.headers or {}).get("Link") if hasattr(resp, "headers") else None
+        parts = [refusal]
+        if body:
+            parts.append(f"上游原文：{body}")
+        if blocked_by:
+            parts.append(f"拦截方：{blocked_by[:200]}")
+        return " ".join(parts)
     if body:
         return f"HTTP {resp.status_code} from {location}: {body}"
     return f"HTTP {resp.status_code} from {location}"
