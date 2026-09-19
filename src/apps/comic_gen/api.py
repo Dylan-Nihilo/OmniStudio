@@ -4564,6 +4564,8 @@ async def generate_production_plan(script_id: str, payload: PlanSettings, reques
     from .production_planning import model_durations
     try:
         model_durations(payload.model)
+        if not pipeline.resolve_episode_assets(script)["scenes"]:
+            raise ValueError("请先分析剧本或在本集素材中添加场景，再生成制作计划")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:

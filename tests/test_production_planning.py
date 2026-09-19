@@ -44,6 +44,16 @@ def generate(client, project_id):
     return response.json()
 
 
+def test_planning_requires_a_scene_before_contacting_the_model(api_client, monkeypatch):
+    project_id, _, calls = setup_plan(api_client, monkeypatch)
+    api_module.pipeline.scripts[project_id].scenes = []
+    response = api_client.post(f'/projects/{project_id}/production-plan/generate', json={
+        'model': 'seedance-2.5-r2v', 'target_duration': 16, 'pacing': 'brisk'})
+    assert response.status_code == 422
+    assert '场景' in response.json()['detail']
+    assert calls == []
+
+
 @pytest.mark.parametrize('base_url', ['https://kaizo.top/v1', 'https://api.example.test/v1', 'https://kaizo.top.example.test/v1'])
 def test_planning_requests_isolate_kaizo_cache_without_changing_content(api_client, monkeypatch, base_url):
     real_chat = LLMAdapter.chat
