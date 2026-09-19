@@ -360,6 +360,31 @@ def _submit_task(base_url: str, api_path: str, body: Dict[str, Any]) -> str:
     return task_id
 
 
+_POLICY_REFUSAL_CODES = {451}
+
+
+def _describe_http_failure(resp: requests.Response) -> str:
+    """Build a failure message that keeps what the upstream said.
+
+    `raise_for_status()` reports the status line and the URL and throws the body away, which
+    is the only part that says *why* — an image refused with 451 reached a user as
+    "451 Client Error: Unavailable For Legal Reasons for url: ..." and nothing else, leaving
+    nothing to act on and nothing to diagnose from.
+    """
+    body = " ".join((resp.text or "").split())[:800]
+    location = resp.url.split("?")[0]
+    if resp.status_code in _POLICY_REFUSAL_CODES:
+        # 451 is "Unavailable For Legal Reasons", which tells a user nothing. On an image
+        # route it means the upstream refused this particular request on content or rights
+        # grounds, so the description is the thing to change — not a setting, and not a retry.
+        refusal = ("图片服务以内容/版权理由拒绝了这次请求（HTTP 451）。"
+                   "这不是配置问题也不是限流，重试不会变好，请改写画面描述后重试。")
+        return f"{refusal} 上游原文：{body}" if body else refusal
+    if body:
+        return f"HTTP {resp.status_code} from {location}: {body}"
+    return f"HTTP {resp.status_code} from {location}"
+
+
 def _request_with_retry(method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
     """HTTP request with exponential backoff retry on transient errors."""
     for attempt in range(max_retries):
@@ -370,7 +395,8 @@ def _request_with_retry(method: str, url: str, max_retries: int = 3, **kwargs) -
                 logger.warning(f"[MuleRouter] HTTP {resp.status_code}, retry in {wait}s (attempt {attempt + 1})")
                 time.sleep(wait)
                 continue
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise RuntimeError(_describe_http_failure(resp))
             return resp
         except requests.exceptions.ConnectionError:
             if attempt < max_retries - 1:
@@ -635,33 +661,41 @@ class MuleRouterImageModel(ImageGenModel):
         if kwargs.get("ref_image_path"):
             ref_image_paths.insert(0, kwargs["ref_image_path"])
 
-        if ref_image_paths:
-            files = []
-            handles = []
-            try:
-                for path in ref_image_paths:
-                    handle = open(path, "rb")
-                    handles.append(handle)
-                    files.append(("image", (os.path.basename(path), handle, mimetypes.guess_type(path)[0] or "application/octet-stream")))
+        try:
+            if ref_image_paths:
+                files = []
+                handles = []
+                try:
+                    for path in ref_image_paths:
+                        handle = open(path, "rb")
+                        handles.append(handle)
+                        files.append(("image", (os.path.basename(path), handle, mimetypes.guess_type(path)[0] or "application/octet-stream")))
+                    response = _request_with_retry(
+                        "POST",
+                        f"{config['base_url']}/images/edits",
+                        headers=headers,
+                        data={"model": config["model"], "prompt": prompt, "size": size, "quality": kwargs.get("quality", "high")},
+                        files=files,
+                        timeout=300,
+                    )
+                finally:
+                    for handle in handles:
+                        handle.close()
+            else:
                 response = _request_with_retry(
                     "POST",
-                    f"{config['base_url']}/images/edits",
-                    headers=headers,
-                    data={"model": config["model"], "prompt": prompt, "size": size, "quality": kwargs.get("quality", "high")},
-                    files=files,
+                    f"{config['base_url']}/images/generations",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={"model": config["model"], "prompt": prompt, "size": size, "quality": kwargs.get("quality", "high"), "n": kwargs.get("n", 1)},
                     timeout=300,
                 )
-            finally:
-                for handle in handles:
-                    handle.close()
-        else:
-            response = _request_with_retry(
-                "POST",
-                f"{config['base_url']}/images/generations",
-                headers={**headers, "Content-Type": "application/json"},
-                json={"model": config["model"], "prompt": prompt, "size": size, "quality": kwargs.get("quality", "high"), "n": kwargs.get("n", 1)},
-                timeout=300,
-            )
+        except Exception as error:
+            # The prompt is what gets refused, and here it is generated from the novel rather
+            # than typed by anyone, so a refusal cannot be reproduced without it. Logged on
+            # failure only — these are long, and they are the user's material.
+            logger.error("[OpenAI-compatible image] %s failed (size=%s, refs=%d): %s | prompt=%r",
+                         config["model"], size, len(ref_image_paths), error, prompt[:300])
+            raise
 
         image_ref = _extract_openai_image_url(
             _await_openai_image_task(response.json(), config, headers))

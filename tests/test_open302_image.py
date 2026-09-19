@@ -143,3 +143,66 @@ def test_a_task_that_never_finishes_gives_up(relay, monkeypatch):
     with pytest.raises(RuntimeError, match="did not finish"):
         mulerouter.MuleRouterImageModel({}).generate(
             "a cat", str(relay / "out.png"), model="gpt-image-2.5-sunburst")
+
+
+# --- what the upstream said when it refused ------------------------------------------
+
+class _Refusal:
+    """A 4xx carrying the only text that explains itself."""
+
+    def __init__(self, status_code, text, url="https://open302.com/v1/images/generations?x=1"):
+        self.status_code = status_code
+        self.text = text
+        self.url = url
+
+    def json(self):
+        raise ValueError("not json")
+
+
+def test_a_refusal_keeps_what_the_upstream_said():
+    """raise_for_status() reports the status line and the URL and discards the body, so a
+    refused image reached a user as "451 Client Error: Unavailable For Legal Reasons for
+    url: ..." — nothing to act on, and nothing to diagnose from afterwards."""
+    message = mulerouter._describe_http_failure(
+        _Refusal(451, '{"error":{"message":"content blocked by provider policy"}}'))
+    assert "content blocked by provider policy" in message
+    assert "451" in message
+
+
+def test_a_content_refusal_says_what_to_do_about_it():
+    """451 is "Unavailable For Legal Reasons", which reads like an outage. On this route it
+    means this particular request was refused, so the description is the thing to change —
+    not a setting, and not a retry."""
+    message = mulerouter._describe_http_failure(_Refusal(451, ""))
+    assert "改写画面描述" in message
+    assert "限流" in message, "must rule out the two things people would try first"
+
+
+def test_other_failures_still_report_status_and_body():
+    message = mulerouter._describe_http_failure(_Refusal(400, '{"error":"size not supported"}'))
+    assert "400" in message and "size not supported" in message
+    # The query string can carry a credential, so only the path is echoed back.
+    assert "?x=1" not in message
+
+
+def test_a_failed_request_raises_with_the_explanation(monkeypatch):
+    monkeypatch.setattr(mulerouter.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(mulerouter.requests, "request",
+                        lambda *a, **k: _Refusal(451, "policy refusal"))
+    with pytest.raises(RuntimeError, match="policy refusal"):
+        mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
+
+
+def test_a_content_refusal_is_not_retried(monkeypatch):
+    """Retrying a refusal wastes a minute of someone's time to arrive at the same answer."""
+    calls = {"n": 0}
+
+    def once(*args, **kwargs):
+        calls["n"] += 1
+        return _Refusal(451, "policy refusal")
+
+    monkeypatch.setattr(mulerouter.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(mulerouter.requests, "request", once)
+    with pytest.raises(RuntimeError):
+        mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
+    assert calls["n"] == 1
