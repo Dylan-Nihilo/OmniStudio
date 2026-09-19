@@ -33,3 +33,13 @@ it('retries generation from the inline error state', async () => {
     await waitFor(() => expect(mocks.renderFrame).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
+
+it('protects an edited prompt when leaving the editor', async () => {
+    const close = vi.fn();
+    render(<StoryboardFrameEditor frame={{ id: 'frame', image_prompt: 'prompt' }} onClose={close} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited prompt' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'close' })[0]);
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'keepEditing' }));
+    expect(screen.getByRole('textbox')).toHaveValue('edited prompt');
+});

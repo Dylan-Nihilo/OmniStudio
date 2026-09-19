@@ -1229,6 +1229,8 @@
     "propImageDesc": "道具参考图"
   },
   "storyboard": {
+    "selectVariantFailed": "选择候选图失败，请重试。",
+    "deleteVariantFailed": "移除候选图失败，请重试。",
     "frameEditor": "分镜编辑器",
     "sceneContext": "场景上下文",
     "action": "动作",

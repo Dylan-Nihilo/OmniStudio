@@ -1229,6 +1229,8 @@
     "propImageDesc": "Prop reference image"
   },
   "storyboard": {
+    "selectVariantFailed": "Could not select the image. Try again.",
+    "deleteVariantFailed": "Could not remove the image. Try again.",
     "frameEditor": "Frame Editor",
     "sceneContext": "Scene Context",
     "action": "Action",
