@@ -62,6 +62,19 @@ describe("CastWorkbenchModal asset generation", () => {
         api.getTaskStatus.mockResolvedValue({ status: "processing" });
     });
 
+    it("exposes an accessible named dialog and retains a draft when reopened", async () => {
+        const close = vi.fn();
+        const view = render(<CastWorkbenchModal isOpen kind="character" entityId="character-1" onClose={close} />);
+        await act(async () => {});
+        expect(screen.getByRole('dialog', {name:'林默'})).toBeVisible();
+        fireEvent.change(screen.getByRole('textbox'), {target:{value:'my custom draft'}});
+        fireEvent.click(screen.getByRole('button', {name:'close'}));
+        expect(close).toHaveBeenCalledOnce();
+        view.rerender(<CastWorkbenchModal isOpen={false} kind="character" entityId="character-1" onClose={close} />);
+        view.rerender(<CastWorkbenchModal isOpen kind="character" entityId="character-1" onClose={close} />);
+        expect(screen.getByRole('textbox')).toHaveValue('my custom draft');
+    });
+
     it("shows batch accounting and cancels without counting pending work as failed", async () => {
         api.generateAsset.mockResolvedValue({ _task_id: "task-1", _job_id: "job-1" });
         api.cancelTask.mockResolvedValue({ status: "canceled" });
