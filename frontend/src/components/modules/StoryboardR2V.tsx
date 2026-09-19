@@ -41,6 +41,7 @@ import {
 import { overridePanelSectionState } from "./storyboard-r2v/shot-panel/usePanelSectionState";
 import ParamsSection, { type ParamsState } from "./storyboard-r2v/shot-panel/ParamsSection";
 import T2ISubsection, { type T2IUploadError } from "./storyboard-r2v/shot-panel/T2ISubsection";
+import { ASSET_SIZE_BY_RATIO } from "@/lib/modelCost";
 import CandidatesSection from "./storyboard-r2v/shot-panel/CandidatesSection";
 import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
@@ -1546,7 +1547,20 @@ function StoryboardWorkbench() {
         });
     }, [allVideoTasks]);
 
-    type ShotModelField = "i2v_model" | "r2v_model";
+    type ShotModelField = "i2v_model" | "r2v_model" | "i2i_model";
+
+    // Same resolution order the server uses for a frame's image model: shot override first,
+    // then the project default. Read in one place so the picker and the generation agree.
+    const shotImageModel = useCallback((shot: ShotNode): string | undefined => {
+        const override = shot.modelSettingsOverrides?.i2i_model;
+        return typeof override === "string" ? override
+            : currentProject?.model_settings?.i2i_model ?? undefined;
+    }, [currentProject?.model_settings?.i2i_model]);
+
+    // Storyboard frames render at the project's storyboard ratio; the price is keyed by
+    // pixel size, so the ratio is mapped the way the asset pipeline maps it.
+    const storyboardImageSize = ASSET_SIZE_BY_RATIO[
+        currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9"] ?? "1024*576";
 
     const persistShotModel = useCallback((shot: ShotNode, field: ShotModelField, value: string | null) => {
         const projectId = currentProject?.id;
@@ -2195,6 +2209,12 @@ function StoryboardWorkbench() {
                                         onRemove={(i) => updateT2IWorkbench(shot.id, s => removeT2IImage(s, i))}
                                         onGenerate={() => submitFirstFrame(index)}
                                         onUpload={file => submitFirstFrame(index, file)}
+                                        imageModelId={shotImageModel(shot)}
+                                        imageSize={storyboardImageSize}
+                                        imageModelSaving={savingShotModels.has(shot.id)}
+                                        onImageModelChange={(modelId) => persistShotModel(
+                                            shot, "i2i_model",
+                                            modelId === (currentProject?.model_settings?.i2i_model ?? null) ? null : modelId)}
                                     />
                                     {index > 0 && <Button variant="quiet" className="mx-5 mb-3"
                                         isDisabled={!currentProject?.video_tasks?.some(task => task.id === currentProject.frames[index - 1]?.selected_video_id && task.status === "completed") || shot.t2iStatus === "processing" || shot.t2iStatus === "pending"}

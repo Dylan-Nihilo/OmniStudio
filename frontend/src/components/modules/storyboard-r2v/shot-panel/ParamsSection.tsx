@@ -22,6 +22,9 @@ import { SelectField } from "@omnistudio/ui";
 import { Dices, X, ChevronRight, RotateCcw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { I2VModelConfig, DurationConfig, ModelParamSupport } from "@/lib/modelCatalog";
+import CreditCost from "@/components/billing/CreditCost";
+import { useBillingStore } from "@/store/billingStore";
+import { creditLabel, unitLabels } from "@/lib/modelCost";
 import { usePanelSectionState } from "./usePanelSectionState";
 import SectionShell from "./SectionShell";
 // PR-3c · Loader2/Sparkles/WorkflowActionButton removed with the Generate
@@ -102,6 +105,8 @@ export default function ParamsSection({
         () => modelList.find((m) => m.id === params.model) ?? modelList[0],
         [modelList, params.model],
     );
+    const pricing = useBillingStore((state) => state.pricing);
+    const tBilling = useTranslations("billing");
     const modelParams: ModelParamSupport = activeModel?.params ?? {};
     const durationCfg: DurationConfig = activeModel?.duration ?? { type: "fixed", value: 5 };
 
@@ -173,7 +178,7 @@ export default function ParamsSection({
             <div className="space-y-3">
                 <div className="flex min-w-0 items-end gap-2">
                     <div className="min-w-0 flex-1">
-                        <SelectField label={t("modelSelection")} value={params.model} onChange={key => handleModelChange(String(key))} isDisabled={modelOverrideSaving} options={modelList.map(model => ({ id: model.id, label: model.name }))} />
+                        <SelectField label={t("modelSelection")} value={params.model} onChange={key => handleModelChange(String(key))} isDisabled={modelOverrideSaving} options={modelList.map(model => ({ id: model.id, label: model.name, description: creditLabel(pricing, model.id, unitLabels(tBilling)) ?? undefined }))} />
                     </div>
                     {hasModelOverride && onResetModel ? (
                         <button
@@ -187,6 +192,13 @@ export default function ParamsSection({
                             <RotateCcw size={15} aria-hidden="true" className={modelOverrideSaving ? "animate-spin" : ""} />
                         </button>
                     ) : null}
+                </div>
+
+                {/* What this shot will cost, where the shot is configured: model, duration and
+                    resolution are all right here, so the figure is exact rather than a range. */}
+                <div className="flex justify-end">
+                    <CreditCost modelId={params.model} quantity={params.duration}
+                                params={params.resolution ? { resolution: params.resolution } : {}} />
                 </div>
 
                 {/* Duration */}

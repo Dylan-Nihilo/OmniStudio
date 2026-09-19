@@ -1465,7 +1465,7 @@ export const api = {
         return res.data;
     },
 
-    updatePromptConfig: async (scriptId: string, config: { storyboard_polish?: string; video_polish?: string; r2v_polish?: string; entity_extraction?: string; style_analysis?: string; storyboard_extraction?: string }) => {
+    updatePromptConfig: async (scriptId: string, config: { storyboard_polish?: string; video_polish?: string; r2v_polish?: string; entity_extraction?: string; style_analysis?: string; storyboard_extraction?: string; polish_model?: string }) => {
         const res = await apiClient.put(`${API_URL}/projects/${scriptId}/prompt_config`, config);
         return res.data;
     },

@@ -75,12 +75,18 @@ def wallet(context: CurrentUser, billing: Billing) -> dict[str, Any]:
     # Reported on both paths: an ordinary user on a centrally operated deployment takes the
     # early return below, and that is exactly the case the UI needs the flag for.
     platform_managed = billing.roles.has_root()
+    # Publishing rates and charging for them are separate switches, and the gap between them
+    # is a deliberate stage: rates go up first so the operator can check every price in the
+    # real UI and users get used to seeing costs, then charging is switched on. The UI shows
+    # costs on this flag, not on `enabled`.
+    rates_published = billing.runtime.current() is not None
     if not enabled and role not in ("root", "admin"):
-        return {"enabled": False, "role": None, "platform_managed": platform_managed}
+        return {"enabled": False, "role": None, "platform_managed": platform_managed,
+                "rates_published": rates_published}
     w = billing.wallets.for_workspace(context.workspace.id)
     return {"enabled": enabled, "wallet_id": w["id"], "workspace_id": context.workspace.id,
             **billing.wallets.balance(w["id"]), "role": role,
-            "platform_managed": platform_managed}
+            "platform_managed": platform_managed, "rates_published": rates_published}
 
 
 @router.get("/ledger")

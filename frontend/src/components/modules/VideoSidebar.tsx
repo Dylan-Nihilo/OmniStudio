@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
 import { Settings2, List, RefreshCw, ChevronDown, ChevronUp, Mic, Music, VolumeX, Wand2 } from "lucide-react";
@@ -15,6 +15,9 @@ import {
     VIDEO_I2V_MODELS,
 } from "@/lib/modelCatalog";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
+import CreditCost from "@/components/billing/CreditCost";
+import { useBillingStore } from "@/store/billingStore";
+import { unitLabels, withCreditLabel } from "@/lib/modelCost";
 
 interface VideoSidebarProps {
     tasks: VideoTask[];
@@ -25,6 +28,15 @@ interface VideoSidebarProps {
 
 export default function VideoSidebar({ tasks, onRemix, params, setParams }: VideoSidebarProps) {
     const tm = useTranslations("motion");
+    const tBilling = useTranslations("billing");
+    const pricing = useBillingStore((state) => state.pricing);
+    const pricedVideoModels = useMemo(
+        () => VIDEO_I2V_MODELS.map((model) => ({
+            ...model,
+            description: withCreditLabel(model.description, pricing, model.id, unitLabels(tBilling)),
+        })),
+        [pricing, tBilling],
+    );
     const [activeTab, setActiveTab] = useState<"settings" | "queue">("settings");
     const [isUploadingAudio, setIsUploadingAudio] = useState(false);
     const audioInputRef = useRef<HTMLInputElement>(null);
@@ -177,10 +189,15 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
                                         )}
                                     </label>
                                     <GroupedModelGrid
-                                        models={VIDEO_I2V_MODELS}
+                                        models={pricedVideoModels}
                                         selectedId={params.generationMode === "r2v" ? R2V_SELECTION_MODEL_ID : params.model}
                                         onSelect={(id) => updateParam("model", id)}
                                     />
+                                    <div className="mt-2 flex justify-end">
+                                        <CreditCost modelId={params.generationMode === "r2v" ? R2V_SELECTION_MODEL_ID : params.model}
+                                                    quantity={params.duration ?? 5}
+                                                    params={params.resolution ? { resolution: params.resolution } : {}} />
+                                    </div>
                                 </div>
 
                                 {/* Duration - Dynamic per model */}

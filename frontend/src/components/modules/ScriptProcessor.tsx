@@ -14,6 +14,9 @@ import { getAssetUrl } from "@/lib/utils";
 import { useEditLeaseStore } from "@/store/editLeaseStore";
 import ScriptWritingEditor from "./script-writing/ScriptWritingEditor";
 import ProductionGuide from "@/components/shared/ProductionGuide";
+import TextTierSelect from "@/components/common/TextTierSelect";
+import { estimateTextCredits } from "@/lib/modelCost";
+import { useBillingStore } from "@/store/billingStore";
 import { useAuthStore } from "@/store/authStore";
 import styles from "./ScriptProcessor.module.css";
 
@@ -42,6 +45,13 @@ export default function ScriptProcessor() {
     const draftKey = `omni-script-draft:${workspaceId}:${currentProject?.id}`;
     const [recoveredDraft, setRecoveredDraft] = useState<string | null>(null);
     const tw = useTranslations("scriptWriting");
+    // The tier and what it will cost, side by side with the button that spends it. The
+    // total is an estimate and says so: the input length is known but the reply's is not.
+    const pricing = useBillingStore((state) => state.pricing);
+    const ratesVisible = useBillingStore((state) => Boolean(state.enabled) || state.ratesPublished);
+    const [textModel, setTextModel] = useState<string | null>(null);
+    const estimatedCredits = estimateTextCredits(pricing, textModel, script.length);
+
     const readOnly = leaseStatus !== "editing";
 
     useEffect(() => {
@@ -197,6 +207,9 @@ export default function ScriptProcessor() {
         <header className={styles.header}><div><p>{t("script")}{currentProject?.episode_number ? ` / EP.${currentProject.episode_number}` : ""}</p><h2>{currentProject?.title}</h2></div><div className={styles.actions}>
             <input ref={fileInput} type="file" accept=".txt,.md" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; void importScript(file); }} />
             <Button variant="quiet" onPress={() => fileInput.current?.click()} isDisabled={readOnly} isPending={reading}><Upload size={16} />{t("import")}</Button>
+            <TextTierSelect projectId={currentProject?.id} isDisabled={readOnly}
+                            onEffectiveModelChange={setTextModel} className="min-w-[10rem]" />
+            {ratesVisible && estimatedCredits !== null && <span className="text-xs text-text-secondary whitespace-nowrap">{t("estimatedCost", { credits: estimatedCredits })}</span>}
             <Button onPress={handleAnalyze} isDisabled={readOnly || !script.trim() || reading} isPending={isAnalyzing}>{isAnalyzing ? ts("analyzingScript") : t("analyze")}</Button>
         </div></header>
         <ProductionGuide stage="script" />

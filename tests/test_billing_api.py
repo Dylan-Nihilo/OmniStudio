@@ -128,7 +128,9 @@ def test_wallet_hides_itself_while_billing_is_switched_off(tmp_path: Path, monke
         # A member learns nothing about the wallet, but does learn the deployment is
         # centrally operated — that is what tells the UI to hide the credential settings,
         # and this is the response an ordinary user gets while billing is still off.
-        assert member == {"enabled": False, "role": None, "platform_managed": True}
+        assert member == {"enabled": False, "role": None, "platform_managed": True,
+                          # Nothing is published yet, so there are no rates to show either.
+                          "rates_published": False}
 
 
 def test_provider_readiness_answers_whether_a_model_can_actually_run(tmp_path: Path, monkeypatch):
@@ -168,3 +170,39 @@ def test_provider_readiness_is_root_only(tmp_path: Path, monkeypatch):
         me = _setup_owner(client)
         _invite_member(client, me["workspace"]["id"], "member")
         assert client.get("/admin/providers").status_code == 403
+
+
+def test_rates_can_be_shown_before_anything_is_charged(tmp_path: Path, monkeypatch):
+    """Publishing rates and charging for them are separate switches, and the gap is the point.
+
+    Costs go up in the UI first — so the operator can check every price where it will
+    actually be read, and users get a stretch where they can see what an action costs before
+    it starts costing them. The client keys the labels off `rates_published` and only the
+    deduction off `enabled`, so both flags have to be reported independently.
+    """
+    monkeypatch.delenv("OMNI_STUDIO_BILLING_ENABLED", raising=False)
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        owner = _setup_owner(client) and client.get("/billing/wallet").json()
+        assert owner["rates_published"] is False
+
+        upsert = client.put("/admin/pricing/items", json={
+            "model_id": "gpt-image/gpt-image-2#image", "stage": "image",
+            "billing_unit": "image", "match": {}, "purchase_price_cny": 0.06,
+            "display_name": "高级"})
+        assert upsert.status_code == 200, upsert.text
+        publish = client.post("/admin/pricing/publish", json={})
+        assert publish.status_code == 200 and publish.json()["item_count"] == 1, publish.text
+
+        published = client.get("/billing/wallet").json()
+        assert published["enabled"] is False, "publishing rates must not start charging"
+        assert published["rates_published"] is True
+
+        # And the rates are readable, which is what the labels render from.
+        table = client.get("/billing/pricing-table")
+        assert table.status_code == 200
+        assert any(row["model_id"] == "gpt-image/gpt-image-2#image" for row in table.json()["items"])
+
+        # An ordinary member sees the same verdict: costs are for everyone, not just root.
+        _invite_member(client, owner["workspace_id"], "member")
+        assert client.get("/billing/wallet").json()["rates_published"] is True
