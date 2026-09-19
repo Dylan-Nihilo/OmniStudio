@@ -3474,6 +3474,9 @@
     "selectedHint": "新候选不会替换已选参考图，请确认后选定。"
   },
   "productionPlan": {
+    "previsUnsaved": "分镜图描述尚未保存。放弃修改并离开吗？",
+    "keepEditing": "继续编辑",
+    "refreshFailed": "刷新失败，已保留当前内容，请重试。",
     "incompletePlan": "请补全方案说明、片段起止状态，以及各镜头的名称、画面、机位和有效时长。",
     "invalidTarget": "目标时长请填写 1–600 之间的整数秒，或留空自动估算。",
     "reviseActive": "调整当前方案",

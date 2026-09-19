@@ -3474,6 +3474,9 @@
     "selectedHint": "New candidates keep the current selection. Review and select the one you want."
   },
   "productionPlan": {
+    "previsUnsaved": "Preview descriptions have unsaved changes. Discard them and leave?",
+    "keepEditing": "Keep editing",
+    "refreshFailed": "Refresh failed. Current content is preserved. Try again.",
     "incompletePlan": "Complete the summary, segment states, and each shot’s title, description, camera and duration.",
     "invalidTarget": "Enter a whole number from 1 to 600 seconds, or leave blank for an estimate.",
     "reviseActive": "Revise current plan",

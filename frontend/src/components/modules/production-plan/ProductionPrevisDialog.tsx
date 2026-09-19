@@ -8,6 +8,7 @@ import type { ProductionReview } from '@/lib/productionPlan';
 import type { Project } from '@/store/projectStore';
 import PreviewImage from '@/components/shared/preview/PreviewImage';
 import PreviewVideo from '@/components/shared/preview/PreviewVideo';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import { getAssetUrl } from '@/lib/utils';
 import styles from './ProductionPlanDialog.module.css';
 
@@ -31,6 +32,8 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const [reviews, setReviews] = useState<ProductionReview[]>([]);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState('');
+    const [refreshError, setRefreshError] = useState('');
+    const [confirmClose, setConfirmClose] = useState(false);
     const [prompts, setPrompts] = useState<Record<string, string>>({});
     const [playing, setPlaying] = useState(false);
     const [playIndex, setPlayIndex] = useState(0);
@@ -52,16 +55,17 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
         if (!mounted.current || version !== mutationVersion.current) return;
         onUpdate({ production_previews: updated.production_previews, _revision: updated._revision });
         setReviews(review.segments);
+        setRefreshError('');
     }, [project.id, onUpdate]);
     useEffect(() => {
-        if (isOpen) void refresh().catch(e => { if (mounted.current) setError(errorMessage(e)); });
+        if (isOpen) void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); });
         else { setPlaying(false); stopBulk.current = true; }
-    }, [isOpen, refresh]);
+    }, [isOpen, refresh, t]);
     useEffect(() => {
         if (!isOpen || (!busy && !imageRunning)) return;
-        const timer = window.setInterval(() => { void refresh().catch(() => {}); }, 2500);
+        const timer = window.setInterval(() => { void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); }); }, 2500);
         return () => window.clearInterval(timer);
-    }, [isOpen, busy, imageRunning, refresh]);
+    }, [isOpen, busy, imageRunning, refresh, t]);
     useEffect(() => {
         if (!playing || !allShots[playIndex]) return;
         const timer = window.setTimeout(() => {
@@ -75,7 +79,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
         running.current = true; mutationVersion.current += 1; setBusy(key); setError('');
         try { await action(); }
         catch (e) { if (mounted.current) setError(errorMessage(e) || t('imageFailed')); }
-        finally { mutationVersion.current += 1; running.current = false; if (mounted.current) { setBusy(null); void refresh().catch(() => {}); } }
+        finally { mutationVersion.current += 1; running.current = false; if (mounted.current) { setBusy(null); void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); }); } }
     }
     async function generate(preview: Preview) {
         if (!await beforeChange() || !mounted.current) return;
@@ -97,9 +101,17 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const playingShot = allShots[playIndex];
     const playingPreview = previews.find(preview => preview.id === playingShot?.id);
     const hasDirtyPrompts = previews.some(preview => prompts[preview.id] !== undefined && prompts[preview.id] !== preview.image_prompt);
+    const atomicBusy = !!busy && busy !== 'all' && !previews.some(preview => busy === preview.id && imageRunning);
+    function close() {
+        if (atomicBusy) return;
+        if (hasDirtyPrompts) { setConfirmClose(true); return; }
+        stopBulk.current = true; onClose();
+    }
     return <>
-    <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) { stopBulk.current = true; onClose(); } }} title={t('previsTitle')} closeLabel={t('close')} className={styles.dialog}
-        footer={<Button onPress={() => { stopBulk.current = true; onClose(); }}>{t('goGenerate')}</Button>}>
+    <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) close(); }} title={t('previsTitle')} closeLabel={t('close')} className={styles.dialog} isDismissable={!atomicBusy}
+        footer={<Button isDisabled={atomicBusy} onPress={close}>{t('goGenerate')}</Button>}>
+        {refreshError && <p role="alert" className={styles.error}>{refreshError}</p>}
+        <Button variant="quiet" onPress={() => void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); })}><RefreshCw size={14} />{t('checkAgain')}</Button>
         {!plan ? <p>{t('noActivePlan')}</p> : <fieldset disabled={readOnly} className={styles.stack}>
             <p className={styles.hint}>{t(readOnly ? 'readOnly' : 'previsIntro')}</p>
             {error && <p role="alert" className={styles.error}>{error}</p>}
@@ -112,7 +124,6 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                     }
                 })}>{t('generateMissing', { count: missing.length })}</Button>}
                 {busy === 'all' && <Button variant="quiet" onPress={() => { stopBulk.current = true; }}>{t('stopFollowing')}</Button>}
-                <Button variant="quiet" onPress={() => void run('refresh', refresh)} isDisabled={!!busy}><RefreshCw size={14} />{t('checkAgain')}</Button>
                 <Button variant="quiet" isDisabled={missing.length > 0 || !allShots.length} onPress={() => { if (!playing) setPlayIndex(0); setPlaying(!playing); }}>{playing ? <Pause size={14} /> : <Play size={14} />}{t(playing ? 'pausePreview' : 'playPreview')}</Button>
             </div>
             {playing && playingShot && <section className={styles.animatic} aria-label={t('playPreview')}>
@@ -179,6 +190,9 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
             })}
         </fieldset>}
     </Dialog>
+    <ConfirmDialog open={confirmClose} title={t('unsaved')} message={t('previsUnsaved')}
+        cancelLabel={t('keepEditing')} confirmLabel={t('discardChanges')}
+        onCancel={() => setConfirmClose(false)} onConfirm={() => { setPrompts({}); setConfirmClose(false); stopBulk.current = true; onClose(); }} />
     <Dialog
         isOpen={!!clearTarget}
         onOpenChange={open => { if (!open) setClearTarget(null); }}

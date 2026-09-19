@@ -12,10 +12,10 @@ vi.mock('@/components/shared/preview/PreviewVideo', () => ({ default: () => <vid
 let stored: Project;
 let confirmed = false;
 const close = vi.fn();
-function Harness() {
+function Harness({ readOnly = false }: { readOnly?: boolean }) {
     const [project, setProject] = useState(stored);
     const update = useCallback((patch: Partial<Project>) => setProject(current => ({ ...current, ...patch })), []);
-    return <ProductionPrevisDialog isOpen onClose={close} project={project} beforeChange={async () => true} onUpdate={update} />;
+    return <ProductionPrevisDialog isOpen onClose={close} project={project} beforeChange={async () => true} onUpdate={update} readOnly={readOnly} />;
 }
 beforeEach(() => {
     vi.clearAllMocks(); confirmed = false; vi.stubGlobal('confirm', vi.fn(() => true));
@@ -90,4 +90,23 @@ it('keeps the preview unchanged when clearing candidates is cancelled', async ()
     const dialog = screen.getByRole('dialog', { name: '清空本镜头候选图' });
     fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
     expect(mocks.clear).not.toHaveBeenCalled();
+});
+
+it('lets a read-only viewer retry a failed refresh without enabling mutations', async () => {
+    mocks.get.mockRejectedValueOnce(new Error('连接中断'));
+    renderWithIntl(<Harness readOnly />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('连接中断');
+    fireEvent.click(screen.getByRole('button', { name: '刷新状态' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '生成缺少的分镜图（2 张）' })).toBeDisabled();
+});
+
+it('keeps an unsaved preview prompt when closing is cancelled', async () => {
+    renderWithIntl(<Harness />);
+    fireEvent.click(screen.getAllByText('分镜图描述', { selector: 'summary' })[0]);
+    fireEvent.change(screen.getAllByRole('textbox', { name: '分镜图描述' })[0], { target: { value: '保留这段编辑' } });
+    fireEvent.click(screen.getByRole('button', { name: '返回制作视频' }));
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
+    expect(screen.getAllByRole('textbox', { name: '分镜图描述' })[0]).toHaveValue('保留这段编辑');
 });
