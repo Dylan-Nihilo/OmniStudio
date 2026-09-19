@@ -136,6 +136,7 @@ export default function VoiceDesignModal({
             setPreviewVoiceId(voice_id);
             setPreviewUrl(preview_url);
             setPhase("preview_ready");
+            if (!visible.current) return;
             const audio = new Audio(getAssetUrl(preview_url));
             audio.onended = () => {
                 setPlaying(false);

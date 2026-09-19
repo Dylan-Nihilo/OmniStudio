@@ -3,8 +3,10 @@ import { expect, it, vi } from 'vitest';
 import { renderWithIntl } from '@/test/renderWithIntl';
 import VoiceCloneModal from './VoiceCloneModal';
 import VoiceDesignModal from './VoiceDesignModal';
+import { useState } from 'react';
 const mocks=vi.hoisted(()=>({upload:vi.fn(),clone:vi.fn(),preview:vi.fn()}));
 vi.mock('@/lib/api',()=>({api:{uploadFile:mocks.upload,cloneVoice:mocks.clone,designVoicePreview:mocks.preview}}));
+vi.mock('@/lib/utils', () => ({ getAssetUrl: (url: string) => url }));
 
 it('keeps a clone form after failure, prevents duplicate submission and guards dirty close', async()=>{
  const close=vi.fn(); let reject!:(e:Error)=>void;
@@ -33,4 +35,20 @@ it('retains the voice design prompt after preview failure and protects it on clo
  fireEvent.click(screen.getByRole('button',{name:'取消'}));
  expect(await screen.findByRole('dialog',{name:'有未保存的修改'})).toBeVisible();
  expect(close).not.toHaveBeenCalled();
+});
+
+it('keeps a late voice preview without playing audio after leaving', async () => {
+ let resolve!: (value: any) => void;
+ mocks.preview.mockImplementation(() => new Promise(r => { resolve = r; }));
+ const play = vi.fn().mockResolvedValue(undefined);
+ vi.stubGlobal('Audio', class { play = play; pause = vi.fn(); });
+ const props = { seriesId: 'series', onClose: vi.fn(), onCreated: vi.fn() };
+ function Harness() { const [open, setOpen] = useState(true); return <><button onClick={() => setOpen(false)}>leave test</button><VoiceDesignModal isOpen={open} {...props} /></>; }
+ renderWithIntl(<Harness />);
+ fireEvent.change(screen.getByRole('textbox', { name: '音色描述（100-500 字中文）' }), { target: { value: 'calm voice' } });
+ fireEvent.click(screen.getByRole('button', { name: '生成试听' }));
+ fireEvent.click(screen.getByText('leave test'));
+ await act(async () => { resolve({ voice_id: 'voice', preview_url: '/voice.wav' }); });
+ expect(play).not.toHaveBeenCalled();
+ vi.unstubAllGlobals();
 });
