@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Settings2, Check, Wand2, Timer, SlidersHorizontal } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
+import { Wand2, Timer, SlidersHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 import {
     DEFAULT_I2V_MODEL_ID,
@@ -12,6 +12,8 @@ import {
     VIDEO_I2V_MODELS,
     VIDEO_R2V_MODELS,
 } from "@/lib/modelCatalog";
+import { Dialog, Button } from "@omnistudio/ui";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
 
 export interface VideoConfig {
@@ -160,8 +162,16 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
         onClose();
     };
 
-    const handleOpen = () => {
-        setDraft(config);
+    const tc = useTranslations('common');
+    const wasOpen = useRef(false);
+    const [confirmClose, setConfirmClose] = useState(false);
+    useEffect(() => {
+        if (isOpen && !wasOpen.current) { setDraft(config); setConfirmClose(false); }
+        wasOpen.current = isOpen;
+    }, [isOpen, config]);
+    const close = () => {
+        if (JSON.stringify(draft) !== JSON.stringify(config)) setConfirmClose(true);
+        else onClose();
     };
 
     const hasAdvancedParams =
@@ -174,55 +184,9 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
 
     const activeAccent = getProviderAccent(activeModelId);
 
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={springOverlay}
-                    className="fixed inset-0 bg-black/70 backdrop-blur-lg z-50 flex items-center justify-center p-4 md:p-8"
-                    onClick={onClose}
-                    onAnimationStart={handleOpen}
-                >
-                    <motion.div
-                        initial={{ scale: 0.9, opacity: 0, y: 24 }}
-                        animate={{ scale: 1, opacity: 1, y: 0 }}
-                        exit={{ scale: 0.9, opacity: 0, y: 24 }}
-                        transition={springMed}
-                        className="relative bg-surface border border-glass-border shadow-[0_0_80px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.04)] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header — Cinematic glass bar with accent */}
-                        <div className="relative flex items-center justify-between px-7 py-5 border-b border-glass-border shrink-0 bg-glass">
-                            {/* Accent gradient line at top */}
-                            <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${activeAccent} opacity-40`} />
-                            <div className="flex items-center gap-3.5">
-                                <div className="relative w-9 h-9 rounded-xl bg-glass border border-glass-border flex items-center justify-center">
-                                    <Settings2 size={16} className="text-foreground/80" strokeWidth={1.5} />
-                                    <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-gradient-to-br ${activeAccent} border border-surface`} />
-                                </div>
-                                <div>
-                                    <h2 className="text-[0.9375rem] font-semibold text-foreground tracking-tight">
-                                        {t("videoSettings")}
-                                    </h2>
-                                    <p className="text-[0.6875rem] text-text-muted mt-0.5 tracking-wide font-medium">
-                                        {currentModelConfig?.name}
-                                    </p>
-                                </div>
-                            </div>
-                            <motion.button
-                                whileHover={{ scale: 1.1, rotate: 90 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={onClose}
-                                transition={springFast}
-                                className="p-2 rounded-xl hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors"
-                            >
-                                <X size={18} strokeWidth={1.5} />
-                            </motion.button>
-                        </div>
-
+    return <><Dialog isOpen={isOpen} title={t('videoSettings')} closeLabel={tc('close')}
+        onOpenChange={open => { if (!open) close(); }} className="!w-[min(672px,calc(100vw-2rem))] !max-w-none"
+        footer={<><Button variant="secondary" onPress={close}>{tc('cancel')}</Button><Button onPress={handleApply}>{t('applySettings')}</Button></>}>
                         {/* Content — Staggered sections */}
                         <div className="flex-1 overflow-y-auto px-7 py-7 space-y-9">
                             {/* Model Selection */}
@@ -304,6 +268,7 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
                                                         }}
                                                     />
                                                     <input
+                                                        aria-label={t("durationLabel")}
                                                         type="range"
                                                         min={dc.min}
                                                         max={dc.max}
@@ -417,6 +382,7 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
                                                         {tm("promptEnhancer")}
                                                     </label>
                                                     <button
+                                                        aria-label={tm("promptEnhancer")} aria-pressed={draft.promptExtend}
                                                         onClick={() => updateDraft("promptExtend", !draft.promptExtend)}
                                                         className={`relative w-11 h-[22px] rounded-full transition-colors duration-300 ${
                                                             draft.promptExtend
@@ -443,6 +409,7 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
                                                     </label>
                                                     <input
                                                         type="text"
+                                                        aria-label={tm("negativePrompt")}
                                                         value={draft.negativePrompt}
                                                         onChange={(e) => updateDraft("negativePrompt", e.target.value)}
                                                         placeholder={tm("negativePromptPlaceholder")}
@@ -508,6 +475,7 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
                                                                         min={cfgMin}
                                                                         max={cfgMax}
                                                                         step={modelParams.cfgScale.step}
+                                                                        aria-label={tm("cfgScale")}
                                                                         value={cfgVal}
                                                                         onChange={(e) => updateDraft("cfgScale", parseFloat(e.target.value))}
                                                                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
@@ -558,28 +526,7 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
                             )}
                         </div>
 
-                        {/* Footer — Glass bar with accent glow CTA */}
-                        <div className="flex gap-3 px-7 py-5 border-t border-glass-border shrink-0 bg-glass">
-                            <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={onClose}
-                                className="flex-1 px-4 py-3 rounded-xl bg-glass hover:bg-hover-bg border border-glass-border text-text-muted hover:text-foreground text-sm font-semibold tracking-wide transition-all duration-200"
-                            >
-                                Cancel
-                            </motion.button>
-                            <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={handleApply}
-                                className={`relative flex-1 px-4 py-3 rounded-xl bg-gradient-to-r ${activeAccent} text-foreground text-sm font-bold tracking-wide transition-all duration-200 shadow-[0_0_32px_rgba(100,108,255,0.2)] hover:shadow-[0_0_48px_rgba(100,108,255,0.3)]`}
-                            >
-                                {t("applySettings")}
-                            </motion.button>
-                        </div>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
+    </Dialog><ConfirmDialog open={confirmClose} title={tc('unsavedChangesTitle')} message={tc('unsavedChangesMessage')}
+        confirmLabel={tc('discardChanges')} cancelLabel={tc('keepEditing')} onCancel={() => setConfirmClose(false)}
+        onConfirm={() => { setConfirmClose(false); onClose(); }} /></>;
 }
