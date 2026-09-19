@@ -25,7 +25,8 @@ import PromptConfigModal from "@/components/project/PromptConfigModal";
 import StoryboardR2V from "@/components/modules/StoryboardR2V";
 import EntityConfirmModal from "@/components/modules/EntityConfirmModal";
 import EpisodeEditLeaseGuard from "@/components/collaboration/EpisodeEditLeaseGuard";
-import { ActionMenu, Button, EmptyState, LoadingState } from "@omnistudio/ui";
+import ProjectLoadState from "./ProjectLoadState";
+import { ActionMenu, Button } from "@omnistudio/ui";
 import AppShell from "@/components/layout/AppShell";
 import styles from "./ProjectClient.module.css";
 
@@ -184,10 +185,16 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
         return () => { cancelled = true; };
     }, [id, selectProject, reload]);
 
-    if (loading) return <div className={styles.root}><LoadingState label={tChrome("loading")} /></div>;
+    if (loading) return <div className={styles.root}><ProjectLoadState
+        loading loadFailed={false} onRetry={() => setReload(value => value + 1)} onBack={handleBackToHome}
+        loadingLabel={tChrome("loading")} loadFailedLabel={tChrome("loadFailed")}
+        retryLabel={tChrome("retry")} backLabel={t("backToList")} /></div>;
 
     if (!currentProject || currentProject.id !== id) {
-        return <div className={styles.root}><EmptyState title={tChrome("loadFailed")} action={<><Button onPress={() => setReload(value => value + 1)}>{tChrome("retry")}</Button><Button variant="quiet" onPress={handleBackToHome}>{t("backToList")}</Button></>} /></div>;
+        return <div className={styles.root}><ProjectLoadState
+            loading={false} loadFailed onRetry={() => setReload(value => value + 1)} onBack={handleBackToHome}
+            loadingLabel={tChrome("loading")} loadFailedLabel={tChrome("loadFailed")}
+            retryLabel={tChrome("retry")} backLabel={t("backToList")} /></div>;
     }
 
     const route = readProjectStep(window.location.hash);
