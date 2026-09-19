@@ -13,6 +13,7 @@ import { VideoVariantSelector } from "../common/VideoVariantSelector";
 import UploadAssetModal from "../modals/UploadAssetModal";
 import StepHeader from "@/components/shared/StepHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
+import { toast } from "@/store/toastStore";
 
 export default function ConsistencyVault() {
     const tv = useTranslations("vault");
@@ -122,7 +123,7 @@ export default function ConsistencyVault() {
                         } else if (status.status === "failed") {
                             clearInterval(pollInterval);
                             console.error("Asset generation failed:", status.error);
-                            alert(tv('genFailed', { error: status.error || '' }));
+                            toast.error(tv('genFailed', { error: status.error || '' }));
 
                             // Also refresh project to show updated status
                             try {
@@ -140,7 +141,7 @@ export default function ConsistencyVault() {
                     } catch (pollError: any) {
                         console.error("Polling error:", pollError);
                         clearInterval(pollInterval);
-                        alert(tv('pollFailed', { error: pollError.message || '' }));
+                        toast.error(tv('pollFailed', { error: pollError.message || '' }));
                         if (removeGeneratingTask) {
                             removeGeneratingTask(assetId, generationType);
                         }
@@ -157,7 +158,7 @@ export default function ConsistencyVault() {
             }
         } catch (error: any) {
             console.error("Failed to generate asset:", error);
-            alert(tv('startGenFailed', { error: error.response?.data?.detail || error.message }));
+            toast.error(tv('startGenFailed', { error: error.response?.data?.detail || error.message }));
             if (removeGeneratingTask) {
                 removeGeneratingTask(assetId, generationType);
             }
@@ -182,7 +183,7 @@ export default function ConsistencyVault() {
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to delete asset:", error);
-            alert("Failed to delete asset");
+            toast.error("Failed to delete asset");
         }
     };
 
@@ -204,7 +205,7 @@ export default function ConsistencyVault() {
             setIsCreateDialogOpen(false);
         } catch (error) {
             console.error("Failed to create asset:", error);
-            alert("Failed to create asset");
+            toast.error("Failed to create asset");
         }
     };
 
@@ -268,7 +269,7 @@ export default function ConsistencyVault() {
                             console.log(`[Video Polling] ${generationType} generated successfully`);
                         } else if (status.status === "failed") {
                             clearInterval(pollInterval);
-                            alert(tv('genFailed', { error: status.error || '' }));
+                            toast.error(tv('genFailed', { error: status.error || '' }));
                             if (removeGeneratingTask) {
                                 removeGeneratingTask(assetId, generationType);
                             }
@@ -279,7 +280,7 @@ export default function ConsistencyVault() {
                     } catch (pollError: any) {
                         console.error("Video polling error:", pollError);
                         clearInterval(pollInterval);
-                        alert(tv('pollFailed', { error: pollError.message || '' }));
+                        toast.error(tv('pollFailed', { error: pollError.message || '' }));
                         if (removeGeneratingTask) {
                             removeGeneratingTask(assetId, generationType);
                         }
@@ -294,7 +295,7 @@ export default function ConsistencyVault() {
             }
         } catch (error: any) {
             console.error("Failed to generate video:", error);
-            alert(tv('startGenFailed', { error: error.response?.data?.detail || error.message }));
+            toast.error(tv('startGenFailed', { error: error.response?.data?.detail || error.message }));
             if (removeGeneratingTask) {
                 removeGeneratingTask(assetId, generationType);
             }
@@ -311,7 +312,7 @@ export default function ConsistencyVault() {
             updateProject(currentProject.id, updatedProject);
         } catch (error: any) {
             console.error("Failed to delete video:", error);
-            alert(`Failed to delete video: ${error.message}`);
+            toast.error(`Failed to delete video: ${error.message}`);
         }
     };
 
@@ -328,10 +329,10 @@ export default function ConsistencyVault() {
         try {
             const updatedProject = await api.syncDescriptions(currentProject.id);
             updateProject(currentProject.id, updatedProject);
-            alert(tv("syncSuccess"));
+            toast.success(tv("syncSuccess"));
         } catch (error: any) {
             console.error("Failed to sync descriptions:", error);
-            alert(tv('syncFailed', { error: error.message }));
+            toast.error(tv('syncFailed', { error: error.message }));
         }
     };
 
@@ -868,7 +869,7 @@ function AssetCard({ asset, type, isGenerating, onGenerate, onToggleLock, onClic
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
             console.error("Failed to upload asset image:", error);
-            alert("Failed to upload image");
+            toast.error("Failed to upload image");
         }
     };
 
@@ -980,7 +981,7 @@ function CreateAssetDialog({ type, onClose, onCreate }: { type: string; onClose:
 
     const handleSubmit = async () => {
         if (!name.trim()) {
-            alert("Name is required");
+            toast.warning("Name is required");
             return;
         }
         setIsSubmitting(true);
