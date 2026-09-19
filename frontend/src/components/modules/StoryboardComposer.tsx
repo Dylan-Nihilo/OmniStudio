@@ -14,12 +14,17 @@ import { useAuthStore } from "@/store/authStore";
 import { useFrameStructure } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi } from "@/lib/api";
 import { getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
+import { toast } from "@/store/toastStore";
 import { selectedVariantUrl } from "@/lib/characterImage";
 import StepHeader from "@/components/shared/StepHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
 import StoryboardAnalysisFeedback from "./StoryboardAnalysisFeedback";
 
 import StoryboardFrameEditor from "./StoryboardFrameEditor";
+
+export function getStoryboardError(error: unknown, fallback: string): string {
+    return extractErrorDetail(error, fallback);
+}
 
 export default function StoryboardComposer() {
     const t = useTranslations("storyboard");
@@ -120,7 +125,7 @@ export default function StoryboardComposer() {
             applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to delete frame:", error);
-            alert(t("deleteFrameFailed"));
+            toast.error(getStoryboardError(error, t("deleteFrameFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -137,7 +142,7 @@ export default function StoryboardComposer() {
             applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to copy frame:", error);
-            alert(t("copyFrameFailed"));
+            toast.error(getStoryboardError(error, t("copyFrameFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -158,7 +163,7 @@ export default function StoryboardComposer() {
             setInsertIndex(null);
         } catch (error) {
             console.error("Failed to create frame:", error);
-            alert(t("createFrameFailed"));
+            toast.error(getStoryboardError(error, t("createFrameFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -185,7 +190,7 @@ export default function StoryboardComposer() {
             applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to reorder frames:", error);
-            alert(t("reorderFailed"));
+            toast.error(getStoryboardError(error, t("reorderFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -201,7 +206,7 @@ export default function StoryboardComposer() {
         // Find the previous frame's selected video
         const prevFrame = currentProject.frames[frameIndex - 1];
         if (!prevFrame.selected_video_id) {
-            alert("Previous frame has no selected video.");
+            toast.error("Previous frame has no selected video.");
             return;
         }
 
@@ -209,7 +214,7 @@ export default function StoryboardComposer() {
             (t: any) => t.id === prevFrame.selected_video_id && t.status === "completed"
         );
         if (!prevVideo) {
-            alert("Previous frame's video is not completed yet.");
+            toast.error("Previous frame's video is not completed yet.");
             return;
         }
 
@@ -219,7 +224,7 @@ export default function StoryboardComposer() {
             updateProject(currentProject.id, updatedProject);
         } catch (error: any) {
             console.error("Failed to extract last frame:", error);
-            alert(error?.response?.data?.detail || "Failed to extract last frame");
+            toast.error(getStoryboardError(error, "Failed to extract last frame"));
         } finally {
             setExtractingFrameId(null);
         }
@@ -240,7 +245,7 @@ export default function StoryboardComposer() {
             updateProject(currentProject.id, updatedProject);
         } catch (error: any) {
             console.error("Failed to upload frame image:", error);
-            alert(error?.message || "Failed to upload frame image");
+            toast.error(getStoryboardError(error, "Failed to upload frame image"));
         } finally {
             setUploadTargetFrameId(null);
             if (fileInputRef.current) fileInputRef.current.value = "";
@@ -348,7 +353,7 @@ export default function StoryboardComposer() {
 
         } catch (error) {
             console.error("Render failed:", error);
-            alert("Render failed. See console for details.");
+            toast.error(getStoryboardError(error, "Render failed. See console for details."));
         } finally {
             removeRenderingFrame(frame.id);
         }
@@ -690,11 +695,11 @@ function CreateFrameDialog({ onClose, onCreate, scenes }: { onClose: () => void;
 
     const handleSubmit = async () => {
         if (!action.trim()) {
-            alert("Action description is required");
+            toast.error("Action description is required");
             return;
         }
         if (!sceneId && scenes.length > 0) {
-            alert("Please select a scene");
+            toast.error("Please select a scene");
             return;
         }
 
