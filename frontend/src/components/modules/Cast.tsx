@@ -18,7 +18,7 @@
  *   · NO `+ new asset` / generation modal yet (Phase 5)
  *   · NO inspector right rail yet (Q9 decision: 3-section flat, no inspector)
  */
-import { SelectField } from "@omnistudio/ui";
+import { SelectField, Dialog, Button, LoadingState } from "@omnistudio/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Users, MapPin, Box, AlertTriangle, Sparkles, Plus, Upload, X, Loader2, Play, Pause, Volume2, Wand2, Layers, Maximize2, Lock, Unlock } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -32,6 +32,8 @@ import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
 import ProductionGuide from "@/components/shared/ProductionGuide";
 import VoicePickerModal from "./cast/VoicePickerModal";
 import CastWorkbenchModal, { activePolls } from "./cast/CastWorkbenchModal";
+
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 
 type AssetKind = "character" | "scene" | "prop";
 
@@ -421,12 +423,21 @@ function AddCastPlaceholderModal({
     const [preview, setPreview] = useState<any | null>(null);
     const [batchSize, setBatchSize] = useState(1);
 
+    const tc = useTranslations('common');
+    const operation = useRef(false);
+    const [confirmClose, setConfirmClose] = useState(false);
+    const close = () => {
+        if (operation.current) return;
+        if (name || persona || description || voiceId || imageUrl || preview) setConfirmClose(true);
+        else { reset(); onClose(); }
+    };
+
     // Reset state when modal closes / kind changes
     const reset = () => {
         setName(""); setPersona(""); setDescription(""); setVoiceId("");
         setImageUrl(""); setError(null); setTab("ai");
         setPreview(null);
-        setBatchSize(1);
+        setBatchSize(1); setConfirmClose(false);
     };
 
     if (!kind) return null;
@@ -436,6 +447,8 @@ function AddCastPlaceholderModal({
 
     const handleUpload = async (file: File) => {
         if (!file) return;
+        if (operation.current) return;
+        operation.current = true;
         setUploading(true);
         setError(null);
         try {
@@ -444,6 +457,7 @@ function AddCastPlaceholderModal({
         } catch (err: any) {
             setError(err?.response?.data?.detail || err?.message || "Upload failed");
         } finally {
+            operation.current = false;
             setUploading(false);
         }
     };
@@ -457,6 +471,8 @@ function AddCastPlaceholderModal({
             setError(t("nameRequired"));
             return;
         }
+        if (operation.current) return;
+        operation.current = true;
         setSubmitting(true);
         setError(null);
         try {
@@ -480,6 +496,7 @@ function AddCastPlaceholderModal({
         } catch (err: any) {
             setError(err?.response?.data?.detail || err?.message || "Create failed");
         } finally {
+            operation.current = false;
             setSubmitting(false);
         }
     };
@@ -493,6 +510,8 @@ function AddCastPlaceholderModal({
             setError(t("nameRequired"));
             return;
         }
+        if (operation.current) return;
+        operation.current = true;
         setSubmitting(true);
         setError(null);
         try {
@@ -509,12 +528,15 @@ function AddCastPlaceholderModal({
         } catch (err: any) {
             setError(err?.response?.data?.detail || err?.message || t("aiPreviewError"));
         } finally {
+            operation.current = false;
             setSubmitting(false);
         }
     };
 
     const handleConfirm = async () => {
         if (!seriesId || !preview?.preview_id) return;
+        if (operation.current) return;
+        operation.current = true;
         setSubmitting(true);
         setError(null);
         try {
@@ -525,6 +547,7 @@ function AddCastPlaceholderModal({
         } catch (err: any) {
             setError(err?.response?.data?.detail?.message || err?.response?.data?.detail || err?.message || "Confirm failed");
         } finally {
+            operation.current = false;
             setSubmitting(false);
         }
     };
@@ -536,27 +559,33 @@ function AddCastPlaceholderModal({
         setPreview(null);
     };
 
-    return (
-        <div className="fixed inset-0 z-[100] grid place-items-center bg-overlay backdrop-blur-sm" onClick={() => { reset(); onClose(); }}>
-            <div
-                className="w-full max-w-md rounded-2xl border border-glass-border bg-elevated p-6 shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                onClick={e => e.stopPropagation()}
-            >
-                <div className="flex items-start gap-3 mb-4">
-                    <div className="grid h-9 w-9 place-items-center rounded-full border border-primary/40 bg-primary/10 text-primary">
-                        <Plus size={16} />
-                    </div>
-                    <div className="flex-1">
-                        <h3 className="font-display text-display font-medium text-foreground">
-                            {t("addModalTitle", { kind: label })}
-                        </h3>
-                        <p className="text-xs text-text-secondary mt-1">{t("addModalSubtitle")}</p>
-                    </div>
-                    <button onClick={() => { reset(); onClose(); }} className="p-2 hover:bg-hover-bg rounded-lg text-text-muted hover:text-foreground transition-colors">
-                        <X size={16} />
-                    </button>
+    return <><Dialog isOpen title={t('addModalTitle', { kind: label })} closeLabel={tc('close')}
+        isDismissable={!submitting && !uploading} onOpenChange={open => { if (!open) close(); }}
+        footer={<div className="w-full">                {/* Actions */}
+                <div className="flex gap-2 mt-5">
+                    <WorkflowActionButton variant="ghost" size="sm" onClick={close} disabled={submitting || uploading} className="flex-1">
+                        {t("cancel")}
+                    </WorkflowActionButton>
+                    <WorkflowActionButton
+                        variant="primary"
+                        size="sm"
+                        loading={submitting}
+                        onClick={tab === "ai" && seriesId ? (preview ? handleConfirm : handlePreview) : handleSubmit}
+                        disabled={submitting || !name.trim() || !projectId || uploading}
+                        className="flex-1"
+                    >
+                        {tab === "ai" && seriesId ? (preview ? t("aiPreviewConfirm") : t("createAndGenerate")) : t("create")}
+                    </WorkflowActionButton>
                 </div>
-
+                {tab === "ai" && preview && (
+                    <div className="flex gap-2 mt-2">
+                        <WorkflowActionButton variant="ghost" size="sm" disabled={submitting || uploading} onClick={handleReject} className="flex-1">{t("aiPreviewReject")}</WorkflowActionButton>
+                        <WorkflowActionButton variant="ghost" size="sm" disabled={submitting || uploading} onClick={() => setPreview(null)} className="flex-1">{t("aiPreviewBack")}</WorkflowActionButton>
+                    </div>
+                )}
+</div>}>
+        <p className="mb-4 text-sm text-text-secondary">{t('addModalSubtitle')}</p>
+        <fieldset disabled={submitting || uploading}>
                 {/* Tab switcher */}
                 <div className="flex gap-1 mb-4 p-1 rounded-lg border border-glass-border bg-glass">
                     <button
@@ -686,37 +715,16 @@ function AddCastPlaceholderModal({
                     )}
 
                     {error && (
-                        <div className="rounded-lg border border-status-failed-border/40 bg-status-failed-bg/50 px-3 py-2 text-status-failed-fg text-xs">
+                        <div role="alert" className="rounded-lg border border-status-failed-border/40 bg-status-failed-bg/50 px-3 py-2 text-status-failed-fg text-xs">
                             {error}
                         </div>
                     )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex gap-2 mt-5">
-                    <WorkflowActionButton variant="ghost" size="sm" onClick={() => { reset(); onClose(); }} className="flex-1">
-                        {t("cancel")}
-                    </WorkflowActionButton>
-                    <WorkflowActionButton
-                        variant="primary"
-                        size="sm"
-                        loading={submitting}
-                        onClick={tab === "ai" && seriesId ? (preview ? handleConfirm : handlePreview) : handleSubmit}
-                        disabled={!name.trim() || !projectId || uploading}
-                        className="flex-1"
-                    >
-                        {tab === "ai" && seriesId ? (preview ? t("aiPreviewConfirm") : t("createAndGenerate")) : t("create")}
-                    </WorkflowActionButton>
-                </div>
-                {tab === "ai" && preview && (
-                    <div className="flex gap-2 mt-2">
-                        <WorkflowActionButton variant="ghost" size="sm" onClick={handleReject} className="flex-1">{t("aiPreviewReject")}</WorkflowActionButton>
-                        <WorkflowActionButton variant="ghost" size="sm" onClick={() => setPreview(null)} className="flex-1">{t("aiPreviewBack")}</WorkflowActionButton>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
+        </fieldset>
+    </Dialog><ConfirmDialog open={confirmClose} title={tc('unsavedChangesTitle')} message={tc('unsavedChangesMessage')}
+        confirmLabel={tc('discardChanges')} cancelLabel={tc('keepEditing')} onCancel={() => setConfirmClose(false)}
+        onConfirm={() => { reset(); onClose(); }} /></>;
 }
 
 interface CastSectionProps {
@@ -1132,41 +1140,23 @@ function CharacterHistoryPopover({ seriesId, characterId, onClose }: { seriesId:
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const tc = useTranslations("common");
+    const [reload, setReload] = useState(0);
     useEffect(() => {
+        setLoading(true); setError(null);
         let cancelled = false;
         api.getCharacterAppearances(seriesId, characterId)
             .then(d => { if (!cancelled) setData(d); })
             .catch(err => { if (!cancelled) setError(err?.response?.data?.detail || err?.message || "Load failed"); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [seriesId, characterId]);
+    }, [seriesId, characterId, reload]);
 
-    return (
-        <div className="fixed inset-0 z-[100] grid place-items-center bg-overlay backdrop-blur-sm" onClick={onClose}>
-            <div
-                className="w-full max-w-md rounded-2xl border border-glass-border bg-elevated p-6 shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                onClick={e => e.stopPropagation()}
-            >
-                <div className="flex items-start gap-3 mb-4">
-                    <div className="grid h-9 w-9 place-items-center rounded-full border border-pink-400/40 bg-pink-400/10 text-pink-300">
-                        <Sparkles size={16} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <h3 className="font-display text-display font-medium text-foreground truncate">
-                            {data?.character?.name || t("loading")}
-                        </h3>
-                        {data?.character?.persona && (
-                            <p className="text-xs text-text-secondary mt-0.5">Persona · {data.character.persona}</p>
-                        )}
-                    </div>
-                    <button onClick={onClose} className="p-2 hover:bg-hover-bg rounded-lg text-text-muted hover:text-foreground transition-colors">
-                        <X size={16} />
-                    </button>
-                </div>
+    return <Dialog isOpen title={data?.character?.name || t('loading')} closeLabel={tc('close')} onOpenChange={open => { if (!open) onClose(); }}>
                 {loading ? (
-                    <div className="grid place-items-center py-8 text-text-muted"><Loader2 className="animate-spin" size={18} /></div>
+                    <LoadingState label={t("loading")} />
                 ) : error ? (
-                    <p className="rounded-lg border border-status-failed-border/40 bg-status-failed-bg/50 px-3 py-2 text-status-failed-fg text-xs">{error}</p>
+                    <div role="alert">{error}<Button onPress={() => setReload(n => n + 1)}>{tc("retry")}</Button></div>
                 ) : (
                     <div className="space-y-3">
                         <p className="text-xs text-text-secondary">
@@ -1190,10 +1180,7 @@ function CharacterHistoryPopover({ seriesId, characterId, onClose }: { seriesId:
                             )}
                         </div>
                     </div>
-                )}
-            </div>
-        </div>
-    );
+                )}    </Dialog>;
 }
 
 function CornerMarks() {
