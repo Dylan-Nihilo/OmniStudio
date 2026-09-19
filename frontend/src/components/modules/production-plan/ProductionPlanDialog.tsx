@@ -139,18 +139,25 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         onClose(); onPrevis();
     }
     const shotCount = draft?.segments.reduce((sum, segment) => sum + segment.shots.length, 0) ?? 0;
-    const close = () => { if (readOnly) { onClose(); return; } if (dirty) void run('save', async () => { await save(); onClose(); }); else onClose(); };
+    const atomicBusy = !!busy && busy !== 'generate';
+    const leave = (afterClose?: () => void) => {
+        if (atomicBusy || operation.current && busy !== 'generate') return;
+        const finish = () => { onClose(); afterClose?.(); };
+        if (dirty && !readOnly) void run('save', async () => { await save(); finish(); });
+        else finish();
+    };
+    const close = () => leave();
     return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) close(); }} title={t('title')} closeLabel={t('close')}
-        className={styles.dialog} isDismissable={!busy || busy === 'generate'} footer={<>
+        className={styles.dialog} isDismissable={!atomicBusy} footer={<>
             <span className={styles.footerSummary}>{dirty ? t('unsaved') : draft ? t('saved') : ''}</span>
-            <Button variant="secondary" onPress={close}>{t(dirty && !readOnly ? 'saveAndClose' : 'close')}</Button>
-            {dirty && <Button variant="quiet" onPress={() => { setDraft(overview?.draft ?? project.production_plan_draft ?? null); setDirty(false); dirtyRef.current = false; onClose(); }}>{t('discardChanges')}</Button>}
+            <Button variant="secondary" isDisabled={atomicBusy} onPress={close}>{t(dirty && !readOnly ? 'saveAndClose' : 'close')}</Button>
+            {dirty && <Button variant="quiet" isDisabled={atomicBusy} onPress={() => { if (operation.current) return; setDraft(overview?.draft ?? project.production_plan_draft ?? null); setDirty(false); dirtyRef.current = false; onClose(); }}>{t('discardChanges')}</Button>}
             {draft && !historyOpen && <><Button variant="secondary" isDisabled={readOnly || !dirty || !!busy || !!invalid || !!incomplete} onPress={() => void run('save', async () => { await save(); })}>{t('save')}</Button>
                 <Button isDisabled={readOnly || !!busy || !!invalid || !!incomplete || planning} isPending={busy === 'apply'} onPress={() => void run('apply', apply)}>{t('apply')}</Button></>}
         </>}>
         <div className={styles.tabs}>
             <Button variant={!historyOpen ? 'secondary' : 'quiet'} aria-pressed={!historyOpen} onPress={() => setHistoryOpen(false)}>{t('planTab')}</Button>
-            {project.production_plan && <Button variant="quiet" onPress={() => { onClose(); onPrevis(); }}>{t('previsTab')}</Button>}
+            {project.production_plan && <Button variant="quiet" isDisabled={atomicBusy} onPress={() => leave(onPrevis)}>{t('previsTab')}</Button>}
             <Button variant={historyOpen ? 'secondary' : 'quiet'} aria-pressed={historyOpen} onPress={() => setHistoryOpen(true)}>{t('historyTab')}</Button>
         </div>
         {readOnly && <p className={styles.hint}>{t('readOnly')}</p>}

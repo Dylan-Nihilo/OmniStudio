@@ -152,3 +152,25 @@ it('clears a request timeout once reopening finds the completed plan', async () 
     expect(await screen.findByText('2 个生成片段')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
+
+
+it('blocks all exit paths while saving and saves a dirty draft before opening previs', async () => {
+    saved = structuredClone(plan);
+    const update = vi.fn();
+    mocks.get.mockImplementation(async () => ({ draft: saved, active: plan, job: null, storyboard_fingerprint: 'frames', versions: [] }));
+    let finish!: (result: unknown) => void;
+    mocks.save.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    renderWithIntl(<ProductionPlanDialog isOpen onClose={close} project={{ ...initial, production_plan: plan, production_plan_draft: plan }} modelId="seedance-2.5-r2v" beforeChange={before} onUpdate={update} onPrevis={previs} />);
+    fireEvent.click(screen.getByRole('button', { name: '编辑方案' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '安排说明' }), { target: { value: '跳转前保存的安排' } });
+    fireEvent.click(screen.getByRole('button', { name: '分镜预演' }));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    expect(close).not.toHaveBeenCalled();
+    expect(previs).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '保存并关闭' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '放弃未保存修改' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '分镜预演' })).toBeDisabled();
+    await act(async () => { finish({ production_plan_draft: { ...plan, summary: '跳转前保存的安排', revision: 'v2' } }); });
+    expect(close).toHaveBeenCalledOnce();
+    expect(previs).toHaveBeenCalledOnce();
+});
