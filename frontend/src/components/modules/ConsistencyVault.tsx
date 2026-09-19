@@ -1,6 +1,8 @@
 "use client";
+import { Dialog, Button } from "@omnistudio/ui";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
 import { Paintbrush, User, Users, MapPin, Box, Lock, Unlock, RefreshCw, Upload, Image as ImageIcon, X, Check, Settings, ChevronRight, Trash2, Plus, Link as LinkIcon } from "lucide-react";
@@ -208,6 +210,7 @@ export default function ConsistencyVault() {
         } catch (error) {
             console.error("Failed to create asset:", error);
             toast.error("Failed to create asset");
+            throw error;
         }
     };
 
@@ -982,39 +985,49 @@ function CreateAssetDialog({ type, onClose, onCreate }: { type: string; onClose:
     const [description, setDescription] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const tc = useTranslations('common');
+    const operation = useRef(false);
+    const [error, setError] = useState('');
+    const [confirmClose, setConfirmClose] = useState(false);
+    const close = () => { if (operation.current) return; if (name || description) setConfirmClose(true); else onClose(); };
     const handleSubmit = async () => {
+        if (operation.current) return;
         if (!name.trim()) {
             toast.warning("Name is required");
             return;
         }
+        operation.current = true; setError("");
         setIsSubmitting(true);
         try {
             await onCreate({ name: name.trim(), description: description.trim() });
+        } catch (cause) { setError(cause instanceof Error ? cause.message : tc("actionFailed"));
         } finally {
+            operation.current = false;
             setIsSubmitting(false);
         }
     };
 
     const typeLabel = type === "character" ? "Character" : type === "scene" ? "Scene" : "Prop";
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm p-8">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-surface border border-glass-border rounded-2xl w-full max-w-md overflow-hidden shadow-lg"
-            >
-                <div className="p-6 border-b border-glass-border flex justify-between items-center bg-surface">
-                    <div className="flex items-center gap-3">
-                        <Plus className="text-primary" size={20} />
-                        <h2 className="text-lg font-bold text-foreground">Create New {typeLabel}</h2>
-                    </div>
-                    <button onClick={onClose} className="p-2 hover:bg-hover-bg rounded-lg transition-colors">
-                        <X size={20} className="text-text-secondary" />
+    return <><Dialog isOpen title={`Create New ${typeLabel}`} closeLabel={tc('close')} isDismissable={!isSubmitting}
+        onOpenChange={open => { if (!open) close(); }} footer={                <div className="p-6 border-t border-glass-border flex justify-end gap-3">
+                    <button
+                        onClick={close} disabled={isSubmitting}
+                        className="px-6 py-2 bg-glass hover:bg-hover-bg text-foreground rounded-lg transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={isSubmitting || !name.trim()}
+                        className="px-6 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        {isSubmitting && <RefreshCw size={16} className="animate-spin" />}
+                        Create {typeLabel}
                     </button>
                 </div>
-
+}>
+        {error && <p role="alert">{error}</p>}<fieldset disabled={isSubmitting}>
                 <div className="p-6 space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-text-secondary mb-2">Name *</label>
@@ -1038,23 +1051,7 @@ function CreateAssetDialog({ type, onClose, onCreate }: { type: string; onClose:
                     </div>
                 </div>
 
-                <div className="p-6 border-t border-glass-border flex justify-end gap-3">
-                    <button
-                        onClick={onClose}
-                        className="px-6 py-2 bg-glass hover:bg-hover-bg text-foreground rounded-lg transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={isSubmitting || !name.trim()}
-                        className="px-6 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                        {isSubmitting && <RefreshCw size={16} className="animate-spin" />}
-                        Create {typeLabel}
-                    </button>
-                </div>
-            </motion.div>
-        </div>
-    );
+        </fieldset>
+    </Dialog><ConfirmDialog open={confirmClose} title={tc('unsavedChangesTitle')} message={tc('unsavedChangesMessage')}
+        confirmLabel={tc('discardChanges')} cancelLabel={tc('keepEditing')} onCancel={() => setConfirmClose(false)} onConfirm={onClose} /></>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { Dialog } from "@omnistudio/ui";
 import { X, User, MapPin, Package } from "lucide-react";
 import { useTranslations } from "next-intl";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
@@ -49,38 +49,8 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
 
     const hasAnyAssets = referenceCharacters.length > 0 || scenes.length > 0 || props.length > 0;
 
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <>
-                    {/* Backdrop */}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/30 z-40"
-                        onClick={onClose}
-                    />
-                    {/* Drawer */}
-                    <motion.div
-                        initial={{ x: "100%" }}
-                        animate={{ x: 0 }}
-                        exit={{ x: "100%" }}
-                        transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                        className="fixed inset-y-0 right-0 w-80 z-50 bg-surface border-l border-glass-border shadow-2xl flex flex-col"
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-glass-border bg-glass backdrop-blur-xl shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                            <h3 className="text-sm font-semibold text-foreground">{t("assetLibrary")}</h3>
-                            <button
-                                onClick={onClose}
-                                aria-label={t("close")}
-                                className="p-1.5 rounded-lg hover:bg-hover-bg text-text-secondary hover:text-foreground transition-colors"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-
+    return <Dialog isOpen={isOpen} title={t('assetLibrary')} closeLabel={t('close')}
+        onOpenChange={open => { if (!open) onClose(); }} className="!w-[min(420px,calc(100vw-2rem))]">
                         {/* Content */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-5">
                             {!hasAnyAssets ? (
@@ -203,9 +173,5 @@ export default function AssetDrawer({ isOpen, onClose, characters, scenes, props
                                 </>
                             )}
                         </div>
-                    </motion.div>
-                </>
-            )}
-        </AnimatePresence>
-    );
+    </Dialog>;
 }
