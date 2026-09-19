@@ -12,12 +12,12 @@
  *   · "[全部确认]" applies in one click
  *   · "[去 Cast 查看 →]" navigates to Step 3 after apply
  */
-import { SelectField } from "@omnistudio/ui";
-import { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Check, X, Users, MapPin, Box, ArrowRight, Loader2 } from "lucide-react";
+import { SelectField, Dialog, Button, LoadingState } from "@omnistudio/ui";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { Check, X, Users, MapPin, Box, ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { api, type ReconcileSuggestion, type ReconcileAction } from "@/lib/api";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
 
 interface ReconcileModalProps {
@@ -44,11 +44,18 @@ export default function ReconcileModal({ isOpen, scriptId, onClose, onApplied }:
     const [applying, setApplying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const tc = useTranslations('common');
+    const [reload, setReload] = useState(0);
+    const [dirty, setDirty] = useState(false);
+    const [confirmClose, setConfirmClose] = useState(false);
+    const operation = useRef(false);
+    const close = () => { if (operation.current) return; if (dirty) setConfirmClose(true); else onClose(); };
     // Fetch suggestions on open
     useEffect(() => {
         if (!isOpen || !scriptId) return;
         let cancelled = false;
         setLoading(true);
+        setRows(null); setDirty(false); setConfirmClose(false);
         setError(null);
         api.getReconcileSuggestions(scriptId)
             .then(data => {
@@ -77,7 +84,7 @@ export default function ReconcileModal({ isOpen, scriptId, onClose, onApplied }:
             })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [isOpen, scriptId]);
+    }, [isOpen, scriptId, reload]);
 
     const counts = useMemo(() => {
         const base = { total: 0, merge: 0, create: 0, skip: 0 };
@@ -92,6 +99,7 @@ export default function ReconcileModal({ isOpen, scriptId, onClose, onApplied }:
     }, [rows]);
 
     const handleSetAction = (idx: number, action: Row["action"]) => {
+        setDirty(true);
         setRows(prev => prev?.map((r, i) => i === idx ? { ...r, action } : r) ?? null);
     };
 
@@ -111,7 +119,8 @@ export default function ReconcileModal({ isOpen, scriptId, onClose, onApplied }:
     };
 
     const handleApply = async (navigateToCast: boolean) => {
-        if (!scriptId || !rows) return;
+        if (!scriptId || !rows || operation.current) return;
+        operation.current = true;
         setApplying(true);
         setError(null);
         try {
@@ -124,62 +133,51 @@ export default function ReconcileModal({ isOpen, scriptId, onClose, onApplied }:
         } catch (err: any) {
             setError(err?.response?.data?.detail || err?.message || "Apply failed");
         } finally {
+            operation.current = false;
             setApplying(false);
         }
     };
 
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[100] grid place-items-center bg-overlay backdrop-blur-sm"
-                    onClick={onClose}
-                >
-                    <motion.div
-                        initial={{ scale: 0.96, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.96, opacity: 0 }}
-                        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                        className="relative w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <header className="flex items-center gap-3 px-6 py-5 border-b border-glass-border">
-                            <div className="grid h-9 w-9 place-items-center rounded-full border border-primary/40 bg-primary/10 text-primary">
-                                <Sparkles size={16} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <h2 className="font-display text-display font-medium text-foreground">{t("title")}</h2>
-                                <p className="text-xs text-text-secondary mt-0.5">
-                                    {loading ? t("loading") : t("subtitle", {
-                                        total: counts.total,
-                                        merge: counts.merge,
-                                        create: counts.create,
-                                    })}
-                                </p>
-                            </div>
-                            <button
-                                onClick={onClose}
-                                aria-label="Close"
-                                className="p-2 hover:bg-hover-bg rounded-lg text-text-muted hover:text-foreground transition-colors"
+    return <><Dialog isOpen={isOpen} title={t('title')} closeLabel={tc('close')} isDismissable={!applying}
+        onOpenChange={open => { if (!open) close(); }} className="!w-[min(850px,calc(100vw-2rem))] !max-w-none" footer={<>
+                            <span className="flex-1 font-mono text-[0.65625rem] uppercase tracking-[0.16em] text-text-muted">
+                                {counts.merge > 0 && <span className="text-primary mr-2">↳ {counts.merge} merge</span>}
+                                {counts.create > 0 && <span className="text-pink-300 mr-2">+ {counts.create} new</span>}
+                                {counts.skip > 0 && <span className="text-text-muted">⊘ {counts.skip} skip</span>}
+                            </span>
+                            <WorkflowActionButton
+                                variant="ghost"
+                                size="sm"
+                                onClick={close} disabled={applying}
                             >
-                                <X size={16} />
-                            </button>
-                        </header>
-
+                                {t("cancel")}
+                            </WorkflowActionButton>
+                            <WorkflowActionButton
+                                variant="secondary"
+                                size="sm"
+                                loading={applying}
+                                onClick={() => handleApply(false)}
+                                disabled={applying || loading || !rows || rows.length === 0}
+                            >
+                                {t("confirmAll")}
+                            </WorkflowActionButton>
+                            <WorkflowActionButton
+                                variant="primary"
+                                size="sm"
+                                loading={applying}
+                                rightIcon={<ArrowRight />}
+                                onClick={() => handleApply(true)}
+                                disabled={applying || loading || !rows || rows.length === 0}
+                            >
+                                {t("confirmAndGoCast")}
+                            </WorkflowActionButton>
+                        </>}>
+        {error && <div role="alert">{error}{!rows && <Button onPress={() => setReload(n=>n+1)}>{tc('retry')}</Button>}</div>}
+        <fieldset disabled={applying}>
                         {/* Body */}
                         <div className="flex-1 overflow-y-auto px-6 py-4 custom-scrollbar">
                             {loading ? (
-                                <div className="flex items-center justify-center py-12 text-text-muted">
-                                    <Loader2 size={20} className="animate-spin" />
-                                </div>
-                            ) : error ? (
-                                <div className="rounded-lg border border-status-failed-border/40 bg-status-failed-bg/50 px-4 py-3 text-status-failed-fg text-sm">
-                                    {error}
-                                </div>
+                                <LoadingState label={t("loading")} />
                             ) : !rows || rows.length === 0 ? (
                                 <p className="text-center text-text-muted py-12 text-sm">{t("noEntities")}</p>
                             ) : (
@@ -195,45 +193,9 @@ export default function ReconcileModal({ isOpen, scriptId, onClose, onApplied }:
                             )}
                         </div>
 
-                        {/* Footer */}
-                        <footer className="flex items-center gap-2 px-6 py-4 border-t border-glass-border">
-                            <span className="flex-1 font-mono text-[0.65625rem] uppercase tracking-[0.16em] text-text-muted">
-                                {counts.merge > 0 && <span className="text-primary mr-2">↳ {counts.merge} merge</span>}
-                                {counts.create > 0 && <span className="text-pink-300 mr-2">+ {counts.create} new</span>}
-                                {counts.skip > 0 && <span className="text-text-muted">⊘ {counts.skip} skip</span>}
-                            </span>
-                            <WorkflowActionButton
-                                variant="ghost"
-                                size="sm"
-                                onClick={onClose}
-                            >
-                                {t("cancel")}
-                            </WorkflowActionButton>
-                            <WorkflowActionButton
-                                variant="secondary"
-                                size="sm"
-                                loading={applying}
-                                onClick={() => handleApply(false)}
-                                disabled={!rows || rows.length === 0}
-                            >
-                                {t("confirmAll")}
-                            </WorkflowActionButton>
-                            <WorkflowActionButton
-                                variant="primary"
-                                size="sm"
-                                loading={applying}
-                                rightIcon={<ArrowRight />}
-                                onClick={() => handleApply(true)}
-                                disabled={!rows || rows.length === 0}
-                            >
-                                {t("confirmAndGoCast")}
-                            </WorkflowActionButton>
-                        </footer>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
+        </fieldset>
+    </Dialog><ConfirmDialog open={confirmClose} title={tc('unsavedChangesTitle')} message={tc('unsavedChangesMessage')}
+        confirmLabel={tc('discardChanges')} cancelLabel={tc('keepEditing')} onCancel={() => setConfirmClose(false)} onConfirm={() => { setConfirmClose(false); onClose(); }} /></>;
 }
 
 function ReconcileRow({ row, onActionChange }: { row: Row; onActionChange: (a: Row["action"]) => void }) {

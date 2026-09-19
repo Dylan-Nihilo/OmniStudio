@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import ReconcileModal from './ReconcileModal';
 import { api } from '@/lib/api';
@@ -33,4 +33,18 @@ it('shows confidence and local-versus-series differences for each suggestion', a
   expect(screen.getByLabelText('differences')).toHaveTextContent('difference_description');
   expect(screen.getByLabelText('differences')).toHaveTextContent('Red coat');
   expect(screen.getByLabelText('differences')).toHaveTextContent('Blue coat');
+});
+
+
+it('retains reconciliation rows and permits retry after application fails', async()=>{
+ vi.mocked(api.getReconcileSuggestions).mockResolvedValue({characters:[{local_id:'a',local_name:'Alice',confidence:0}],scenes:[],props:[]} as any);
+ vi.mocked(api.applyReconcile).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({} as any);
+ const close=vi.fn(); render(<ReconcileModal isOpen scriptId="p" onClose={close}/>);
+ await screen.findAllByText('Alice');
+ fireEvent.click(screen.getByRole('button',{name:'confirmAll'}));
+ expect(await screen.findByRole('alert')).toHaveTextContent('offline');
+ expect(screen.getAllByText('Alice')[0]).toBeVisible();
+ expect(close).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'confirmAll'}));
+ await waitFor(()=>expect(close).toHaveBeenCalledOnce());
 });
