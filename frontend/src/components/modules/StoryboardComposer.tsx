@@ -17,6 +17,7 @@ import { getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
 import { selectedVariantUrl } from "@/lib/characterImage";
 import StepHeader from "@/components/shared/StepHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
+import StoryboardAnalysisFeedback from "./StoryboardAnalysisFeedback";
 
 import StoryboardFrameEditor from "./StoryboardFrameEditor";
 
@@ -54,6 +55,8 @@ export default function StoryboardComposer() {
     const [insertIndex, setInsertIndex] = useState<number | null>(null);
     const [extractingFrameId, setExtractingFrameId] = useState<string | null>(null);
     const [showScriptOverlay, setShowScriptOverlay] = useState(false);
+    const [analysisError, setAnalysisError] = useState("");
+    const [analysisSuccess, setAnalysisSuccess] = useState("");
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadTargetFrameId, setUploadTargetFrameId] = useState<string | null>(null);
@@ -66,7 +69,8 @@ export default function StoryboardComposer() {
 
         const text = currentProject.originalText;
         if (!text || !text.trim()) {
-            alert(t("enterScriptFirst"));
+            setAnalysisSuccess("");
+            setAnalysisError(t("enterScriptFirst"));
             return;
         }
 
@@ -74,23 +78,25 @@ export default function StoryboardComposer() {
             if (!confirm(t("overwriteConfirm"))) return;
         }
 
+        setAnalysisError("");
+        setAnalysisSuccess("");
         setIsAnalyzing(true);
         try {
             const updatedProject = await api.analyzeToStoryboard(currentProject.id, text);
             const frameCount = updatedProject.frames?.length || 0;
             if (frameCount > 0) {
                 updateProject(currentProject.id, updatedProject);
-                alert(t("framesGenerated", { count: frameCount }));
+                setAnalysisSuccess(t("framesGenerated", { count: frameCount }));
             } else {
-                alert(t("aiInvalidOutput"));
+                setAnalysisError(t("aiInvalidOutput"));
             }
         } catch (error: any) {
             console.error("Analyze to storyboard failed:", error);
             const detail = extractErrorDetail(error, "");
             if (detail.includes("JSON") || detail.includes("格式")) {
-                alert(t("aiFormatRetry"));
+                setAnalysisError(t("aiFormatRetry"));
             } else {
-                alert(t("genFailedDetail", { detail }));
+                setAnalysisError(t("genFailedDetail", { detail }));
             }
         } finally {
             setIsAnalyzing(false);
@@ -387,6 +393,13 @@ export default function StoryboardComposer() {
                     </div>
                 )}
             />
+
+            <div className="px-4 pt-3 sm:px-8">
+                <div className="mx-auto max-w-4xl">
+                    <StoryboardAnalysisFeedback error={analysisError} success={analysisSuccess}
+                        retryLabel={tCommon("retry")} onRetry={() => void handleAnalyzeToStoryboard()} />
+                </div>
+            </div>
 
             {/* Frame List — full width */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-8">
