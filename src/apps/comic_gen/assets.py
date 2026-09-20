@@ -3,6 +3,7 @@ import uuid
 import time
 from typing import Dict, Any, List
 from urllib.parse import quote
+from .contracts import sanitize_error_text
 from .models import Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant, MAX_VARIANTS_PER_ASSET
 from ...models.image import WanxImageModel, ImageGenModel
 from ...utils import get_logger
@@ -158,7 +159,7 @@ class AssetGenerator:
                         continue
 
                 if successful_generations == 0:
-                    raise RuntimeError(f"生成失败：{last_error}")
+                    raise RuntimeError(f"生成失败：{sanitize_error_text(str(last_error))}")
 
                 character.status = GenerationStatus.COMPLETED
                 return character
@@ -307,7 +308,7 @@ class AssetGenerator:
                 character.full_body_updated_at = time.time()
 
                 if successful_generations == 0:
-                    raise RuntimeError(f"生成失败：{last_error}")
+                    raise RuntimeError(f"生成失败：{sanitize_error_text(str(last_error))}")
                 
                 # Mark downstream as inconsistent if generating only full body
                 if generation_type == "full_body":
@@ -462,7 +463,7 @@ class AssetGenerator:
                 
                 # Raise exception if all variants failed
                 if successful_generations == 0:
-                    raise RuntimeError(f"生成失败：{last_error}")
+                    raise RuntimeError(f"生成失败：{sanitize_error_text(str(last_error))}")
 
             # 3. Headshot (Derived)
             if generation_type in ["all", "headshot"]:
@@ -547,7 +548,7 @@ class AssetGenerator:
                 
                 # Raise exception if all variants failed
                 if successful_generations == 0:
-                    raise RuntimeError(f"生成失败：{last_error}")
+                    raise RuntimeError(f"生成失败：{sanitize_error_text(str(last_error))}")
 
             # Update consistency status (Legacy support, but also useful for quick checks)
             if generation_type == "all":

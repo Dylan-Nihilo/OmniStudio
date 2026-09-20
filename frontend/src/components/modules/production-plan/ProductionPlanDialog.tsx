@@ -6,6 +6,9 @@ import { Button, Dialog, SelectField, TextAreaField, TextField } from '@omnistud
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { VIDEO_R2V_MODELS, isR2vImageBased } from '@/lib/modelCatalog';
+import CreditCost from '@/components/billing/CreditCost';
+import { useBillingStore } from '@/store/billingStore';
+import { creditLabel, unitLabels } from '@/lib/modelCost';
 import { mergePlanSegment, planDuration, segmentDuration, splitPlanSegment, type PlanOverview, type PlanSettings, type PlannedSegment, type PlannedShot, type ProductionPlan } from '@/lib/productionPlan';
 import type { Project } from '@/store/projectStore';
 import styles from './ProductionPlanDialog.module.css';
@@ -31,6 +34,8 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
     const [overview, setOverview] = useState<PlanOverview | null>(null);
     const [draft, setDraft] = useState<ProductionPlan | null>(project.production_plan_draft ?? null);
     const [settings, setSettings] = useState<PlanSettings>({ model: modelId, target_duration: null, pacing: 'balanced', instruction: '' });
+    const tBilling = useTranslations('billing');
+    const pricing = useBillingStore((state) => state.pricing);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [planningError, setPlanningError] = useState('');
@@ -185,7 +190,9 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                 <SelectField label={t('pacing')} value={settings.pacing} onChange={key => setSettings({ ...settings, pacing: String(key) as PlanSettings['pacing'] })}
                     options={['balanced', 'brisk', 'measured'].map(id => ({ id, label: t(id) }))} />
                 <SelectField label={t('model')} value={settings.model} onChange={key => setSettings({ ...settings, model: String(key) })}
-                    options={VIDEO_R2V_MODELS.filter(m => isR2vImageBased(m.id)).map(m => ({ id: m.id, label: m.name }))} />
+                    options={VIDEO_R2V_MODELS.filter(m => isR2vImageBased(m.id)).map(m => ({
+                        id: m.id, label: m.name,
+                        description: creditLabel(pricing, m.id, unitLabels(tBilling)) ?? undefined }))} />
             </div>
             {invalidTarget && <p role="alert" className={styles.error}>{t('invalidTarget')}</p>}
             <TextAreaField label={t('instruction')} value={settings.instruction} onChange={value => setSettings({ ...settings, instruction: value })} rows={2} placeholder={t('instructionHint')} />
@@ -205,7 +212,8 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                 })}>{t('reviseActive')}</Button>
             </div>}
             {draft && <>
-                <div className={styles.stats}><strong>{t('totalDuration', { seconds: planDuration(draft) })}</strong><span>{t('shotCount', { count: shotCount })}</span><span>{t('generationCount', { count: draft.segments.length })}</span></div>
+                <div className={styles.stats}><strong>{t('totalDuration', { seconds: planDuration(draft) })}</strong><span>{t('shotCount', { count: shotCount })}</span><span>{t('generationCount', { count: draft.segments.length })}</span>
+                    <CreditCost modelId={settings.model} quantity={planDuration(draft)} /></div>
                 <Button variant="quiet" onPress={() => setEditing(!editing)}>{t(editing ? 'reviewPlan' : 'editPlan')}</Button>
                 {editing ? <><TextAreaField label={t('summary')} rows={2} value={draft.summary} onChange={value => change({ ...draft, summary: value })} />
                 <TextAreaField label={t('continuity')} rows={2} value={draft.continuity_rules} onChange={value => change({ ...draft, continuity_rules: value })} /></> : <><p className={styles.hint}>{draft.summary}</p><details><summary>{t('continuity')}</summary><p className={styles.hint}>{draft.continuity_rules}</p></details></>}

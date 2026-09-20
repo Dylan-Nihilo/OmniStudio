@@ -5,6 +5,11 @@ import { ImageIcon, RefreshCw, Sparkles, Upload, X } from "lucide-react";
 import { Button, IconButton, LoadingState } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
+import CreditCost from "@/components/billing/CreditCost";
+import { useBillingStore } from "@/store/billingStore";
+import { creditLabel, imageCostParams, unitLabels } from "@/lib/modelCost";
+import { GLOBAL_IMAGE_MODELS } from "@/lib/modelCatalog";
+import { SelectField } from "@omnistudio/ui";
 import SectionShell from "./SectionShell";
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -42,12 +47,22 @@ interface T2ISubsectionProps {
     onRemove: (index: number) => void;
     onGenerate: () => void;
     onUpload: (file: File) => Promise<T2IUploadError | void>;
+    /** Image tier for this shot's first frame, and the size it renders at. Until now the
+     *  override was read at generation time but nothing could ever write it, so every
+     *  storyboard frame was stuck on the project default. */
+    imageModelId?: string;
+    imageSize?: string;
+    onImageModelChange?: (modelId: string) => void;
+    imageModelSaving?: boolean;
 }
 
 export default function T2ISubsection({
     imageUrls, selectedIndex, storyboardFrameUrl, prompt, onPromptChange, onUseShotPrompt, generating, uploading: externalUploading = false, operation, errorMessage,
     checking, refreshFailed, refreshing, onRefresh, onSelect, onRemove, onGenerate, onUpload,
+    imageModelId, imageSize, onImageModelChange, imageModelSaving = false,
 }: T2ISubsectionProps) {
+    const pricing = useBillingStore((state) => state.pricing);
+    const tBilling = useTranslations("billing");
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = useState(true);
     const [dragHot, setDragHot] = useState(false);
@@ -118,6 +133,21 @@ export default function T2ISubsection({
                         {uploading ? t("t2iHeroUploadingLabel") : t("t2iHeroUploadLabel")}
                     </Button>
                 </>}>
+                {onImageModelChange ? (
+                    <div className="mb-3 flex items-end gap-2">
+                        <div className="min-w-0 flex-1">
+                            <SelectField label={t("t2iModelLabel")} value={imageModelId ?? ""}
+                                isDisabled={imageModelSaving}
+                                onChange={key => onImageModelChange(String(key))}
+                                options={GLOBAL_IMAGE_MODELS.map(model => ({
+                                    id: model.id, label: model.name,
+                                    description: creditLabel(pricing, model.id, unitLabels(tBilling)) ?? undefined,
+                                }))} />
+                        </div>
+                        <CreditCost modelId={imageModelId} quantity={1}
+                                    params={imageCostParams(imageSize)} />
+                    </div>
+                ) : null}
                 <label className="mb-3 block text-sm text-text-secondary">
                     {t("firstFramePromptLabel")}
                     <textarea value={prompt} onChange={event => onPromptChange(event.target.value)} rows={4}

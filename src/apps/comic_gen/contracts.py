@@ -136,9 +136,17 @@ def summarize_job_items(items: list[JobItemDTO]) -> dict[str, int | str]:
 
 
 def sanitize_error_text(text: str) -> str:
-    """Remove credentials and machine-specific absolute paths from public errors."""
+    """Remove credentials, local paths and provider endpoints from public errors.
+
+    Endpoints are stripped because a customer-facing failure should not disclose which
+    vendors we buy capacity from or what we call — a raw client error carried the image
+    relay's full URL into a user's screen. Providers raise through many different code
+    paths, so this backstop sits at the boundary where errors become public rather than in
+    each adapter, and keeps working for adapters written later.
+    """
     redacted = re.sub(r"(?i)(?:OPENAI_API_KEY|DASHSCOPE_API_KEY|MULEROUTER_API_KEY)\s*=\s*[^\s]+", "[credential redacted]", text)
     redacted = re.sub(r"(?:[A-Za-z]:\\|/Users/|/home/|/root/)[^\s,;]+", "[local path redacted]", redacted)
+    redacted = re.sub(r"(?i)\bhttps?://[^\s'\"<>]+", "[endpoint redacted]", redacted)
     return redacted
 
 

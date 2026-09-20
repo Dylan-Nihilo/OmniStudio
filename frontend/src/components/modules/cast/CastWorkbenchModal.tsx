@@ -17,7 +17,7 @@
  *   · Per-project toast surfaces success/error across the long round-trip
  *     (asset generation can take 20-60s).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@omnistudio/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Sparkles, Loader2, Check, RefreshCw, Wand2, Palette, Star } from "lucide-react";
@@ -31,6 +31,9 @@ import { toast } from "@/store/toastStore";
 import { getAssetUrl } from "@/lib/utils";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
+import CreditCost from "@/components/billing/CreditCost";
+import { useBillingStore } from "@/store/billingStore";
+import { ASSET_SIZE_BY_RATIO, imageCostParams, unitLabels, withCreditLabel } from "@/lib/modelCost";
 
 export type CastKind = "character" | "scene" | "prop";
 
@@ -225,6 +228,7 @@ function readSelectedId(entity: any, kind: CastKind, holding = false): string | 
 export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: CastWorkbenchModalProps) {
     const t = useTranslations("castWorkbench");
     const tw = useTranslations("assetWorkflow");
+    const tBilling = useTranslations("billing");
     const currentProject = useProjectStore((state) => state.currentProject);
     const currentSeries = useProjectStore((state) => state.currentSeries);
     const allProjects = useProjectStore((state) => state.projects);
@@ -263,7 +267,11 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     const selectedId = useMemo(() => readSelectedId(entity, kind ?? 'character', holding), [entity, kind, holding]);
     const [batchSize, setBatchSize] = useState(2);
     const [aspectRatioOverride, setAspectRatioOverride] = useState<string | null>(null);
+    // Persisted, not session-local: picking a model here used to revert the next time the
+    // workbench opened, which reads as the app forgetting. It writes the project default —
+    // the control says so — because reference images have no per-entity model of their own.
     const [modelOverride, setModelOverride] = useState<string | null>(null);
+    const [savingModel, setSavingModel] = useState(false);
     const [positiveExpanded, setPositiveExpanded] = useState(false);
     const [negativeExpanded, setNegativeExpanded] = useState(false);
     const [finalPreviewExpanded, setFinalPreviewExpanded] = useState(true);
@@ -279,6 +287,32 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     // user has selected gpt-image-2 (override or project default).
     const selectedModelId = modelOverride || currentProject?.model_settings?.t2i_model || "wan2.1-t2i";
     const isGptImage2 = selectedModelId === "gpt-image-2";
+    const pricing = useBillingStore((state) => state.pricing);
+    // The rate belongs on the option itself: choosing a tier is a spending decision, and it
+    // is the only thing that explains why the tiers differ.
+    const pricedImageModels = useMemo(
+        () => IMAGE_MODELS.map((model) => ({
+            ...model,
+            description: withCreditLabel(model.description, pricing, model.id, unitLabels(tBilling)),
+        })),
+        [pricing, tBilling],
+    );
+    const handleSelectModel = useCallback((id: string) => {
+        const projectId = currentProject?.id;
+        if (!projectId || id === selectedModelId) return;
+        const previous = modelOverride;
+        setModelOverride(id);
+        setSavingModel(true);
+        void api.updateModelSettings(projectId, id)
+            .then((updated) => { updateProject(projectId, updated); })
+            .catch((error) => {
+                setModelOverride(previous);
+                toast.error(t("modelSaveFailed"), {
+                    body: error instanceof Error ? error.message : undefined,
+                });
+            })
+            .finally(() => setSavingModel(false));
+    }, [currentProject?.id, selectedModelId, modelOverride, updateProject, t]);
     const [selectedTemplate, setSelectedTemplate] = useState<CharacterTemplate>("simple");
     const [pendingTemplate, setPendingTemplate] = useState<CharacterTemplate | null>(null);
     const [promptDirty, setPromptDirty] = useState(false);
@@ -557,6 +591,8 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                             {selectedId ? t("selectedFooter") : t("noneSelectedFooter")}
                         </span>
                         <span className="ml-auto text-xs text-text-secondary">{tw('generateSummary', { count: batchSize, ratio: effectiveAspectRatio })}</span>
+                        <CreditCost modelId={selectedModelId} quantity={Math.max(1, Math.min(4, batchSize))}
+                                    params={imageCostParams(ASSET_SIZE_BY_RATIO[effectiveAspectRatio])} />
                         <button
                                 onClick={handleGenerate}
                                 disabled={generating || !prompt.trim() || !!referenceError}
@@ -878,11 +914,14 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                 <div>
                                     <label className="block font-mono text-[0.625rem] uppercase tracking-[0.16em] text-text-muted mb-2">
                                         {t("modelLabel")}
+                                        <span className="ml-2 normal-case tracking-normal text-text-muted/80">
+                                            {t("modelScopeProject")}{savingModel ? ` · ${t("modelScopeSaving")}` : ""}
+                                        </span>
                                     </label>
                                     <GroupedModelGrid
-                                        models={IMAGE_MODELS}
-                                        selectedId={modelOverride || currentProject.model_settings?.t2i_model || "wan2.1-t2i"}
-                                        onSelect={(id) => setModelOverride(id === (currentProject.model_settings?.t2i_model || "wan2.1-t2i") ? null : id)}
+                                        models={pricedImageModels}
+                                        selectedId={selectedModelId}
+                                        onSelect={handleSelectModel}
                                     />
                                 </div>
                             </div>

@@ -11,6 +11,12 @@ import { billingApi, type PlatformRole, type PricingTable, type WalletSummary } 
  */
 interface BillingState {
     enabled: boolean | null;
+    /**
+     * Whether rates exist to show, which is not the same as whether we charge. Costs go up
+     * in the UI on this flag so the operator can check every price in situ and users get
+     * used to seeing them, while `enabled` still governs the deduction.
+     */
+    ratesPublished: boolean;
     wallet: WalletSummary | null;
     pricing: PricingTable | null;
     loading: boolean;
@@ -23,6 +29,7 @@ interface BillingState {
 
 export const useBillingStore = create<BillingState>((set, get) => ({
     enabled: null,
+    ratesPublished: false,
     wallet: null,
     pricing: null,
     loading: false,
@@ -36,12 +43,13 @@ export const useBillingStore = create<BillingState>((set, get) => ({
             // A proxy that does not forward /billing returns the SPA's index.html with a 200,
             // so check the shape before trusting it.
             if (typeof wallet !== "object" || wallet === null || typeof wallet.enabled !== "boolean") {
-                set({ wallet: null, enabled: false, loading: false });
+                set({ wallet: null, enabled: false, ratesPublished: false, loading: false });
                 return;
             }
             // Root/admin get a wallet even while billing is off so they can set prices up first;
             // the badge only appears once the deployment actually bills.
-            set({ wallet, enabled: wallet.enabled, loading: false });
+            set({ wallet, enabled: wallet.enabled,
+                  ratesPublished: wallet.rates_published ?? false, loading: false });
         } catch (error) {
             const status = (error as { response?: { status?: number } })?.response?.status;
             // 401 just means "not signed in yet"; keep the previous verdict and retry later.

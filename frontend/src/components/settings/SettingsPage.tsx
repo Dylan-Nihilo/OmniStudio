@@ -5,7 +5,7 @@ import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
 import { useBillingStore } from "@/store/billingStore";
-import { withCreditLabel } from "@/lib/modelCost";
+import { unitLabels as unitLabelsFor, withCreditLabel } from "@/lib/modelCost";
 import { billingAdminApi, type ProviderReadiness } from "@/lib/billing";
 import axios from "axios";
 import { api, type EnvConfigPayload, type ImageProvider, type LlmProvider, type ProviderMode, API_URL, type ProviderConnectionTestResult } from "@/lib/api";
@@ -201,6 +201,9 @@ export default function SettingsPage(props: SettingsPageProps = {}) {
 
 function SettingsPageContent({ initialCategory = "general", onProviderConfigSaved, onSavingChange, canManageConfig }: SettingsPageProps & { canManageConfig: boolean }) {
   const t = useTranslations("settings");
+  // Unit words live with the rest of the credit vocabulary so every picker
+  // and every cost badge words a rate the same way.
+  const tBilling = useTranslations("billing");
   const billingRole = useBillingStore((state) => state.wallet?.role ?? null);
   // Provider credentials and storage belong to whoever operates the deployment. On a
   // centrally operated platform the operator holds them and users only pick models and
@@ -210,7 +213,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   // Users on a hosted plan pick a tier and spend credits; showing the rate at the point of
   // choice is what makes the tiers legible. Absent a published price book this adds nothing.
   const pricing = useBillingStore((state) => state.pricing);
-  const unitLabels = { second: t("unitSecond"), image: t("unitImage"), chars_1k: t("unitChars1k") };
+  const unitLabels = unitLabelsFor(tBilling);
   const withCost = (id: string, description: string) => withCreditLabel(description, pricing, id, unitLabels);
   // Credentials are per provider family, but they are only meaningful as "which models does
   // this let people use". The readiness endpoint answers that, so the groups below can say

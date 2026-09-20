@@ -144,3 +144,79 @@ def test_a_task_that_never_finishes_gives_up(relay, monkeypatch):
     with pytest.raises(RuntimeError, match="did not finish"):
         mulerouter.MuleRouterImageModel({}).generate(
             "a cat", str(relay / "out.png"), model="gpt-image-2.5-sunburst")
+
+
+# --- what the upstream said when it refused ------------------------------------------
+
+class _Refusal:
+    """A 4xx carrying the only text that explains itself."""
+
+    def __init__(self, status_code, text, url="https://open302.com/v1/images/generations?x=1",
+                 headers=None):
+        self.status_code = status_code
+        self.text = text
+        self.url = url
+        self.headers = headers or {}
+
+    def json(self):
+        raise ValueError("not json")
+
+
+def test_a_user_is_told_the_cause_and_not_our_endpoint(caplog):
+    """Deliberate reversal of what this file asserted an hour ago.
+
+    The first attempt at fixing the opaque "451 Client Error ... for url: ..." put the
+    upstream's own text and the endpoint into the user-facing message. That leaks which
+    vendor we buy capacity from and where we call it, which is not a customer's business —
+    and the provider's raw wording is not something they can act on anyway. The detail
+    belongs in the log; the user gets a cause.
+    """
+    resp = _Refusal(451, '{"error":{"message":"content blocked by upstream policy"}}')
+    with caplog.at_level("ERROR"):
+        mulerouter._log_http_failure(resp)
+    message = mulerouter._describe_http_failure(resp)
+
+    assert "open302.com" not in message and "http" not in message.lower()
+    assert "content blocked" not in message, "the provider's own wording is not shown"
+    assert "改写画面描述" in message and "重试不会有帮助" in message
+    # The same facts are still recoverable, just not by the customer.
+    assert "open302.com" in caplog.text and "content blocked" in caplog.text
+
+
+def test_the_log_keeps_the_blocking_party_for_a_451(caplog):
+    """RFC 7725 names whoever demanded the block, which separates "this prompt was refused"
+    from "this account or region is blocked"."""
+    resp = _Refusal(451, "", headers={"Link": '<https://example.test/policy>; rel="blocked-by"'})
+    with caplog.at_level("ERROR"):
+        mulerouter._log_http_failure(resp)
+    assert "blocked-by" in caplog.text
+
+
+def test_every_cause_a_user_sees_is_free_of_vendor_detail():
+    for status in (400, 401, 402, 403, 404, 413, 429, 451, 500, 503, 418):
+        message = mulerouter._describe_http_failure(_Refusal(status, "vendor said something"))
+        assert message and "vendor said" not in message
+        assert "http" not in message.lower() and str(status) not in message
+
+
+def test_a_failed_request_raises_the_cause_not_the_status_line(monkeypatch):
+    monkeypatch.setattr(mulerouter.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(mulerouter.requests, "request",
+                        lambda *a, **k: _Refusal(451, "policy refusal"))
+    with pytest.raises(RuntimeError, match="改写画面描述"):
+        mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
+
+
+def test_a_content_refusal_is_not_retried(monkeypatch):
+    """Retrying a refusal wastes a minute of someone's time to arrive at the same answer."""
+    calls = {"n": 0}
+
+    def once(*args, **kwargs):
+        calls["n"] += 1
+        return _Refusal(451, "policy refusal")
+
+    monkeypatch.setattr(mulerouter.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(mulerouter.requests, "request", once)
+    with pytest.raises(RuntimeError):
+        mulerouter._request_with_retry("POST", "https://open302.com/v1/images/generations")
+    assert calls["n"] == 1

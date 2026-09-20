@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import openai
+import pytest
+
+from types import SimpleNamespace
 
 from src.apps.comic_gen.api import (
     SECRET_FIELDS,
@@ -375,3 +378,82 @@ def test_the_failure_message_names_the_variable_that_was_consulted(monkeypatch):
     processor = object.__new__(ScriptProcessor)
     processor.llm = LLMAdapter()
     assert processor._missing_llm_credential() == "KAIZO_CLAUDE_API_KEY"
+
+
+def test_a_rate_limit_is_waited_out_rather_than_thrown_away(monkeypatch):
+    """A 429 says "later", not "no". Nothing retried one, so a single rate limit anywhere in
+    a long job — script analysis makes a call per chapter — discarded the whole run."""
+    from src.apps.comic_gen import llm_adapter as module
+
+    slept: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: slept.append(seconds))
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise RuntimeError("Error code: 429 - too many requests")
+        return "ok"
+
+    assert module._with_rate_limit_retry(flaky, "gpt-5.6-sol") == "ok"
+    assert attempts["n"] == 3
+    assert slept == [2.0, 5.0], "short waits: someone is watching a progress bar"
+
+
+def test_a_persistent_rate_limit_still_surfaces(monkeypatch):
+    """Retrying for ever would turn a real capacity problem into a hang."""
+    from src.apps.comic_gen import llm_adapter as module
+
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+
+    def always():
+        raise RuntimeError("Error code: 429 - rate limit exceeded")
+
+    with pytest.raises(RuntimeError, match="429"):
+        module._with_rate_limit_retry(always, "gpt-5.6-sol")
+
+
+def test_an_error_that_is_not_a_rate_limit_is_not_retried(monkeypatch):
+    """Retrying an auth failure or a bad request just delays the report."""
+    from src.apps.comic_gen import llm_adapter as module
+
+    calls = {"n": 0}
+
+    def broken():
+        calls["n"] += 1
+        raise RuntimeError("Error code: 401 - invalid api key")
+
+    with pytest.raises(RuntimeError, match="invalid api key"):
+        module._with_rate_limit_retry(broken, "gpt-5.6-sol")
+    assert calls["n"] == 1
+
+
+def test_the_upstreams_own_retry_after_wins_when_it_is_sensible(monkeypatch):
+    from src.apps.comic_gen import llm_adapter as module
+
+    slept: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: slept.append(seconds))
+
+    class Error(RuntimeError):
+        response = SimpleNamespace(status_code=429, headers={"Retry-After": "7"})
+
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise Error("429")
+        return "ok"
+
+    assert module._with_rate_limit_retry(flaky, "m") == "ok"
+    assert slept == [7.0]
+
+
+def test_an_absurd_retry_after_is_ignored(monkeypatch):
+    """A header asking for ten minutes must not become a silent ten-minute stall."""
+    from src.apps.comic_gen import llm_adapter as module
+
+    class Error(RuntimeError):
+        response = SimpleNamespace(status_code=429, headers={"Retry-After": "600"})
+
+    assert module._retry_after_seconds(Error("429")) is None

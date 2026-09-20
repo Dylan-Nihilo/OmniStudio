@@ -27,26 +27,31 @@ interface CreditCostProps {
 export default function CreditCost({ modelId, params = {}, quantity = 1, exact = false }: CreditCostProps) {
     const t = useTranslations("billing");
     const enabled = useBillingStore((state) => state.enabled);
+    // Rates are shown as soon as they are published; the deduction is a separate switch.
+    // Showing them first is deliberate — it lets the operator check every price in the real
+    // UI and gives users a stretch where the cost is visible before it is taken.
+    const ratesPublished = useBillingStore((state) => state.ratesPublished);
+    const visible = Boolean(enabled) || ratesPublished;
     const pricing = useBillingStore((state) => state.pricing);
     const loadPricing = useBillingStore((state) => state.loadPricing);
     const wallet = useBillingStore((state) => state.wallet);
     const [quoted, setQuoted] = useState<number | null>(null);
 
     useEffect(() => {
-        if (enabled && !pricing) void loadPricing();
-    }, [enabled, pricing, loadPricing]);
+        if (visible && !pricing) void loadPricing();
+    }, [visible, pricing, loadPricing]);
 
     useEffect(() => {
-        if (!enabled || !exact || !modelId) return;
+        if (!visible || !exact || !modelId) return;
         let cancelled = false;
         billingApi.quote(modelId, params, quantity)
             .then((result) => { if (!cancelled) setQuoted(result.credits); })
             .catch(() => { if (!cancelled) setQuoted(null); });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [enabled, exact, modelId, JSON.stringify(params), quantity]);
+    }, [visible, exact, modelId, JSON.stringify(params), quantity]);
 
-    if (!enabled || !modelId) return null;
+    if (!visible || !modelId) return null;
 
     const unit = creditsFor(pricing, modelId, params);
     // Round once on the total, like the server: a unit that costs a fraction of a credit must
@@ -56,7 +61,10 @@ export default function CreditCost({ modelId, params = {}, quantity = 1, exact =
         return <span className={clsx(styles.cost, styles.unpriced)}>{t("unpriced")}</span>;
     }
 
-    const insufficient = wallet?.available !== undefined && wallet.available < credits;
+    // Only warn about the balance when the balance is actually going to be spent. While
+    // rates are merely on display there is nothing to be short of, and a red "not enough
+    // credits" on a generation that will succeed is worse than saying nothing.
+    const insufficient = Boolean(enabled) && wallet?.available !== undefined && wallet.available < credits;
     return (
         <span className={clsx(styles.cost, insufficient && styles.insufficient)}
               title={insufficient ? t("insufficientHint", { available: wallet?.available ?? 0 }) : undefined}>

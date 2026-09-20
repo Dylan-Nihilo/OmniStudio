@@ -102,6 +102,9 @@ export interface EnvConfigPayload {
     // Which layer a save writes: "platform" on a centrally operated deployment, where the
     // settings apply to every workspace, or "workspace" on a desktop build.
     config_scope?: "platform" | "workspace";
+    // Whether text generation would find a credential. The backend resolves this because
+    // the text tiers each carry their own key, so no single variable name answers it.
+    llm_configured?: boolean;
     [key: string]: string | Record<string, string> | Record<string, boolean> | boolean | undefined;
 }
 
@@ -1462,7 +1465,7 @@ export const api = {
         return res.data;
     },
 
-    updatePromptConfig: async (scriptId: string, config: { storyboard_polish?: string; video_polish?: string; r2v_polish?: string; entity_extraction?: string; style_analysis?: string; storyboard_extraction?: string }) => {
+    updatePromptConfig: async (scriptId: string, config: { storyboard_polish?: string; video_polish?: string; r2v_polish?: string; entity_extraction?: string; style_analysis?: string; storyboard_extraction?: string; polish_model?: string }) => {
         const res = await apiClient.put(`${API_URL}/projects/${scriptId}/prompt_config`, config);
         return res.data;
     },

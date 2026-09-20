@@ -17,6 +17,12 @@ export interface WalletSummary {
      * apart: an ordinary user here and the sole user of a desktop build both read null.
      */
     platform_managed?: boolean;
+    /**
+     * True once a price book is published, which is a separate switch from `enabled`.
+     * Rates go up first so costs are visible while nothing is charged yet; the credit
+     * labels key off this, and only the deduction keys off `enabled`.
+     */
+    rates_published?: boolean;
 }
 
 export interface LedgerEntry {
