@@ -44,6 +44,8 @@
   "voiceClone": {
     "title": "Clone new voice",
     "close": "Close",
+    "keepEditing": "Keep editing",
+    "discardChanges": "Discard changes",
     "dropHint": "Drop audio file or click to pick",
     "requirements": "MP3 / WAV / M4A · ≤ 10MB · 10-20s recommended",
     "labelLabel": "Voice label",
@@ -58,11 +60,18 @@
     "errorTooLarge": "File exceeds 10MB",
     "characterContext": "Character Reference",
     "confirmCloseTitle": "Leave this page?",
-    "confirmCloseBody": "Voice cloning is in progress. Leaving will cancel the current operation.",
+    "confirmCloseBody": "Leaving does not cancel a submitted service request. Reopen to check its status; created voices remain in the voice library.",
     "confirmCloseStay": "Stay",
     "confirmCloseLeave": "Leave"
   },
   "voicePicker": {
+    "recommendationReasons": {
+      "gender_match": "Gender match",
+      "gender_neutral": "No character gender preference",
+      "emotion_instruction": "Supports emotion instructions",
+      "preview_ready": "Fits the preview text",
+      "natural_dialogue": "Natural dialogue"
+    },
     "title": "Pick voice",
     "close": "Close",
     "tabSystem": "System",
@@ -284,16 +293,11 @@
     "toastEntityGone": "This asset no longer exists (may have been deleted). Please refresh and retry.",
     "cancelGeneration": "Cancel generation",
     "canceling": "Canceling…",
+    "cancelFailed": "Could not cancel task",
     "batchPending": "Pending",
     "batchSucceeded": "Succeeded",
     "batchFailed": "Failed",
-    "batchCanceled": "Canceled",
-    "recommendationReasons": {
-      "gender_match": "Gender match",
-      "emotion_instruction": "Supports emotion instructions",
-      "preview_ready": "Fits the preview text",
-      "natural_dialogue": "Natural dialogue"
-    }
+    "batchCanceled": "Canceled"
   },
   "voiceDesign": {
     "title": "Design a new voice",
@@ -313,7 +317,7 @@
     "playFailed": "Preview failed — please retry",
     "characterContext": "Character Reference",
     "confirmCloseTitle": "Leave this page?",
-    "confirmCloseBody": "Voice generation is in progress. Leaving will cancel the current operation.",
+    "confirmCloseBody": "Leaving does not cancel a submitted service request. Reopen to check its status; created voices remain in the voice library.",
     "confirmCloseStay": "Stay",
     "confirmCloseLeave": "Leave",
     "previewTextDefault": "Hi, this is a voice test. Please listen carefully and check whether it matches your expectations."
@@ -460,6 +464,8 @@
     "locked": "Locked"
   },
   "common": {
+    "unsavedChangesTitle": "Unsaved changes",
+    "unsavedChangesMessage": "Leaving will discard changes that have not been applied. Continue?",
     "polishInheritProject": "Use series / workspace model",
     "polishInheritWorkspace": "Use workspace model",
     "polishInheritProjectHint": "Use the series or workspace text model unless you select an override.",
@@ -474,6 +480,8 @@
     "sync": "Sync",
     "open": "Open",
     "close": "Close",
+    "keepEditing": "Keep editing",
+    "discardChanges": "Discard changes",
     "recommended": "Recommended",
     "offlineTooltip": "You're offline — reconnect to use this",
     "noMatchHint": "Try adjusting filters or search keywords",
@@ -485,6 +493,35 @@
     "copyErrorDetails": "Copy error details",
     "offlineBannerText": "You're offline — you can continue once reconnected",
     "actionFailed": "The operation failed. Please try again."
+  },
+  "pendingTask": {
+    "cancel": "Cancel task",
+    "canceling": "Canceling…",
+    "diagnose": "Diagnose",
+    "title": "Diagnose stuck task",
+    "close": "Close",
+    "elapsed": "Elapsed",
+    "taskId": "Task ID",
+    "backend": "Backend",
+    "checking": "Checking…",
+    "reachable": "reachable · {count} project(s)",
+    "unreachable": "unreachable · {message}",
+    "logFile": "Log file",
+    "copyLogPath": "Copy log path",
+    "reloadLog": "Reload log",
+    "copyFullLog": "Copy full log",
+    "errorsOnly": "① Errors only · {count} rows",
+    "rootCauseHint": "root cause is usually here",
+    "fullTail": "② Full tail · last {count} lines",
+    "loading": "Loading…",
+    "logReadFailed": "Could not read log: {message}",
+    "logMissing": "Log file does not exist yet at {path}.",
+    "logEmpty": "Log is empty.",
+    "quickChecks": "Quick checks",
+    "refreshHint": "Press F5 to refresh — polling may have stalled.",
+    "backendHint": "If the backend is unreachable, the desktop app or backend script may have stopped. Restart",
+    "causeHint": "Look at the red rows above for provider auth, network, or model parameter issues.",
+    "restartHint": "Backend restart clears in-memory tasks; a stuck task is marked failed at startup, so retry usually works."
   },
   "nav": {
     "workspace": "Workspace",
@@ -539,6 +576,8 @@
     "workspace": "STUDIO",
     "workflow": "Production workflow",
     "switchEpisode": "Switch episode",
+    "previousPage": "Previous page",
+    "backToSeries": "Back to series",
     "back": "Back to workspace",
     "settings": "Project settings",
     "modelSettings": "Generation settings",
@@ -1021,6 +1060,8 @@
     "promptConfigSub": "Customize system prompts for AI polish stages",
     "promptLoadFailed": "Failed to load prompt configuration. Please try again.",
     "promptSaveFailed": "Failed to save prompt configuration",
+    "unsavedChangesTitle": "Unsaved changes",
+    "unsavedChangesHint": "Your changes have not been saved. Close the prompt configuration anyway?",
     "promptEmptyHint": "Leave a field empty to use the system default prompt. Custom prompts completely replace the default for that stage.",
     "resetToDefault": "Reset to default",
     "viewDefault": "View full default prompt",
@@ -1119,6 +1160,8 @@
     "seriesPromptEmptyHint": "Leave a field empty to use the system default. Series prompts apply to all episodes; episodes can override individually.",
     "promptLoadFailed": "Failed to load prompt configuration. Please try again.",
     "promptSaveFailed": "Failed to save prompt configuration",
+    "unsavedChangesTitle": "Unsaved changes",
+    "unsavedChangesHint": "Your changes have not been saved. Close the prompt configuration anyway?",
     "resetToDefault": "Reset to default",
     "viewDefault": "View full default prompt",
     "loadingConfig": "Loading configuration...",
@@ -1192,6 +1235,8 @@
     "propImageDesc": "Prop reference image"
   },
   "storyboard": {
+    "selectVariantFailed": "Could not select the image. Try again.",
+    "deleteVariantFailed": "Could not remove the image. Try again.",
     "frameEditor": "Frame Editor",
     "sceneContext": "Scene Context",
     "action": "Action",
@@ -1200,6 +1245,7 @@
     "promptPlaceholder": "Enter prompt description...",
     "promptHint": "Modify the prompt to refine the generated image.",
     "generateFailed": "Failed to generate frame",
+    "retry": "Retry",
     "generatedAssets": "Generated Assets",
     "upload": "Upload",
     "generateAll": "Generate All",
@@ -1528,6 +1574,8 @@
     "unknown": "Unknown"
   },
   "assembly": {
+    "selectionFailed": "Could not update the selected take. Try again.",
+    "mergeUncertain": "Connection interrupted. Checking export status before allowing another submission.",
     "nextTransition": "Transition to next shot",
     "transitionCut": "Cut",
     "transitionMatch": "Match cut",
@@ -1729,6 +1777,8 @@
     "motionRef": "Motion Reference"
   },
   "vault": {
+    "confirmDeleteAsset": "Delete this asset? Generated source files will be kept.",
+    "confirmDeleteVideo": "Remove this video candidate?",
     "title": "Consistency Vault",
     "characters": "Characters",
     "scenes": "Scenes",
@@ -3440,6 +3490,9 @@
     "selectedHint": "New candidates keep the current selection. Review and select the one you want."
   },
   "productionPlan": {
+    "previsUnsaved": "Preview descriptions have unsaved changes. Discard them and leave?",
+    "keepEditing": "Keep editing",
+    "refreshFailed": "Refresh failed. Current content is preserved. Try again.",
     "incompletePlan": "Complete the summary, segment states, and each shot’s title, description, camera and duration.",
     "invalidTarget": "Enter a whole number from 1 to 600 seconds, or leave blank for an estimate.",
     "reviseActive": "Revise current plan",
@@ -3477,6 +3530,7 @@
     "generate": "Generate plan",
     "regenerate": "Replan",
     "planning": "Planning…",
+    "planningUncertain": "The request was interrupted. Checking the background task before allowing another submission. You can close this dialog and return later.",
     "failed": "Planning failed. Your previous plan is retained.",
     "saveBeforeRegenerate": "Save your changes first.",
     "save": "Save plan",
@@ -3532,7 +3586,11 @@
     "imageFailed": "The image was not generated. Check and retry.",
     "uploadInvalid": "Choose a JPG, PNG or WebP image smaller than 8 MB.",
     "imageChoice": "Select image {number}",
-    "imageRemove": "Remove selected image",
+    "imageRemove": "Remove current storyboard candidate",
+    "imageClear": "Clear shot candidates",
+    "imageClearConfirm": "Clear all candidates for this shot? Source files and history will be kept.",
+    "imageClearCancel": "Cancel",
+    "imageClearConfirmAction": "Clear candidates",
     "saveImagePrompt": "Save image description",
     "busyImage": "Generating storyboard image…",
     "previsCount": "{count} shots in this segment",

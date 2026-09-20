@@ -64,6 +64,7 @@ def test_a_blank_workspace_value_does_not_shadow_the_platform_one(monkeypatch):
 
 
 def test_llm_adapter_rebuilds_cached_client_for_each_workspace(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "dashscope")
     created = []
 
     class FakeOpenAI:

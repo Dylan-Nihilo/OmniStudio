@@ -2170,6 +2170,50 @@ def test_video_retry_reports_processing_failure_and_keeps_original_task(api_clie
     assert generate.call_args.kwargs["prompt_extend"] is False
 
 
+def test_video_retry_does_not_reuse_a_terminal_durable_retry(api_client):
+    project = _create_project(api_client, "Retry after completed durable attempt")
+    script = api_module.pipeline.scripts[project["id"]]
+    original = VideoTask(
+        id="failed-original-durable",
+        project_id=script.id,
+        image_url="",
+        prompt="Saved camera move",
+        status="failed",
+        error="Original provider failure",
+    )
+    script.video_tasks = [original]
+    api_module.pipeline._save_data()
+
+    workspace_id = api_module.pipeline.repository.workspace_for_script(script.id)
+    adapter = api_module._production_adapter()
+    source = adapter.create(
+        "video", workspace_id, script.id, None,
+        {"legacy_task_id": original.id, "frame_id": None, "video_task_id": original.id},
+        "video:durable-source",
+    )
+    adapter.repository.transition_item(source.id, "processing")
+    adapter.repository.transition_item(source.id, "failed", error={"code": "PROVIDER_DISPATCH_FAILED", "message": "old failure"})
+    terminal_retry = adapter.repository.create_retry(source.id, f"retry:{source.id}")
+    adapter.repository.transition_item(terminal_retry.id, "processing")
+    adapter.repository.transition_item(
+        terminal_retry.id,
+        "succeeded",
+        media_refs=[{"id": "old-result", "kind": "video", "uri": "video/old.mp4"}],
+    )
+    terminal_payload = adapter.repository.get_item(terminal_retry.id).payload
+
+    with patch.object(api_module.pipeline, "process_video_task") as process:
+        response = api_client.post(f"/projects/{script.id}/video_tasks/{original.id}/retry")
+
+    assert response.status_code == 200, response.text
+    new_task = response.json()
+    assert new_task["id"] != original.id
+    process.assert_called_once_with(script.id, new_task["id"])
+    persisted_terminal = adapter.repository.get_item(terminal_retry.id)
+    assert persisted_terminal.status == "succeeded"
+    assert persisted_terminal.payload == terminal_payload
+
+
 @pytest.mark.parametrize("endpoint,body", [("merge", None), ("export", {"resolution": "720p", "format": "mp4", "subtitles": "none"})])
 def test_new_export_request_can_run_after_a_failed_attempt(api_client, endpoint, body):
     project = _create_project(api_client, "Retry export")

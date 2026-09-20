@@ -38,6 +38,9 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
     const pricing = useBillingStore((state) => state.pricing);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState('');
+    const [planningError, setPlanningError] = useState('');
+    const [uncertain, setUncertain] = useState(false);
+    const [refreshError, setRefreshError] = useState('');
     const [dirty, setDirty] = useState(false);
     const [undo, setUndo] = useState<ProductionPlan | null>(null);
     const [historyOpen, setHistoryOpen] = useState(false);
@@ -51,23 +54,26 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         const state = await api.getProductionPlan(project.id);
         if (!active.current) return;
         setOverview(state);
+        setRefreshError('');
+        if (state.job?.status === 'failed') { setPlanningError(state.job.error || t('failed')); setUncertain(false); }
+        if (state.job?.status === 'completed') { setPlanningError(''); setUncertain(false); }
         onUpdate({ production_plan_draft: state.draft, production_plan: state.active, production_planning_job: state.job });
         if (!dirtyRef.current && state.draft?.revision !== savedRevision.current) {
             savedRevision.current = state.draft?.revision;
             setDraft(state.draft);
         }
         return state;
-    }, [project.id, onUpdate]);
+    }, [project.id, onUpdate, t]);
     useEffect(() => {
         if (!isOpen) return;
-        void refresh().catch(e => { if (active.current) setError(message(e)); });
+        void refresh().catch(e => { if (active.current) setRefreshError(message(e)); });
     }, [isOpen, refresh]);
     const planning = busy === 'generate' || overview?.job?.status === 'processing';
     useEffect(() => {
-        if (!isOpen || !planning) return;
-        const timer = window.setInterval(() => { void refresh().catch(() => {}); }, 2500);
+        if (!isOpen || (!planning && !uncertain)) return;
+        const timer = window.setInterval(() => { void refresh().catch(e => { if (active.current) setRefreshError(message(e)); }); }, 2500);
         return () => window.clearInterval(timer);
-    }, [isOpen, planning, refresh]);
+    }, [isOpen, planning, uncertain, refresh]);
     const currentModel = VIDEO_R2V_MODELS.find(model => model.id === (draft?.settings.model ?? settings.model));
     const durationConfig = currentModel?.duration;
     const durations = durationConfig?.type === 'slider'
@@ -84,7 +90,14 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         if (operation.current || readOnly) return;
         operation.current = true; setBusy(kind); setError('');
         try { await work(); }
-        catch (e) { if (active.current) setError(message(e)); }
+        catch (e: any) { if (active.current) {
+            if (kind === 'generate') {
+                const unknown = e?.code === 'ECONNABORTED' || !e?.response && /timeout|network/i.test(e?.message ?? '');
+                setUncertain(unknown);
+                setPlanningError(unknown ? t('planningUncertain') : message(e));
+                void refresh().catch(err => { if (active.current) setRefreshError(message(err)); });
+            } else setError(message(e));
+        } }
         finally { operation.current = false; if (active.current) setBusy(null); }
     }
     function change(next: ProductionPlan, structural = false) {
@@ -112,6 +125,7 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         return saved;
     }
     async function generate() {
+        setPlanningError('');
         if (!await beforeChange() || !active.current) return;
         const result = await api.generateProductionPlan(project.id, settings);
         if (!active.current) return;
@@ -130,22 +144,31 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         onClose(); onPrevis();
     }
     const shotCount = draft?.segments.reduce((sum, segment) => sum + segment.shots.length, 0) ?? 0;
-    const close = () => { if (readOnly) { onClose(); return; } if (dirty) void run('save', async () => { await save(); onClose(); }); else onClose(); };
+    const atomicBusy = !!busy && busy !== 'generate';
+    const leave = (afterClose?: () => void) => {
+        if (atomicBusy || operation.current && busy !== 'generate') return;
+        const finish = () => { onClose(); afterClose?.(); };
+        if (dirty && !readOnly) void run('save', async () => { await save(); finish(); });
+        else finish();
+    };
+    const close = () => leave();
     return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) close(); }} title={t('title')} closeLabel={t('close')}
-        className={styles.dialog} isDismissable={!busy || busy === 'generate'} footer={<>
+        className={styles.dialog} isDismissable={!atomicBusy} footer={<>
             <span className={styles.footerSummary}>{dirty ? t('unsaved') : draft ? t('saved') : ''}</span>
-            <Button variant="secondary" onPress={close}>{t(dirty && !readOnly ? 'saveAndClose' : 'close')}</Button>
-            {dirty && <Button variant="quiet" onPress={() => { setDraft(overview?.draft ?? project.production_plan_draft ?? null); setDirty(false); dirtyRef.current = false; onClose(); }}>{t('discardChanges')}</Button>}
+            <Button variant="secondary" isDisabled={atomicBusy} onPress={close}>{t(dirty && !readOnly ? 'saveAndClose' : 'close')}</Button>
+            {dirty && <Button variant="quiet" isDisabled={atomicBusy} onPress={() => { if (operation.current) return; setDraft(overview?.draft ?? project.production_plan_draft ?? null); setDirty(false); dirtyRef.current = false; onClose(); }}>{t('discardChanges')}</Button>}
             {draft && !historyOpen && <><Button variant="secondary" isDisabled={readOnly || !dirty || !!busy || !!invalid || !!incomplete} onPress={() => void run('save', async () => { await save(); })}>{t('save')}</Button>
                 <Button isDisabled={readOnly || !!busy || !!invalid || !!incomplete || planning} isPending={busy === 'apply'} onPress={() => void run('apply', apply)}>{t('apply')}</Button></>}
         </>}>
         <div className={styles.tabs}>
             <Button variant={!historyOpen ? 'secondary' : 'quiet'} aria-pressed={!historyOpen} onPress={() => setHistoryOpen(false)}>{t('planTab')}</Button>
-            {project.production_plan && <Button variant="quiet" onPress={() => { onClose(); onPrevis(); }}>{t('previsTab')}</Button>}
+            {project.production_plan && <Button variant="quiet" isDisabled={atomicBusy} onPress={() => leave(onPrevis)}>{t('previsTab')}</Button>}
             <Button variant={historyOpen ? 'secondary' : 'quiet'} aria-pressed={historyOpen} onPress={() => setHistoryOpen(true)}>{t('historyTab')}</Button>
         </div>
         {readOnly && <p className={styles.hint}>{t('readOnly')}</p>}
-        {error && <p role="alert" className={styles.error}>{error}</p>}
+        {(error || planningError) && <p role="alert" className={styles.error}>{error || planningError}</p>}
+        {(refreshError || uncertain) && <div><p role={refreshError ? 'alert' : 'status'} className={styles.error}>{refreshError || t('planningUncertain')}</p>
+            <Button variant="secondary" onPress={() => void refresh().catch(e => { if (active.current) setRefreshError(message(e)); })}>{t('checkAgain')}</Button></div>}
         {historyOpen ? <div>
             {!overview?.versions.length && <p className={styles.hint}>{t('historyEmpty')}</p>}
             {overview?.versions.slice().reverse().map(version => <div key={version.id} className={styles.historyItem}>
@@ -173,7 +196,7 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
             </div>
             {invalidTarget && <p role="alert" className={styles.error}>{t('invalidTarget')}</p>}
             <TextAreaField label={t('instruction')} value={settings.instruction} onChange={value => setSettings({ ...settings, instruction: value })} rows={2} placeholder={t('instructionHint')} />
-            <div className={styles.tools}><Button isPending={planning} isDisabled={!!busy || planning || dirty || invalidTarget} onPress={() => void run('generate', generate)}>{t(planning ? 'planning' : draft ? 'regenerate' : 'generate')}</Button>
+            <div className={styles.tools}><Button isPending={planning} isDisabled={!!busy || planning || uncertain || dirty || invalidTarget} onPress={() => void run('generate', generate)}>{t(planning ? 'planning' : draft ? 'regenerate' : 'generate')}</Button>
                 {dirty && <span className={styles.hint}>{t('saveBeforeRegenerate')}</span>}
                 {overview?.job?.status === 'failed' && <span className={styles.error}>{overview.job.error || t('failed')}</span>}
             </div>

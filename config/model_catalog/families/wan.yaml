@@ -90,7 +90,8 @@ models:
   - id: wan/wan2.7-video
     display_name: Wan 2.7 Video
     description: Wan 2.7 video generation with I2V, R2V, T2V, and VideoEdit modes
-    status: deprecated
+    # Keep runtime compatibility, but do not offer unpriced video modes.
+    status: hidden
     release_stage: stable
     docs:
       context_hub_doc_ids: [aliyun/wan-i2v-r2v]

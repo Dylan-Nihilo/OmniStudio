@@ -26,6 +26,7 @@ import { Button, Dialog } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import { api, type VoiceMeta, type CustomVoice, type VoiceRecommendation } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import VoiceCloneModal from "./VoiceCloneModal";
 import VoiceDesignModal from "./VoiceDesignModal";
 
@@ -45,7 +46,7 @@ interface VoicePickerModalProps {
      *  (Q5 A3 preferred). When null/undefined, uses character-name template. */
     previewText?: string;
     currentVoiceId?: string;
-    onApply: (voiceId: string, voiceName: string) => void;
+    onApply: (voiceId: string, voiceName: string) => void | Promise<void>;
     /** PR-3h · Series id enables the 我的复刻 / 我的设计 tabs. When null,
      *  those tabs show "请先关联到系列" message (orphan projects). */
     seriesId?: string | null;
@@ -82,6 +83,21 @@ export default function VoicePickerModal({
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState(false);
+    const [applying, setApplying] = useState(false);
+    const [applyError, setApplyError] = useState('');
+    const [reload, setReload] = useState(0);
+    const [confirmClose, setConfirmClose] = useState(false);
+    const submitting = useRef(false);
+    const close = () => { if (submitting.current) return; if (selectedId !== currentVoiceId) setConfirmClose(true); else onClose(); };
+    const apply = async () => {
+        if (!selectedId || submitting.current) return;
+        submitting.current = true; setApplying(true); setApplyError('');
+        try {
+            const name = voices.find(v => v.id === selectedId)?.name || customVoices.find(v => v.id === selectedId)?.label || selectedId;
+            await onApply(selectedId, name); onClose();
+        } catch (e) { setApplyError(e instanceof Error ? e.message : tc('actionFailed')); }
+        finally { submitting.current = false; setApplying(false); }
+    };
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // Sync selected when current changes / modal opens
@@ -108,7 +124,7 @@ export default function VoicePickerModal({
         setError(null);
         Promise.all([
             api.getVoices(),
-            seriesId ? api.listCustomVoices(seriesId).catch(() => []) : Promise.resolve([]),
+            seriesId ? api.listCustomVoices(seriesId) : Promise.resolve([]),
         ])
             .then(([vs, customs]) => {
                 if (!cancelled) {
@@ -124,7 +140,7 @@ export default function VoicePickerModal({
             .catch((e) => { if (!cancelled) setError(e?.message || "Failed to load voices"); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [isOpen, seriesId]);
+    }, [isOpen, seriesId, reload]);
 
     // PR-3h · handle clone result — refresh list + auto-select new clone
     const handleCloneCreated = async (newVoice: CustomVoice) => {
@@ -256,28 +272,30 @@ export default function VoicePickerModal({
 
     return (
         <>
-        <div className="fixed inset-0 z-[100] grid place-items-center bg-overlay backdrop-blur-sm" onClick={onClose}>
-            <div
-                className="w-full max-w-4xl max-h-[85vh] flex flex-col rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-glass-border">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <h2 className="text-display font-medium text-foreground truncate">
-                            {t("title")}
-                            <span className="ml-2 text-text-muted">— {characterName}</span>
-                        </h2>
+        <Dialog isOpen title={`${t('title')} — ${characterName}`} closeLabel={t('close')} isDismissable={!applying}
+            className="!w-[min(900px,calc(100vw-2rem))] !max-w-none" onOpenChange={open => { if (!open) close(); }} footer={<>
+                    <span className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">
+                        {selectedId
+                            ? voices.find(v => v.id === selectedId)?.name || selectedId
+                            : t("noSelection")}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={close} disabled={applying}
+                            className="inline-flex items-center px-4 py-2 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
+                        >
+                            {t("cancel")}
+                        </button>
+                        <button
+                            onClick={() => void apply()}
+                            disabled={applying || !selectedId || selectedId === currentVoiceId}
+                            className="inline-flex items-center px-4 py-2 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.75rem] font-semibold"
+                        >
+                            {t("apply")}
+                        </button>
                     </div>
-                    <button
-                        onClick={onClose}
-                        aria-label={t("close")}
-                        className="p-2 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors"
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
-
+                </>}>
+            {applyError && <p role="alert">{applyError}</p>}
                 {/* Tabs */}
                 <div className="flex items-center gap-1 px-6 pt-3 border-b border-glass-border">
                     {[
@@ -311,7 +329,7 @@ export default function VoicePickerModal({
                     )}
                     {error && (
                         <div className="rounded-md border border-status-failed-border bg-status-failed-bg p-3 text-body-sm text-status-failed-fg" role="alert">
-                            {error}
+                            {error}<Button variant="secondary" onPress={() => setReload(n => n + 1)}>{tc("retry")}</Button>
                         </div>
                     )}
 
@@ -400,38 +418,8 @@ export default function VoicePickerModal({
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex items-center justify-between gap-3 px-6 py-3 border-t border-glass-border">
-                    <span className="font-mono text-[0.625rem] uppercase tracking-[0.14em] text-text-muted">
-                        {selectedId
-                            ? voices.find(v => v.id === selectedId)?.name || selectedId
-                            : t("noSelection")}
-                    </span>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={onClose}
-                            className="inline-flex items-center px-4 py-2 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
-                        >
-                            {t("cancel")}
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (!selectedId) return;
-                                // PR-3h · lookup in both system + custom pools
-                                const systemMeta = voices.find(v => v.id === selectedId);
-                                const customMeta = customVoices.find(cv => cv.id === selectedId);
-                                const name = systemMeta?.name || customMeta?.label || selectedId;
-                                onApply(selectedId, name);
-                                onClose();
-                            }}
-                            disabled={!selectedId || selectedId === currentVoiceId}
-                            className="inline-flex items-center px-4 py-2 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.75rem] font-semibold"
-                        >
-                            {t("apply")}
-                        </button>
-                    </div>
-                </div>
-            </div>
+        </Dialog>
+
 
             {seriesId && (
                 <VoiceCloneModal
@@ -453,7 +441,7 @@ export default function VoicePickerModal({
                     onCreated={handleDesignCreated}
                 />
             )}
-        </div>
+            <ConfirmDialog open={confirmClose} title={tc("unsavedChangesTitle")} message={tc("unsavedChangesMessage")} confirmLabel={tc("discardChanges")} cancelLabel={tc("keepEditing")} onCancel={() => setConfirmClose(false)} onConfirm={onClose} />
             <Dialog isOpen={Boolean(deletingId)} className="voice-delete-confirmation" title={tc("delete")} closeLabel={tc("close")} isDismissable={!isDeleting}
                 onOpenChange={open => { if (!open && !isDeleting) setDeletingId(null); }}
                 footer={<><Button variant="secondary" isDisabled={isDeleting} onPress={() => setDeletingId(null)}>{tc("cancel")}</Button><Button variant="danger" isPending={isDeleting} onPress={() => void handleDeleteCustom()}>{tc("confirm")}</Button></>}>
@@ -538,7 +526,7 @@ function VoiceCard({
             }`}
         >
             <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
+                <button type="button" aria-label={voice.name} aria-pressed={selected} onClick={event => { event.stopPropagation(); onSelect(); }} className="min-w-0 flex-1 text-left">
                     <p className="truncate text-[0.8125rem] font-medium text-foreground" title={voice.name}>
                         {voice.name}
                     </p>
@@ -549,7 +537,7 @@ function VoiceCard({
                         {voice.supports_instruction ? " · instr" : ""}
                     </p>
                     {recommendationReasons?.length ? <p className="mt-1 text-[0.625rem] text-primary/80">{recommendationReasons.join(" · ")}</p> : null}
-                </div>
+                </button>
                 <button
                     onClick={(e) => { e.stopPropagation(); onPreview(); }}
                     aria-label={playing ? "Stop preview" : "Play preview"}
@@ -647,7 +635,7 @@ function CustomVoiceList({
                                 }`}
                             >
                                 <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0 flex-1">
+                                    <button type="button" aria-label={cv.label} aria-pressed={isSelected} onClick={event => { event.stopPropagation(); onSelect(cv.id); }} className="min-w-0 flex-1 text-left">
                                         <p className="truncate text-[0.8125rem] font-medium text-foreground" title={cv.label}>
                                             {cv.label}
                                         </p>
@@ -656,7 +644,7 @@ function CustomVoiceList({
                                             <span className="mx-1 text-text-muted/40">·</span>
                                             {cv.target_model}
                                         </p>
-                                    </div>
+                                    </button>
                                     <div className="flex shrink-0 items-center gap-1">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onPreview(cv); }}

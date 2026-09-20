@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { ExportPhase, countReadyFrames } from './VideoAssembly';
+import { ExportPhase, countReadyFrames, getAssemblyError } from './VideoAssembly';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
 
@@ -18,6 +18,11 @@ it('counts only explicitly selected completed takes with a video URL', () => {
   ];
 
   expect(countReadyFrames(frames, tasks)).toBe(1);
+});
+
+it('extracts actionable merge errors without relying on a browser alert', () => {
+  expect(getAssemblyError({ response: { data: { detail: '磁盘空间不足' } } }, '合片失败')).toBe('磁盘空间不足');
+  expect(getAssemblyError(new Error('ffmpeg unavailable'), '合片失败')).toBe('ffmpeg unavailable');
 });
 
 it('saves numeric export values and clears optional resolution and fps through the component picker', async () => {

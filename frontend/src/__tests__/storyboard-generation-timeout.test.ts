@@ -28,4 +28,14 @@ describe("storyboard generation timeout", () => {
             { timeout: 120_000 },
         );
     });
+
+    it("keeps synchronous storyboard analysis within the proxy timeout budget", async () => {
+        await api.analyzeToStoryboard("project-1", "script");
+
+        expect(post).toHaveBeenCalledWith(
+            "/api-proxy/projects/project-1/storyboard/analyze",
+            { text: "script" },
+            { timeout: 300_000 },
+        );
+    });
 });

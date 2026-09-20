@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, AlertTriangle, Image as ImageIcon, Lock, Unlock, ChevronRight, Maximize2 } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Button, Dialog } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
-import { api, API_URL } from "@/lib/api";
+import { api } from "@/lib/api";
 import { VariantSelector } from "../common/VariantSelector";
 import { useProjectStore } from "@/store/projectStore";
+
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
+import { extractErrorDetail } from "@/lib/utils";
 
 interface StoryboardFrameEditorProps {
     frame: any;
@@ -15,6 +17,12 @@ interface StoryboardFrameEditorProps {
 
 export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: StoryboardFrameEditorProps) {
     const ts = useTranslations("storyboard");
+    const tc = useTranslations("common");
+    const tp = useTranslations("productionPlan");
+    const [confirmClose, setConfirmClose] = useState(false);
+    const [mutationError, setMutationError] = useState("");
+    const generating = useRef(false);
+    const mutating = useRef(false);
     const currentProject = useProjectStore(state => state.currentProject);
     const updateProject = useProjectStore(state => state.updateProject);
 
@@ -26,6 +34,8 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
 
     const [prompt, setPrompt] = useState(frame.image_prompt || frame.action_description || "");
     const [isGenerating, setIsGenerating] = useState(false);
+    const [generationError, setGenerationError] = useState<string | null>(null);
+    const [retryBatchSize, setRetryBatchSize] = useState(1);
 
     // Sync prompt when frame changes
     useEffect(() => {
@@ -33,8 +43,10 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
     }, [frame.id, frame.image_prompt, frame.action_description]);
 
     const handleGenerate = async (batchSize: number) => {
-        if (!currentProject) return;
-
+        if (!currentProject || generating.current) return;
+        generating.current = true;
+        setRetryBatchSize(batchSize);
+        setGenerationError(null);
         setIsGenerating(true);
         try {
             // Construct composition data (simplified for now, ideally passed from parent or re-calculated)
@@ -50,63 +62,49 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                 batchSize
             );
             updateProject(currentProject.id, updatedProject);
+            setGenerationError(null);
         } catch (error) {
             console.error("Failed to generate frame:", error);
-            alert(ts("generateFailed"));
+            setGenerationError(ts("generateFailed"));
         } finally {
+            generating.current = false;
             setIsGenerating(false);
         }
     };
 
     const handleSelectVariant = async (variantId: string) => {
-        if (!currentProject) return;
+        if (!currentProject || mutating.current) return;
+        mutating.current = true; setMutationError("");
         try {
             const updatedProject = await api.selectAssetVariant(currentProject.id, frame.id, "storyboard_frame", variantId);
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
-            console.error("Failed to select variant:", error);
-        }
+            setMutationError(extractErrorDetail(error, ts("selectVariantFailed")));
+        } finally { mutating.current = false; }
     };
 
     const handleDeleteVariant = async (variantId: string) => {
-        if (!currentProject) return;
+        if (!currentProject || mutating.current) return;
+        mutating.current = true; setMutationError("");
         try {
             const updatedProject = await api.deleteAssetVariant(currentProject.id, frame.id, "storyboard_frame", variantId);
             updateProject(currentProject.id, updatedProject);
         } catch (error) {
-            console.error("Failed to delete variant:", error);
-        }
+            setMutationError(extractErrorDetail(error, ts("deleteVariantFailed")));
+        } finally { mutating.current = false; }
     };
 
-    const handleSavePrompt = async () => {
-        if (!currentProject) return;
-        // We can update the prompt without generating
-        // But currently we don't have a specific endpoint for just updating frame prompt without render?
-        // We can use updateAssetAttributes?
-        // But frame is not exactly an asset in the same way.
-        // Let's assume prompt is saved on generation for now.
+    const close = () => {
+        if (prompt !== (frame.image_prompt || frame.action_description || "")) setConfirmClose(true);
+        else onClose();
     };
-
-    return (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 md:p-8">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-elevated border border-glass-border rounded-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden shadow-lg"
-            >
-                {/* Header */}
-                <div className="h-16 border-b border-glass-border flex justify-between items-center px-6 bg-surface">
-                    <div className="flex items-center gap-4">
-                        <h2 className="text-xl font-bold text-foreground">{ts("frameEditor")} <span className="text-text-muted font-normal text-sm ml-2">#{frame.id.substring(0, 8)}</span></h2>
-                    </div>
-                    <button onClick={onClose} className="p-2 hover:bg-hover-bg rounded-full text-text-secondary hover:text-foreground transition-colors">
-                        <X size={24} />
-                    </button>
-                </div>
-
+    return <>
+        <Dialog isOpen title={`${ts("frameEditor")} #${frame.id.substring(0, 8)}`} closeLabel={tc("close")}
+            onOpenChange={open => { if (!open) close(); }} className="w-[min(72rem,calc(100vw-2rem))]"
+            footer={<Button variant="secondary" onPress={close}>{tc("close")}</Button>}>
+                {mutationError && <p role="alert">{mutationError}</p>}
                 {/* Content */}
-                <div className="flex-1 flex overflow-hidden">
+                <div className="flex flex-col gap-4 md:flex-row">
                     {/* Left: Variant Selector */}
                     <div className="flex-1 bg-surface p-4 flex flex-col overflow-hidden relative">
                         <VariantSelector
@@ -119,10 +117,16 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                             aspectRatio="16:9"
                             className="h-full"
                         />
+                        {generationError && <div role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                            <p>{generationError}</p>
+                            <Button variant="secondary" size="sm" className="mt-2" isDisabled={isGenerating} isPending={isGenerating} onPress={() => void handleGenerate(retryBatchSize)}>
+                                {ts("retry")}
+                            </Button>
+                        </div>}
                     </div>
 
                     {/* Right: Controls & Prompt */}
-                    <div className="w-1/3 min-w-[350px] border-l border-glass-border bg-elevated flex flex-col">
+                    <div className="w-full md:w-1/3 md:min-w-[280px] border-l border-glass-border bg-elevated flex flex-col">
                         <div className="p-4 border-b border-border-subtle">
                             <h3 className="font-bold text-sm uppercase tracking-wider text-text-secondary mb-2">
                                 {ts("sceneContext")}
@@ -142,9 +146,11 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                                 {ts("generationPrompt")}
                             </h3>
                             <textarea
+                                aria-label={ts("generationPrompt")}
+                                disabled={isGenerating}
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
-                                className="flex-1 w-full bg-surface border border-glass-border rounded-lg p-4 text-sm text-text-secondary resize-none focus:outline-none focus:border-primary/50 font-mono leading-relaxed"
+                                className="min-h-48 flex-1 w-full bg-surface border border-glass-border rounded-lg p-4 text-sm text-text-secondary resize-none focus:outline-none focus:border-primary/50 font-mono leading-relaxed"
                                 placeholder={ts("promptPlaceholder")}
                             />
                             <p className="text-xs text-text-muted mt-2">
@@ -153,7 +159,9 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                         </div>
                     </div>
                 </div>
-            </motion.div>
-        </div>
-    );
+        </Dialog>
+        <ConfirmDialog open={confirmClose} title={tp("unsaved")} message={tp("previsUnsaved")}
+            cancelLabel={tc("keepEditing")} confirmLabel={tc("discardChanges")}
+            onCancel={() => setConfirmClose(false)} onConfirm={() => { setConfirmClose(false); onClose(); }} />
+    </>;
 }

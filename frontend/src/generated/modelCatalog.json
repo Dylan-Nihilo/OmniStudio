@@ -2856,7 +2856,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "deprecated",
+      "status": "hidden",
       "supported_backends": [
         "dashscope"
       ],
@@ -6831,7 +6831,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "deprecated",
+      "status": "hidden",
       "supported_backends": [
         "dashscope"
       ],
@@ -7088,7 +7088,7 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "status": "deprecated",
+      "status": "hidden",
       "supported_backends": [
         "dashscope"
       ],
@@ -11797,7 +11797,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "deprecated",
+      "status": "hidden",
       "supported_backends": [
         "dashscope"
       ],
@@ -11892,7 +11892,7 @@
           "gateway": "dashscope"
         }
       },
-      "status": "deprecated",
+      "status": "hidden",
       "supported_backends": [
         "dashscope"
       ],

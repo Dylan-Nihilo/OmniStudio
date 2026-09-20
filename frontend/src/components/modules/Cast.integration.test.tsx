@@ -9,6 +9,18 @@ import Cast from './Cast';
 const adapter = apiClient.defaults.adapter;
 afterEach(() => { apiClient.defaults.adapter = adapter; });
 
+it('keeps an unsaved asset draft when closing is declined', async () => {
+  const project: any = { id: 'draft-project', title: '草稿', characters: [], scenes: [], props: [], frames: [] };
+  useProjectStore.setState({ ...useProjectStore.getInitialState(), currentProject: project, projects: [project] }, true);
+  renderWithIntl(<LightboxProvider><Cast /></LightboxProvider>);
+  fireEvent.click(screen.getByRole('button', { name: '新角色' }));
+  fireEvent.change(screen.getByPlaceholderText('例如：张三'), { target: { value: '保留的角色' } });
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  expect(await screen.findByRole('dialog', { name: '有未保存的修改' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
+  expect(screen.getByDisplayValue('保留的角色')).toBeVisible();
+});
+
 it.each([
   ['新角色', 'characters'], ['新场景', 'scenes'], ['新道具', 'props'],
 ])('creates %s in an empty standalone project and reloads it', async (label, kind) => {

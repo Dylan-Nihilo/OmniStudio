@@ -1,4 +1,6 @@
 "use client";
+import { Dialog, Button } from "@omnistudio/ui";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 
 import { SelectField, LoadingState } from "@omnistudio/ui";
 import { Fragment, useState, useRef, useEffect } from "react";
@@ -14,13 +16,21 @@ import { useAuthStore } from "@/store/authStore";
 import { useFrameStructure } from "./storyboard-r2v/useShotDrafts";
 import { api, crudApi } from "@/lib/api";
 import { getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
+import { toast } from "@/store/toastStore";
 import { selectedVariantUrl } from "@/lib/characterImage";
+import { useConfirmation } from "@/components/shared/useConfirmation";
 import StepHeader from "@/components/shared/StepHeader";
 import WorkflowActionButton from "@/components/shared/WorkflowActionButton";
+import StoryboardAnalysisFeedback from "./StoryboardAnalysisFeedback";
 
 import StoryboardFrameEditor from "./StoryboardFrameEditor";
 
+export function getStoryboardError(error: unknown, fallback: string): string {
+    return extractErrorDetail(error, fallback);
+}
+
 export default function StoryboardComposer() {
+    const { confirm: confirmAction, dialog: confirmationDialog } = useConfirmation();
     const t = useTranslations("storyboard");
     const tStep = useTranslations("stepHeader");
     const tSave = useTranslations("storyboardR2V");
@@ -54,6 +64,8 @@ export default function StoryboardComposer() {
     const [insertIndex, setInsertIndex] = useState<number | null>(null);
     const [extractingFrameId, setExtractingFrameId] = useState<string | null>(null);
     const [showScriptOverlay, setShowScriptOverlay] = useState(false);
+    const [analysisError, setAnalysisError] = useState("");
+    const [analysisSuccess, setAnalysisSuccess] = useState("");
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadTargetFrameId, setUploadTargetFrameId] = useState<string | null>(null);
@@ -66,31 +78,34 @@ export default function StoryboardComposer() {
 
         const text = currentProject.originalText;
         if (!text || !text.trim()) {
-            alert(t("enterScriptFirst"));
+            setAnalysisSuccess("");
+            setAnalysisError(t("enterScriptFirst"));
             return;
         }
 
         if (currentProject.frames?.length > 0) {
-            if (!confirm(t("overwriteConfirm"))) return;
+            if (!await confirmAction(t("overwriteConfirm"))) return;
         }
 
+        setAnalysisError("");
+        setAnalysisSuccess("");
         setIsAnalyzing(true);
         try {
             const updatedProject = await api.analyzeToStoryboard(currentProject.id, text);
             const frameCount = updatedProject.frames?.length || 0;
             if (frameCount > 0) {
                 updateProject(currentProject.id, updatedProject);
-                alert(t("framesGenerated", { count: frameCount }));
+                setAnalysisSuccess(t("framesGenerated", { count: frameCount }));
             } else {
-                alert(t("aiInvalidOutput"));
+                setAnalysisError(t("aiInvalidOutput"));
             }
         } catch (error: any) {
             console.error("Analyze to storyboard failed:", error);
             const detail = extractErrorDetail(error, "");
             if (detail.includes("JSON") || detail.includes("格式")) {
-                alert(t("aiFormatRetry"));
+                setAnalysisError(t("aiFormatRetry"));
             } else {
-                alert(t("genFailedDetail", { detail }));
+                setAnalysisError(t("genFailedDetail", { detail }));
             }
         } finally {
             setIsAnalyzing(false);
@@ -105,7 +120,7 @@ export default function StoryboardComposer() {
     const handleDeleteFrame = async (frameId: string, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!currentProject) return;
-        if (!confirm(t("confirmDeleteFrame"))) return;
+        if (!await confirmAction(t("confirmDeleteFrame"))) return;
 
         const ownsStructure = structure.begin();
         if (!ownsStructure) return;
@@ -114,7 +129,7 @@ export default function StoryboardComposer() {
             applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to delete frame:", error);
-            alert(t("deleteFrameFailed"));
+            toast.error(getStoryboardError(error, t("deleteFrameFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -131,7 +146,7 @@ export default function StoryboardComposer() {
             applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to copy frame:", error);
-            alert(t("copyFrameFailed"));
+            toast.error(getStoryboardError(error, t("copyFrameFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -152,7 +167,8 @@ export default function StoryboardComposer() {
             setInsertIndex(null);
         } catch (error) {
             console.error("Failed to create frame:", error);
-            alert(t("createFrameFailed"));
+            toast.error(getStoryboardError(error, t("createFrameFailed")));
+            throw error;
         } finally {
             structure.end(ownsStructure);
         }
@@ -179,7 +195,7 @@ export default function StoryboardComposer() {
             applyStructure(updatedProject.frames);
         } catch (error) {
             console.error("Failed to reorder frames:", error);
-            alert(t("reorderFailed"));
+            toast.error(getStoryboardError(error, t("reorderFailed")));
         } finally {
             structure.end(ownsStructure);
         }
@@ -195,7 +211,7 @@ export default function StoryboardComposer() {
         // Find the previous frame's selected video
         const prevFrame = currentProject.frames[frameIndex - 1];
         if (!prevFrame.selected_video_id) {
-            alert("Previous frame has no selected video.");
+            toast.error("Previous frame has no selected video.");
             return;
         }
 
@@ -203,7 +219,7 @@ export default function StoryboardComposer() {
             (t: any) => t.id === prevFrame.selected_video_id && t.status === "completed"
         );
         if (!prevVideo) {
-            alert("Previous frame's video is not completed yet.");
+            toast.error("Previous frame's video is not completed yet.");
             return;
         }
 
@@ -213,7 +229,7 @@ export default function StoryboardComposer() {
             updateProject(currentProject.id, updatedProject);
         } catch (error: any) {
             console.error("Failed to extract last frame:", error);
-            alert(error?.response?.data?.detail || "Failed to extract last frame");
+            toast.error(getStoryboardError(error, "Failed to extract last frame"));
         } finally {
             setExtractingFrameId(null);
         }
@@ -234,7 +250,7 @@ export default function StoryboardComposer() {
             updateProject(currentProject.id, updatedProject);
         } catch (error: any) {
             console.error("Failed to upload frame image:", error);
-            alert(error?.message || "Failed to upload frame image");
+            toast.error(getStoryboardError(error, "Failed to upload frame image"));
         } finally {
             setUploadTargetFrameId(null);
             if (fileInputRef.current) fileInputRef.current.value = "";
@@ -342,7 +358,7 @@ export default function StoryboardComposer() {
 
         } catch (error) {
             console.error("Render failed:", error);
-            alert("Render failed. See console for details.");
+            toast.error(getStoryboardError(error, "Render failed. See console for details."));
         } finally {
             removeRenderingFrame(frame.id);
         }
@@ -350,6 +366,7 @@ export default function StoryboardComposer() {
 
     return (
         <div className="flex flex-col h-full text-foreground overflow-hidden" aria-busy={structure.pending}>
+            {confirmationDialog}
             <StepHeader
                 stepNumber={4}
                 totalSteps={6}
@@ -387,6 +404,13 @@ export default function StoryboardComposer() {
                     </div>
                 )}
             />
+
+            <div className="px-4 pt-3 sm:px-8">
+                <div className="mx-auto max-w-4xl">
+                    <StoryboardAnalysisFeedback error={analysisError} success={analysisSuccess}
+                        retryLabel={tCommon("retry")} onRetry={() => void handleAnalyzeToStoryboard()} />
+                </div>
+            </div>
 
             {/* Frame List — full width */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-8">
@@ -675,16 +699,23 @@ function CreateFrameDialog({ onClose, onCreate, scenes }: { onClose: () => void;
     const [sceneId, setSceneId] = useState(scenes[0]?.id || "");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const tc = useTranslations('common');
+    const operation = useRef(false);
+    const [error, setError] = useState('');
+    const [confirmClose, setConfirmClose] = useState(false);
+    const close = () => { if (operation.current) return; if (action || dialogue || sceneId !== (scenes[0]?.id || "")) setConfirmClose(true); else onClose(); };
     const handleSubmit = async () => {
+        if (operation.current) return;
         if (!action.trim()) {
-            alert("Action description is required");
+            toast.error("Action description is required");
             return;
         }
         if (!sceneId && scenes.length > 0) {
-            alert("Please select a scene");
+            toast.error("Please select a scene");
             return;
         }
 
+        operation.current = true; setError("");
         setIsSubmitting(true);
         try {
             await onCreate({
@@ -693,29 +724,32 @@ function CreateFrameDialog({ onClose, onCreate, scenes }: { onClose: () => void;
                 scene_id: sceneId,
                 camera_angle: "Medium Shot"
             });
+        } catch (cause) { setError(cause instanceof Error ? cause.message : tc("actionFailed"));
         } finally {
+            operation.current = false;
             setIsSubmitting(false);
         }
     };
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm p-8">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-surface border border-glass-border rounded-2xl w-full max-w-lg overflow-hidden shadow-lg"
-            >
-                <div className="p-6 border-b border-glass-border flex justify-between items-center bg-surface">
-                    <div className="flex items-center gap-3">
-                        <Plus className="text-primary" size={20} />
-                        <h2 className="text-lg font-bold text-foreground">Add New Frame</h2>
-                    </div>
-                    <button onClick={onClose} className="p-2 hover:bg-hover-bg rounded-lg transition-colors">
-                        <X size={20} className="text-text-secondary" />
+    return <><Dialog isOpen title={"Add New Frame"} closeLabel={tc('close')} isDismissable={!isSubmitting}
+        onOpenChange={open => { if (!open) close(); }} footer={                <div className="p-6 border-t border-glass-border flex justify-end gap-3">
+                    <button
+                        onClick={close} disabled={isSubmitting}
+                        className="px-6 py-2 bg-glass hover:bg-hover-bg text-foreground rounded-lg transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={isSubmitting || !action.trim()}
+                        className="px-6 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        {isSubmitting && <RefreshCw size={16} className="animate-spin" />}
+                        Create Frame
                     </button>
                 </div>
-
+}>
+        {error && <p role="alert">{error}</p>}<fieldset disabled={isSubmitting}>
                 <div className="p-6 space-y-4">
                     <div>
                         <SelectField label="Scene" value={sceneId || null} placeholder="Select a scene" onChange={value => setSceneId(String(value))}
@@ -743,25 +777,9 @@ function CreateFrameDialog({ onClose, onCreate, scenes }: { onClose: () => void;
                     </div>
                 </div>
 
-                <div className="p-6 border-t border-glass-border flex justify-end gap-3">
-                    <button
-                        onClick={onClose}
-                        className="px-6 py-2 bg-glass hover:bg-hover-bg text-foreground rounded-lg transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={isSubmitting || !action.trim()}
-                        className="px-6 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                        {isSubmitting && <RefreshCw size={16} className="animate-spin" />}
-                        Create Frame
-                    </button>
-                </div>
-            </motion.div>
-        </div>
-    );
+        </fieldset>
+    </Dialog><ConfirmDialog open={confirmClose} title={tc('unsavedChangesTitle')} message={tc('unsavedChangesMessage')}
+        confirmLabel={tc('discardChanges')} cancelLabel={tc('keepEditing')} onCancel={() => setConfirmClose(false)} onConfirm={onClose} /></>;
 }
 
 function ImageWithRetry({ src, alt, className, onClick }: { src: string, alt: string, className?: string, onClick?: (e: React.MouseEvent) => void }) {

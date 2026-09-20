@@ -375,11 +375,18 @@ class TTSProcessor:
     def _resolve_model_for_voice(self, voice_id: str) -> str:
         """Resolve the correct model for a given voice ID.
 
-        Falls back to self.model if voice is not in the registry (e.g.
-        cloned/designed voices, which have voice_id but no static entry).
+        Custom CosyVoice IDs embed their target model even when the voice
+        is bound to a standalone character without a static registry entry.
+        Unknown IDs retain the configured default.
         """
         meta = self._voice_meta(voice_id)
-        return meta.get('model', self.model) if meta else self.model
+        if meta:
+            return meta.get('model', self.model)
+        for model in ('cosyvoice-v3.5-plus', 'cosyvoice-v3.5-flash',
+                      'cosyvoice-v3-flash', 'cosyvoice-v2', 'cosyvoice-v1'):
+            if voice_id.startswith(model + '-'):
+                return model
+        return self.model
 
     def _resolve_family_for_voice(self, voice_id: str) -> str:
         """Resolve voice family: 'cosyvoice' (default) or 'qwen3'.
@@ -397,7 +404,7 @@ class TTSProcessor:
         if 'supports_instruction' in meta:
             return bool(meta['supports_instruction'])
         # Heuristic for legacy CosyVoice entries: v3-flash / v3.5-* support it.
-        model = meta.get('model', self.model)
+        model = self._resolve_model_for_voice(voice_id)
         return any(tag in model for tag in ('v3.5-', 'v3-flash'))
 
     @staticmethod

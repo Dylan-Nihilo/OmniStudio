@@ -16,3 +16,8 @@ it('scopes every local media URL for native images, videos and downloads', () =>
   expect(timed.searchParams.get('t')).toBe('42');
   expect(getAssetUrl('https://cdn.example.com/video.mp4?signature=abc')).toBe('https://cdn.example.com/video.mp4?signature=abc');
 });
+
+it('normalizes legacy V4 media references kept in browser cache', () => {
+  const url = new URL(getAssetUrl('remake_v4/linwu.png'), 'http://localhost:3035');
+  expect(url.pathname).toBe('/files/output/remake_v4/linwu.png');
+});

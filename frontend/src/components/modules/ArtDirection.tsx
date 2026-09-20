@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
+import { Dialog } from "@omnistudio/ui";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
+import ActionDialog from "@/components/shared/ActionDialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Palette, Wand2, Plus, Check, ChevronRight, Lock, RotateCcw, ArrowUp, AlertTriangle, X, Image as ImageIcon, Pencil, BookOpen, Download, Upload } from "lucide-react";
 import { useProjectStore, type StyleConfig, type StylePreset, type StylePresetCategory } from "@/store/projectStore";
@@ -82,13 +85,8 @@ export default function ArtDirection() {
         URL.revokeObjectURL(url);
     };
 
-    const saveHandbookTemplate = async () => {
-        if (!currentProject || !handbook.trim()) return;
-        const name = window.prompt(ta("handbookTemplateName"), currentProject.title);
-        if (!name?.trim()) return;
-        const item = await api.saveVisualHandbookTemplate(currentProject.id, name.trim(), handbook);
-        setHandbookTemplates(current => [...current, item]);
-    };
+    const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+    const saveHandbookTemplate = () => { if (currentProject && handbook.trim()) setTemplateDialogOpen(true); };
 
     // Editor state (kept for Apply logic)
     const [editingName, setEditingName] = useState("");
@@ -721,54 +719,17 @@ export default function ArtDirection() {
                 )}
             </AnimatePresence>
 
-            {/* Override confirmation dialog */}
-            {pendingOverrideStyle && (
-                <div
-                    className="fixed inset-0 z-[110] bg-overlay backdrop-blur-sm grid place-items-center p-4"
-                    onClick={cancelOverrideConfirm}
-                >
-                    <div
-                        className="w-full max-w-md rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <header className="flex items-center justify-between gap-3 px-5 py-3 border-b border-glass-border">
-                            <div className="flex items-center gap-2">
-                                <AlertTriangle size={15} className="text-amber-300" />
-                                <h2 className="text-display font-medium text-foreground">{ta("overrideConfirmTitle")}</h2>
-                            </div>
-                            <button
-                                onClick={cancelOverrideConfirm}
-                                aria-label="Close"
-                                className="p-1.5 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors"
-                            >
-                                <X size={15} />
-                            </button>
-                        </header>
-                        <div className="px-5 py-4 space-y-3">
-                            <p className="text-body-sm text-text-secondary leading-relaxed">
-                                {ta("overrideConfirmIntro")}
-                            </p>
-                            <div className="rounded-lg border border-glass-border bg-glass px-3 py-2 space-y-1">
-                                <p className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-text-muted">{ta("overrideFromTo")}</p>
-                                <p className="text-[0.8125rem] text-foreground">
-                                    <span className="text-text-secondary">{seriesBaseline?.name ?? "—"}</span>
-                                    <span className="mx-2 text-text-muted">→</span>
-                                    <span className="font-medium text-amber-200">{pendingOverrideStyle.name}</span>
-                                </p>
-                            </div>
-                            <p className="text-[0.71875rem] text-text-muted">{ta("overrideConfirmFooter")}</p>
-                        </div>
-                        <footer className="flex items-center justify-end gap-2 px-5 py-3 border-t border-glass-border">
-                            <WorkflowActionButton variant="ghost" size="sm" onClick={cancelOverrideConfirm}>
-                                {ta("overrideCancelBtn")}
-                            </WorkflowActionButton>
-                            <WorkflowActionButton variant="primary" size="sm" onClick={confirmOverridePreview} leftIcon={<Check />}>
-                                {ta("overrideConfirmBtn")}
-                            </WorkflowActionButton>
-                        </footer>
-                    </div>
-                </div>
-            )}
+            <ConfirmDialog open={!!pendingOverrideStyle} title={ta('overrideConfirmTitle')}
+                message={`${ta('overrideConfirmIntro')} ${seriesBaseline?.name ?? '—'} → ${pendingOverrideStyle?.name ?? ''}. ${ta('overrideConfirmFooter')}`}
+                confirmLabel={ta('overrideConfirmBtn')} cancelLabel={ta('overrideCancelBtn')}
+                onCancel={cancelOverrideConfirm} onConfirm={confirmOverridePreview} />
+            {templateDialogOpen && <ActionDialog title={ta('handbookTemplateName')} fieldLabel={ta('handbookTemplateName')}
+                initialValue={currentProject?.title || ''} onClose={() => setTemplateDialogOpen(false)} onConfirm={async name => {
+                    if (!currentProject) return;
+                    const item = await api.saveVisualHandbookTemplate(currentProject.id, name, handbook);
+                    setHandbookTemplates(current => [...current, item]);
+                }} />}
+
         </div>
     );
 }
@@ -781,10 +742,11 @@ function AIRecommendationCard({ style, isSelected, onClick }: {
     onClick: () => void;
 }) {
     return (
-        <motion.div
+        <motion.button
+            type="button"
             layout
             onClick={onClick}
-            className={`group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
+            className={`text-left group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
                 isSelected
                     ? "border-yellow-400/60 shadow-lg shadow-yellow-500/15 ring-1 ring-yellow-400/30"
                     : "border-glass-border hover:border-foreground/30 hover:shadow-sm"
@@ -821,8 +783,18 @@ function AIRecommendationCard({ style, isSelected, onClick }: {
                     </p>
                 )}
             </div>
-        </motion.div>
+        </motion.button>
     );
+}
+
+function useStyleDraftExit(dirty: boolean) {
+    const t = useTranslations('common');
+    const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
+    const leave = (action: () => void) => { if (dirty) setPendingExit(() => action); else action(); };
+    const confirmation = <ConfirmDialog open={!!pendingExit} title={t('unsavedChangesTitle')} message={t('unsavedChangesMessage')}
+        confirmLabel={t('discardChanges')} cancelLabel={t('keepEditing')} onCancel={() => setPendingExit(null)}
+        onConfirm={() => { const action = pendingExit; setPendingExit(null); action?.(); }} />;
+    return { leave, confirmation, closeLabel: t('close') };
 }
 
 function AIRecommendationModal({ style, isSelected, editing, positivePrompt, negativePrompt, onPositiveChange, onNegativeChange, onStartEditing, onApply, onClose }: {
@@ -849,46 +821,33 @@ function AIRecommendationModal({ style, isSelected, editing, positivePrompt, neg
         negativePrompt !== style.negative_prompt
     );
 
-    return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[100] bg-overlay backdrop-blur-sm grid place-items-center p-6"
-            onClick={onClose}
-        >
-            <motion.div
-                initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                transition={{ duration: 0.2 }}
-                className="w-[70vw] max-w-[1100px] min-w-[700px] max-h-[90vh] rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <header className="flex items-center justify-between px-6 py-4 border-b border-glass-border shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-yellow-500/15 border border-yellow-500/20">
-                            <Sparkles size={12} className="text-yellow-400" />
-                            <span className="text-[0.6875rem] font-medium text-yellow-300">AI</span>
-                        </div>
-                        <div>
-                            <h2 className="text-[1.125rem] font-bold text-foreground">{style.name}</h2>
-                            {style.description && (
-                                <p className="text-[0.75rem] text-text-muted mt-0.5">{style.description}</p>
-                            )}
-                        </div>
+    const { leave, confirmation, closeLabel } = useStyleDraftExit(isCustomized);
+    return <><Dialog isOpen title={style.name} closeLabel={closeLabel} onOpenChange={open => { if (!open) leave(onClose); }}
+        className="!w-[min(1100px,calc(100vw-2rem))] !max-w-none" footer={<>
+                    <div className="text-[0.6875rem] text-text-muted">
+                        {isCustomized && (
+                            <span className="text-amber-300">{ta("modifiedLabel") || "已修改"}</span>
+                        )}
                     </div>
-                    <button onClick={onClose} className="p-2 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors">
-                        <X size={18} />
-                    </button>
-                </header>
-
+                    <div className="flex items-center gap-2">
+                        <WorkflowActionButton variant="ghost" size="sm" onClick={() => leave(onClose)}>
+                            {ta("cancelBtn") || "取消"}
+                        </WorkflowActionButton>
+                        <WorkflowActionButton
+                            variant="primary"
+                            size="sm"
+                            leftIcon={isSelected ? <Check /> : undefined}
+                            onClick={onApply}
+                        >
+                            {isSelected ? (ta("currentStyle") || "当前风格") : (ta("useThisStyle") || "使用该风格")}
+                        </WorkflowActionButton>
+                    </div>
+                </>}>
+{style.description && <p className="text-sm text-text-secondary">{style.description}</p>}
                 {/* Body: left reason + tags | right prompts */}
-                <div className="flex-1 min-h-0 flex overflow-hidden">
+                <div className="flex-1 min-h-0 flex flex-col md:flex-row">
                     {/* Left panel: reason + keyword tags */}
-                    <div className="w-[38%] shrink-0 bg-glass border-r border-glass-border p-6 flex flex-col justify-center">
+                    <div className="w-full md:w-[38%] shrink-0 bg-glass border-r border-glass-border p-6 flex flex-col justify-center">
                         {(style as any).reason && (
                             <div className="mb-6">
                                 <p className="font-mono text-[0.5625rem] uppercase tracking-[0.18em] text-yellow-400/70 mb-2">{ta("reasonLabel")}</p>
@@ -927,6 +886,7 @@ function AIRecommendationModal({ style, isSelected, editing, positivePrompt, neg
                             </div>
                             {editing ? (
                                 <textarea
+                                    aria-label={ta('positivePromptLabel')}
                                     value={positivePrompt}
                                     onChange={(e) => onPositiveChange(e.target.value)}
                                     className="w-full h-32 rounded-lg border border-glass-border bg-elevated px-3 py-2.5 text-[0.75rem] text-foreground leading-relaxed resize-none focus:outline-none focus:border-primary/50 custom-scrollbar"
@@ -945,6 +905,7 @@ function AIRecommendationModal({ style, isSelected, editing, positivePrompt, neg
                             <p className="font-mono text-[0.5625rem] uppercase tracking-[0.18em] text-red-400/70 mb-2">{ta("negativePromptLabel")}</p>
                             {editing ? (
                                 <textarea
+                                    aria-label={ta('negativePromptLabel')}
                                     value={negativePrompt}
                                     onChange={(e) => onNegativeChange(e.target.value)}
                                     className="w-full h-24 rounded-lg border border-glass-border bg-elevated px-3 py-2.5 text-[0.75rem] text-foreground leading-relaxed resize-none focus:outline-none focus:border-red-400/30 custom-scrollbar"
@@ -960,30 +921,7 @@ function AIRecommendationModal({ style, isSelected, editing, positivePrompt, neg
                     </div>
                 </div>
 
-                {/* Footer */}
-                <footer className="flex items-center justify-between px-6 py-3 border-t border-glass-border shrink-0">
-                    <div className="text-[0.6875rem] text-text-muted">
-                        {isCustomized && (
-                            <span className="text-amber-300">{ta("modifiedLabel") || "已修改"}</span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <WorkflowActionButton variant="ghost" size="sm" onClick={onClose}>
-                            {ta("cancelBtn") || "取消"}
-                        </WorkflowActionButton>
-                        <WorkflowActionButton
-                            variant="primary"
-                            size="sm"
-                            leftIcon={isSelected ? <Check /> : undefined}
-                            onClick={onApply}
-                        >
-                            {isSelected ? (ta("currentStyle") || "当前风格") : (ta("useThisStyle") || "使用该风格")}
-                        </WorkflowActionButton>
-                    </div>
-                </footer>
-            </motion.div>
-        </motion.div>
-    );
+                    </Dialog>{confirmation}</>;
 }
 
 export function StylePresetCard({ style, isSelected, onSelect }: any) {
@@ -1018,10 +956,11 @@ function StylePresetCardV2({ style, isSelected, onClick }: {
     onClick: () => void;
 }) {
     return (
-        <motion.div
+        <motion.button
+            type="button"
             layout
             onClick={onClick}
-            className={`group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
+            className={`text-left group relative rounded-xl border overflow-hidden cursor-pointer transition-all ${
                 isSelected
                     ? "border-primary shadow-lg shadow-primary/20 ring-1 ring-primary/40"
                     : "border-glass-border hover:border-foreground/30 hover:shadow-sm"
@@ -1059,11 +998,11 @@ function StylePresetCardV2({ style, isSelected, onClick }: {
                     </p>
                 )}
             </div>
-        </motion.div>
+        </motion.button>
     );
 }
 
-function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negativePrompt, onPositiveChange, onNegativeChange, onStartEditing, onApply, onClose, sameCategoryPresets, onSwitchPreset }: {
+export function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negativePrompt, onPositiveChange, onNegativeChange, onStartEditing, onApply, onClose, sameCategoryPresets, onSwitchPreset }: {
     preset: StylePreset;
     isSelected: boolean;
     editing: boolean;
@@ -1082,39 +1021,22 @@ function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negati
         negativePrompt !== preset.negative_prompt
     );
 
-    return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[100] bg-overlay backdrop-blur-sm grid place-items-center p-6"
-            onClick={onClose}
-        >
-            <motion.div
-                initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.96, y: 8 }}
-                transition={{ duration: 0.2 }}
-                className="w-[70vw] max-w-[1100px] min-w-[700px] max-h-[90vh] rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)] overflow-hidden flex flex-col"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <header className="flex items-center justify-between px-6 py-4 border-b border-glass-border shrink-0">
-                    <div>
-                        <h2 className="text-[1.125rem] font-bold text-foreground">{preset.name_zh}</h2>
-                        <p className="text-[0.75rem] text-text-muted mt-0.5">{preset.name}</p>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors"
+    const { leave, confirmation, closeLabel } = useStyleDraftExit(isCustomized);
+    return <><Dialog isOpen title={preset.name_zh} closeLabel={closeLabel} onOpenChange={open => { if (!open) leave(onClose); }}
+        className="!w-[min(1100px,calc(100vw-2rem))] !max-w-none" footer={<>
+                    <WorkflowActionButton variant="ghost" onClick={() => leave(onClose)}>
+                        取消
+                    </WorkflowActionButton>
+                    <WorkflowActionButton
+                        variant="primary"
+                        leftIcon={<Check />}
+                        onClick={onApply}
                     >
-                        <X size={18} />
-                    </button>
-                </header>
-
-                {/* Body: left image + right details */}
-                <div className="flex-1 min-h-0 grid grid-cols-[1fr_1fr] overflow-hidden">
+                        {isSelected ? "已选择" : isCustomized ? "应用自定义风格" : "使用此风格"}
+                    </WorkflowActionButton>
+                </>}>
+{/* Body: left image + right details */}
+                <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2">
                     {/* Left: full image display (no crop) */}
                     <div className="bg-black/40 flex items-center justify-center p-4 overflow-hidden">
                         {preset.thumbnail ? (
@@ -1191,6 +1113,7 @@ function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negati
                                     <div>
                                         <p className="text-[0.625rem] text-text-muted mb-1.5">正向</p>
                                         <textarea
+                                    aria-label={"正向"}
                                             value={positivePrompt}
                                             onChange={(e) => onPositiveChange(e.target.value)}
                                             rows={5}
@@ -1200,6 +1123,7 @@ function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negati
                                     <div>
                                         <p className="text-[0.625rem] text-text-muted mb-1.5">负向</p>
                                         <textarea
+                                    aria-label={"负向"}
                                             value={negativePrompt}
                                             onChange={(e) => onNegativeChange(e.target.value)}
                                             rows={3}
@@ -1230,7 +1154,7 @@ function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negati
                             {sameCategoryPresets.slice(0, 5).map(p => (
                                 <button
                                     key={p.id}
-                                    onClick={() => onSwitchPreset(p)}
+                                    onClick={() => leave(() => onSwitchPreset(p))}
                                     className="shrink-0 w-24 rounded-lg overflow-hidden border border-glass-border hover:border-foreground/30 transition-colors"
                                 >
                                     {p.thumbnail ? (
@@ -1252,20 +1176,5 @@ function PresetDetailModal({ preset, isSelected, editing, positivePrompt, negati
                     </div>
                 )}
 
-                {/* Footer actions */}
-                <footer className="flex items-center justify-end gap-3 px-6 py-4 border-t border-glass-border shrink-0">
-                    <WorkflowActionButton variant="ghost" onClick={onClose}>
-                        取消
-                    </WorkflowActionButton>
-                    <WorkflowActionButton
-                        variant="primary"
-                        leftIcon={<Check />}
-                        onClick={onApply}
-                    >
-                        {isSelected ? "已选择" : isCustomized ? "应用自定义风格" : "使用此风格"}
-                    </WorkflowActionButton>
-                </footer>
-            </motion.div>
-        </motion.div>
-    );
+                    </Dialog>{confirmation}</>;
 }

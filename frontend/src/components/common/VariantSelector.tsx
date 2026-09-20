@@ -6,6 +6,7 @@ import { Trash2, Check, ChevronLeft, ChevronRight, Layers, X, Maximize2, Star } 
 import { API_URL } from '@/lib/api';
 import { getAssetUrl } from '@/lib/utils';
 import { useTranslations } from "next-intl";
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
 
 interface VariantSelectorProps {
     asset: ImageAsset | undefined;
@@ -36,6 +37,8 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
     aspectRatio = "9:16"
 }) => {
     const t = useTranslations("assets");
+    const tc = useTranslations("common");
+    const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
     const [batchSize, setBatchSize] = useState(1);
     const [localGeneratingBatchSize, setLocalGeneratingBatchSize] = useState(1); // Track the batch size when generation started locally
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
@@ -104,7 +107,7 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
                     {selectedVariant && (
                         <button
-                            onClick={(e) => { e.stopPropagation(); onDelete(selectedVariant.id); }}
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(selectedVariant.id); }}
                             className="p-2 bg-red-500/80 hover:bg-red-600 text-white rounded-full backdrop-blur-sm"
                             title={t("deleteVariant")}
                         >
@@ -210,9 +213,7 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    if (confirm(t("confirmDeleteVariant"))) {
-                                                        onDelete(variant.id);
-                                                    }
+                                                    setDeleteTarget(variant.id);
                                                 }}
                                                 className="absolute bottom-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded-full text-white opacity-0 group-hover/variant:opacity-100 transition-all"
                                                 title={t("deleteVariant")}
@@ -235,6 +236,9 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                 )}
             </div>
 
+            <ConfirmDialog open={!!deleteTarget} title={t('deleteVariantTitle')} message={t('confirmDeleteVariant')}
+                confirmLabel={tc('delete')} cancelLabel={tc('cancel')} onCancel={() => setDeleteTarget(null)}
+                onConfirm={() => { if (deleteTarget) onDelete(deleteTarget); setDeleteTarget(null); }} />
             {/* Lightbox Modal */}
             {zoomedImage && (
                 <div

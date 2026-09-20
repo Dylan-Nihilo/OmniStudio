@@ -12,8 +12,12 @@ const DEV_DIST_DIR = process.env.NEXT_DEV_DIST_DIR || '.next';
 // Default prod: output to ../static/ with /static basePath
 const nextConfig = {
     devIndicators: false,
-    experimental: { proxyTimeout: 180_000 },
     transpilePackages: ["@omnistudio/ui"],
+    experimental: {
+        // LLM-backed storyboard analysis is synchronous and may take several
+        // minutes. Keep the proxy alive long enough for the client timeout.
+        proxyTimeout: 300_000,
+    },
     output: isProd ? 'export' : undefined,
     // Keep the long-running dev compiler isolated from production builds.
     // Next dev and next build otherwise share .next, so running verification while

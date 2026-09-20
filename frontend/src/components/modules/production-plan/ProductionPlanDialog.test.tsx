@@ -86,6 +86,19 @@ it('retains the existing plan and shots after planning or saving fails', async (
     expect(close).not.toHaveBeenCalled();
 });
 
+it('surfaces a failed planning job returned by polling instead of leaving the spinner active', async () => {
+    mocks.get.mockResolvedValueOnce({
+        draft: null,
+        active: null,
+        job: { status: 'failed', error: '制作计划未生成成功，请重试' },
+        storyboard_fingerprint: 'frames',
+        versions: [],
+    });
+    renderWithIntl(<Harness />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('制作计划未生成成功，请重试');
+    expect(screen.getByRole('button', { name: '生成制作计划' })).toBeEnabled();
+});
+
 it('keeps planning and application disabled in a read-only edit session', async () => {
     renderWithIntl(<ProductionPlanDialog isOpen onClose={close} project={initial} modelId="seedance-2.5-r2v"
         beforeChange={before} onUpdate={vi.fn()} onPrevis={previs} readOnly />);
@@ -107,4 +120,57 @@ it('ignores a completed planning response after the project view is unmounted', 
     view.unmount();
     await act(async () => { finish({ production_plan_draft: plan, production_planning_job: { status: 'completed' } }); });
     expect(update).not.toHaveBeenCalled();
+});
+
+it('recovers the persisted planning job without resubmitting', async () => {
+    const state = { draft: null as ProductionPlan | null, active: null, job: { status: 'processing' }, storyboard_fingerprint: 'frames', versions: [] };
+    mocks.get.mockImplementation(async () => ({ ...state }));
+    renderWithIntl(<Harness />);
+    await screen.findByRole('button', { name: '正在规划…' });
+    state.job = { status: 'completed' };
+    state.draft = plan;
+    // The persisted job is polled; reopening must also retrieve its final state.
+    await waitFor(() => expect(screen.getByText('2 个生成片段')).toBeVisible(), { timeout: 4000 });
+    expect(screen.queryByText('正在规划…')).not.toBeInTheDocument();
+    expect(mocks.generate).not.toHaveBeenCalled();
+});
+
+it('clears a request timeout once reopening finds the completed plan', async () => {
+    mocks.generate.mockRejectedValueOnce(Object.assign(new Error('timeout of 180000ms exceeded'), { code: 'ECONNABORTED' }));
+    const update = vi.fn();
+    function ReopeningHarness() {
+        const [open, setOpen] = useState(true);
+        return <><button onClick={() => setOpen(true)}>重新打开</button><ProductionPlanDialog isOpen={open} onClose={() => setOpen(false)} project={initial} modelId="seedance-2.5-r2v" beforeChange={before} onUpdate={update} onPrevis={previs} /></>;
+    }
+    renderWithIntl(<ReopeningHarness />);
+    fireEvent.click(screen.getByRole('button', { name: '生成制作计划' }));
+    await waitFor(() => expect(mocks.generate).toHaveBeenCalledOnce());
+    await screen.findByRole('alert');
+    mocks.get.mockResolvedValue({ draft: plan, active: null, job: { status: 'completed' }, storyboard_fingerprint: 'frames', versions: [] });
+    fireEvent.click(screen.getAllByRole('button', { name: '关闭' }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: '重新打开' }));
+    expect(await screen.findByText('2 个生成片段')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+
+it('blocks all exit paths while saving and saves a dirty draft before opening previs', async () => {
+    saved = structuredClone(plan);
+    const update = vi.fn();
+    mocks.get.mockImplementation(async () => ({ draft: saved, active: plan, job: null, storyboard_fingerprint: 'frames', versions: [] }));
+    let finish!: (result: unknown) => void;
+    mocks.save.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    renderWithIntl(<ProductionPlanDialog isOpen onClose={close} project={{ ...initial, production_plan: plan, production_plan_draft: plan }} modelId="seedance-2.5-r2v" beforeChange={before} onUpdate={update} onPrevis={previs} />);
+    fireEvent.click(screen.getByRole('button', { name: '编辑方案' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '安排说明' }), { target: { value: '跳转前保存的安排' } });
+    fireEvent.click(screen.getByRole('button', { name: '分镜预演' }));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    expect(close).not.toHaveBeenCalled();
+    expect(previs).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '保存并关闭' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '放弃未保存修改' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '分镜预演' })).toBeDisabled();
+    await act(async () => { finish({ production_plan_draft: { ...plan, summary: '跳转前保存的安排', revision: 'v2' } }); });
+    expect(close).toHaveBeenCalledOnce();
+    expect(previs).toHaveBeenCalledOnce();
 });

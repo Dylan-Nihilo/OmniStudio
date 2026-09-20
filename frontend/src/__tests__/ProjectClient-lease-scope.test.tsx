@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ProjectClient from "@/components/project/ProjectClient";
@@ -16,7 +16,7 @@ beforeEach(() => {
     store.currentProject = project;
     store.pendingExtraction = null;
     store.confirmExtraction.mockReset().mockResolvedValue(undefined);
-    window.location.hash = "";
+    window.history.replaceState(null, '', '#/project/episode-1#script');
 });
 
 vi.mock("next-intl", () => ({
@@ -36,7 +36,10 @@ vi.mock("@/components/layout/AppShell", () => ({
     ),
 }));
 vi.mock("@/components/layout/PipelineSidebar", () => ({
-    default: () => <button type="button">Navigate pipeline</button>,
+    default: ({ onStepChange, onBack, canGoBack }: { onStepChange: (step: string) => void; onBack: () => void; canGoBack: boolean }) => <>
+        <button onClick={() => onStepChange('storyboard_r2v')}>Open storyboard</button>
+        {canGoBack && <button onClick={onBack}>Previous page</button>}
+    </>,
 }));
 vi.mock("@/components/layout/EpisodeMiniList", () => ({ default: () => null }));
 vi.mock("@/components/collaboration/EpisodeEditLeaseGuard", () => ({
@@ -54,7 +57,7 @@ vi.mock("@/components/modules/VideoAssembly", () => ({ default: () => null }));
 vi.mock("@/components/modules/ConsistencyVault", () => ({ default: () => null }));
 vi.mock("@/components/modules/ArtDirection", () => ({ default: () => <div data-testid="style-workspace" /> }));
 vi.mock("@/components/modules/StoryboardComposer", () => ({ default: () => null }));
-vi.mock("@/components/modules/StoryboardR2V", () => ({ default: () => null }));
+vi.mock("@/components/modules/StoryboardR2V", () => ({ default: () => <div data-testid="storyboard-workspace" /> }));
 vi.mock("@/components/common/ModelSettingsModal", () => ({ default: () => null }));
 vi.mock("@/components/project/EnvConfigDialog", () => ({ default: () => null }));
 vi.mock("@/components/project/PromptConfigModal", () => ({ default: () => null }));
@@ -78,6 +81,39 @@ describe("ProjectClient edit lease scope", () => {
         expect(guard).toContainElement(screen.getByTestId("script-workspace"));
         expect(guard).not.toContainElement(screen.getByTestId("pipeline-navigation"));
     });
+});
+
+it('restores the visible step through in-app back and browser forward without reloading the project', async () => {
+    store.selectProject.mockClear();
+    render(<ProjectClient id="episode-1" />);
+    await screen.findByTestId('script-workspace');
+    fireEvent.click(screen.getByRole('button', { name: 'Open storyboard' }));
+    await screen.findByTestId('storyboard-workspace');
+    expect(window.location.hash).toBe('#/project/episode-1#storyboard_r2v');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+    await screen.findByTestId('script-workspace');
+    act(() => window.history.forward());
+    await screen.findByTestId('storyboard-workspace');
+    expect(store.selectProject).toHaveBeenCalledTimes(1);
+});
+
+it('opens a series episode deep link at its requested step and retains its route on navigation', async () => {
+    window.history.replaceState(null, '', '#/series/parent/episode/episode-1#art_direction');
+    render(<ProjectClient id="episode-1" />);
+    await screen.findByTestId('style-workspace');
+    expect(screen.queryByRole('button', { name: 'Previous page' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open storyboard' }));
+    await screen.findByTestId('storyboard-workspace');
+    expect(window.location.hash).toBe('#/series/parent/episode/episode-1#storyboard_r2v');
+});
+
+it('replaces an invalid step without adding a browser history entry', async () => {
+    window.history.replaceState(null, '', '#/project/episode-1#not-a-step');
+    const length = window.history.length;
+    render(<ProjectClient id="episode-1" />);
+    await screen.findByTestId('script-workspace');
+    expect(window.location.hash).toBe('#/project/episode-1#script');
+    expect(window.history.length).toBe(length);
 });
 
 

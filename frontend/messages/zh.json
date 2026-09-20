@@ -44,6 +44,8 @@
   "voiceClone": {
     "title": "复刻新音色",
     "close": "关闭",
+    "keepEditing": "继续编辑",
+    "discardChanges": "放弃修改",
     "dropHint": "拖入音频文件，或点击选择",
     "requirements": "MP3 / WAV / M4A · ≤ 10MB · 推荐 10-20 秒",
     "labelLabel": "音色名称",
@@ -58,11 +60,18 @@
     "errorTooLarge": "文件超过 10MB",
     "characterContext": "角色参考",
     "confirmCloseTitle": "确定要离开吗？",
-    "confirmCloseBody": "当前正在复刻音色，离开将取消本次操作。",
+    "confirmCloseBody": "离开不会取消已提交的服务请求。再次打开可查看当前状态，已创建的音色会保留在音色库。",
     "confirmCloseStay": "继续等待",
     "confirmCloseLeave": "离开"
   },
   "voicePicker": {
+    "recommendationReasons": {
+      "gender_match": "性别匹配",
+      "gender_neutral": "未限定角色性别",
+      "emotion_instruction": "支持情绪指令",
+      "preview_ready": "适合当前试听文本",
+      "natural_dialogue": "自然对白表现"
+    },
     "title": "选择音色",
     "close": "关闭",
     "tabSystem": "系统音色",
@@ -284,16 +293,11 @@
     "toastEntityGone": "该资产已不存在（可能已被删除），请刷新页面后重试",
     "cancelGeneration": "取消生成",
     "canceling": "取消中…",
+    "cancelFailed": "取消任务失败",
     "batchPending": "等待中",
     "batchSucceeded": "已成功",
     "batchFailed": "失败",
-    "batchCanceled": "已取消",
-    "recommendationReasons": {
-      "gender_match": "性别匹配",
-      "emotion_instruction": "支持情绪指令",
-      "preview_ready": "适合当前试听文本",
-      "natural_dialogue": "自然对白表现"
-    }
+    "batchCanceled": "已取消"
   },
   "voiceDesign": {
     "title": "设计新音色",
@@ -313,7 +317,7 @@
     "playFailed": "试听失败，请重试",
     "characterContext": "角色参考",
     "confirmCloseTitle": "确定要离开吗？",
-    "confirmCloseBody": "当前正在生成音色，离开将取消本次操作。",
+    "confirmCloseBody": "离开不会取消已提交的服务请求。再次打开可查看当前状态，已创建的音色会保留在音色库。",
     "confirmCloseStay": "继续等待",
     "confirmCloseLeave": "离开",
     "previewTextDefault": "你好，这是一段音色测试。请仔细听一听是否符合预期。"
@@ -460,6 +464,8 @@
     "locked": "已锁定"
   },
   "common": {
+    "unsavedChangesTitle": "有未保存的修改",
+    "unsavedChangesMessage": "离开会丢弃尚未应用的修改，是否继续？",
     "polishInheritProject": "沿用系列 / 工作区模型",
     "polishInheritWorkspace": "沿用工作区模型",
     "polishInheritProjectHint": "未单独选择时沿用系列或工作区的文本模型。",
@@ -474,6 +480,8 @@
     "sync": "同步",
     "open": "打开",
     "close": "关闭",
+    "keepEditing": "继续编辑",
+    "discardChanges": "放弃修改",
     "recommended": "推荐",
     "offlineTooltip": "网络已断开 — 重新连接后可用",
     "noMatchHint": "试试调整筛选条件或搜索关键词",
@@ -485,6 +493,35 @@
     "copyErrorDetails": "复制错误详情",
     "offlineBannerText": "网络已断开 — 重新连接后可继续操作",
     "actionFailed": "操作失败，请重试。"
+  },
+  "pendingTask": {
+    "cancel": "取消任务",
+    "canceling": "取消中…",
+    "diagnose": "诊断",
+    "title": "诊断卡住的任务",
+    "close": "关闭",
+    "elapsed": "已等待",
+    "taskId": "任务 ID",
+    "backend": "后端",
+    "checking": "检查中…",
+    "reachable": "可连接 · {count} 个项目",
+    "unreachable": "不可连接 · {message}",
+    "logFile": "日志文件",
+    "copyLogPath": "复制日志路径",
+    "reloadLog": "重新加载日志",
+    "copyFullLog": "复制完整日志",
+    "errorsOnly": "① 仅错误 · {count} 行",
+    "rootCauseHint": "通常可在这里找到根因",
+    "fullTail": "② 完整日志 · 最近 {count} 行",
+    "loading": "加载中…",
+    "logReadFailed": "读取日志失败：{message}",
+    "logMissing": "日志文件尚不存在：{path}。",
+    "logEmpty": "日志为空。",
+    "quickChecks": "快速检查",
+    "refreshHint": "按 F5 刷新，轮询可能已经停滞。",
+    "backendHint": "后端不可达时，桌面应用或后端启动脚本可能已停止。请重启",
+    "causeHint": "查看上方红色错误行，确认供应商鉴权、网络或模型参数问题。",
+    "restartHint": "后端重启会清除内存任务；卡住的任务会在启动时标记为失败，通常可以直接重试。"
   },
   "nav": {
     "workspace": "工作区",
@@ -539,6 +576,8 @@
     "workspace": "制作台",
     "workflow": "制作流程",
     "switchEpisode": "切换单集",
+    "previousPage": "返回上一页",
+    "backToSeries": "返回系列",
     "back": "返回工作区",
     "settings": "项目设置",
     "modelSettings": "生成设置",
@@ -1021,6 +1060,8 @@
     "promptConfigSub": "自定义 AI 润色阶段的系统提示词",
     "promptLoadFailed": "加载提示词配置失败，请重试。",
     "promptSaveFailed": "保存提示词配置失败",
+    "unsavedChangesTitle": "有未保存的修改",
+    "unsavedChangesHint": "当前修改尚未保存，确定要关闭提示词配置吗？",
     "promptEmptyHint": "留空字段将使用系统默认提示词。自定义提示词会完全替换该阶段的默认值。",
     "resetToDefault": "恢复默认",
     "viewDefault": "查看完整默认提示词",
@@ -1119,6 +1160,8 @@
     "seriesPromptEmptyHint": "留空字段将使用系统默认提示词。系列提示词适用于所有集数；集数可单独覆盖。",
     "promptLoadFailed": "加载提示词配置失败，请重试。",
     "promptSaveFailed": "保存提示词配置失败",
+    "unsavedChangesTitle": "有未保存的修改",
+    "unsavedChangesHint": "当前修改尚未保存，确定要关闭提示词配置吗？",
     "resetToDefault": "恢复默认",
     "viewDefault": "查看完整默认提示词",
     "loadingConfig": "加载配置中...",
@@ -1192,6 +1235,8 @@
     "propImageDesc": "道具参考图"
   },
   "storyboard": {
+    "selectVariantFailed": "选择候选图失败，请重试。",
+    "deleteVariantFailed": "移除候选图失败，请重试。",
     "frameEditor": "分镜编辑器",
     "sceneContext": "场景上下文",
     "action": "动作",
@@ -1200,6 +1245,7 @@
     "promptPlaceholder": "输入提示词描述...",
     "promptHint": "修改提示词以优化生成图片。",
     "generateFailed": "生成分镜失败",
+    "retry": "重试",
     "generatedAssets": "生成的资源",
     "upload": "上传",
     "generateAll": "生成全部",
@@ -1528,6 +1574,8 @@
     "unknown": "未知"
   },
   "assembly": {
+    "selectionFailed": "更新视频选择失败，请重试。",
+    "mergeUncertain": "连接中断，导出状态待确认。正在查询后台进度，请勿重复提交。",
     "nextTransition": "转到下一镜",
     "transitionCut": "直接切换",
     "transitionMatch": "动作匹配切换",
@@ -1729,6 +1777,8 @@
     "motionRef": "动态参考"
   },
   "vault": {
+    "confirmDeleteAsset": "删除这个素材？生成的源文件不会被删除。",
+    "confirmDeleteVideo": "移除这个视频候选？",
     "title": "一致性金库",
     "characters": "角色",
     "scenes": "场景",
@@ -3440,6 +3490,9 @@
     "selectedHint": "新候选不会替换已选参考图，请确认后选定。"
   },
   "productionPlan": {
+    "previsUnsaved": "分镜图描述尚未保存。放弃修改并离开吗？",
+    "keepEditing": "继续编辑",
+    "refreshFailed": "刷新失败，已保留当前内容，请重试。",
     "incompletePlan": "请补全方案说明、片段起止状态，以及各镜头的名称、画面、机位和有效时长。",
     "invalidTarget": "目标时长请填写 1–600 之间的整数秒，或留空自动估算。",
     "reviseActive": "调整当前方案",
@@ -3477,6 +3530,7 @@
     "generate": "生成制作计划",
     "regenerate": "重新规划",
     "planning": "正在规划…",
+    "planningUncertain": "请求已中断，正在核对后台任务状态。请勿重复生成；可关闭弹窗后再回来查看。",
     "failed": "规划失败，原方案已保留。",
     "saveBeforeRegenerate": "请先保存当前修改。",
     "save": "保存方案",
@@ -3532,7 +3586,11 @@
     "imageFailed": "分镜图未生成成功，请检查后重试。",
     "uploadInvalid": "请选择不超过 8 MB 的 JPG、PNG 或 WebP 图片。",
     "imageChoice": "选择分镜图 {number}",
-    "imageRemove": "移除当前分镜图",
+    "imageRemove": "移除当前分镜候选图",
+    "imageClear": "清空本镜头候选图",
+    "imageClearConfirm": "清空本镜头的全部候选图？项目源文件和历史版本会保留。",
+    "imageClearCancel": "取消",
+    "imageClearConfirmAction": "确认清空",
     "saveImagePrompt": "保存画面描述",
     "busyImage": "分镜图生成中…",
     "previsCount": "片段内 {count} 个镜头",

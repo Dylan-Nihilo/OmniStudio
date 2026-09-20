@@ -35,8 +35,6 @@ const project = {
         id: "character-1",
         name: "林默",
         description: "测试角色",
-        age: "65岁",
-        clothing: "旧蓝衬衫和棕色马甲",
         reference_sheet: { selected_image_id: null, image_variants: [] },
     }],
     scenes: [],
@@ -62,6 +60,19 @@ describe("CastWorkbenchModal asset generation", () => {
         api.getProject.mockResolvedValue(project);
         api.generateAsset.mockResolvedValue({ _task_id: "task-1" });
         api.getTaskStatus.mockResolvedValue({ status: "processing" });
+    });
+
+    it("exposes an accessible named dialog and retains a draft when reopened", async () => {
+        const close = vi.fn();
+        const view = render(<CastWorkbenchModal isOpen kind="character" entityId="character-1" onClose={close} />);
+        await act(async () => {});
+        expect(screen.getByRole('dialog', {name:'林默'})).toBeVisible();
+        fireEvent.change(screen.getByRole('textbox'), {target:{value:'my custom draft'}});
+        fireEvent.click(screen.getByRole('button', {name:'close'}));
+        expect(close).toHaveBeenCalledOnce();
+        view.rerender(<CastWorkbenchModal isOpen={false} kind="character" entityId="character-1" onClose={close} />);
+        view.rerender(<CastWorkbenchModal isOpen kind="character" entityId="character-1" onClose={close} />);
+        expect(screen.getByRole('textbox')).toHaveValue('my custom draft');
     });
 
     it("shows batch accounting and cancels without counting pending work as failed", async () => {
@@ -149,7 +160,7 @@ describe("CastWorkbenchModal asset generation", () => {
         vi.useRealTimers();
     });
 
-    it("retains a running generation past 45 seconds and waits for its real outcome", async () => {
+    it("keeps polling slow provider jobs and times out after three minutes", async () => {
         render(
             <CastWorkbenchModal
                 isOpen
@@ -160,8 +171,6 @@ describe("CastWorkbenchModal asset generation", () => {
         );
 
         await act(async () => {});
-        expect(screen.getByRole("textbox").getAttribute("value") || (screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("65岁");
-        expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toContain("旧蓝衬衫和棕色马甲");
         await act(async () => {
             fireEvent.click(screen.getByRole("button", { name: "generateFirst" }));
             await Promise.resolve();
@@ -176,9 +185,21 @@ describe("CastWorkbenchModal asset generation", () => {
         });
 
         expect(useProjectStore.getState().generatingTasks).toHaveLength(1);
-        expect(useToastStore.getState().toasts.some(toast => toast.kind === "error")).toBe(false);
-        api.getTaskStatus.mockResolvedValue({ status: "completed" });
-        await act(async () => { await vi.advanceTimersByTimeAsync(2_500); });
+        expect(useToastStore.getState().toasts).not.toContainEqual(expect.objectContaining({
+            kind: "error",
+            body: "toastGenTimeout",
+        }));
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(135_000);
+        });
+
         expect(useProjectStore.getState().generatingTasks).toHaveLength(0);
+        expect(useToastStore.getState().toasts).toContainEqual(expect.objectContaining({
+            kind: "error",
+            title: "toastGenErr",
+            body: "toastGenTimeout",
+        }));
+        expect(screen.getByRole("button", { name: "generateFirst" })).toBeEnabled();
     });
 });

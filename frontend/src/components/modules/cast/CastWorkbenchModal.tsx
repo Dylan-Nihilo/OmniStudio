@@ -18,7 +18,7 @@
  *     (asset generation can take 20-60s).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Dialog } from "@omnistudio/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Sparkles, Loader2, Check, RefreshCw, Wand2, Palette, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -39,6 +39,7 @@ export type CastKind = "character" | "scene" | "prop";
 
 // Module-level poll registry — survives modal close/reopen.
 export const activePolls = new Map<string, ReturnType<typeof setInterval>>();
+const ASSET_POLL_TIMEOUT_MS = 180_000;
 type BatchSummary = { requested: number; pending: number; succeeded: number; failed: number; canceled: number };
 
 export const getCastPromptTextareaClasses = () =>
@@ -60,8 +61,10 @@ function startAssetPoll(
     requestedCount = 1,
 ) {
     if (activePolls.has(entityId)) return;
+    let timeout: ReturnType<typeof setTimeout>;
     const stopPolling = (interval: ReturnType<typeof setInterval>) => {
         clearInterval(interval);
+        clearTimeout(timeout);
         activePolls.delete(entityId);
         if (progressToastId) toast.dismiss(progressToastId);
         getStore().removeGeneratingTask(entityId, generationType);
@@ -101,6 +104,12 @@ function startAssetPoll(
         }
     }, 2500);
     activePolls.set(entityId, interval);
+    timeout = setTimeout(() => {
+        if (activePolls.get(entityId) !== interval) return;
+        stopPolling(interval);
+        onBatchUpdate?.({ requested: requestedCount, pending: 0, succeeded: 0, failed: requestedCount, canceled: 0 });
+        toast.error(t("toastGenErr"), { body: t("toastGenTimeout") });
+    }, ASSET_POLL_TIMEOUT_MS);
 }
 
 interface CastWorkbenchModalProps {
@@ -297,7 +306,6 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
         void api.updateModelSettings(projectId, id)
             .then((updated) => { updateProject(projectId, updated); })
             .catch((error) => {
-                // Put the picker back rather than leaving it showing a choice that was lost.
                 setModelOverride(previous);
                 toast.error(t("modelSaveFailed"), {
                     body: error instanceof Error ? error.message : undefined,
@@ -309,7 +317,6 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     const [pendingTemplate, setPendingTemplate] = useState<CharacterTemplate | null>(null);
     const [promptDirty, setPromptDirty] = useState(false);
     const lastSeededEntityId = useRef<string | null>(null);
-    const overlayMouseDown = useRef(false);
 
     // Reset prompt to template ONLY when the entity changes (not on every
     // open) so the user's in-flight edits aren't clobbered if they happen
@@ -578,42 +585,28 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     } as const;
     const accent = accentClasses[kind];
 
-    return createPortal((
-        <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[100] bg-overlay backdrop-blur-sm grid place-items-center p-4"
-                onMouseDown={(e) => { overlayMouseDown.current = e.target === e.currentTarget; }}
-                onMouseUp={(e) => { if (overlayMouseDown.current && e.target === e.currentTarget) onClose(); overlayMouseDown.current = false; }}
-            >
-                <motion.div
-                    initial={{ scale: 0.96, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.96, opacity: 0 }}
-                    transition={{ duration: 0.18 }}
-                    className="w-[85vw] max-w-[96rem] h-[92vh] flex flex-col rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)] overflow-hidden"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {/* Header */}
-                    <header className="flex items-center justify-between gap-3 px-5 py-3 border-b border-glass-border">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <span className={`inline-flex h-7 w-7 items-center justify-center rounded-md border shrink-0 ${accent.headerPill}`}>
-                                <Sparkles size={13} />
-                            </span>
-                            <div className="min-w-0">
-                                <p className="font-mono text-[0.625rem] uppercase tracking-[0.16em] text-text-muted">
-                                    {t(`kind.${kind}`)} · {variants.length} {t("variants")}
-                                </p>
-                                <h2 className="text-display font-medium text-foreground truncate">{entity.name}</h2>
-                            </div>
-                        </div>
-                        <button onClick={onClose} aria-label={t("close")} className="p-1.5 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors">
-                            <X size={15} />
-                        </button>
-                    </header>
-
+    return <Dialog isOpen title={entity.name} closeLabel={t('close')} onOpenChange={open => { if (!open) onClose(); }}
+        className="!w-[min(96rem,calc(100vw-2rem))] !max-w-none" footer={<>
+                        <span className="font-mono text-[0.6875rem] uppercase tracking-[0.16em] text-text-muted">
+                            {selectedId ? t("selectedFooter") : t("noneSelectedFooter")}
+                        </span>
+                        <span className="ml-auto text-xs text-text-secondary">{tw('generateSummary', { count: batchSize, ratio: effectiveAspectRatio })}</span>
+                        <CreditCost modelId={selectedModelId} quantity={Math.max(1, Math.min(4, batchSize))}
+                                    params={imageCostParams(ASSET_SIZE_BY_RATIO[effectiveAspectRatio])} />
+                        <button
+                                onClick={handleGenerate}
+                                disabled={generating || !prompt.trim() || !!referenceError}
+                                className="shrink-0 inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.875rem] font-semibold"
+                            >
+                                {generating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                                {generating
+                                    ? t("generating")
+                                    : variants.length === 0
+                                        ? t("generateFirst")
+                                        : t("generateMore", { count: batchSize })}
+                            </button>
+                    </>}>
+        <p className="text-xs text-text-muted">{t(`kind.${kind}`)} · {variants.length} {t('variants')}</p>
                     {/* Body: context (left) + prompt editor (center) + variants gallery (right) */}
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)_minmax(0,1.2fr)] divide-x divide-glass-border min-h-0">
                         {/* LEFT — entity context + style baseline + current reference */}
@@ -1055,29 +1048,5 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                         </div>
                     </div>
 
-                    {/* Keep the generation action visible while editing references or prompts. */}
-                    <footer className="shrink-0 flex flex-wrap items-center gap-3 px-5 py-2.5 border-t border-glass-border">
-                        <span className="font-mono text-[0.6875rem] uppercase tracking-[0.16em] text-text-muted">
-                            {selectedId ? t("selectedFooter") : t("noneSelectedFooter")}
-                        </span>
-                        <span className="ml-auto text-xs text-text-secondary">{tw('generateSummary', { count: batchSize, ratio: effectiveAspectRatio })}</span>
-                        <CreditCost modelId={selectedModelId} quantity={Math.max(1, Math.min(4, batchSize))}
-                                    params={imageCostParams(ASSET_SIZE_BY_RATIO[effectiveAspectRatio])} />
-                        <button
-                                onClick={handleGenerate}
-                                disabled={generating || !prompt.trim() || !!referenceError}
-                                className="shrink-0 inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.875rem] font-semibold"
-                            >
-                                {generating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                                {generating
-                                    ? t("generating")
-                                    : variants.length === 0
-                                        ? t("generateFirst")
-                                        : t("generateMore", { count: batchSize })}
-                            </button>
-                    </footer>
-                </motion.div>
-            </motion.div>
-        </AnimatePresence>
-    ), document.body);
+    </Dialog>;
 }

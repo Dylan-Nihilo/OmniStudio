@@ -21,9 +21,14 @@ import {
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL, VideoTask } from "@/lib/api";
 import { R2V_SELECTION_MODEL_ID, getR2vRouteModelId, isR2vImageBased } from "@/lib/modelCatalog";
-import { getAssetUrl, getAssetUrlWithTimestamp } from "@/lib/utils";
+import { getAssetUrl, getAssetUrlWithTimestamp, extractErrorDetail } from "@/lib/utils";
+import { toast } from "@/store/toastStore";
 import PromptBuilder, { PromptSegment, PromptBuilderRef } from "./PromptBuilder";
 import type { VideoParams } from "@/store/projectStore";
+
+export function getVideoCreatorError(error: unknown, fallback: string): string {
+    return extractErrorDetail(error, fallback);
+}
 
 interface VideoCreatorProps {
     onTaskCreated: (project: any) => void;
@@ -116,7 +121,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
             updateProject(currentProject.id, updatedProject);
         } catch (error: any) {
             console.error("Failed to extract last frame:", error);
-            alert(error?.response?.data?.detail || "Failed to extract last frame");
+            toast.error(getVideoCreatorError(error, "Failed to extract last frame"));
         } finally {
             setExtractingFrameId(null);
         }
@@ -182,7 +187,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
             }
         } catch (error) {
             console.error("Polish failed", error);
-            alert(tc("aiPolishFailed"));
+            toast.error(getVideoCreatorError(error, tc("aiPolishFailed")));
         } finally {
             setIsPolishing(false);
         }
@@ -239,7 +244,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
             setSelectedReferenceVideos(prev => prev.filter(v => v !== videoUrl));
         } else {
             if (selectedReferenceVideos.length >= 3) {
-                alert(tc("maxRefVideos"));
+                toast.warning(tc("maxRefVideos"));
                 return;
             }
             setSelectedReferenceVideos(prev => [...prev, videoUrl]);
@@ -301,7 +306,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
             // R2V mode: need at least one cast slot filled
             const filledSlots = castSlots.filter(s => s.url);
             if (filledSlots.length === 0) {
-                alert(tc("r2vNeedSlot"));
+                toast.warning(tc("r2vNeedSlot"));
                 return;
             }
             if (!prompt || !currentProject) return;
@@ -457,7 +462,10 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
             // setSelectedImages([]); // Keep selection for iterative generation
         } catch (error) {
             console.error("Failed to submit task:", error);
-            alert(tc("submitFailed"));
+            toast.error(getVideoCreatorError(error, tc("submitFailed")), {
+                projectId: currentProject?.id,
+                projectTitle: currentProject?.title,
+            });
             // Refresh to remove optimistic updates
             const updatedProject = await api.getProject(currentProject.id);
             onTaskCreated(updatedProject);
@@ -1155,7 +1163,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                             <button
                                                 onClick={() => {
                                                     navigator.clipboard.writeText(polishedPrompt.cn);
-                                                    alert("CN prompt copied");
+                                                    toast.success("CN prompt copied");
                                                 }}
                                                 className="text-[0.625rem] text-text-secondary hover:text-foreground bg-surface px-2 py-0.5 rounded"
                                             >
@@ -1175,7 +1183,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                                 <button
                                                     onClick={() => {
                                                         navigator.clipboard.writeText(polishedPrompt.en);
-                                                        alert("English prompt copied");
+                                                        toast.success("English prompt copied");
                                                     }}
                                                     className="text-[0.625rem] text-text-secondary hover:text-foreground bg-surface px-2 py-0.5 rounded"
                                                 >

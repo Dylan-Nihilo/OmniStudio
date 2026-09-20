@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { api, API_URL } from "@/lib/api";
 import { useProjectStore } from "@/store/projectStore";
 import { getAssetUrl } from "@/lib/utils";
+import { toast } from "@/store/toastStore";
 
 interface Asset {
     id: string;
@@ -71,7 +72,7 @@ export default function AssetGrid({ projectId }: AssetGridProps) {
     const handleGenerate = async () => {
         if (!projectId) {
             // Try to find the latest project or alert user
-            alert(ts("createScriptFirst"));
+            toast.warning(ts("createScriptFirst"));
             return;
         }
         setIsGenerating(true);

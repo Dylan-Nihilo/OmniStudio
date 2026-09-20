@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, FolderOpen } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, NavigationMenu, SelectField } from "@omnistudio/ui";
 import type { BreadcrumbSegment } from "./BreadcrumbBar";
@@ -22,6 +22,8 @@ interface Step {
 interface PipelineSidebarProps {
     activeStep: string;
     onStepChange: (stepId: string) => void;
+    onBack?: () => void;
+    canGoBack?: boolean;
     steps: Step[];
     breadcrumbSegments?: BreadcrumbSegment[];
     headerActions?: React.ReactNode;
@@ -38,7 +40,7 @@ interface PipelineSidebarProps {
     projectSubLabel?: string;
 }
 
-export default function PipelineSidebar({ activeStep, onStepChange, steps, breadcrumbSegments, headerActions, topSlot, projectLabel, projectSubLabel, titleAction }: PipelineSidebarProps) {
+export default function PipelineSidebar({ activeStep, onStepChange, onBack, canGoBack, steps, breadcrumbSegments, headerActions, topSlot, projectLabel, projectSubLabel, titleAction }: PipelineSidebarProps) {
     const t = useTranslations("pipelineChrome");
     const parent = breadcrumbSegments?.slice(0, -1).reverse().find(segment => segment.hash);
     return <div className={styles.sidebar}>
@@ -56,6 +58,9 @@ export default function PipelineSidebar({ activeStep, onStepChange, steps, bread
             })} />
         <div className={styles.mobileWorkflow}><SelectField label={t("workflow")} value={activeStep} onChange={key => onStepChange(String(key))} options={steps.map(step => ({ id: step.id, label: step.label }))} /></div>
         {topSlot && <details className={styles.episodes}><summary>{t("switchEpisode")}</summary>{topSlot}</details>}
-        <footer className={styles.footer}><Button variant="quiet" onPress={() => { window.location.hash = parent?.hash || "#/workspace"; }}><ChevronLeft size={16} />{parent?.label || t("back")}</Button></footer>
+        <footer className={styles.footer}>
+            {canGoBack && onBack && <Button variant="quiet" onPress={onBack}><ChevronLeft size={16} />{t("previousPage")}</Button>}
+            <Button variant="quiet" onPress={() => { window.location.hash = parent?.hash || "#/workspace"; }}><FolderOpen size={16} />{t(parent?.hash?.startsWith('#/series/') ? "backToSeries" : "back")}</Button>
+        </footer>
     </div>;
 }

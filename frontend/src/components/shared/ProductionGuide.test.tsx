@@ -15,6 +15,8 @@ it('guides the saved inventory through style, reference images and storyboard', 
     const view = renderWithIntl(<ProductionGuide stage="script" />);
     try {
         expect(screen.getByText('素材清单已保存到「本集素材」')).toBeVisible();
+        expect(screen.getByText(/1 个角色 · 0 个场景 · 0 个道具/)).not.toBeVisible();
+        fireEvent.click(screen.getByText('素材清单已保存到「本集素材」'));
         expect(screen.getByText(/1 个角色 · 0 个场景 · 0 个道具/)).toBeVisible();
         fireEvent.click(screen.getByRole('button', { name: '去定画风' }));
         expect(navigate.mock.lastCall?.[0].detail).toBe('art_direction');

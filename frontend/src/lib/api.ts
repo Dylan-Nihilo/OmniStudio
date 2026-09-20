@@ -1705,13 +1705,20 @@ export const api = {
         (await apiClient.get(`${API_URL}/projects/${scriptId}/production-plan/review`)).data,
     updateProductionPreview: async (scriptId: string, previewId: string, patch: { image_prompt?: string; selected_index?: number }) =>
         (await apiClient.patch(`${API_URL}/projects/${scriptId}/production-plan/previews/${previewId}`, patch)).data,
+    removeProductionPreviewCandidate: async (scriptId: string, previewId: string, index: number, expectedRevision: string) =>
+        (await apiClient.delete(`${API_URL}/projects/${scriptId}/production-plan/previews/${previewId}/candidates/${index}`, { params: { expected_revision: expectedRevision } })).data,
+    clearProductionPreviewCandidates: async (scriptId: string, previewId: string, expectedRevision: string) =>
+        (await apiClient.delete(`${API_URL}/projects/${scriptId}/production-plan/previews/${previewId}/candidates`, { params: { expected_revision: expectedRevision } })).data,
     confirmProductionSegment: async (scriptId: string, frameId: string, fingerprint: string) =>
         (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/segments/${frameId}/confirm`, { expected_fingerprint: fingerprint })).data,
 
     analyzeToStoryboard: async (scriptId: string, text: string) => {
         const res = await apiClient.post(`${API_URL}/projects/${scriptId}/storyboard/analyze`, {
             text: text
-        }, { timeout: 180000 });
+        // Storyboard analysis performs a synchronous LLM call. Keep the
+        // client timeout within the development proxy budget so a slow but
+        // successful backend request is not reported as an unknown failure.
+        }, { timeout: 300_000 });
         return res.data;
     },
 

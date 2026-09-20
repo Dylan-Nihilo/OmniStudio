@@ -64,6 +64,14 @@ export default function EpisodeEditLeaseGuard({
     };
   }, [check, viewer]);
 
+  useEffect(() => {
+    if (viewer || status !== "locked") return;
+    const timer = window.setInterval(() => {
+      void acquire(scriptId).catch(() => { /* The store exposes connection loss. */ });
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [acquire, scriptId, status, viewer]);
+
   const readOnly = viewer || status !== "editing";
   const acquiring = status === "acquiring" || status === "idle";
   const message = viewer ? "当前账号只能查看这一集" : acquiring ? "正在检查编辑状态"

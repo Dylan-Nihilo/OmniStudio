@@ -3013,6 +3013,7 @@ def create_series_character(series_id: str, request: CreateSeriesAssetRequest):
 @app.post("/series/{series_id}/scenes")
 def create_series_scene(series_id: str, request: CreateSeriesAssetRequest):
     from .models import Scene
+    from .pipeline import _set_asset_master_image
     series = pipeline.get_series(series_id)
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
@@ -3023,6 +3024,8 @@ def create_series_scene(series_id: str, request: CreateSeriesAssetRequest):
         description=request.description or "",
         image_url=request.image_url,
     )
+    if request.image_url:
+        _set_asset_master_image(scene, "scene", request.image_url)
     series.scenes.append(scene)
     series.updated_at = time.time()
     pipeline.series_store[series_id] = series
@@ -3033,6 +3036,7 @@ def create_series_scene(series_id: str, request: CreateSeriesAssetRequest):
 @app.post("/series/{series_id}/props")
 def create_series_prop(series_id: str, request: CreateSeriesAssetRequest):
     from .models import Prop
+    from .pipeline import _set_asset_master_image
     series = pipeline.get_series(series_id)
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
@@ -3043,6 +3047,8 @@ def create_series_prop(series_id: str, request: CreateSeriesAssetRequest):
         description=request.description or "",
         image_url=request.image_url,
     )
+    if request.image_url:
+        _set_asset_master_image(prop, "prop", request.image_url)
     series.props.append(prop)
     series.updated_at = time.time()
     pipeline.series_store[series_id] = series
@@ -3500,11 +3506,7 @@ def test_provider_connection(request: ProviderConnectionTestRequest, http_reques
             )
             record_request_event(http_request, action="provider.test", object_type="workspace", object_id=str(http_request.state.auth_context.workspace.id), metadata={"provider": provider, "modality": request.modality, "success": base_payload["success"], "category": base_payload["category"], "latency_ms": base_payload["latency_ms"]})
             return base_payload
-        response = requests.get(
-            base_payload["host"],
-            headers={"Authorization": f"Bearer {secret}"},
-            timeout=request.timeout_seconds,
-        )
+        response = requests.get(base_payload["host"], headers={"Authorization": f"Bearer {secret}"}, timeout=request.timeout_seconds)
         response.raise_for_status()
         base_payload.update(success=True, category=None, message="Provider is reachable", latency_ms=max(0, int((time.perf_counter() - started) * 1000)))
     except Exception as exc:
@@ -4568,6 +4570,8 @@ async def generate_production_plan(script_id: str, payload: PlanSettings, reques
     from .production_planning import model_durations
     try:
         model_durations(payload.model)
+        if not pipeline.resolve_episode_assets(script)["scenes"]:
+            raise ValueError("请先分析剧本或在本集素材中添加场景，再生成制作计划")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
@@ -4634,6 +4638,38 @@ class ProductionPreviewRequest(BaseModel):
 def update_production_preview(script_id: str, preview_id: str, payload: ProductionPreviewRequest):
     try:
         return signed_response(pipeline.update_production_preview(script_id, preview_id, payload.image_prompt, payload.selected_index))
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/projects/{script_id}/production-plan/previews/{preview_id}/candidates/{candidate_index}")
+def remove_production_preview_candidate(script_id: str, preview_id: str, candidate_index: int, expected_revision: str = Query(..., min_length=1)):
+    try:
+        with pipeline._save_lock:
+            script = pipeline.remove_production_preview_candidate(script_id, preview_id, candidate_index, expected_revision)
+            payload = _project_payload(script)
+            payload['_revision'] = pipeline.repository.script_revision(script_id)
+        return signed_response(payload)
+    except GenerationInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/projects/{script_id}/production-plan/previews/{preview_id}/candidates")
+def clear_production_preview_candidates(script_id: str, preview_id: str, expected_revision: str = Query(..., min_length=1)):
+    try:
+        with pipeline._save_lock:
+            script = pipeline.clear_production_preview_candidates(script_id, preview_id, expected_revision)
+            payload = _project_payload(script)
+            payload['_revision'] = pipeline.repository.script_revision(script_id)
+        return signed_response(payload)
     except GenerationInProgressError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except LookupError as exc:
@@ -5031,7 +5067,14 @@ def retry_video_task(script_id: str, task_id: str, background_tasks: BackgroundT
                     for job in _production_adapter().repository.list_jobs(workspace_id, project_id=script_id).items:
                         source = next((candidate for candidate in job.items if candidate.kind == "video" and candidate.status == "failed" and candidate.payload.get("legacy_task_id") == task_id), None)
                         if source:
-                            job_item = _production_adapter().retry(source.id)
+                            # A newly-created legacy VideoTask is a new generation intent.
+                            # Include its id in the durable retry key so an already
+                            # succeeded retry from an earlier click cannot be reused and
+                            # have its payload rewritten to point at this pending task.
+                            job_item = _production_adapter().retry(
+                                source.id,
+                                idempotency_key=f"retry:{source.id}:{task.id}",
+                            )
                             job_item = _production_adapter().repository.update_item_payload(
                                 job_item.id,
                                 {**job_item.payload, "legacy_task_id": task.id, "operation": "retry_precreated"},
@@ -7588,6 +7631,7 @@ class CreatePropRequest(BaseModel):
 @app.post("/projects/{script_id}/props")
 def create_prop(script_id: str, request: CreatePropRequest):
     """Creates a new prop in the project."""
+    from .pipeline import _set_asset_master_image
     script = pipeline.get_script(script_id)
     if not script:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -7603,6 +7647,8 @@ def create_prop(script_id: str, request: CreatePropRequest):
         status=GenerationStatus.PENDING
     )
 
+    if request.image_url:
+        _set_asset_master_image(new_prop, "prop", request.image_url)
     script.props.append(new_prop)
     script.updated_at = time.time()
     pipeline._save_data()

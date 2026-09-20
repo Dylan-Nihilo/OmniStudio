@@ -71,3 +71,26 @@ it('loads effective settings and restores only the project fields to Workspace i
   expect(payload).not.toHaveProperty('i2v_model');
   expect(payload).not.toHaveProperty('r2v_model');
 });
+
+it('keeps edits visible and allows retry when saving fails', async () => {
+  const onClose = vi.fn();
+  updateSeriesModelSettings
+    .mockRejectedValueOnce(new Error('network unavailable'))
+    .mockResolvedValueOnce({});
+
+  render(<SeriesModelSettingsModal isOpen onClose={onClose} seriesId="series-1" />);
+
+  const resetButton = await screen.findByRole('button', { name: 'resetModelInheritance' });
+  await waitFor(() => expect(resetButton).toBeVisible());
+  const callsBefore = updateSeriesModelSettings.mock.calls.length;
+  fireEvent.click(resetButton);
+  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('saveSettingsFailed');
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'saveSettings' })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  expect(updateSeriesModelSettings.mock.calls.length).toBe(callsBefore + 2);
+});

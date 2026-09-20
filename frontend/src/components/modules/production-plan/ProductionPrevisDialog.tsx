@@ -8,6 +8,7 @@ import type { ProductionReview } from '@/lib/productionPlan';
 import type { Project } from '@/store/projectStore';
 import PreviewImage from '@/components/shared/preview/PreviewImage';
 import PreviewVideo from '@/components/shared/preview/PreviewVideo';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import { getAssetUrl } from '@/lib/utils';
 import styles from './ProductionPlanDialog.module.css';
 
@@ -15,7 +16,11 @@ type Preview = NonNullable<Project['production_previews']>[number];
 const imageUrl = (frame?: Preview) => frame?.t2i_image_urls?.[frame.t2i_selected_index ?? 0] || frame?.rendered_image_url || frame?.image_url;
 function errorMessage(error: any) {
     const detail = error?.response?.data?.detail;
-    return typeof detail === 'string' ? detail : detail?.message || error?.message;
+    if (typeof detail === 'string') return detail;
+    if (detail?.message) return detail.message;
+    // Transport failures need the localized action/retry explanation below;
+    // Axios' generic English status text does not tell creators what to do.
+    return error?.isAxiosError ? undefined : error?.message;
 }
 interface Props {
     project: Project;
@@ -31,9 +36,12 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const [reviews, setReviews] = useState<ProductionReview[]>([]);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState('');
+    const [refreshError, setRefreshError] = useState('');
+    const [confirmClose, setConfirmClose] = useState(false);
     const [prompts, setPrompts] = useState<Record<string, string>>({});
     const [playing, setPlaying] = useState(false);
     const [playIndex, setPlayIndex] = useState(0);
+    const [clearTarget, setClearTarget] = useState<Preview | null>(null);
     const running = useRef(false);
     const mutationVersion = useRef(0);
     const stopBulk = useRef(false);
@@ -49,18 +57,19 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
         const version = mutationVersion.current;
         const [updated, review] = await Promise.all([api.getProject(project.id), api.reviewProductionPlan(project.id)]);
         if (!mounted.current || version !== mutationVersion.current) return;
-        onUpdate({ production_previews: updated.production_previews });
+        onUpdate({ production_previews: updated.production_previews, _revision: updated._revision });
         setReviews(review.segments);
+        setRefreshError('');
     }, [project.id, onUpdate]);
     useEffect(() => {
-        if (isOpen) void refresh().catch(e => { if (mounted.current) setError(errorMessage(e)); });
+        if (isOpen) void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); });
         else { setPlaying(false); stopBulk.current = true; }
-    }, [isOpen, refresh]);
+    }, [isOpen, refresh, t]);
     useEffect(() => {
         if (!isOpen || (!busy && !imageRunning)) return;
-        const timer = window.setInterval(() => { void refresh().catch(() => {}); }, 2500);
+        const timer = window.setInterval(() => { void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); }); }, 2500);
         return () => window.clearInterval(timer);
-    }, [isOpen, busy, imageRunning, refresh]);
+    }, [isOpen, busy, imageRunning, refresh, t]);
     useEffect(() => {
         if (!playing || !allShots[playIndex]) return;
         const timer = window.setTimeout(() => {
@@ -74,7 +83,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
         running.current = true; mutationVersion.current += 1; setBusy(key); setError('');
         try { await action(); }
         catch (e) { if (mounted.current) setError(errorMessage(e) || t('imageFailed')); }
-        finally { mutationVersion.current += 1; running.current = false; if (mounted.current) { setBusy(null); void refresh().catch(() => {}); } }
+        finally { mutationVersion.current += 1; running.current = false; if (mounted.current) { setBusy(null); void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); }); } }
     }
     async function generate(preview: Preview) {
         if (!await beforeChange() || !mounted.current) return;
@@ -96,8 +105,17 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const playingShot = allShots[playIndex];
     const playingPreview = previews.find(preview => preview.id === playingShot?.id);
     const hasDirtyPrompts = previews.some(preview => prompts[preview.id] !== undefined && prompts[preview.id] !== preview.image_prompt);
-    return <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) { stopBulk.current = true; onClose(); } }} title={t('previsTitle')} closeLabel={t('close')} className={styles.dialog}
-        footer={<Button onPress={() => { stopBulk.current = true; onClose(); }}>{t('goGenerate')}</Button>}>
+    const atomicBusy = !!busy && busy !== 'all' && !previews.some(preview => busy === preview.id && imageRunning);
+    function close() {
+        if (atomicBusy) return;
+        if (hasDirtyPrompts) { setConfirmClose(true); return; }
+        stopBulk.current = true; onClose();
+    }
+    return <>
+    <Dialog isOpen={isOpen} onOpenChange={open => { if (!open) close(); }} title={t('previsTitle')} closeLabel={t('close')} className={styles.dialog} isDismissable={!atomicBusy}
+        footer={<Button isDisabled={atomicBusy} onPress={close}>{t('goGenerate')}</Button>}>
+        {refreshError && <p role="alert" className={styles.error}>{refreshError}</p>}
+        <Button variant="quiet" onPress={() => void refresh().catch(e => { if (mounted.current) setRefreshError(errorMessage(e) || t('refreshFailed')); })}><RefreshCw size={14} />{t('checkAgain')}</Button>
         {!plan ? <p>{t('noActivePlan')}</p> : <fieldset disabled={readOnly} className={styles.stack}>
             <p className={styles.hint}>{t(readOnly ? 'readOnly' : 'previsIntro')}</p>
             {error && <p role="alert" className={styles.error}>{error}</p>}
@@ -110,7 +128,6 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                     }
                 })}>{t('generateMissing', { count: missing.length })}</Button>}
                 {busy === 'all' && <Button variant="quiet" onPress={() => { stopBulk.current = true; }}>{t('stopFollowing')}</Button>}
-                <Button variant="quiet" onPress={() => void run('refresh', refresh)} isDisabled={!!busy}><RefreshCw size={14} />{t('checkAgain')}</Button>
                 <Button variant="quiet" isDisabled={missing.length > 0 || !allShots.length} onPress={() => { if (!playing) setPlayIndex(0); setPlaying(!playing); }}>{playing ? <Pause size={14} /> : <Play size={14} />}{t(playing ? 'pausePreview' : 'playPreview')}</Button>
             </div>
             {playing && playingShot && <section className={styles.animatic} aria-label={t('playPreview')}>
@@ -150,6 +167,13 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                                 onClick={() => void run(preview.id, async () => { const result = await api.updateProductionPreview(project.id, preview.id, { selected_index: index }); if (mounted.current) onUpdate({ production_previews: result.production_previews }); })}>
                                 <PreviewImage src={image} alt="" noLightbox />
                             </button>)}</div>}
+                            {!!preview.t2i_image_urls?.length && <div className={styles.tools}>
+                                <Button variant="quiet" isDisabled={!!busy || imageRunning} onPress={() => void run(`${preview.id}:remove`, async () => {
+                                    const result = await api.removeProductionPreviewCandidate(project.id, preview.id, preview.t2i_selected_index ?? 0, project._revision ?? '');
+                                    if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
+                                })}>{t('imageRemove')}</Button>
+                                <Button variant="quiet" isDisabled={!!busy || imageRunning} onPress={() => setClearTarget(preview)}>{t('imageClear')}</Button>
+                            </div>}
                             <details><summary>{t('imagePrompt')}</summary><TextAreaField label={t('imagePrompt')} rows={3} value={prompts[preview.id] ?? preview.image_prompt ?? ''} onChange={value => setPrompts(current => ({ ...current, [preview.id]: value }))} />
                                 <Button variant="quiet" isDisabled={!!busy || imageRunning || !prompts[preview.id]} onPress={() => void run(preview.id, async () => {
                                     const result = await api.updateProductionPreview(project.id, preview.id, { image_prompt: prompts[preview.id] });
@@ -169,5 +193,29 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                 </section>;
             })}
         </fieldset>}
-    </Dialog>;
+    </Dialog>
+    <ConfirmDialog open={confirmClose} title={t('unsaved')} message={t('previsUnsaved')}
+        cancelLabel={t('keepEditing')} confirmLabel={t('discardChanges')}
+        onCancel={() => setConfirmClose(false)} onConfirm={() => { setPrompts({}); setConfirmClose(false); stopBulk.current = true; onClose(); }} />
+    <Dialog
+        isOpen={!!clearTarget}
+        onOpenChange={open => { if (!open) setClearTarget(null); }}
+        title={t('imageClear')}
+        closeLabel={t('close')}
+        footer={<>
+            <Button variant="quiet" onPress={() => setClearTarget(null)}>{t('imageClearCancel')}</Button>
+            <Button variant="danger" onPress={() => {
+                const target = clearTarget;
+                if (!target) return;
+                setClearTarget(null);
+                void run(`${target.id}:clear`, async () => {
+                    const result = await api.clearProductionPreviewCandidates(project.id, target.id, project._revision ?? '');
+                    if (mounted.current) onUpdate({ production_previews: result.production_previews, _revision: result._revision });
+                });
+            }}>{t('imageClearConfirmAction')}</Button>
+        </>}
+    >
+        <p>{t('imageClearConfirm')}</p>
+    </Dialog>
+    </>;
 }

@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { api, API_URL } from "@/lib/api";
 import { getMaxReferenceImages } from "@/lib/modelCatalog";
 import { getAssetUrl } from "@/lib/utils";
+import { toast } from "@/store/toastStore";
 
 interface PropertiesPanelProps {
     activeStep: string;
@@ -404,7 +405,7 @@ function StoryboardInspector() {
             }
         } catch (err) {
             console.error("Polish failed", err);
-            alert("Prompt polishing failed");
+            toast.error("Prompt polishing failed");
         } finally {
             setIsPolishing(false);
         }
@@ -503,7 +504,7 @@ function StoryboardInspector() {
                                         const predictedCount = (newSceneHasImage ? 1 : 0) + charImageCount + propImageCount;
 
                                         if (predictedCount > referenceLimit) {
-                                            alert(`Cannot select this scene: Reference image limit (${referenceLimit}) would be exceeded. Deselect some characters or props first.`);
+                                            toast.warning(`Cannot select this scene: Reference image limit (${referenceLimit}) would be exceeded. Deselect some characters or props first.`);
                                             return;
                                         }
                                         updateFrame({ scene_id: newSceneId });
@@ -700,7 +701,7 @@ function StoryboardInspector() {
                                 <button
                                     onClick={() => {
                                         navigator.clipboard.writeText(polishedPrompt.cn);
-                                        alert("CN prompt copied");
+                                                    toast.success("CN prompt copied");
                                     }}
                                     className="text-[0.625rem] text-text-secondary hover:text-foreground bg-surface px-2 py-0.5 rounded"
                                 >
@@ -720,7 +721,7 @@ function StoryboardInspector() {
                                     <button
                                         onClick={() => {
                                             navigator.clipboard.writeText(polishedPrompt.en);
-                                            alert("English prompt copied");
+                                                        toast.success("English prompt copied");
                                         }}
                                         className="text-[0.625rem] text-text-secondary hover:text-foreground bg-surface px-2 py-0.5 rounded"
                                     >

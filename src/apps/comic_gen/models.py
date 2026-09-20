@@ -1,7 +1,8 @@
 from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 import time
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from uuid import NAMESPACE_URL, uuid5
 
 from ...utils.model_catalog import get_default_model_settings
 from .production_planning import ProductionPlan, PlanningJob
@@ -276,7 +277,46 @@ class VideoTask(BaseModel):
     )
     created_at: float = Field(default_factory=time.time)
 
-class Character(BaseModel):
+class MasterImageCompatibility(BaseModel):
+    # Persist the migration marker even for empty pools: clearing candidates
+    # must never re-import a stale legacy URL on the next load.
+    master_image_migrated: bool = False
+
+    @model_validator(mode="after")
+    def migrate_legacy_master(self):
+        if self.master_image_migrated:
+            return self
+        self.master_image_migrated = True
+        character = hasattr(self, "reference_sheet")
+        if character:
+            containers = (self.reference_sheet, self.full_body, self.full_body_asset)
+            if any(getattr(unit, "image_variants", getattr(unit, "variants", [])) for unit in containers if unit):
+                return self
+            url = self.full_body_image_url or self.image_url
+        else:
+            if self.image_asset and self.image_asset.variants:
+                return self
+            url = self.image_url
+        if not url:
+            return self
+        variant = ImageVariant(
+            id=str(uuid5(NAMESPACE_URL, f"omni-legacy-master:{self.id}:{url}")),
+            url=url, source="legacy",
+        )
+        if character:
+            if self.reference_sheet is None:
+                self.reference_sheet = AssetUnit()
+            self.reference_sheet.image_variants.append(variant)
+            self.reference_sheet.selected_image_id = variant.id
+        else:
+            if self.image_asset is None:
+                self.image_asset = ImageAsset()
+            self.image_asset.variants.append(variant)
+            self.image_asset.selected_id = variant.id
+        return self
+
+
+class Character(MasterImageCompatibility):
     workspace_id: Optional[str] = Field(None, description="Workspace scope for shared-library assets")
     id: str = Field(..., description="Unique identifier for the character")
     name: str = Field(..., description="Name of the character")
@@ -360,7 +400,7 @@ class Character(BaseModel):
     starred: bool = Field(False, description="User-starred flag for the asset library shortlist")
     status: GenerationStatus = GenerationStatus.PENDING
 
-class Scene(BaseModel):
+class Scene(MasterImageCompatibility):
     workspace_id: Optional[str] = Field(None, description="Workspace scope for shared-library assets")
     id: str = Field(..., description="Unique identifier for the scene")
     name: str = Field(..., description="Name of the location/scene")
@@ -379,7 +419,7 @@ class Scene(BaseModel):
     starred: bool = Field(False, description="User-starred flag for the asset library shortlist")
     status: GenerationStatus = GenerationStatus.PENDING
 
-class Prop(BaseModel):
+class Prop(MasterImageCompatibility):
     workspace_id: Optional[str] = Field(None, description="Workspace scope for shared-library assets")
     id: str = Field(..., description="Unique identifier for the prop")
     name: str = Field(..., description="Name of the object")

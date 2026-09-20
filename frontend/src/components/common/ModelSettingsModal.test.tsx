@@ -67,3 +67,22 @@ it('restores an episode to inherited model settings instead of persisting parent
     expect.arrayContaining(['image_model', 'i2v_model']),
   ));
 });
+
+it('keeps model edits visible and allows retry when saving fails', async () => {
+  const onClose = vi.fn();
+  updateModelSettings
+    .mockRejectedValueOnce(new Error('network unavailable'))
+    .mockResolvedValueOnce({ id: 'episode-1' });
+
+  render(<ModelSettingsModal isOpen onClose={onClose} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'resetModelInheritance' }));
+  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('saveSettingsFailed');
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'saveSettings' })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+});

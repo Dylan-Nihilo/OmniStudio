@@ -36,3 +36,39 @@ it.each(['project', 'series'])('preserves the inherited %s model and saves an ex
     fireEvent.click(screen.getByRole('button', { name: 'save' }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(scope, expect.objectContaining({ polish_model: 'gpt-5.6-sol' })));
 });
+
+it.each(['project', 'series'])('retains %s edits after a save failure and exposes an inline retry state', async (scope) => {
+    const close = vi.fn();
+    save.mockRejectedValueOnce(new Error('offline'));
+    render(scope === 'project'
+        ? <PromptConfigModal isOpen onClose={close} />
+        : <SeriesPromptConfigModal isOpen onClose={close} seriesId="series" />);
+    const editor = (await screen.findAllByRole('textbox'))[0];
+    fireEvent.change(editor, { target: { value: 'keep this draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('promptSaveFailed');
+    expect(editor).toHaveValue('keep this draft');
+    expect(close).not.toHaveBeenCalled();
+
+    save.mockResolvedValueOnce({ prompt_config: config });
+    fireEvent.click(screen.getByRole('button', { name: 'save' }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+});
+
+it.each(['project', 'series'])('asks before closing a dirty %s prompt dialog and keeps the draft when cancelled', async (scope) => {
+    const close = vi.fn();
+    render(scope === 'project'
+        ? <PromptConfigModal isOpen onClose={close} />
+        : <SeriesPromptConfigModal isOpen onClose={close} seriesId="series" />);
+    const editor = (await screen.findAllByRole('textbox'))[0];
+    fireEvent.change(editor, { target: { value: 'unsaved draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+    expect(await screen.findByRole('dialog', { name: 'unsavedChangesTitle' })).toBeInTheDocument();
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'keepEditing' }));
+    expect(screen.queryByRole('dialog', { name: 'unsavedChangesTitle' })).not.toBeInTheDocument();
+    expect(editor).toHaveValue('unsaved draft');
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'discardChanges' }));
+    expect(close).toHaveBeenCalledOnce();
+});

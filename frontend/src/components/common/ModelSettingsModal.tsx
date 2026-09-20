@@ -41,6 +41,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
     const [propAspectRatio, setPropAspectRatio] = useState(resolvedSettings.prop_aspect_ratio);
     const [storyboardAspectRatio, setStoryboardAspectRatio] = useState(resolvedSettings.storyboard_aspect_ratio);
     const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [changedFields, setChangedFields] = useState<Partial<Record<keyof FrontendModelSettings, boolean>>>({});
     const [resetFields, setResetFields] = useState<string[]>([]);
 
@@ -57,6 +58,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
         setStoryboardAspectRatio(normalizedSettings.storyboard_aspect_ratio);
         setChangedFields({});
         setResetFields([]);
+        setSaveError(null);
     }, [currentProject?.model_settings]);
 
     const updateField = <K extends keyof FrontendModelSettings>(
@@ -65,6 +67,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
         value: FrontendModelSettings[K],
     ) => {
         setter(value);
+        setSaveError(null);
         if (isEpisode) {
             setChangedFields(current => ({ ...current, [field]: true }));
             setResetFields(current => current.filter(item => item !== field));
@@ -79,7 +82,9 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
 
     const handleSave = async () => {
         if (!currentProject) return;
+        if (isSaving) return;
         setIsSaving(true);
+        setSaveError(null);
         try {
             const values: Partial<Record<keyof FrontendModelSettings, string>> = {
                 t2i_model: t2iModel,
@@ -109,10 +114,14 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
             onClose();
         } catch (error) {
             console.error("Failed to save model settings:", error);
-            alert(t("saveSettingsFailed"));
+            setSaveError(t("saveSettingsFailed"));
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const requestClose = () => {
+        if (!isSaving) onClose();
     };
 
     if (!isOpen) return null;
@@ -124,7 +133,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="fixed inset-0 z-50 bg-overlay backdrop-blur-sm flex items-center justify-center p-4"
-                onClick={onClose}
+                onClick={requestClose}
             >
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -156,8 +165,9 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                             </button>
                         )}
                         <button
-                            onClick={onClose}
-                            className="p-2 hover:bg-hover-bg rounded-lg transition-colors"
+                            onClick={requestClose}
+                            disabled={isSaving}
+                            className="p-2 hover:bg-hover-bg rounded-lg transition-colors disabled:cursor-wait disabled:opacity-50"
                         >
                             <X size={20} className="text-text-secondary" />
                         </button>
@@ -340,9 +350,13 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
 
                     {/* Footer */}
                     <div className="flex justify-end gap-3 p-5 border-t border-glass-border bg-surface">
+                        {saveError ? (
+                            <p role="alert" className="mr-auto self-center text-sm text-red-300">{saveError}</p>
+                        ) : null}
                         <button
-                            onClick={onClose}
-                            className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
+                            onClick={requestClose}
+                            disabled={isSaving}
+                            className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors disabled:cursor-wait disabled:opacity-50"
                         >
                             {tc("cancel")}
                         </button>

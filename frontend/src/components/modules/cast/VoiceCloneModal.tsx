@@ -9,9 +9,11 @@
  *   - Shows character context (name + description) as reference
  *   - Allow closing during clone with confirmation
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Upload, Loader2, Check, Users } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { Dialog } from "@omnistudio/ui";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import { api, type CustomVoice } from "@/lib/api";
 
 const ALLOWED_TYPES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave", "audio/x-m4a", "audio/mp4"];
@@ -31,6 +33,11 @@ type Phase = "pick" | "uploading" | "cloning" | "done" | "error";
 
 export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterName, characterDescription, onCreated }: VoiceCloneModalProps) {
     const t = useTranslations("voiceClone");
+    const tc = useTranslations('common');
+    const operation = useRef(false);
+    const alive = useRef(true);
+    const visible = useRef(isOpen); visible.current = isOpen;
+    useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     const [file, setFile] = useState<File | null>(null);
     const [label, setLabel] = useState("");
     const [phase, setPhase] = useState<Phase>("pick");
@@ -52,7 +59,7 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
     const inFlight = phase === "uploading" || phase === "cloning";
 
     const handleClose = () => {
-        if (inFlight) {
+        if (inFlight || !!file || !!label.trim()) {
             setConfirmClose(true);
             return;
         }
@@ -61,7 +68,8 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
     };
 
     const handleForceClose = () => {
-        reset();
+        if (!inFlight) reset();
+        else setConfirmClose(false);
         onClose();
     };
 
@@ -90,6 +98,8 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
 
     const handleSubmit = async () => {
         if (!file || !label.trim()) return;
+        if (operation.current) return;
+        operation.current = true;
         setErrorMsg(null);
         setPhase("uploading");
         try {
@@ -103,36 +113,35 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
                 label: label.trim(),
             });
 
+            if (!alive.current) return;
             setPhase("done");
-            setTimeout(() => {
-                onCreated(voice);
-                reset();
-                onClose();
-            }, 600);
+            onCreated(voice);
+            reset();
+            if (visible.current) onClose();
         } catch (e: any) {
+            if (!alive.current) return;
             setErrorMsg(e?.message || "Clone failed");
             setPhase("error");
-        }
+        } finally { operation.current = false; }
     };
 
-    return (
-        <div className="fixed inset-0 z-[110] grid place-items-center bg-overlay backdrop-blur-sm" onClick={handleClose}>
-            <div
-                className="w-full max-w-lg rounded-2xl border border-glass-border bg-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.7)]"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-glass-border">
-                    <h2 className="text-display font-medium text-foreground">{t("title")}</h2>
+    return <><Dialog isOpen title={t('title')} closeLabel={t('close')} onOpenChange={open => { if (!open) handleClose(); }}
+        className="!w-[min(700px,calc(100vw-2rem))] !max-w-none" isDismissable footer={<>
                     <button
                         onClick={handleClose}
-                        aria-label={t("close")}
-                        className="p-1.5 rounded-lg hover:bg-hover-bg text-text-muted hover:text-foreground transition-colors"
+                        className="inline-flex items-center px-3 py-1.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
                     >
-                        <X size={15} />
+                        {t("cancel")}
                     </button>
-                </div>
-
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!file || !label.trim() || inFlight || phase === "done"}
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.75rem] font-semibold"
+                    >
+                        {phase === "done" ? <Check size={12} /> : null}
+                        {phase === "done" ? t("done") : t("submit")}
+                    </button>
+                </>}>
                 {/* Body */}
                 <div className="px-5 py-4 space-y-4">
                     {/* Character context panel */}
@@ -209,7 +218,7 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
                         </label>
                         <input
                             type="text"
-                            value={label}
+                            aria-label={t("labelLabel")} value={label}
                             onChange={(e) => setLabel(e.target.value.slice(0, 30))}
                             placeholder={t("labelPlaceholder")}
                             disabled={inFlight}
@@ -240,54 +249,10 @@ export default function VoiceCloneModal({ isOpen, onClose, seriesId, characterNa
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-glass-border">
-                    <button
-                        onClick={handleClose}
-                        className="inline-flex items-center px-3 py-1.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground hover:bg-hover-bg transition-colors text-[0.75rem]"
-                    >
-                        {t("cancel")}
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={!file || !label.trim() || inFlight || phase === "done"}
-                        className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-white border border-[rgba(100,108,255,0.65)] shadow-[inset_0_1.5px_0_rgba(255,255,255,0.14)] hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-[0.75rem] font-semibold"
-                    >
-                        {phase === "done" ? <Check size={12} /> : null}
-                        {phase === "done" ? t("done") : t("submit")}
-                    </button>
-                </div>
-            </div>
-
-            {/* Confirm close dialog during clone */}
-            {confirmClose && (
-                <div
-                    className="fixed inset-0 z-[120] grid place-items-center bg-overlay/60"
-                    onClick={(e) => { e.stopPropagation(); setConfirmClose(false); }}
-                >
-                    <div
-                        className="w-full max-w-xs rounded-xl border border-glass-border bg-elevated p-5 shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)]"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <p className="text-[0.8125rem] text-foreground font-medium mb-1">{t("confirmCloseTitle")}</p>
-                        <p className="text-[0.75rem] text-text-secondary mb-4">{t("confirmCloseBody")}</p>
-                        <div className="flex items-center gap-2 justify-end">
-                            <button
-                                onClick={() => setConfirmClose(false)}
-                                className="px-3 py-1.5 rounded-md bg-glass border border-glass-border text-text-secondary hover:text-foreground text-[0.75rem] transition-colors"
-                            >
-                                {t("confirmCloseStay")}
-                            </button>
-                            <button
-                                onClick={handleForceClose}
-                                className="px-3 py-1.5 rounded-md bg-status-failed-bg border border-status-failed-border text-status-failed-fg hover:bg-status-failed-bg/80 text-[0.75rem] font-medium transition-colors"
-                            >
-                                {t("confirmCloseLeave")}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+    </Dialog><ConfirmDialog open={confirmClose}
+        title={inFlight ? t('confirmCloseTitle') : tc('unsavedChangesTitle')}
+        message={inFlight ? t('confirmCloseBody') : tc('unsavedChangesMessage')}
+        confirmLabel={inFlight ? t('confirmCloseLeave') : tc('discardChanges')}
+        cancelLabel={inFlight ? t('confirmCloseStay') : tc('keepEditing')}
+        onCancel={() => setConfirmClose(false)} onConfirm={handleForceClose} /></>;
 }

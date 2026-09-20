@@ -12,6 +12,10 @@ describe('frontend dev runtime', () => {
         expect(authRewrite?.destination).toMatch(/\/auth\/:path\*$/);
     });
 
+    it('keeps the development proxy alive for long-running AI requests', () => {
+        expect(nextConfig.experimental?.proxyTimeout).toBeGreaterThanOrEqual(300_000);
+    });
+
     it('routes npm run dev through the repo-controlled wrapper script', () => {
         expect(packageJson.scripts.dev).toBe('node ./scripts/run-next-dev.mjs');
     });

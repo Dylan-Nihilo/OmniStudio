@@ -16,6 +16,7 @@
 // Used by: Studio ShotCard pending branch. Container is provided by the
 // parent; we render content + a modal portal.
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { createPortal } from "react-dom";
 import { Loader2, X, AlertTriangle, FileText, Copy, Check, RefreshCw, Terminal } from "lucide-react";
 import { api } from "@/lib/api";
@@ -54,6 +55,7 @@ export function PendingTaskAffordance({
     onCancel,
     compact = false,
 }: Props) {
+    const t = useTranslations("pendingTask");
     const [now, setNow] = useState(() => Date.now());
     const [mountedAtMs] = useState(() => Date.now());
     useEffect(() => {
@@ -80,7 +82,7 @@ export function PendingTaskAffordance({
         try {
             await onCancel();
         } catch (err) {
-            setCancelError(err instanceof Error ? err.message : "Cancel failed");
+            setCancelError(err instanceof Error ? err.message : t("cancelFailed"));
         } finally {
             setCanceling(false);
         }
@@ -113,7 +115,7 @@ export function PendingTaskAffordance({
                             disabled={canceling}
                             className="rounded-md border border-red-300/30 bg-red-400/10 px-2 py-[3px] font-mono text-[0.59375rem] font-medium uppercase tracking-[0.2em] text-red-200/95 transition-colors hover:bg-red-400/20 disabled:cursor-wait disabled:opacity-60"
                         >
-                            {canceling ? "Canceling…" : "Cancel"}
+                            {canceling ? t("canceling") : t("cancel")}
                         </button>
                     ) : null}
                     <button
@@ -124,7 +126,7 @@ export function PendingTaskAffordance({
                         }}
                         className="rounded-md border border-foreground/15 bg-black/30 px-2 py-[3px] font-mono text-[0.59375rem] font-medium uppercase tracking-[0.2em] text-text-secondary/95 transition-colors hover:border-primary/45 hover:text-foreground"
                     >
-                        Diagnose
+                        {t("diagnose")}
                     </button>
                 </div>
             ) : null}
@@ -151,6 +153,7 @@ interface DiagnoseModalProps {
 }
 
 export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalProps) {
+    const t = useTranslations("pendingTask");
     type HealthState =
         | { kind: "loading" }
         | { kind: "ok"; data: Awaited<ReturnType<typeof api.healthCheck>> }
@@ -219,7 +222,7 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
             />
             <div
                 role="dialog"
-                aria-label="Diagnose stuck task"
+                aria-label={t("title")}
                 className="fixed left-1/2 top-1/2 z-[61] flex w-[min(720px,94vw)] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[12px] border border-glass-border bg-elevated shadow-[0_24px_48px_-22px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.06)]"
             >
                 <div aria-hidden="true" className="h-[2px] shrink-0 bg-gradient-to-r from-amber-300/85 via-amber-300/35 to-transparent" />
@@ -227,24 +230,24 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
                     <div className="flex items-center gap-2">
                         <AlertTriangle size={14} className="text-amber-300" aria-hidden="true" />
                         <div className="font-display text-[0.875rem] font-medium tracking-[-0.005em] text-foreground">
-                            Diagnose stuck task
+                            {t("title")}
                         </div>
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
-                        aria-label="Close"
+                        aria-label={t("close")}
                         className="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground"
                     >
                         <X size={14} aria-hidden="true" />
                     </button>
                 </header>
                 <div className="space-y-3 overflow-y-auto px-4 py-4 text-[0.78125rem] leading-[1.55] text-text-secondary/95">
-                    <Row label="Elapsed">
+                    <Row label={t("elapsed")}>
                         <span className="font-mono">{elapsedLabel}</span>
                     </Row>
                     {taskId ? (
-                        <Row label="Task ID">
+                        <Row label={t("taskId")}>
                             <button
                                 type="button"
                                 onClick={() => copy(taskId, "task")}
@@ -255,22 +258,22 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
                             </button>
                         </Row>
                     ) : null}
-                    <Row label="Backend">
+                    <Row label={t("backend")}>
                         {health.kind === "loading" ? (
-                            <span className="font-mono text-text-muted/85">checking…</span>
+                            <span className="font-mono text-text-muted/85">{t("checking")}</span>
                         ) : health.kind === "ok" ? (
-                            <span className="font-mono text-emerald-300">reachable · {health.data.studio_projects} project(s)</span>
+                            <span className="font-mono text-emerald-300">{t("reachable", { count: health.data.studio_projects })}</span>
                         ) : (
-                            <span className="font-mono text-red-300">unreachable · {health.message}</span>
+                            <span className="font-mono text-red-300">{t("unreachable", { message: health.message })}</span>
                         )}
                     </Row>
                     {health.kind === "ok" ? (
-                        <Row label="Log file">
+                        <Row label={t("logFile")}>
                             <button
                                 type="button"
                                 onClick={() => copy(health.data.log_file, "log_path")}
                                 className="inline-flex items-center gap-1.5 rounded border border-glass-border bg-black/35 px-2 py-[3px] font-mono text-[0.65625rem] tracking-tight text-foreground transition-colors hover:border-primary/45"
-                                title="Copy log path"
+                                title={t("copyLogPath")}
                             >
                                 <FileText size={11} aria-hidden="true" />
                                 <span className="truncate max-w-[420px]">{health.data.log_file}</span>
@@ -296,8 +299,8 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
                                 <button
                                     type="button"
                                     onClick={loadLog}
-                                    aria-label="Reload log"
-                                    title="Reload"
+                                    aria-label={t("reloadLog")}
+                                    title={t("reloadLog")}
                                     className="grid h-6 w-6 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground"
                                 >
                                     <RefreshCw size={11} aria-hidden="true" />
@@ -306,8 +309,8 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
                                     <button
                                         type="button"
                                         onClick={() => copy(log.data.lines.join("\n"), "log_text")}
-                                        aria-label="Copy full log text"
-                                        title="Copy full tail"
+                                        aria-label={t("copyFullLog")}
+                                        title={t("copyFullLog")}
                                         className="grid h-6 w-6 place-items-center rounded text-text-muted hover:bg-hover-bg hover:text-foreground"
                                     >
                                         {copied === "log_text" ? <Check size={11} /> : <Copy size={11} />}
@@ -322,8 +325,8 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
                         {log.kind === "ok" && log.data.errors.length > 0 ? (
                             <>
                                 <div className="flex items-center justify-between gap-2 border-b border-red-400/15 bg-red-500/[0.08] px-3 py-1 font-mono text-[0.5625rem] font-medium uppercase tracking-[0.22em] text-red-200/95">
-                                    <span>① Errors only · {log.data.errors.length} rows</span>
-                                    <span className="text-red-200/70 normal-case tracking-tight">root cause is usually here</span>
+                                    <span>{t("errorsOnly", { count: log.data.errors.length })}</span>
+                                    <span className="text-red-200/70 normal-case tracking-tight">{t("rootCauseHint")}</span>
                                 </div>
                                 <div className="max-h-[120px] overflow-y-auto border-b border-glass-border bg-red-500/[0.05] px-3 py-1.5 font-mono text-[0.625rem] leading-[1.6] text-red-200/95">
                                     {log.data.errors.map((line, i) => (
@@ -336,18 +339,18 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
                             around the errors above (what was running,
                             what the request looked like, etc.). */}
                         <div className="border-b border-glass-border bg-black/20 px-3 py-1 font-mono text-[0.5625rem] font-medium uppercase tracking-[0.22em] text-text-muted/85">
-                            ② Full tail · last {log.kind === "ok" ? log.data.returned_lines ?? log.data.lines.length : "200"} lines
+                            {t("fullTail", { count: log.kind === "ok" ? log.data.returned_lines ?? log.data.lines.length : 200 })}
                         </div>
                         <div className="max-h-[280px] overflow-y-auto px-3 py-2 font-mono text-[0.625rem] leading-[1.55] text-text-secondary/95">
                             {log.kind === "loading" ? (
-                                <div className="text-text-muted/85">loading…</div>
+                                <div className="text-text-muted/85">{t("loading")}</div>
                             ) : log.kind === "error" ? (
-                                <div className="text-red-300">Could not read log: {log.message}</div>
+                                <div className="text-red-300">{t("logReadFailed", { message: log.message })}</div>
                             ) : log.kind === "ok" && log.data.missing ? (
-                                <div className="text-text-muted/85">Log file does not exist yet at {log.data.path}.</div>
+                                <div className="text-text-muted/85">{t("logMissing", { path: log.data.path })}</div>
                             ) : log.kind === "ok" ? (
                                 log.data.lines.length === 0 ? (
-                                    <div className="text-text-muted/85">Log is empty.</div>
+                                    <div className="text-text-muted/85">{t("logEmpty")}</div>
                                 ) : (
                                     log.data.lines.map((line, i) => (
                                         <div key={i} className="whitespace-pre-wrap break-words">{line}</div>
@@ -359,13 +362,13 @@ export function DiagnoseModal({ taskId, elapsedLabel, onClose }: DiagnoseModalPr
 
                     <div className="rounded-md border border-dashed border-glass-border bg-black/20 px-3 py-2.5 text-[0.71875rem] leading-[1.55] text-text-secondary/85">
                         <div className="mb-1 font-mono text-[0.5625rem] font-medium uppercase tracking-[0.28em] text-text-muted/85">
-                            Quick checks
+                            {t("quickChecks")}
                         </div>
                         <ol className="list-decimal space-y-1 pl-4">
-                            <li>Press F5 to refresh — polling may have stalled.</li>
-                            <li>If backend is unreachable, the desktop app or <code className="rounded bg-elevated px-1 font-mono text-[0.65625rem]">./start_backend.sh</code> may have stopped. Restart it.</li>
-                            <li>Look at the red rows above for the immediate cause (provider auth, network, model misuse).</li>
-                            <li>Backend restart wipes in-memory tasks; a stuck task is automatically marked failed at startup, so retry usually works.</li>
+                            <li>{t("refreshHint")}</li>
+                            <li>{t("backendHint")} <code className="rounded bg-elevated px-1 font-mono text-[0.65625rem]">./start_backend.sh</code></li>
+                            <li>{t("causeHint")}</li>
+                            <li>{t("restartHint")}</li>
                         </ol>
                     </div>
                 </div>
