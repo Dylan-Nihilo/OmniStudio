@@ -6261,7 +6261,7 @@ def preview_dub(script_id: str, frame_id: str, request: DubPreviewRequest, backg
                     raise GenerationInProgressError("A lip-sync preview is already being generated")
                 pipeline._save_fields(frame, dub_generation_status=GenerationStatus.PENDING,
                     dub_generation_id=job_item.id, dub_provider_task_id=None, dub_error=None)
-                background_tasks.add_task(_start_production_item, job_item.id)
+                background_tasks.add_task(_context_call(_start_production_item, job_item.id))
                 return signed_response(script)
         updated_script = pipeline.preview_dub(
             script_id, frame_id,
