@@ -58,8 +58,12 @@ VOICES = {
     'loongstella': {'model_id': 'loongstella_v2', 'name': 'Stella (English Female)', 'gender': 'Female', 'model': 'cosyvoice-v2'},
     'loongbella': {'model_id': 'loongbella_v2', 'name': 'Bella (English Female)', 'gender': 'Female', 'model': 'cosyvoice-v2'},
     # === cosyvoice-v3 voices (require cosyvoice-v3-flash or cosyvoice-v3-plus) ===
-    'longanyang': {'model_id': 'longanyang', 'name': '龙安阳 (阳光少年)', 'gender': 'Male', 'model': 'cosyvoice-v3-flash'},
-    'longanhuan': {'model_id': 'longanhuan', 'name': '龙安欢 (活力女)', 'gender': 'Female', 'model': 'cosyvoice-v3-flash'},
+    # These system voices accept plain CosyVoice synthesis, but the current
+    # DashScope engine rejects the WebSocket ``instruction`` field for them
+    # with InvalidParameter/428. Keep the capability explicit so dialogue
+    # generation drops optional delivery hints instead of failing the line.
+    'longanyang': {'model_id': 'longanyang', 'name': '龙安阳 (阳光少年)', 'gender': 'Male', 'model': 'cosyvoice-v3-flash', 'supports_instruction': False},
+    'longanhuan': {'model_id': 'longanhuan', 'name': '龙安欢 (活力女)', 'gender': 'Female', 'model': 'cosyvoice-v3-flash', 'supports_instruction': False},
     # === Qwen3-TTS voices (PR-3g Stage A — added 2026-05-25 from official doc)
     # Use qwen3-tts-flash for standard / qwen3-tts-instruct-flash for instructions
     # control. Voice IDs are case-sensitive (Cherry not cherry). Supports 10 langs:
