@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { VIDEO_R2V_MODELS, isR2vImageBased } from '@/lib/modelCatalog';
 import CreditCost from '@/components/billing/CreditCost';
-import { useBillingStore } from '@/store/billingStore';
+import { usePricingTable } from "@/store/billingStore";
 import { creditLabel, unitLabels } from '@/lib/modelCost';
 import { mergePlanSegment, planDuration, segmentDuration, splitPlanSegment, type PlanOverview, type PlanSettings, type PlannedSegment, type PlannedShot, type ProductionPlan } from '@/lib/productionPlan';
 import type { Project } from '@/store/projectStore';
@@ -35,7 +35,7 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
     const [draft, setDraft] = useState<ProductionPlan | null>(project.production_plan_draft ?? null);
     const [settings, setSettings] = useState<PlanSettings>({ model: modelId, target_duration: null, pacing: 'balanced', instruction: '' });
     const tBilling = useTranslations('billing');
-    const pricing = useBillingStore((state) => state.pricing);
+    const pricing = usePricingTable();
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [planningError, setPlanningError] = useState('');

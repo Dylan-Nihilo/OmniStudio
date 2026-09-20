@@ -10,7 +10,7 @@
  * there is nothing to be short of, and a red "not enough credits" on a generation that will
  * succeed is worse than saying nothing at all.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import CreditCost from '@/components/billing/CreditCost';
@@ -92,5 +92,59 @@ describe('a model with no price', () => {
         setBilling({ enabled: false, ratesPublished: true });
         render(<CreditCost modelId="something/unpriced#i2v" quantity={5} />);
         expect(screen.getByText('unpriced')).toBeInTheDocument();
+    });
+});
+
+describe('loading the rate table', () => {
+    it('fetches it for a picker with no cost badge on screen', async () => {
+        // The regression this pins: the fetch lived inside CreditCost, so every picker that
+        // labels its options with a rate read a table nothing had loaded. On the script step
+        // — a dropdown and an estimate, no badge — that meant no credits at all.
+        const pricingTable = vi.fn().mockResolvedValue(PRICING);
+        vi.doMock('@/lib/billing', () => ({ billingApi: { pricingTable, quote: vi.fn() } }));
+        vi.resetModules();
+
+        const { usePricingTable, useBillingStore: store } = await import('@/store/billingStore');
+        store.setState({ enabled: false, ratesPublished: true, pricing: null });
+
+        const Picker = () => {
+            const pricing = usePricingTable();
+            return <span>{pricing ? 'rates loaded' : 'no rates'}</span>;
+        };
+        render(<Picker />);
+        await waitFor(() => expect(pricingTable).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(screen.getByText('rates loaded')).toBeInTheDocument());
+        vi.doUnmock('@/lib/billing');
+    });
+
+    it('answers many pickers with one request', async () => {
+        // A storyboard opens with a panel per shot; each one asks for the table.
+        const pricingTable = vi.fn().mockResolvedValue(PRICING);
+        vi.doMock('@/lib/billing', () => ({ billingApi: { pricingTable, quote: vi.fn() } }));
+        vi.resetModules();
+
+        const { usePricingTable, useBillingStore: store } = await import('@/store/billingStore');
+        store.setState({ enabled: false, ratesPublished: true, pricing: null });
+
+        const Picker = () => { usePricingTable(); return null; };
+        render(<><Picker /><Picker /><Picker /><Picker /></>);
+        await waitFor(() => expect(pricingTable).toHaveBeenCalled());
+        expect(pricingTable).toHaveBeenCalledTimes(1);
+        vi.doUnmock('@/lib/billing');
+    });
+
+    it('does not fetch on a deployment with nothing published', async () => {
+        const pricingTable = vi.fn().mockResolvedValue(PRICING);
+        vi.doMock('@/lib/billing', () => ({ billingApi: { pricingTable, quote: vi.fn() } }));
+        vi.resetModules();
+
+        const { usePricingTable, useBillingStore: store } = await import('@/store/billingStore');
+        store.setState({ enabled: false, ratesPublished: false, pricing: null });
+
+        const Picker = () => { usePricingTable(); return null; };
+        render(<Picker />);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(pricingTable).not.toHaveBeenCalled();
+        vi.doUnmock('@/lib/billing');
     });
 });

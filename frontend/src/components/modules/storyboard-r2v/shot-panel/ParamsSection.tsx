@@ -23,7 +23,7 @@ import { Dices, X, ChevronRight, RotateCcw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { I2VModelConfig, DurationConfig, ModelParamSupport } from "@/lib/modelCatalog";
 import CreditCost from "@/components/billing/CreditCost";
-import { useBillingStore } from "@/store/billingStore";
+import { usePricingTable } from "@/store/billingStore";
 import { creditLabel, unitLabels } from "@/lib/modelCost";
 import { usePanelSectionState } from "./usePanelSectionState";
 import SectionShell from "./SectionShell";
@@ -105,7 +105,7 @@ export default function ParamsSection({
         () => modelList.find((m) => m.id === params.model) ?? modelList[0],
         [modelList, params.model],
     );
-    const pricing = useBillingStore((state) => state.pricing);
+    const pricing = usePricingTable();
     const tBilling = useTranslations("billing");
     const modelParams: ModelParamSupport = activeModel?.params ?? {};
     const durationCfg: DurationConfig = activeModel?.duration ?? { type: "fixed", value: 5 };

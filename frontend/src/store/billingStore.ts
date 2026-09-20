@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { create } from "zustand";
 
 import { billingApi, type PlatformRole, type PricingTable, type WalletSummary } from "@/lib/billing";
@@ -26,6 +27,9 @@ interface BillingState {
     role: () => PlatformRole;
     isLow: () => boolean;
 }
+
+/** In-flight price-book fetch, shared so concurrent callers wait on one request. */
+let pricingRequest: Promise<void> | null = null;
 
 export const useBillingStore = create<BillingState>((set, get) => ({
     enabled: null,
@@ -58,11 +62,20 @@ export const useBillingStore = create<BillingState>((set, get) => ({
     },
 
     loadPricing: async () => {
-        try {
-            set({ pricing: await billingApi.pricingTable() });
-        } catch {
-            set({ pricing: null });
-        }
+        // Every picker on a screen asks for the table at once now that the hook fetches it.
+        // One request answers all of them; without this a storyboard full of shot panels
+        // would open with a dozen identical calls in flight.
+        if (pricingRequest) return pricingRequest;
+        pricingRequest = (async () => {
+            try {
+                set({ pricing: await billingApi.pricingTable() });
+            } catch {
+                set({ pricing: null });
+            } finally {
+                pricingRequest = null;
+            }
+        })();
+        return pricingRequest;
     },
 
     role: () => get().wallet?.role ?? null,
@@ -109,7 +122,28 @@ export function creditRange(pricing: PricingTable | null, modelId: string): { mi
     return { min: Math.min(...credits), max: Math.max(...credits), unit: rates[0].unit };
 }
 
-/** Subscribe to the published price book, so a picker label updates when root republishes. */
+/**
+ * The published price book, fetched on first use.
+ *
+ * This used to only subscribe, and the fetch lived inside CreditCost. Every picker that
+ * labels its options with a rate reads the table too, so on any screen without a cost badge
+ * mounted the table stayed null and all those labels silently rendered as nothing — which
+ * is exactly how the script-model dropdown came to show no credits at all. Loading is the
+ * hook's job so a caller cannot forget it.
+ *
+ * Returns null while rates are not meant to be shown, so a deployment that neither charges
+ * nor publishes renders no costs rather than a zero.
+ */
 export function usePricingTable(): PricingTable | null {
-    return useBillingStore((state) => state.pricing);
+    const enabled = useBillingStore((state) => state.enabled);
+    const ratesPublished = useBillingStore((state) => state.ratesPublished);
+    const pricing = useBillingStore((state) => state.pricing);
+    const loadPricing = useBillingStore((state) => state.loadPricing);
+    const visible = Boolean(enabled) || ratesPublished;
+
+    useEffect(() => {
+        if (visible && !pricing) void loadPricing();
+    }, [visible, pricing, loadPricing]);
+
+    return visible ? pricing : null;
 }

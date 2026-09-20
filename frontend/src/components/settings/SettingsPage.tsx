@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Save, RefreshCw, WifiOff, Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 import BillingAdminPanel from "@/components/billing/BillingAdminPanel";
-import { useBillingStore } from "@/store/billingStore";
+import { useBillingStore, usePricingTable } from "@/store/billingStore";
 import { unitLabels as unitLabelsFor, withCreditLabel } from "@/lib/modelCost";
 import { billingAdminApi, type ProviderReadiness } from "@/lib/billing";
 import axios from "axios";
@@ -212,7 +212,7 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
   const platformManaged = useBillingStore((state) => state.wallet?.platform_managed ?? false);
   // Users on a hosted plan pick a tier and spend credits; showing the rate at the point of
   // choice is what makes the tiers legible. Absent a published price book this adds nothing.
-  const pricing = useBillingStore((state) => state.pricing);
+  const pricing = usePricingTable();
   const unitLabels = unitLabelsFor(tBilling);
   const withCost = (id: string, description: string) => withCreditLabel(description, pricing, id, unitLabels);
   // Credentials are per provider family, but they are only meaningful as "which models does

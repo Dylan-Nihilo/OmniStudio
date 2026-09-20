@@ -7,7 +7,7 @@ import { SelectField } from "@omnistudio/ui";
 import { api } from "@/lib/api";
 import { getTextTiers } from "@/lib/modelCatalog";
 import { creditLabel, unitLabels } from "@/lib/modelCost";
-import { useBillingStore } from "@/store/billingStore";
+import { usePricingTable } from "@/store/billingStore";
 import { toast } from "@/store/toastStore";
 
 interface TextTierSelectProps {
@@ -34,7 +34,7 @@ const INHERIT = "__default__";
 export default function TextTierSelect({ projectId, onEffectiveModelChange, isDisabled, className }: TextTierSelectProps) {
     const t = useTranslations("scriptPage");
     const tBilling = useTranslations("billing");
-    const pricing = useBillingStore((state) => state.pricing);
+    const pricing = usePricingTable();
     const [model, setModel] = useState<string>("");
     const [saving, setSaving] = useState(false);
 

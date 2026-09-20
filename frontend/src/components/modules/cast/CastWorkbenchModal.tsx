@@ -32,7 +32,7 @@ import { getAssetUrl } from "@/lib/utils";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
 import CreditCost from "@/components/billing/CreditCost";
-import { useBillingStore } from "@/store/billingStore";
+import { usePricingTable } from "@/store/billingStore";
 import { ASSET_SIZE_BY_RATIO, imageCostParams, unitLabels, withCreditLabel } from "@/lib/modelCost";
 
 export type CastKind = "character" | "scene" | "prop";
@@ -287,7 +287,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     // user has selected gpt-image-2 (override or project default).
     const selectedModelId = modelOverride || currentProject?.model_settings?.t2i_model || "wan2.1-t2i";
     const isGptImage2 = selectedModelId === "gpt-image-2";
-    const pricing = useBillingStore((state) => state.pricing);
+    const pricing = usePricingTable();
     // The rate belongs on the option itself: choosing a tier is a spending decision, and it
     // is the only thing that explains why the tiers differ.
     const pricedImageModels = useMemo(

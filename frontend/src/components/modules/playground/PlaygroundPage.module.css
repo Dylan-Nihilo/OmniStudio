@@ -8,7 +8,10 @@
 .fields { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; scrollbar-width: thin; }
 .fields > section + section { padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--color-border-default); }
 .fields h2 { font-size: 12px; font-weight: 500; margin-bottom: 12px; }
-.generate { padding: 12px 20px; border-top: 1px solid var(--color-border-default); background: var(--color-bg-surface); flex-shrink: 0; }
+/* Cost sits on its own line above the full-width run button, right-aligned so the eye
+   lands on it on the way to the button. */
+.generate { padding: 12px 20px; border-top: 1px solid var(--color-border-default); background: var(--color-bg-surface); flex-shrink: 0; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.generate > span { align-self: flex-end; }
 .generate > button { width: 100%; }
 .results { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .navigation { min-width: 0; padding-top: 8px; }

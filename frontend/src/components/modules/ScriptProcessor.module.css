@@ -3,7 +3,12 @@
 .header > div:first-child { min-width: 0; }
 .header p { font-size: 10px; color: var(--color-text-muted); }
 .header h2 { margin-top: 6px; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
-.actions { display: flex; flex-shrink: 0; gap: 16px; }
+.actions { display: flex; flex-shrink: 0; align-items: flex-end; gap: 16px; }
+/* The tier picker carries a label and so stands taller than the buttons beside it. Without
+   an explicit alignment the row stretched every control to the tallest one, which is what
+   left the buttons and the select visibly out of line. */
+.tier { width: 148px; }
+.tierCost { padding-bottom: 9px; font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; }
 .panels { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; padding: 0 0 32px 24px; }
 .paper { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; border: 1px solid var(--color-border-default); border-radius: 16px; background: var(--color-bg-surface); }
 .editorTabs { display: flex; flex: 1; flex-direction: column; min-height: 0; gap: 0; }

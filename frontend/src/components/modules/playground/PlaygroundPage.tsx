@@ -15,6 +15,8 @@ import { usePlaygroundStore, type PlaygroundMode, type QueuedRequest } from './u
 import { playgroundApi } from '@/lib/api';
 import { toast } from '@/store/toastStore';
 import { normalizeGeneration, normalizeTemplate } from './normalizers';
+import CreditCost from '@/components/billing/CreditCost';
+import { imageCostParams } from '@/lib/modelCost';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -57,6 +59,16 @@ export default function PlaygroundPage() {
   const referenceLimit = getModelsForMode(mode).find(model => model.id === modelId)?.maxReferenceImages;
   const tooManyReferences = !!referenceLimit && inputMedia.length > referenceLimit;
   const batchSize = usePlaygroundStore((s) => s.batchSize);
+  // A sandbox is where people try the expensive tiers back to back, so what the next run
+  // costs matters more here than anywhere.
+  const isVideoMode = mode === "t2v" || mode === "i2v" || mode === "r2v" || mode === "v2v";
+  const playgroundQuantity = isVideoMode
+    ? Number(parameters.duration ?? 5) * Math.max(1, batchSize)
+    : Math.max(1, batchSize);
+  const playgroundCostParams = isVideoMode
+    ? (parameters.resolution ? { resolution: String(parameters.resolution) } : {})
+    : imageCostParams(parameters.size ? String(parameters.size) : undefined,
+                      parameters.quality ? String(parameters.quality) : undefined);
   const history = usePlaygroundStore((s) => s.history);
   const setHistory = usePlaygroundStore((s) => s.setHistory);
   const setTemplates = usePlaygroundStore((s) => s.setTemplates);
@@ -226,6 +238,9 @@ export default function PlaygroundPage() {
             </section>
           </div>
           <footer className={styles.generate}>
+            {/* Video bills per second and images per image, so the quantity is the duration
+                for one and the batch size for the other. */}
+            <CreditCost modelId={modelId} quantity={playgroundQuantity} params={playgroundCostParams} />
             <Button onPress={handleGenerate} isDisabled={!canGenerate}>
               <Sparkles size={16} aria-hidden="true" />
               {batchSize > 1 ? t('compose.generateBatch', { count: batchSize }) : t('compose.generate')}

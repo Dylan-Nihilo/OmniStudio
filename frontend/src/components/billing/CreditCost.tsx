@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import clsx from "clsx";
 
 import { billingApi } from "@/lib/billing";
-import { creditsFor, useBillingStore } from "@/store/billingStore";
+import { creditsFor, useBillingStore, usePricingTable } from "@/store/billingStore";
 import styles from "./CreditCost.module.css";
 
 interface CreditCostProps {
@@ -32,14 +32,12 @@ export default function CreditCost({ modelId, params = {}, quantity = 1, exact =
     // UI and gives users a stretch where the cost is visible before it is taken.
     const ratesPublished = useBillingStore((state) => state.ratesPublished);
     const visible = Boolean(enabled) || ratesPublished;
-    const pricing = useBillingStore((state) => state.pricing);
-    const loadPricing = useBillingStore((state) => state.loadPricing);
+    // The hook fetches the table as well as subscribing to it, which is what every rate
+    // label on the page depends on — that fetch used to live only in this component, so a
+    // screen without a cost badge had no rates at all.
+    const pricing = usePricingTable();
     const wallet = useBillingStore((state) => state.wallet);
     const [quoted, setQuoted] = useState<number | null>(null);
-
-    useEffect(() => {
-        if (visible && !pricing) void loadPricing();
-    }, [visible, pricing, loadPricing]);
 
     useEffect(() => {
         if (!visible || !exact || !modelId) return;

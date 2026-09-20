@@ -6,7 +6,7 @@ import { Button, IconButton, LoadingState } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import CreditCost from "@/components/billing/CreditCost";
-import { useBillingStore } from "@/store/billingStore";
+import { usePricingTable } from "@/store/billingStore";
 import { creditLabel, imageCostParams, unitLabels } from "@/lib/modelCost";
 import { GLOBAL_IMAGE_MODELS } from "@/lib/modelCatalog";
 import { SelectField } from "@omnistudio/ui";
@@ -61,7 +61,7 @@ export default function T2ISubsection({
     checking, refreshFailed, refreshing, onRefresh, onSelect, onRemove, onGenerate, onUpload,
     imageModelId, imageSize, onImageModelChange, imageModelSaving = false,
 }: T2ISubsectionProps) {
-    const pricing = useBillingStore((state) => state.pricing);
+    const pricing = usePricingTable();
     const tBilling = useTranslations("billing");
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = useState(true);

@@ -16,7 +16,7 @@ import {
 } from "@/lib/modelCatalog";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
 import CreditCost from "@/components/billing/CreditCost";
-import { useBillingStore } from "@/store/billingStore";
+import { usePricingTable } from "@/store/billingStore";
 import { unitLabels, withCreditLabel } from "@/lib/modelCost";
 
 interface VideoSidebarProps {
@@ -29,7 +29,7 @@ interface VideoSidebarProps {
 export default function VideoSidebar({ tasks, onRemix, params, setParams }: VideoSidebarProps) {
     const tm = useTranslations("motion");
     const tBilling = useTranslations("billing");
-    const pricing = useBillingStore((state) => state.pricing);
+    const pricing = usePricingTable();
     const pricedVideoModels = useMemo(
         () => VIDEO_I2V_MODELS.map((model) => ({
             ...model,
