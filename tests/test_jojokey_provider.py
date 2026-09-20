@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import pytest
-from requests.exceptions import ConnectTimeout
+from requests.exceptions import ConnectTimeout, ReadTimeout
 
 from src.apps.comic_gen.models import VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
@@ -213,6 +213,39 @@ def test_upload_failure_stops_video_submission_and_reuses_key_on_retry(monkeypat
     assert len(calls) == 2
     assert all(call["url"].endswith("/video-cn/assets") for call in calls)
     assert calls[0]["key"] == calls[1]["key"]
+
+
+def test_local_upload_retries_transient_read_timeout_with_same_idempotency_key(
+    monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _: None)
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output/ref.png").write_bytes(b"image")
+    calls = []
+
+    def upload(url, **kwargs):
+        if "files" not in kwargs:
+            return _Response(payload={"id": "cnv_1", "status": "queued"})
+        calls.append(kwargs["headers"]["Idempotency-Key"])
+        if len(calls) == 1:
+            raise ReadTimeout("provider upload stalled")
+        return _Response(payload={"id": "upload_1", "source_url": "https://cdn.example.cn/ref.png"})
+
+    rec = _LocalUploadRecorder()
+    monkeypatch.setattr("src.models.jojokey.requests.post", upload)
+    monkeypatch.setattr("src.models.jojokey.requests.get", rec.get)
+    model = JojoKeyVideoModel({})
+
+    model.generate(
+        "ref", str(tmp_path / "out.mp4"), model="seedance-2.5-r2v",
+        generation_mode="r2v", ref_image_urls=["output/ref.png"],
+    )
+
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
 
 
 def test_i2v_sends_the_storyboard_frame_as_the_first_frame(recorder, tmp_path):

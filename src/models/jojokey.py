@@ -309,9 +309,24 @@ class JojoKeyVideoModel(VideoGenModel):
                         data["group_id"] = group_id
                 headers = self._headers(idempotency_key=key)
                 del headers["Content-Type"]  # requests supplies the multipart boundary.
-                source.seek(0)
-                response = requests.post(base + endpoint, headers=headers, data=data,
-                                         files={"file": (filename, source, content_type)}, timeout=120)
+                for attempt in range(2):
+                    source.seek(0)
+                    try:
+                        response = requests.post(
+                            base + endpoint,
+                            headers=headers,
+                            data=data,
+                            files={"file": (filename, source, content_type)},
+                            timeout=120,
+                        )
+                        break
+                    except (RequestsConnectionError, Timeout) as error:
+                        if attempt == 1:
+                            raise
+                        logger.warning(
+                            "[JojoKey] media upload interrupted (%s); retrying with the same idempotency key",
+                            type(error).__name__,
+                        )
         self._ensure_success(response, "media upload" if not asset_id else "media lookup")
         body = response.json()
         value = body.get("source_url") if line == "cn" else body.get("url")
