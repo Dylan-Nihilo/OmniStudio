@@ -89,6 +89,8 @@ function resolvePropImage(p: any): string | undefined {
     return p?.image_url || p?.reference_image_url;
 }
 
+import { episodeAssets } from "@/lib/episodeAssets";
+
 export default function Cast() {
     const tStep = useTranslations("stepHeader");
     const t = useTranslations("cast");
@@ -144,9 +146,10 @@ export default function Cast() {
                 propCounts.set(pid, (propCounts.get(pid) ?? 0) + 1);
             }
         }
-        const characterPool: any[] = currentProject?.characters ?? [];
-        const scenePool: any[] = currentProject?.scenes ?? [];
-        const propPool: any[] = currentProject?.props ?? [];
+        const assets = episodeAssets(currentProject);
+        const characterPool = assets.characters;
+        const scenePool = assets.scenes;
+        const propPool = assets.props;
 
         const characters: CastItem[] = characterPool.map((c: any) => {
             const imageUrl = resolveCharacterImage(c);

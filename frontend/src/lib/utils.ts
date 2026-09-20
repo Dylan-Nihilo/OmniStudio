@@ -8,7 +8,10 @@ export function cn(...inputs: ClassValue[]) {
 
 export function getAssetUrl(path: string | null | undefined): string {
     if (!path) return "";
-    const normalizedPath = path.replaceAll("\\", "/");
+    // V4 media was first persisted without the `output/` segment. Keep old
+    // browser-persisted project snapshots readable while new API payloads use
+    // the canonical managed-output reference.
+    const normalizedPath = path.replaceAll("\\", "/").replace(/^\/?remake_v4\//, "output/remake_v4/");
     const mediaBase = typeof window !== "undefined"
         && window.location.origin !== API_URL
         && !window.location.protocol.startsWith("tauri")

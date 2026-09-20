@@ -11,6 +11,7 @@ import PreviousEpisodeSummary from "@/components/modules/PreviousEpisodeSummary"
 import ReconcileModal from "@/components/modules/ReconcileModal";
 import { getApiErrorCode } from "@/lib/apiClient";
 import { getAssetUrl } from "@/lib/utils";
+import { episodeAssets } from "@/lib/episodeAssets";
 import { useEditLeaseStore } from "@/store/editLeaseStore";
 import ScriptWritingEditor from "./script-writing/ScriptWritingEditor";
 import ProductionGuide from "@/components/shared/ProductionGuide";
@@ -180,8 +181,7 @@ export default function ScriptProcessor() {
         }
     };
 
-    const scenes = currentProject?.scenes || [];
-    const characters = currentProject?.characters || [];
+    const { scenes, characters } = episodeAssets(currentProject);
     const scene = scenes.find(item => item.id === selectedScene) || scenes[0];
     const reference = scene?.image_url || scene?.image_asset?.variants?.find(variant => variant.id === scene.image_asset?.selected_id)?.url || scene?.image_asset?.variants?.[0]?.url;
     const outline = scenes.length ? <ol className={styles.outline}>{scenes.map((item, index) => <li key={item.id}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{item.name}</h3><p>{item.description}</p></div></li>)}</ol> : <EmptyState title={t("emptyOutline")} description={t("analysisHint")} media={<Film size={28} />} />;
