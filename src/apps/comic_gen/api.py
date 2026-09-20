@@ -5067,7 +5067,14 @@ def retry_video_task(script_id: str, task_id: str, background_tasks: BackgroundT
                     for job in _production_adapter().repository.list_jobs(workspace_id, project_id=script_id).items:
                         source = next((candidate for candidate in job.items if candidate.kind == "video" and candidate.status == "failed" and candidate.payload.get("legacy_task_id") == task_id), None)
                         if source:
-                            job_item = _production_adapter().retry(source.id)
+                            # A newly-created legacy VideoTask is a new generation intent.
+                            # Include its id in the durable retry key so an already
+                            # succeeded retry from an earlier click cannot be reused and
+                            # have its payload rewritten to point at this pending task.
+                            job_item = _production_adapter().retry(
+                                source.id,
+                                idempotency_key=f"retry:{source.id}:{task.id}",
+                            )
                             job_item = _production_adapter().repository.update_item_payload(
                                 job_item.id,
                                 {**job_item.payload, "legacy_task_id": task.id, "operation": "retry_precreated"},

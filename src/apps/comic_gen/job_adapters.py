@@ -100,11 +100,17 @@ class ProductionJobAdapter:
             return self.repository.transition_item(item.id, "canceled", error={"code": "CANCELED", "message": "任务已取消"})
         return item
 
-    def retry(self, item_id: str, *, workspace_id: str | None = None) -> JobItemRecord:
+    def retry(
+        self,
+        item_id: str,
+        *,
+        workspace_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> JobItemRecord:
         item = self._owned_item(item_id, workspace_id)
         if item.status != "failed":
             raise StorageError("only failed production items can be retried")
-        return self.repository.create_retry(item.id, f"retry:{item.id}")
+        return self.repository.create_retry(item.id, idempotency_key or f"retry:{item.id}")
 
     def recover(self, item_id: str, *, workspace_id: str | None = None) -> JobItemRecord:
         item = self._owned_item(item_id, workspace_id)
