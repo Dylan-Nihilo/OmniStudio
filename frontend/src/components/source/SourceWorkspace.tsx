@@ -76,6 +76,10 @@ export default function SourceWorkspace() {
     setLoading(true);
     try {
       const result = await sourceApi.list();
+      if (!Array.isArray(result?.items)) {
+        throw new Error(t("loadFailed"));
+      }
+      setError(null);
       setSources(result.items);
       const nextId = preferredId || selectedSourceId || result.items[0]?.id || null;
       setSelectedSourceId(nextId);
