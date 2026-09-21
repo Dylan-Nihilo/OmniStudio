@@ -108,6 +108,34 @@ beforeEach(() => {
 });
 
 describe("SourceWorkspace", () => {
+  it.each([
+    ["HTML fallback", "<!DOCTYPE html><html><body>Omni Studio</body></html>"],
+    ["missing items", {}],
+    ["null items", { items: null, total: 0 }],
+    ["non-array items", { items: {}, total: 0 }],
+    ["null response", null],
+  ])("keeps the import form usable and recovers after a %s list response", async (_label, response) => {
+    mocks.list.mockResolvedValueOnce(response);
+    renderWithIntl(<SourceWorkspace />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("来源加载失败，请重试。");
+    expect(screen.getByRole("textbox", { name: "来源标题" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "正文" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(await screen.findByRole("heading", { name: "既有来源" })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("accepts an empty source list without showing a load error", async () => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    renderWithIntl(<SourceWorkspace />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "正文" })).toBeEnabled();
+  });
+
   it("shows source import preview and does not confirm until a preview exists", async () => {
     renderWithIntl(<SourceWorkspace />);
 
