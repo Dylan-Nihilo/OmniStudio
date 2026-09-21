@@ -703,6 +703,8 @@ def test_source_analysis_batch_reports_partial_results_skips_and_retries(
     batch_response = client.post(f"/sources/{source['id']}/analysis/batch")
     assert batch_response.status_code == 201, batch_response.text
     batch = batch_response.json()
+    assert batch["status"] == "processing"
+    batch = client.get(f"/sources/{source['id']}/analysis/batches/{batch['id']}").json()
     assert batch["status"] == "partially_succeeded"
     assert batch["total"] == 3
     assert batch["succeeded"] == 1
@@ -726,6 +728,8 @@ def test_source_analysis_batch_reports_partial_results_skips_and_retries(
     )
     assert retried.status_code == 200, retried.text
     retried_batch = retried.json()
+    assert retried_batch["status"] == "processing"
+    retried_batch = client.get(f"/sources/{source['id']}/analysis/batches/{batch['id']}").json()
     assert retried_batch["status"] == "succeeded"
     assert retried_batch["succeeded"] == 2
     assert retried_batch["failed"] == 0
@@ -822,7 +826,8 @@ def test_source_analysis_batch_force_reanalyzes_current_revision(source_client, 
 
     forced = client.post(f"/sources/{source['id']}/analysis/batch", json={"force": True})
     assert forced.status_code == 201, forced.text
-    item = forced.json()["items"][0]
+    assert forced.json()["status"] == "processing"
+    item = client.get(f"/sources/{source['id']}/analysis/batches/{forced.json()['id']}").json()["items"][0]
     assert item["status"] == "succeeded"
     assert item["analysis_id"] != first["id"]
     assert item["attempt"] == 2
@@ -844,6 +849,7 @@ def test_source_analysis_batch_retry_can_target_one_failed_chapter(source_client
         lambda title, content: (_ for _ in ()).throw(RuntimeError("provider down")),
     )
     batch = client.post(f"/sources/{source['id']}/analysis/batch").json()
+    batch = client.get(f"/sources/{source['id']}/analysis/batches/{batch['id']}").json()
     assert batch["failed"] == 2
 
     monkeypatch.setattr(
@@ -857,6 +863,8 @@ def test_source_analysis_batch_retry_can_target_one_failed_chapter(source_client
     )
     assert retried.status_code == 200, retried.text
     result = retried.json()
+    assert result["status"] == "processing"
+    result = client.get(f"/sources/{source['id']}/analysis/batches/{batch['id']}").json()
     assert result["succeeded"] == 1
     assert result["failed"] == 1
     assert next(item for item in result["items"] if item["chapter_id"] == chapters[1]["id"])["status"] == "failed"

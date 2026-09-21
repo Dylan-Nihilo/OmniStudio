@@ -7,7 +7,7 @@ import hashlib
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
@@ -357,11 +357,19 @@ def process_analysis_batch_job(
     """Run a persisted analysis batch from the unified JobItem dispatcher."""
     chapter_ids = None
     if retry:
-        chapter_ids = repository.reset_failed_analysis_batch_items(
-            workspace_id=workspace_id,
-            batch_id=batch_id,
-            chapter_ids=retry_chapter_ids,
-        )
+        # API retries prepare pending items before responding. Task-center
+        # retries and restart recovery may still have failed items to reset.
+        batch = repository.get_analysis_batch(workspace_id, batch_id)
+        chapter_ids = retry_chapter_ids or [
+            str(item["chapter_id"]) for item in batch["items"]
+            if item["status"] in {"failed", "pending", "processing"}
+        ]
+        failed_ids = [str(item["chapter_id"]) for item in batch["items"]
+                      if item["status"] == "failed" and item["chapter_id"] in chapter_ids]
+        if failed_ids:
+            repository.reset_failed_analysis_batch_items(
+                workspace_id=workspace_id, batch_id=batch_id, chapter_ids=failed_ids,
+            )
     return _process_analysis_batch(
         None,
         repository,
@@ -851,13 +859,14 @@ def list_source_chapter_analysis_history(source_id: str, chapter_id: str, reques
 def analyze_source_batch(
     source_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: SourceAnalysisBatchRequest | None = None,
 ):
     repository = _repository(request)
     workspace_id = _workspace_id(request)
     options = payload or SourceAnalysisBatchRequest()
     from ...storage.job_repository import JobRepository
-    from .api import _production_adapter
+    from .api import _context_call, _start_production_item
 
     job_repository = JobRepository(request.app.state.storage_engine)
     request_key = (request.headers.get("Idempotency-Key") or "").strip()
@@ -896,7 +905,7 @@ def analyze_source_batch(
             "allow_empty_result": True,
         },
     )
-    _production_adapter(request).start(item.id, workspace_id=workspace_id)
+    background_tasks.add_task(_context_call(_start_production_item, item.id))
     result = repository.get_analysis_batch(workspace_id, str(batch["id"]))
     result = {**result, "job_id": job.id, "job_item_id": item.id}
     record_request_event(
@@ -936,6 +945,7 @@ def retry_source_analysis_batch(
     source_id: str,
     batch_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: SourceAnalysisBatchRetryRequest | None = None,
 ):
     repository = _repository(request)
@@ -944,7 +954,10 @@ def retry_source_analysis_batch(
     if batch["source_document_id"] != source_id:
         raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_FOUND", "分析批次不存在", status_code=404)
     from ...storage.job_repository import JobRepository
-    from .api import _production_adapter
+    from .api import _context_call, _start_production_item
+
+    if batch["status"] == "processing":
+        raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_RETRYABLE", "批量分析正在处理中", status_code=409)
 
     job_repository = JobRepository(request.app.state.storage_engine)
     existing_item = None
@@ -954,7 +967,7 @@ def retry_source_analysis_batch(
             candidate = next(
                 (
                     item
-                    for item in job.items
+                    for item in reversed(job.items)
                     if item.kind == "source_analysis" and item.payload.get("batch_id") == batch_id
                 ),
                 None,
@@ -971,15 +984,19 @@ def retry_source_analysis_batch(
             batch_id=batch_id,
             chapter_ids=payload.chapter_ids if payload else None,
         )
-        result = _process_analysis_batch(
-            request,
+        background_tasks.add_task(_context_call(
+            _process_analysis_batch,
+            None,
             repository,
             workspace_id=workspace_id,
             source_id=source_id,
             batch_id=batch_id,
             chapter_ids=chapter_ids,
             force=True,
-        )
+            pipeline_obj=_pipeline(request),
+            user_id=_user_id(request),
+        ))
+        result = repository.get_analysis_batch(workspace_id, batch_id)
         record_request_event(
             request,
             action="source.analysis.batch.retry",
@@ -991,13 +1008,16 @@ def retry_source_analysis_batch(
 
     if existing_item.status != "failed":
         raise SourceRepositoryError("SOURCE_ANALYSIS_BATCH_NOT_RETRYABLE", "当前批量分析没有可重试的失败任务", status_code=409)
-    retry_item = job_repository.create_retry(existing_item.id, f"source-analysis:{batch_id}:retry")
-    if payload and payload.chapter_ids:
-        retry_item = job_repository.update_item_payload(
-            retry_item.id,
-            {**retry_item.payload, "retry_chapter_ids": payload.chapter_ids},
-        )
-    _production_adapter(request).start(retry_item.id, workspace_id=workspace_id)
+    chapter_ids = repository.reset_failed_analysis_batch_items(
+        workspace_id=workspace_id, batch_id=batch_id,
+        chapter_ids=payload.chapter_ids if payload else None,
+    )
+    retry_item = job_repository.create_retry(existing_item.id, f"source-analysis:{batch_id}:retry:{existing_item.id}")
+    retry_item = job_repository.update_item_payload(
+        retry_item.id,
+        {**retry_item.payload, "retry_chapter_ids": chapter_ids},
+    )
+    background_tasks.add_task(_context_call(_start_production_item, retry_item.id))
     result = repository.get_analysis_batch(workspace_id, batch_id)
     result = {**result, "job_id": retry_item.job_id, "job_item_id": retry_item.id}
     record_request_event(
