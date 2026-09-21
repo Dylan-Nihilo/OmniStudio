@@ -56,8 +56,9 @@ export function PendingTaskAffordance({
     compact = false,
 }: Props) {
     const t = useTranslations("pendingTask");
-    const [now, setNow] = useState(() => Date.now());
     const [mountedAtMs] = useState(() => Date.now());
+    // Share the initial timestamp so elapsed time starts at zero even across a clock tick.
+    const [now, setNow] = useState(mountedAtMs);
     useEffect(() => {
         const id = window.setInterval(() => setNow(Date.now()), 1000);
         return () => window.clearInterval(id);
