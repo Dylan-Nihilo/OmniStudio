@@ -160,7 +160,7 @@ describe("SourceWorkspace", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       await act(async () => { fireEvent.click(screen.getByRole("button", { name: "分析全部章节" })); });
-      expect(screen.getByText("批次状态：processing")).toBeVisible();
+      expect(screen.getByText("批次状态：处理中")).toBeVisible();
       const polls = mocks.getSourceAnalysisBatch.mock.calls.length;
       view.unmount();
       await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
@@ -177,7 +177,7 @@ describe("SourceWorkspace", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       await act(async () => { fireEvent.click(screen.getByRole("button", { name: "分析全部章节" })); });
-      expect(screen.getByText("批次状态：processing")).toBeVisible();
+      expect(screen.getByText("批次状态：处理中")).toBeVisible();
       expect(screen.getByRole("button", { name: "分析全部章节" })).toHaveAttribute("aria-disabled", "true");
       fireEvent.click(screen.getByRole("button", { name: "分析全部章节" }));
       expect(mocks.analyzeSourceBatch).toHaveBeenCalledTimes(1);
@@ -202,7 +202,7 @@ describe("SourceWorkspace", () => {
     await screen.findByRole("heading", { name: "另一来源" });
     await act(async () => { finish(processingBatch); });
     expect(screen.getByText("还没有分析批次。")).toBeVisible();
-    expect(screen.queryByText("批次状态：processing")).not.toBeInTheDocument();
+    expect(screen.queryByText("批次状态：处理中")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "分析全部章节" })).toBeEnabled();
   });
 

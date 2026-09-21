@@ -6,6 +6,7 @@ import { Button, SelectField, TextAreaField, TextField } from "@omnistudio/ui";
 import type { SourceChapter, SourceEpisode, SourceRevision, SourceRevisionImpact } from "@/lib/api";
 import styles from "./SourceWorkspace.module.css";
 import * as React from "react";
+import SourceAnalysisResult from "./SourceAnalysisResult";
 
 interface Props {
   chapters: SourceChapter[];
@@ -71,6 +72,9 @@ export default function SourceChapterPanel({ chapters, total, page, pageSize, qu
             <TextField label={t("chapterTitle")} value={title} onChange={setTitle} isDisabled={saving} />
             <TextAreaField label={t("chapterContent")} value={content} onChange={setContent} rows={14} isDisabled={saving} />
             <Button onPress={() => onSave({ title: title.trim(), content })} isPending={saving} isDisabled={!title.trim() || !content.trim()}><Save size={16} />{t("saveRevision")}</Button>
+            <SourceAnalysisResult key={`${selectedChapter.id}:${selectedChapter.current_revision_id}`}
+              sourceId={selectedChapter.source_document_id} chapterId={selectedChapter.id}
+              chapterTitle={selectedChapter.title} currentRevisionId={selectedChapter.current_revision_id} />
           </div>
           <aside className={styles.historyColumn} aria-label={t("revisionHistory")}>
             <div className={styles.subsectionHeader}><h3>{t("revisionHistory")}</h3><History size={16} /></div>
