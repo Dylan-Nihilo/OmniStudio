@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import shutil
 import subprocess
+from types import SimpleNamespace
 import wave
 from unittest.mock import patch
 
+from fastapi import BackgroundTasks
 import pytest
 
 import src.apps.comic_gen.api as api_module
@@ -15,6 +18,7 @@ from src.apps.comic_gen.models import Prop, VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.storage.auth_repository import AuthRepository
 from src.storage.errors import StorageError
+from src.utils.workspace_env import current_platform_config, workspace_getenv
 from tests.auth_test_helpers import make_client
 
 
@@ -362,6 +366,39 @@ def test_dub_preview_survives_project_reads_and_keeps_media_through_apply_and_re
     assert reverted.status_code == 200, reverted.text
     assert reverted.json()["frames"][0]["dubbed_video_url"] is None
     assert Path("output", preview_url).exists()
+
+
+def test_lip_sync_background_job_inherits_root_provider_config(api_client, dub_project, monkeypatch):
+    """The durable lip-sync worker must see the platform-level provider settings."""
+    route, fid = dub_project
+    observed = {}
+
+    def start(item_id):
+        observed["item_id"] = item_id
+        observed["key"] = workspace_getenv("JOJOKEY_API_KEY")
+
+    monkeypatch.setattr(api_module, "_start_production_item", start)
+    monkeypatch.setattr(
+        api_module,
+        "_create_production_item",
+        lambda *args, **kwargs: SimpleNamespace(id="lip-sync-job", idempotent=False, status="pending"),
+    )
+    background = BackgroundTasks()
+    platform_token = current_platform_config.set({"JOJOKEY_API_KEY": "platform-secret"})
+    try:
+        response = api_module.preview_dub(
+            route.rsplit("/", 1)[-1],
+            fid,
+            api_module.DubPreviewRequest(video_task_id="take", offset_ms=0, lip_sync=True),
+            background,
+        )
+    finally:
+        current_platform_config.reset(platform_token)
+
+    assert response
+    asyncio.run(background())
+    assert observed["item_id"]
+    assert observed["key"] == "platform-secret"
 
 
 @pytest.mark.parametrize("operation", ["preview", "apply", "revert"])

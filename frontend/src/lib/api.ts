@@ -1585,7 +1585,7 @@ export const api = {
             prev_cn: prevCn,
             image_urls: imageUrls,
             polish_model: polishModel,
-        });
+        }, { timeout: 120_000 });
         return res.data;
     },
     polishR2VPrompt: async (
@@ -1605,7 +1605,7 @@ export const api = {
             prev_cn: prevCn,
             image_urls: imageUrls,
             polish_model: polishModel,
-        });
+        }, { timeout: 120_000 });
         return res.data;
     },
     updateAssetDescription: async (scriptId: string, assetId: string, assetType: string, description: string) => {
