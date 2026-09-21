@@ -471,7 +471,15 @@ export default function SourceWorkspace() {
     setError(null);
     try {
       const result = await sourceApi.cancelEpisodeSplitPreview(splitPreview.id);
-      setSplitPreview(result);
+      // A canceled preview is no longer an editable draft. Clear it locally so
+      // the split form returns immediately and the user can generate another
+      // proposal without reloading the whole workspace.
+      if (result.status === "canceled") {
+        setSplitPreview(null);
+        setSplitCreatedEpisodes([]);
+      } else {
+        setSplitPreview(result);
+      }
       setNotice(t("splitCanceled"));
     } catch (cause) {
       setError(errorMessage(cause, t("splitCancelFailed")));

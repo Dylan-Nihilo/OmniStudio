@@ -108,6 +108,13 @@ const processingBatch = {
   job_id: "job-1", job_item_id: "job-item-1", created_at: 1, updated_at: 1,
 };
 
+const splitPreview = {
+  id: "split-preview-1", workspace_id: "workspace-1", source_document_id: "source-1",
+  title: "既有来源", content_sha256: "c".repeat(64), suggested_episodes: 3,
+  proposals: [{ episode_number: 1, title: "拆集草稿", summary: "开端", start_marker: "第1章", end_marker: "结尾", estimated_duration: "02:00" }],
+  status: "previewing" as const, series_id: null, episode_ids: [], created_at: 1, updated_at: 1,
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.list.mockResolvedValue({ items: [source], total: 1 });
@@ -120,6 +127,48 @@ beforeEach(() => {
 });
 
 describe("SourceWorkspace", () => {
+  it("returns to split settings after cancellation and generates a new preview without reloading", async () => {
+    mocks.previewEpisodeSplit.mockResolvedValueOnce(splitPreview).mockResolvedValueOnce({
+      ...splitPreview, id: "split-preview-2", proposals: [{ ...splitPreview.proposals[0], title: "重新拆集" }],
+    });
+    let finishCancel!: (value: unknown) => void;
+    mocks.cancelEpisodeSplitPreview.mockImplementation(() => new Promise(resolve => { finishCancel = resolve; }));
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "建议集数" }), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成拆集预览" }));
+    fireEvent.click(await screen.findByRole("button", { name: "取消拆集预览" }));
+    expect(screen.getByRole("textbox", { name: "第 1 集标题" })).toHaveValue("拆集草稿");
+    await act(async () => { finishCancel({ ...splitPreview, status: "canceled" }); });
+
+    expect(await screen.findByRole("spinbutton", { name: "建议集数" })).toHaveValue(3);
+    expect(screen.getByText("拆集预览已取消。")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "第 1 集标题" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "初见" })).toBeVisible();
+    expect(mocks.confirmEpisodeSplit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "生成拆集预览" }));
+    expect(await screen.findByDisplayValue("重新拆集")).toBeVisible();
+    expect(mocks.previewEpisodeSplit).toHaveBeenLastCalledWith("source-1", { suggested_episodes: 3 });
+    expect(screen.queryByText("拆集预览已取消。")).not.toBeInTheDocument();
+  });
+
+  it("preserves edited proposals when cancellation fails and allows retry", async () => {
+    mocks.previewEpisodeSplit.mockResolvedValue(splitPreview);
+    mocks.cancelEpisodeSplitPreview.mockRejectedValueOnce(new Error("取消失败，请稍后重试"))
+      .mockResolvedValueOnce({ ...splitPreview, status: "canceled" });
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    fireEvent.click(screen.getByRole("button", { name: "生成拆集预览" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "第 1 集标题" }), { target: { value: "保留我的修改" } });
+    fireEvent.click(screen.getByRole("button", { name: "取消拆集预览" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("取消失败，请稍后重试");
+    expect(screen.getByRole("textbox", { name: "第 1 集标题" })).toHaveValue("保留我的修改");
+    expect(screen.queryByRole("spinbutton", { name: "建议集数" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消拆集预览" }));
+    expect(await screen.findByRole("button", { name: "生成拆集预览" })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("resumes polling after a transient error without submitting another analysis", async () => {
     mocks.analyzeSourceBatch.mockResolvedValue(processingBatch);
     mocks.getSourceAnalysisBatch.mockRejectedValueOnce(new Error("网络暂时不可用"))
