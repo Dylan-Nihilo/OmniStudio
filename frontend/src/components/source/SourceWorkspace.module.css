@@ -84,6 +84,21 @@
 .analysisErrorCode { color: var(--color-danger); font-family: var(--font-mono, monospace); font-size: .625rem; }
 .analysisItemSkip { padding: 8px 9px; border-left: 2px solid var(--color-warning); background: color-mix(in srgb, var(--color-warning) 7%, transparent); }
 .analysisItemRetry { justify-self: end; }
+.analysisReuseHint { margin: 0; color: var(--color-success); font-size: .75rem; line-height: 1.6; }
+.analysisResult { min-width: 0; }
+.analysisResult > div { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border-default); }
+.analysisEvents { display: grid; gap: 18px; margin: 16px 0 0; padding-left: 22px; }
+.analysisEvents > li { padding-left: 4px; overflow-wrap: anywhere; }
+.analysisEvents > li::marker { color: var(--color-primary); font-weight: 600; }
+.analysisEventMeta, .analysisEventFacts { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--color-text-secondary); font-size: .75rem; }
+.analysisEventDescription { margin: 8px 0; line-height: 1.7; font-size: .875rem; white-space: pre-wrap; }
+.analysisEventFacts { margin: 8px 0; }
+.analysisEventFacts > div { display: flex; gap: 8px; }
+.analysisEventFacts dt { color: var(--color-text-muted); }
+.analysisEventFacts dd { margin: 0; }
+.analysisExcerpt { margin: 10px 0 0; padding: 8px 12px; border-left: 2px solid var(--color-primary); background: var(--color-bg-inset); }
+.analysisExcerpt span { color: var(--color-text-muted); font-size: .6875rem; }
+.analysisExcerpt p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: .8125rem; line-height: 1.6; white-space: pre-wrap; }
 .splitPanel { margin-top: 18px; }
 .splitStart { display: flex; align-items: flex-end; gap: 12px; margin-top: 18px; }
 .splitStart > :first-child { min-width: 180px; }
