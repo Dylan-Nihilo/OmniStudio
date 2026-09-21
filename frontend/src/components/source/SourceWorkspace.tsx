@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, FileText, Link2, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, EmptyState, LoadingState, TextAreaField, TextField } from "@omnistudio/ui";
@@ -56,6 +56,8 @@ export default function SourceWorkspace() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [analysisBatch, setAnalysisBatch] = useState<SourceAnalysisBatch | null>(null);
   const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisPollError, setAnalysisPollError] = useState<string | null>(null);
+  const analysisRequest = useRef(0);
   const [splitPreview, setSplitPreview] = useState<SourceEpisodeSplitPreview | null>(null);
   const [splitCreatedEpisodes, setSplitCreatedEpisodes] = useState<SourceEpisodeSplitCreatedEpisode[]>([]);
   const [splitBusy, setSplitBusy] = useState(false);
@@ -71,6 +73,7 @@ export default function SourceWorkspace() {
   const pageSize = 20;
   const selectedChapterTitle = selectedChapter?.title;
   const hasImportInput = Boolean(importFile || importContent.trim()) && Boolean(importTitle.trim());
+  const analysisRunning = analysisBusy || analysisBatch?.status === "processing";
 
   const loadSources = async (preferredId?: string | null) => {
     setLoading(true);
@@ -128,6 +131,36 @@ export default function SourceWorkspace() {
   };
 
   useEffect(() => { void loadSources(); }, []);
+
+  useEffect(() => {
+    setAnalysisBatch(null);
+    setAnalysisBusy(false);
+    setAnalysisPollError(null);
+    return () => { analysisRequest.current += 1; };
+  }, [selectedSourceId]);
+
+  const analysisBatchId = analysisBatch?.id;
+  const analysisStatus = analysisBatch?.status;
+  useEffect(() => {
+    if (!selectedSourceId || !analysisBatchId || analysisStatus !== "processing") return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const result = await sourceApi.getSourceAnalysisBatch(selectedSourceId, analysisBatchId);
+        if (disposed) return;
+        setAnalysisPollError(null);
+        setAnalysisBatch(result);
+        if (result.status !== "processing") return;
+      } catch (cause) {
+        if (disposed) return;
+        setAnalysisPollError(errorMessage(cause, t("analysisFailedShort")));
+      }
+      timer = setTimeout(() => void poll(), 2000);
+    };
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [selectedSourceId, analysisBatchId, analysisStatus, t]);
 
   useEffect(() => {
     if (!selectedSourceId) return;
@@ -274,29 +307,34 @@ export default function SourceWorkspace() {
   };
 
   const runAnalysis = async (chapterIds?: string[]) => {
-    if (!selectedSourceId || analysisBusy) return;
+    if (!selectedSourceId || analysisRunning) return;
+    const requestId = ++analysisRequest.current;
     setAnalysisBusy(true);
+    setError(null);
     try {
-      setAnalysisBatch(await sourceApi.analyzeSourceBatch(selectedSourceId, chapterIds ? { chapter_ids: chapterIds } : {}));
+      const result = await sourceApi.analyzeSourceBatch(selectedSourceId, chapterIds ? { chapter_ids: chapterIds } : {});
+      if (analysisRequest.current === requestId) setAnalysisBatch(result);
     } catch (cause) {
-      setError(errorMessage(cause, t("analysisFailedShort")));
+      if (analysisRequest.current === requestId) setError(errorMessage(cause, t("analysisFailedShort")));
     } finally {
-      setAnalysisBusy(false);
+      if (analysisRequest.current === requestId) setAnalysisBusy(false);
     }
   };
 
   const retryAnalysis = async (chapterIds?: string[]) => {
-    if (!selectedSourceId || !analysisBatch || analysisBusy) return;
+    if (!selectedSourceId || !analysisBatch || analysisRunning) return;
+    const requestId = ++analysisRequest.current;
     setAnalysisBusy(true);
+    setError(null);
     try {
       const result = chapterIds?.length
         ? await sourceApi.retrySourceAnalysisBatch(selectedSourceId, analysisBatch.id, { chapter_ids: chapterIds })
         : await sourceApi.retrySourceAnalysisBatch(selectedSourceId, analysisBatch.id);
-      setAnalysisBatch(result);
+      if (analysisRequest.current === requestId) setAnalysisBatch(result);
     } catch (cause) {
-      setError(errorMessage(cause, t("analysisFailedShort")));
+      if (analysisRequest.current === requestId) setError(errorMessage(cause, t("analysisFailedShort")));
     } finally {
-      setAnalysisBusy(false);
+      if (analysisRequest.current === requestId) setAnalysisBusy(false);
     }
   };
 
@@ -499,7 +537,8 @@ export default function SourceWorkspace() {
             <header className={styles.detailHeader}><div><p className={styles.eyebrow}>{t("detailEyebrow")}</p><h2>{selectedSource.title}</h2><p className={styles.muted}>{selectedSummary}</p></div><div className={styles.actionRow}><span className={styles.fileTag}>{selectedSource.original_filename || selectedSource.source_type}</span><Button variant="quiet" onPress={() => void deleteSelectedSource()} isDisabled={sourceBusy}><Trash2 size={15} />删除来源</Button></div></header>
             <SourceChapterPanel chapters={chapters} total={chapterTotal} page={chapterPage} pageSize={pageSize} query={chapterQuery} selectedChapter={selectedChapter} revisions={revisions} impacts={impacts} saving={saving || episodeBusy} episodes={[...linkedEpisodes, ...availableEpisodes]} onQueryChange={value => { setChapterQuery(value); setChapterPage(1); }} onPageChange={value => setChapterPage(Math.max(1, value))} onSelect={chapter => void selectChapter(chapter)} onSave={saveChapter} onRestore={restoreRevision} onClose={() => setSelectedChapter(null)} onAcknowledgeImpact={acknowledgeImpact} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} onLinkChapterEpisode={linkChapterEpisode} onUnlinkChapterEpisode={unlinkChapterEpisode} />
             {!selectedChapter && <>
-              <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisBusy} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
+              {analysisPollError && <div className={styles.error} role="alert">{analysisPollError}</div>}
+              <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisRunning} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
               <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
               <SourceEpisodeSplitPanel preview={splitPreview} busy={splitBusy} createdEpisodes={splitCreatedEpisodes} onPreview={previewEpisodeSplit} onChange={(proposals: SourceEpisodeSplitProposal[]) => setSplitPreview(current => current ? { ...current, proposals } : current)} onSave={() => void saveEpisodeSplitPreview()} onCancel={() => void cancelEpisodeSplitPreview()} onConfirm={payload => void confirmEpisodeSplit(payload)} />
             </>}

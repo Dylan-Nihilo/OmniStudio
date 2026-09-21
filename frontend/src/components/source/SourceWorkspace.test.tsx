@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithIntl } from "@/test/renderWithIntl";
 
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   acknowledgeRevisionImpact: vi.fn(),
   analyzeSourceBatch: vi.fn(),
+  getSourceAnalysisBatch: vi.fn(),
   retrySourceAnalysisBatch: vi.fn(),
 }));
 
@@ -96,6 +97,17 @@ const chapter = {
   updated_at: 2,
 };
 
+const processingBatch = {
+  id: "batch-1", workspace_id: "workspace-1", source_document_id: "source-1",
+  status: "processing" as const, total: 1, succeeded: 0, failed: 0, skipped: 0,
+  items: [{
+    id: "batch-item-1", batch_id: "batch-1", chapter_id: "chapter-1", chapter_number: 1,
+    chapter_title: "初见", status: "pending" as const, analysis_id: null, attempt: 0,
+    error_code: null, error_message: null, skip_reason: null, created_at: 1, updated_at: 1,
+  }], success_items: [], failed_items: [], skipped_items: [],
+  job_id: "job-1", job_item_id: "job-item-1", created_at: 1, updated_at: 1,
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.list.mockResolvedValue({ items: [source], total: 1 });
@@ -108,6 +120,92 @@ beforeEach(() => {
 });
 
 describe("SourceWorkspace", () => {
+  it("resumes polling after a transient error without submitting another analysis", async () => {
+    mocks.analyzeSourceBatch.mockResolvedValue(processingBatch);
+    mocks.getSourceAnalysisBatch.mockRejectedValueOnce(new Error("网络暂时不可用"))
+      .mockResolvedValue({ ...processingBatch, status: "succeeded", succeeded: 1 });
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "分析全部章节" })); });
+      expect(screen.getByRole("alert")).toHaveTextContent("网络暂时不可用");
+      expect(screen.getByRole("button", { name: "分析全部章节" })).toHaveAttribute("aria-disabled", "true");
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(screen.getByText("成功 1 · 失败 0 · 跳过 0")).toBeVisible();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(mocks.analyzeSourceBatch).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("polls a retried batch until it finishes", async () => {
+    mocks.analyzeSourceBatch.mockResolvedValue({ ...processingBatch, status: "failed", failed: 1,
+      items: [{ ...processingBatch.items[0], status: "failed", error_message: "模型暂时不可用" }],
+    });
+    mocks.retrySourceAnalysisBatch.mockResolvedValue(processingBatch);
+    mocks.getSourceAnalysisBatch.mockResolvedValue({ ...processingBatch, status: "succeeded", succeeded: 1 });
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    fireEvent.click(screen.getByRole("button", { name: "分析全部章节" }));
+    fireEvent.click(await screen.findByRole("button", { name: "重试失败项 初见" }));
+    expect(await screen.findByText("成功 1 · 失败 0 · 跳过 0")).toBeVisible();
+    expect(mocks.getSourceAnalysisBatch).toHaveBeenCalledWith("source-1", "batch-1");
+  });
+
+  it("stops scheduling polls after the workspace is unmounted", async () => {
+    mocks.analyzeSourceBatch.mockResolvedValue(processingBatch);
+    mocks.getSourceAnalysisBatch.mockResolvedValue(processingBatch);
+    const view = renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "分析全部章节" })); });
+      expect(screen.getByText("批次状态：processing")).toBeVisible();
+      const polls = mocks.getSourceAnalysisBatch.mock.calls.length;
+      view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(mocks.getSourceAnalysisBatch).toHaveBeenCalledTimes(polls);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("polls background analysis to completion and prevents duplicate submissions", async () => {
+    mocks.analyzeSourceBatch.mockResolvedValue(processingBatch);
+    mocks.getSourceAnalysisBatch.mockResolvedValueOnce(processingBatch)
+      .mockResolvedValue({ ...processingBatch, status: "succeeded", succeeded: 1 });
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "分析全部章节" })); });
+      expect(screen.getByText("批次状态：processing")).toBeVisible();
+      expect(screen.getByRole("button", { name: "分析全部章节" })).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(screen.getByRole("button", { name: "分析全部章节" }));
+      expect(mocks.analyzeSourceBatch).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(screen.getByText("成功 1 · 失败 0 · 跳过 0")).toBeVisible();
+      expect(screen.getByRole("button", { name: "分析全部章节" })).not.toHaveAttribute("aria-disabled", "true");
+      const polls = mocks.getSourceAnalysisBatch.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(mocks.getSourceAnalysisBatch).toHaveBeenCalledTimes(polls);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("does not show a previous source's late analysis response after switching sources", async () => {
+    let finish!: (value: typeof processingBatch) => void;
+    mocks.analyzeSourceBatch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    mocks.list.mockResolvedValue({ items: [source, { ...source, id: "source-2", title: "另一来源" }], total: 2 });
+    mocks.get.mockImplementation(async (id: string) => ({ ...source, id, title: id === "source-1" ? "既有来源" : "另一来源", chapters: [chapter], episodes: [] }));
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    fireEvent.click(screen.getByRole("button", { name: "分析全部章节" }));
+    fireEvent.click(screen.getByRole("button", { name: /另一来源/ }));
+    await screen.findByRole("heading", { name: "另一来源" });
+    await act(async () => { finish(processingBatch); });
+    expect(screen.getByText("还没有分析批次。")).toBeVisible();
+    expect(screen.queryByText("批次状态：processing")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "分析全部章节" })).toBeEnabled();
+  });
+
   it.each([
     ["HTML fallback", "<!DOCTYPE html><html><body>Omni Studio</body></html>"],
     ["missing items", {}],
