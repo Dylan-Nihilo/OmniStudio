@@ -27,9 +27,13 @@ def _allowlisted_prefixes() -> set[str]:
 
 
 def _route_prefixes() -> set[str]:
+    # Newer FastAPI versions keep included routers lazy in app.routes (without
+    # a path attribute). OpenAPI expands them, so include its paths as well as
+    # direct routes/mounts that may be excluded from the schema.
+    paths = set(app.openapi()["paths"])
+    paths.update(getattr(route, "path", "") for route in app.routes)
     prefixes = set()
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    for path in paths:
         if not path.startswith("/") or path == "/":
             continue
         first = path.lstrip("/").split("/", 1)[0]
