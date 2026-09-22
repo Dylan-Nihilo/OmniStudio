@@ -8,6 +8,8 @@ import pytest
 import src.apps.comic_gen.api as api_module
 from src.apps.comic_gen.models import VideoTask
 from src.storage.job_repository import JobRepository
+from src.storage.schema import Episode
+from sqlalchemy import select
 from tests.test_w2_project_api import _create_project
 from tests.test_w2_project_api import api_client
 
@@ -55,6 +57,44 @@ def test_generate_asset_returns_job_id_for_cancelable_cast_batch(api_client):
     item = JobRepository(api_client.app.state.storage_engine).get_item(payload["_job_item_id"])
     assert item is not None
     assert payload["_job_id"] == item.job_id
+
+
+def test_generate_asset_for_series_episode_uses_parent_project_in_job(api_client):
+    series_response = api_client.post("/series", json={"title": "资产任务外键系列"})
+    assert series_response.status_code == 200, series_response.text
+    series = series_response.json()
+    episode_response = api_client.post(
+        "/projects?skip_analysis=true",
+        json={"title": "第一集", "text": "第一集正文", "series_id": series["id"]},
+    )
+    assert episode_response.status_code == 200, episode_response.text
+    episode = episode_response.json()
+    route = f"/projects/{episode['id']}"
+    character_response = api_client.post(route + "/characters", json={"name": "顾潮生"})
+    assert character_response.status_code == 200, character_response.text
+    character = character_response.json()["characters"][0]
+
+    response = api_client.post(
+        route + "/assets/generate",
+        json={
+            "asset_id": character["id"],
+            "asset_type": "character",
+            "generation_type": "reference_sheet",
+            "model_name": "wan2.7-image-pro",
+            "prompt": "Night watch",
+            "batch_size": 1,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    item = JobRepository(api_client.app.state.storage_engine).get_item(response.json()["_job_item_id"])
+    assert item is not None
+    with api_client.app.state.storage_engine.connect() as connection:
+        parent_project_id = connection.execute(
+            select(Episode.project_id).where(Episode.id == episode["id"])
+        ).scalar_one()
+    assert item.project_id == parent_project_id
+    assert item.episode_id == episode["id"]
 
 
 def test_generate_storyboard_routes_through_unified_production_job(api_client):
