@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -344,6 +344,50 @@ def grant_credits(body: WalletGrant, request: Request, context: RootUser, billin
     record_request_event(request, action="wallet.grant", object_type="wallet", object_id=w["id"],
                          metadata={"amount": body.amount, "workspace_id": body.workspace_id})
     return {"wallet_id": w["id"], **billing.wallets.balance(w["id"])}
+
+
+class WalletCreditChange(BaseModel):
+    """One credit movement, in the three shapes an operator actually needs.
+
+    `add` tops up, `deduct` takes back, `set` moves the balance to an exact figure — the
+    last being how a balance gets corrected after a reconciliation, which neither of the
+    other two can express without the operator doing arithmetic.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["add", "set", "deduct"]
+    amount: int = Field(ge=0)
+    reason: str = Field(default="", max_length=500)
+    idempotency_key: str | None = None
+
+
+@admin_router.post("/wallets/workspace/{workspace_id}/credits")
+def change_workspace_credits(workspace_id: str, body: WalletCreditChange, request: Request,
+                             context: RootUser, billing: Billing) -> dict[str, Any]:
+    """Add to, deduct from, or set a workspace's credits."""
+    wallet = billing.wallets.for_workspace(workspace_id)
+    key = body.idempotency_key or f"{body.operation}:{uuid.uuid4()}"
+    if body.operation == "add":
+        if body.amount <= 0:
+            raise BillingError("AMOUNT_INVALID", "发放积分必须大于 0", status_code=422)
+        billing.wallets.credit(wallet["id"], body.amount, "grant", key,
+                               actor_user_id=context.user.id, reason=body.reason)
+    elif body.operation == "deduct":
+        if body.amount <= 0:
+            raise BillingError("AMOUNT_INVALID", "扣减积分必须大于 0", status_code=422)
+        # A deduction is an adjustment, and an adjustment has to say why — it is somebody's
+        # money going away. `credit` enforces that, and refuses to take the balance below
+        # zero or below what running tasks have already frozen.
+        billing.wallets.credit(wallet["id"], -body.amount, "adjust", key,
+                               actor_user_id=context.user.id, reason=body.reason)
+    else:
+        billing.wallets.set_balance(wallet["id"], body.amount, key,
+                                    actor_user_id=context.user.id, reason=body.reason)
+    record_request_event(request, action=f"wallet.{body.operation}", object_type="wallet",
+                         object_id=wallet["id"],
+                         metadata={"amount": body.amount, "workspace_id": workspace_id,
+                                   "operation": body.operation})
+    return {"wallet_id": wallet["id"], **billing.wallets.balance(wallet["id"])}
 
 
 @admin_router.post("/wallets/adjust")

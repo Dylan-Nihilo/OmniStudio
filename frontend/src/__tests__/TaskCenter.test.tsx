@@ -267,3 +267,44 @@ describe("what a task row is allowed to say", () => {
     expect(view.finishedAt).toBeNull();
   });
 });
+
+describe("what the task detail dialog is allowed to say", () => {
+  const leaky = {
+    ...failedJob,
+    id: "job-detail",
+    project_title: "斗破苍穹 第一集",
+    kind: "production.video",
+    items: [{
+      ...failedJob.items[0],
+      id: "item-detail",
+      kind: "video",
+      error_code: "PROVIDER_FAILED",
+      error_message: "451 from https://open302.com/v1/images/generations: gpt-image-2 refused",
+    }],
+  };
+
+  it("keeps the provider out of the detail view too", async () => {
+    // The row was cleaned up first and the detail dialog was missed — it printed
+    // `error_code · error_message` verbatim, which is where the vendor's URL showed up.
+    mocks.listTasks.mockResolvedValue({ items: [leaky], page: 1, page_size: 20, total: 1 });
+    mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 0, failed: 1, canceled: 0, skipped: 0 });
+    mocks.getTask.mockResolvedValue({
+      job: leaky,
+      events: [{ id: "event-1", item_id: "item-detail", from_status: "processing",
+                 to_status: "failed", error_code: "PROVIDER_FAILED", created_at: 1 }],
+    });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
+    await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "details" }));
+    await waitFor(() => expect(mocks.getTask).toHaveBeenCalled());
+
+    const body = document.body.textContent ?? "";
+    for (const leak of ["open302", "gpt-image-2", "https://", "refused", "PROVIDER_FAILED"]) {
+      expect(body).not.toContain(leak);
+    }
+    expect(body).toContain("reasonGenerationFailed");
+    // The item's internal kind is replaced by a readable name as well.
+    expect(body).toContain("kindVideo");
+  });
+});

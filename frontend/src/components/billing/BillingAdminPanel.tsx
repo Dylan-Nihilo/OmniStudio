@@ -9,6 +9,7 @@ import { Button, Dialog, IconButton, SelectField, TextField } from "@omnistudio/
 import {
     billingAdminApi,
     type AdminWorkspace,
+    type CreditOperation,
     type BillingUnit,
     type CreditRule,
     type PriceBookVersion,
@@ -24,6 +25,15 @@ const STAGES: readonly PriceItemKind[] = ["video", "image", "text", "tts"];
 const UNITS: Record<PriceItemKind, BillingUnit> = { video: "second", image: "image", text: "chars_1k", tts: "chars_1k" };
 
 type Tab = "rule" | "items" | "versions" | "wallets" | "roles";
+
+/**
+ * Tabs where publishing a price book is a sensible next action.
+ *
+ * The button used to sit in the nav on every tab, including the ones about customer
+ * credits and platform roles — publishing from there means nothing, and a stray click
+ * ships a price change nobody was looking at.
+ */
+const PRICING_TABS: Tab[] = ["rule", "items", "versions"];
 
 /**
  * Root console for the credit ratio and the price book.
@@ -87,8 +97,8 @@ export default function BillingAdminPanel() {
                         </button>
                     ))}
                 <span className={styles.spacer} />
-                {dirty && <span className={styles.dirty}>{t("unpublished")}</span>}
-                {isRoot && (
+                {dirty && PRICING_TABS.includes(tab) && <span className={styles.dirty}>{t("unpublished")}</span>}
+                {isRoot && PRICING_TABS.includes(tab) && (
                     <Button
                         isDisabled={busy}
                         onPress={async () => {
@@ -459,7 +469,8 @@ function WalletsTab() {
     const t = useTranslations("billing.admin");
     const [rows, setRows] = useState<AdminWorkspace[]>([]);
     const [loading, setLoading] = useState(true);
-    const [target, setTarget] = useState<string | null>(null);
+    const [editing, setEditing] = useState<AdminWorkspace | null>(null);
+    const [operation, setOperation] = useState<CreditOperation>("add");
     const [amount, setAmount] = useState("");
     const [reason, setReason] = useState("");
     const [busy, setBusy] = useState(false);
@@ -476,18 +487,32 @@ function WalletsTab() {
     }, [t]);
     useEffect(() => { void load(); }, [load]);
 
-    const credits = Number(amount);
-    const amountValid = Number.isInteger(credits) && credits > 0;
+    const open = (row: AdminWorkspace) => {
+        setEditing(row); setOperation("add"); setAmount(""); setReason("");
+    };
 
-    const grant = async (workspaceId: string) => {
+    const credits = Number(amount);
+    const amountValid = Number.isInteger(credits) && credits >= 0
+        && (operation === "set" || credits > 0);
+    // Taking credits away, or overwriting a balance, is somebody's money changing — the
+    // ledger is what an argument about it gets settled from, so it has to say why. Adding
+    // needs no justification.
+    const reasonRequired = operation !== "add";
+    const canSubmit = amountValid && (!reasonRequired || reason.trim().length > 0);
+
+    const submit = async () => {
+        if (!editing) return;
         setBusy(true);
         try {
-            await billingAdminApi.grantCredits(workspaceId, credits, reason.trim());
-            setTarget(null); setAmount(""); setReason("");
+            await billingAdminApi.changeCredits(editing.id, operation, credits, reason.trim());
+            setEditing(null);
             await load();
-            toast.success(t("grantedCredits", { credits }));
-        } catch {
-            toast.warning(t("grantCreditsFailed"));
+            toast.success(t(`credits.${operation}Done`, { credits }));
+        } catch (error) {
+            const code = (error as { response?: { data?: { error?: { code?: string } } } })
+                ?.response?.data?.error?.code;
+            toast.warning(code === "INSUFFICIENT_CREDITS" ? t("credits.wouldGoNegative")
+                                                          : t("credits.failed"));
         } finally {
             setBusy(false);
         }
@@ -506,20 +531,42 @@ function WalletsTab() {
                             <td className={styles.mono}>{row.balance}</td>
                             <td className={styles.mono}>{row.frozen}</td>
                             <td><Button size="sm" variant="quiet" isDisabled={busy}
-                                        onPress={() => setTarget(target === row.id ? null : row.id)}>
-                                {t("topUp")}
-                            </Button></td>
+                                        onPress={() => open(row)}>{t("credits.manage")}</Button></td>
                         </tr>
                     ))}
                     {!loading && rows.length === 0 && <tr><td colSpan={5} className={styles.hint}>{t("noWorkspaces")}</td></tr>}
                 </tbody>
             </table>
-            {target && <div className={styles.newItem}>
-                <TextField label={t("grantAmount")} value={amount} onChange={setAmount} inputMode="numeric" />
-                <TextField label={t("grantReason")} value={reason} onChange={setReason} />
-                <Button isDisabled={!amountValid || busy} isPending={busy}
-                        onPress={() => void grant(target)}>{t("confirmTopUp")}</Button>
-            </div>}
+            {editing && (
+                <Dialog
+                    isOpen
+                    onOpenChange={(isOpen) => { if (!isOpen) setEditing(null); }}
+                    title={t("credits.title", { workspace: editing.name })}
+                    closeLabel={t("cancel")}
+                    footer={<>
+                        <Button variant="quiet" onPress={() => setEditing(null)}>{t("cancel")}</Button>
+                        <Button isDisabled={!canSubmit || busy} isPending={busy}
+                                onPress={() => void submit()}>{t("credits.confirm")}</Button>
+                    </>}
+                >
+                    <div className={styles.newItem}>
+                        <SelectField label={t("credits.operation")} selectedKey={operation}
+                                     onSelectionChange={(key) => setOperation(String(key) as CreditOperation)}
+                                     options={[
+                                         { id: "add", label: t("credits.add") },
+                                         { id: "deduct", label: t("credits.deduct") },
+                                         { id: "set", label: t("credits.set") },
+                                     ]} />
+                        <TextField label={operation === "set" ? t("credits.targetAmount") : t("credits.amount")}
+                                   value={amount} onChange={setAmount} inputMode="numeric" />
+                        <TextField label={reasonRequired ? t("credits.reasonRequired") : t("credits.reason")}
+                                   value={reason} onChange={setReason} />
+                    </div>
+                    <p className={styles.hint}>
+                        {t("credits.currentBalance", { balance: editing.balance, frozen: editing.frozen })}
+                    </p>
+                </Dialog>
+            )}
         </div>
     );
 }

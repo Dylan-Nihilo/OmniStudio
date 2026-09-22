@@ -15,6 +15,9 @@ export interface AdminWorkspace {
     available: number;
 }
 
+/** What an operator can do to a balance: top up, take back, or correct to an exact figure. */
+export type CreditOperation = "add" | "deduct" | "set";
+
 export interface WalletSummary {
     /** False on deployments that do not bill; the credit UI stays hidden. */
     enabled: boolean;
@@ -254,6 +257,18 @@ export const billingAdminApi = {
     listWorkspaces: async (): Promise<AdminWorkspace[]> => {
         const res = await apiClient.get(`${API_URL}/admin/workspaces`);
         return res.data as AdminWorkspace[];
+    },
+
+    changeCredits: async (workspaceId: string, operation: CreditOperation, amount: number, reason = "") => {
+        const res = await apiClient.post(
+            `${API_URL}/admin/wallets/workspace/${encodeURIComponent(workspaceId)}/credits`, {
+                operation,
+                amount,
+                reason,
+                // A double-clicked button must not pay a customer twice.
+                idempotency_key: `${operation}:${workspaceId}:${amount}:${Date.now()}`,
+            });
+        return res.data;
     },
 
     grantCredits: async (workspaceId: string, amount: number, reason = "") => {

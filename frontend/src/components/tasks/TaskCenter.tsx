@@ -7,7 +7,7 @@ import { Button, Dialog, EmptyState, IconButton, LoadingState, SelectField, Text
 import { api, type UnifiedJob, type UnifiedTaskDetail, type UnifiedTaskSummary } from "@/lib/api";
 import ActionDialog from "@/components/shared/ActionDialog";
 import TaskCenterRow from "./TaskCenterRow";
-import { toTaskViewModel, type TaskObjectRef } from "./taskCenterModel";
+import { failureReason, taskName as itemName, toTaskViewModel, type TaskObjectRef } from "./taskCenterModel";
 import styles from "./TaskCenter.module.css";
 
 export default function TaskCenter({ workspaceId, projectId, episodeId, onOpenObject, onClose, onSummaryChange }: {
@@ -109,11 +109,13 @@ export default function TaskCenter({ workspaceId, projectId, episodeId, onOpenOb
     {selectedJob && <Dialog isOpen title={t("details")} closeLabel={t("close")} onOpenChange={open => {if (!open) setSelectedJob(null);}}>
       <div className={styles.events}>
         {selectedJob.job.items.map(item => <div key={item.id} className="border-b border-border-subtle pb-2 mb-2">
-          <div className="flex flex-wrap gap-2"><strong>{item.kind}</strong><span>{t(item.status)}</span><code>{item.id.slice(0, 8)}</code></div>
+          <div className="flex flex-wrap gap-2"><strong>{itemName(item.kind, t)}</strong><span>{t(item.status)}</span></div>
           {item.retry_of && <small>{t("retryOf", { id: item.retry_of.slice(0, 8) })}</small>}
-          {item.error_message && <p className="text-status-failed-fg">{item.error_code ? `${item.error_code} · ` : ""}{item.error_message}</p>}
+          {/* Same rule as the row: a reason, never the provider's own words. The detail
+              view was the remaining place that printed error_message verbatim. */}
+          {item.error_code && <p className="text-status-failed-fg">{failureReason(item.error_code, t)}</p>}
         </div>)}
-        {selectedJob.events.length ? selectedJob.events.map(event => <div key={event.id}><span>{event.from_status ? t(event.from_status) : "—"} → {t(event.to_status)}</span>{event.error_code && <code>{event.error_code}</code>}</div>) : <p>{t("noEvents")}</p>}
+        {selectedJob.events.length ? selectedJob.events.map(event => <div key={event.id}><span>{event.from_status ? t(event.from_status) : "—"} → {t(event.to_status)}</span></div>) : <p>{t("noEvents")}</p>}
       </div>
     </Dialog>}
     {cancelId && <ActionDialog title={t("cancel")} description={t("confirmCancel")} confirmLabel={t("confirmCancelAction")} onClose={() => setCancelId(null)} onConfirm={async () => { await api.cancelTask(cancelId); await load(); }} />}

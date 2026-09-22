@@ -136,6 +136,33 @@ class WalletService:
                 return self._post(connection, wallet_id, type_, amount, idempotency_key,
                                   d_balance=amount, d_frozen=0, actor_user_id=actor_user_id, reason=reason)
 
+    def set_balance(self, wallet_id: str, target: int, idempotency_key: str, *,
+                    actor_user_id: str | None = None, reason: str = "") -> int:
+        """Move the balance to exactly `target`, posting the difference as one adjustment.
+
+        Read and write happen in the same transaction: computing the delta outside it would
+        race a concurrent charge and overwrite it, which on a balance means losing money in
+        one direction or inventing it in the other. Returns the delta actually posted.
+        """
+        if target < 0:
+            raise BillingError("AMOUNT_INVALID", "余额不能为负")
+        if not reason.strip():
+            raise BillingError("REASON_REQUIRED", "覆盖余额必须填写原因", status_code=422)
+        table = Wallet.__table__
+        with self.engine.connect() as connection:
+            with begin_immediate(connection):
+                row = connection.execute(
+                    select(table.c.balance).where(table.c.id == wallet_id)
+                ).first()
+                if row is None:
+                    raise BillingError("WALLET_NOT_FOUND", wallet_id, status_code=404)
+                delta = target - int(row.balance)
+                if delta == 0:
+                    return 0
+                self._post(connection, wallet_id, "adjust", delta, idempotency_key,
+                           d_balance=delta, d_frozen=0, actor_user_id=actor_user_id, reason=reason)
+                return delta
+
     def transfer(self, from_wallet_id: str, to_wallet_id: str, amount: int, idempotency_key: str, *,
                  actor_user_id: str | None, reason: str = "") -> bool:
         if amount <= 0:

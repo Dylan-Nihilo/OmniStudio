@@ -271,3 +271,80 @@ def test_only_root_can_list_workspaces_or_hand_out_credits(tmp_path: Path, monke
         assert client.get("/admin/workspaces").status_code == 403
         assert client.post("/admin/wallets/grant", json={
             "workspace_id": workspace_id, "amount": 1000}).status_code == 403
+
+
+def _credits(client, workspace_id: str, operation: str, amount: int, reason: str = "对账"):
+    return client.post(f"/admin/wallets/workspace/{workspace_id}/credits",
+                       json={"operation": operation, "amount": amount, "reason": reason})
+
+
+def test_credits_can_be_added_deducted_and_set(tmp_path: Path, monkeypatch):
+    """Three shapes, because an operator needs all three: top up, take back, and correct to
+    an exact figure after a reconciliation — the last one being the one that cannot be
+    expressed by the other two without doing arithmetic by hand."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+
+        assert _credits(client, workspace_id, "add", 1000).json()["balance"] == 1000
+        assert _credits(client, workspace_id, "deduct", 250).json()["balance"] == 750
+        # Setting is an absolute figure, not a delta.
+        assert _credits(client, workspace_id, "set", 300).json()["balance"] == 300
+        assert _credits(client, workspace_id, "set", 300).json()["balance"] == 300, "setting twice is a no-op"
+
+        ledger = client.get(f"/admin/wallets/workspace/{workspace_id}").json()["ledger"]
+        assert [entry["type"] for entry in ledger][:3] == ["adjust", "adjust", "grant"]
+
+
+def test_credits_cannot_go_negative(tmp_path: Path, monkeypatch):
+    """A balance below zero would be credit we never sold."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        _credits(client, workspace_id, "add", 100)
+
+        refused = _credits(client, workspace_id, "deduct", 500)
+        assert refused.status_code == 402, refused.text
+        assert client.get(f"/admin/wallets/workspace/{workspace_id}").json()["balance"] == 100
+
+        assert _credits(client, workspace_id, "set", -5).status_code == 422
+
+
+def test_taking_credits_away_has_to_say_why(tmp_path: Path, monkeypatch):
+    """Adding is self-explanatory; removing somebody's balance is not, and the ledger is
+    what an argument about it gets settled from."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        _credits(client, workspace_id, "add", 500)
+
+        for operation in ("deduct", "set"):
+            blank = _credits(client, workspace_id, operation, 100, reason="")
+            assert blank.status_code == 422, f"{operation}: {blank.text}"
+        # Adding needs no justification.
+        assert _credits(client, workspace_id, "add", 100, reason="").status_code == 200
+
+
+def test_setting_a_balance_respects_what_running_tasks_hold(tmp_path: Path, monkeypatch):
+    """Credits frozen for a task in flight are already spoken for: dropping the balance
+    below them would let a running job settle against money that is no longer there."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, engine, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        _credits(client, workspace_id, "add", 1000)
+
+        services = BillingServices.build(engine)
+        wallet = services.wallets.for_workspace(workspace_id)
+        from src.billing.price_book import Quote
+
+        services.wallets.hold(wallet["id"], "job-item-1",
+                              Quote(item_id="i", unit_credits=400, quantity=1, credits=400,
+                                    price_book_version=1))
+
+        refused = _credits(client, workspace_id, "set", 100)
+        assert refused.status_code == 402, refused.text
+        assert client.get(f"/admin/wallets/workspace/{workspace_id}").json()["balance"] == 1000

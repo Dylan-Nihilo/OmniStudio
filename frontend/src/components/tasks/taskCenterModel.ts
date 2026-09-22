@@ -136,3 +136,73 @@ export function taskObjectHash(ref: TaskObjectRef): string | null {
   const target = ref.episodeId || ref.projectId;
   return target ? `#/project/${target}` : null;
 }
+
+
+/**
+ * Failure codes we can explain. Anything else falls back to a generic line.
+ *
+ * Mapping rather than echoing the server's message is deliberate: the message can quote a
+ * provider verbatim, and a customer has no use for a vendor's wording — they need to know
+ * whether to top up, change the input, or wait. The original text stays in the server log.
+ */
+const FAILURE_REASONS: Record<string, string> = {
+    INSUFFICIENT_CREDITS: "reasonInsufficientCredits",
+    PRICING_ITEM_NOT_FOUND: "reasonUnpriced",
+    PRICE_BOOK_MISSING: "reasonUnpriced",
+    PROVIDER_DISPATCH_FAILED: "reasonDispatchFailed",
+    PROVIDER_EMPTY_RESULT: "reasonEmptyResult",
+    PROVIDER_FAILED: "reasonGenerationFailed",
+    PROVIDER_TIMEOUT: "reasonTimeout",
+    JOB_DISPATCH_UNAVAILABLE: "reasonServiceBusy",
+    RECOVERY_UNAVAILABLE: "reasonServiceBusy",
+    CANCELED: "reasonCanceled",
+};
+
+/**
+ * Job kinds we have a name for. `production.<stage>` and `playground.<mode>` are internal
+ * strings — showing one to a customer is the thing this row is being fixed for, so an
+ * unrecognised kind falls back to a generic name rather than leaking the identifier.
+ */
+const TASK_NAMES: Record<string, string> = {
+    "production.asset": "kindAsset",
+    "production.storyboard": "kindStoryboard",
+    "production.video": "kindVideo",
+    "production.motion_ref": "kindVideo",
+    "production.audio": "kindAudio",
+    "production.tts": "kindAudio",
+    "production.sfx": "kindAudio",
+    "production.dialogue": "kindDialogue",
+    "production.export": "kindExport",
+    "production.source_analysis": "kindSourceAnalysis",
+    "production.cleanup_report": "kindCleanup",
+    "playground.t2i": "kindPlaygroundImage",
+    "playground.i2i": "kindPlaygroundImage",
+    "playground.t2v": "kindPlaygroundVideo",
+    "playground.i2v": "kindPlaygroundVideo",
+    "playground.r2v": "kindPlaygroundVideo",
+    "playground.v2v": "kindPlaygroundVideo",
+};
+
+type Translate = (key: string) => string;
+
+/**
+ * A readable name for a job or item kind. Falls back to a generic label rather than the
+ * identifier: `production.asset` on screen is the thing this replaced.
+ *
+ * Item kinds arrive bare (`video`), job kinds prefixed (`production.video`), so both spellings
+ * resolve to the same name.
+ */
+export function taskName(kind: string, t: Translate): string {
+    return t(TASK_NAMES[kind] ?? TASK_NAMES[`production.${kind}`] ?? "kindGeneric");
+}
+
+/**
+ * Why a task failed, in words a customer can act on.
+ *
+ * Mapped from the code rather than echoed from the server: the message can quote a
+ * provider verbatim — its wording, its endpoint, the model we buy capacity on — and none of
+ * that is a customer's business or any use to them. The original stays in the server log.
+ */
+export function failureReason(errorCode: string, t: Translate): string {
+    return t(FAILURE_REASONS[errorCode] ?? "reasonGeneric");
+}
