@@ -313,6 +313,21 @@ def revoke_role(user_id: str, request: Request, context: RootUser, billing: Bill
     return {"user_id": user_id, "role": None}
 
 
+@admin_router.get("/workspaces")
+def list_workspaces(context: RootUser, billing: Billing) -> list[dict[str, Any]]:
+    """Every workspace with its balance, so credits can be granted from the console.
+
+    Root is not a member of a customer's workspace and had no way to discover its id, which
+    is why the grant endpoint existed for months with nothing able to call it.
+    """
+    from ..storage.auth_repository import AuthRepository
+
+    workspaces = AuthRepository(billing.engine).list_all_workspaces()
+    # Read-only: listing customers must not open a wallet for each of them.
+    balances = billing.wallets.balances_for_workspaces([item["id"] for item in workspaces])
+    return [{**item, **balances.get(item["id"], {})} for item in workspaces]
+
+
 @admin_router.get("/wallets/workspace/{workspace_id}")
 def workspace_wallet(workspace_id: str, context: AdminUser, billing: Billing) -> dict[str, Any]:
     w = billing.wallets.for_workspace(workspace_id)

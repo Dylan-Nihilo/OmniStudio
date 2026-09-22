@@ -752,6 +752,11 @@ export interface UnifiedJob {
     items: UnifiedJobItem[];
     created_at?: number | null;
     updated_at?: number | null;
+    /** Which project this ran for, resolved server-side: the task centre spans projects. */
+    project_title?: string | null;
+    /** Credits actually taken, and what is still frozen while it runs. */
+    credits_spent?: number;
+    credits_held?: number;
 }
 
 export interface UnifiedTaskPage {

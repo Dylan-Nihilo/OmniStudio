@@ -49,6 +49,33 @@ class WalletService:
     def for_workspace(self, workspace_id: str) -> dict[str, Any]:
         return self.get_or_create("workspace", workspace_id)
 
+    def balances_for_workspaces(self, workspace_ids: list[str]) -> dict[str, dict[str, int]]:
+        """Balances for many workspaces at once, without creating anything.
+
+        `for_workspace` opens a wallet when none exists, which is right when money is about
+        to move and wrong for a console table — merely listing customers should not write a
+        row for each. A workspace with no wallet yet reads as zero, which is what it has.
+        """
+        if not workspace_ids:
+            return {}
+        table = Wallet.__table__
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(table.c.owner_id, table.c.id, table.c.balance, table.c.frozen)
+                .where(table.c.owner_type == "workspace", table.c.owner_id.in_(workspace_ids))
+            ).mappings().all()
+        found = {
+            str(row["owner_id"]): {"wallet_id": str(row["id"]), "balance": row["balance"],
+                                   "frozen": row["frozen"],
+                                   "available": row["balance"] - row["frozen"]}
+            for row in rows
+        }
+        return {
+            workspace_id: found.get(workspace_id,
+                                    {"wallet_id": None, "balance": 0, "frozen": 0, "available": 0})
+            for workspace_id in workspace_ids
+        }
+
     def balance(self, wallet_id: str) -> dict[str, int]:
         table = Wallet.__table__
         with self.engine.connect() as connection:

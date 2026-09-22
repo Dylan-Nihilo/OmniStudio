@@ -2,6 +2,19 @@ import { apiClient, API_URL } from "@/lib/apiClient";
 
 export type PlatformRole = "root" | "admin" | "reseller_admin" | null;
 
+/** A workspace as the operator sees it: who is in it and what it has left to spend. */
+export interface AdminWorkspace {
+    id: string;
+    name: string;
+    slug: string | null;
+    created_at: number | null;
+    member_count: number;
+    wallet_id: string | null;
+    balance: number;
+    frozen: number;
+    available: number;
+}
+
 export interface WalletSummary {
     /** False on deployments that do not bill; the credit UI stays hidden. */
     enabled: boolean;
@@ -237,11 +250,19 @@ export const billingAdminApi = {
         return res.data as WalletSummary & { ledger: LedgerEntry[] };
     },
 
+    /** Every workspace with its balance, so root can find the one to top up. */
+    listWorkspaces: async (): Promise<AdminWorkspace[]> => {
+        const res = await apiClient.get(`${API_URL}/admin/workspaces`);
+        return res.data as AdminWorkspace[];
+    },
+
     grantCredits: async (workspaceId: string, amount: number, reason = "") => {
         const res = await apiClient.post(`${API_URL}/admin/wallets/grant`, {
             workspace_id: workspaceId,
             amount,
             reason,
+            // A double-clicked button must not pay a customer twice.
+            idempotency_key: `grant:${workspaceId}:${amount}:${Date.now()}`,
         });
         return res.data;
     },
