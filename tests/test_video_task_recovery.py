@@ -544,3 +544,15 @@ def test_seedance_snapshots_episode_ratio_unless_explicit(pipeline, mode, explic
         )
     task = next(t for t in script.video_tasks if t.id == task_id)
     assert task.ratio == expected
+
+
+def test_all_video_tasks_snapshot_effective_episode_ratio(pipeline):
+    pipeline.scripts = {"p1": _script_with_tasks()}
+    settings = SimpleNamespace(settings=SimpleNamespace(storyboard_aspect_ratio="9:16"))
+    with patch.object(pipeline, "_save_data"), patch.object(pipeline, "resolve_model_settings", return_value=settings):
+        script, task_id = pipeline.create_video_task(
+            "p1", "https://example.com/portrait.png", "A portrait shot",
+            model="wan2.7-i2v", generation_mode="i2v",
+        )
+    task = next(t for t in script.video_tasks if t.id == task_id)
+    assert task.ratio == "9:16"

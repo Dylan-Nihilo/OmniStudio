@@ -351,6 +351,10 @@ def test_source_ai_episode_split_is_preview_only_until_confirmation(source_clien
     assert [item["title"] for item in result["episodes"]] == ["雨夜密信", "码头追踪"]
     assert client.get(f"/sources/{source['id']}/episodes").json()["total"] == 2
     assert len(client.get("/projects").json()) == 2
+    created_project = client.get(f"/projects/{result['episode_ids'][0]}").json()
+    assert created_project["workflow_mode"] == "r2v"
+    assert created_project["model_settings"]["storyboard_aspect_ratio"] == "9:16"
+    assert client.get(f"/episodes/{result['episode_ids'][0]}/production-context").json()["project_id"] == result["series_id"]
 
     repeated = client.post(f"/sources/episode-split-previews/{preview['id']}/confirm", json={})
     assert repeated.status_code == 200, repeated.text

@@ -705,7 +705,12 @@ def confirm_source_episode_split(
     pipeline = _pipeline(request)
     try:
         result = pipeline.create_series_from_import(
-            title, content, proposals, payload.description
+            title,
+            content,
+            proposals,
+            payload.description,
+            workflow_mode="r2v",
+            aspect_ratio="9:16",
         )
         legacy_repository = getattr(pipeline, "repository", None)
         if legacy_repository is None:
@@ -717,6 +722,23 @@ def confirm_source_episode_split(
         legacy_repository.assign_workspace_for_series(series_id, workspace_id)
         for episode_id in episode_ids:
             legacy_repository.assign_workspace_for_script(episode_id, workspace_id)
+        # Keep chapter-level provenance when the split proposal contains a
+        # chapter's actual text.  The document link remains the compatibility
+        # fallback for older imports that have no reliable boundary match.
+        source_chapters = repository.list_chapters(workspace_id, str(preview["source_document_id"]))
+        for episode in result["episodes"]:
+            episode_text = str(pipeline.get_script(str(episode["id"])).original_text or "")
+            for chapter in source_chapters:
+                revision = chapter.get("current_revision") or {}
+                chapter_text = str(revision.get("content") or "").strip()
+                if chapter_text and (chapter_text in episode_text or episode_text.strip() == chapter_text):
+                    repository.link_chapter_episode(
+                        workspace_id=workspace_id,
+                        source_id=str(preview["source_document_id"]),
+                        chapter_id=str(chapter["id"]),
+                        episode_id=str(episode["id"]),
+                        user_id=_user_id(request),
+                    )
         confirmed = repository.confirm_episode_split_preview(
             workspace_id=workspace_id,
             preview_id=preview_id,
