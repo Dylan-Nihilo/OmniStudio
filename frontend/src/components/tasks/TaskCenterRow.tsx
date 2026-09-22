@@ -21,6 +21,7 @@ const FAILURE_REASONS: Record<string, string> = {
     PROVIDER_DISPATCH_FAILED: "reasonDispatchFailed",
     PROVIDER_EMPTY_RESULT: "reasonEmptyResult",
     PROVIDER_FAILED: "reasonGenerationFailed",
+    PROVIDER_TIMEOUT: "reasonTimeout",
     JOB_DISPATCH_UNAVAILABLE: "reasonServiceBusy",
     RECOVERY_UNAVAILABLE: "reasonServiceBusy",
     CANCELED: "reasonCanceled",

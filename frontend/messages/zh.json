@@ -2901,6 +2901,7 @@
     "reasonEmptyResult": "本次没有生成出结果，请调整描述后重试。",
     "reasonGenerationFailed": "生成失败，请调整输入后重试；多次失败请联系管理员。",
     "reasonServiceBusy": "服务繁忙，请稍后重试。",
+    "reasonTimeout": "生成超时，请稍后重试。",
     "reasonCanceled": "任务已取消。",
     "reasonGeneric": "任务执行失败，请稍后重试；多次失败请联系管理员。",
     "confirmCancel": "确定取消这个任务吗？",
