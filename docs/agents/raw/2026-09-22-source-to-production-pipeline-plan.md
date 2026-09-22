@@ -1,295 +1,36 @@
-# 来源资料到完整生产流程实施计划
+# 来源资料到完整生产流程实施记录
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+## 目标
 
-**Goal:** 将来源资料导入、章节分析、拆集和 Episode 创建后的内容，接入与工作区项目相同的剧本、资产、分镜、视频、配音、合成和导出生产链路，并保持竖屏 9:16 配置贯穿全流程。
+来源资料导入、章节分析、拆集后的 Episode 必须进入工作区已有的完整制作链：剧本写作与保存 → 实体分析 → 美术/角色资产 → 制作规划与分镜 → 视频 → 配音 → 合成导出。来源页默认生成竖屏 9:16 的 R2V Episode。
 
-**Architecture:** 来源资料继续由 `SourceRepository` 保存来源、章节、分析和关联关系；Episode 仍复用现有 `Script`/`Series`/`Pipeline` 数据模型。新增一个只读生产上下文接口，把来源关联、当前修订、影响项、剧本阶段和生产计划状态组合给来源页面；来源分析事件通过显式桥接服务转换为可追溯的剧本草稿和生产计划草稿，用户确认后才覆盖下游内容。统一工作区 `ProjectClient` 继续负责所有生成和导出操作，来源页只负责入口、状态和追溯。
+## 采用的边界
 
-**Tech Stack:** FastAPI、Pydantic、SQLAlchemy、Next.js 14、React 18、TypeScript、Zustand、Vitest、Pytest。
+- 来源资料仍由 SourceRepository 保存来源、章节、修订、分析和关联关系。
+- 来源页只做资料管理、分析、章节/集关联和生产入口；生产数据全部存入现有 Script/Series/Pipeline。
+- 所有生产入口使用 `#/project/{episode_id}`，由 `ProjectClient` 提供统一工作区体验；独立脚本编辑器不再作为正式生产入口。
+- 来源分析结果作为只读参考。剧本改写必须经过已有 ScriptWritingEditor 的预览、人工接受和 CAS 保存，再使用既有实体提取与制作规划流程。
+- 不把分析事件直接伪造成镜头、场景或视频任务；镜头必须由现有分镜/制作规划流程生成并通过其校验。
 
-**Spec:** `AGENTS.md` 中“来源资料 → Episode → 工作区生产”的用户需求与 9:16 约束。
+## 已实现
 
-## Global Constraints
+1. `GET /episodes/{episode_id}/production-context` 提供来源依赖、修订影响、实际生产阶段、真实资产/分镜/视频/音频计数、父级 Series ID 和有效画幅。
+2. 来源拆集确认调用 `create_series_from_import(..., workflow_mode="r2v", aspect_ratio="9:16")`，并把 Series 配置继承给每个 Episode。普通旧导入保持原默认行为。
+3. 来源拆集确认后，能够按正文匹配章节建立 `SourceChapterEpisodeLink`；没有可靠匹配时保留文档级兼容关联。
+4. 生产上下文通过 `resolve_episode_assets` 统计 Episode、Series、全局库合并后的资产；视频完成状态要求每个分镜都有完成视频；无对白剧集不会被音频阶段卡住。
+5. 视频任务创建时持久化有效 `storyboard_aspect_ratio`，并将该比例传给 Wan/Kling/Vidu/Seedance 等下游适配器。
+6. 来源页“打开剧本/进入生产”统一进入 `ProjectClient`；工作区剧本参考栏展示关联来源章节、版本变更提示。
 
-- 所有新功能必须先写失败测试，再写最小实现。
-- 所有开发在 `feature/*`、`fix/*` 或 `docs/*` 分支进行，提交后推送 `github` 并通过 Pull Request 合并。
-- 不直接推送 `main`，不修改 git author，不添加 `Co-Authored-By`。
-- 工作区生产链路继续复用现有 `ProjectClient`、`Pipeline`、`Script`、`ProductionPlan` 和任务中心。
-- 默认测试画幅为 `9:16`；角色、场景、道具、分镜、视频和导出都必须能读取同一 Episode 的画幅设置。
-- 来源章节、修订和分析结果必须保留 source/chapter/revision 引用，人工编辑后不得静默覆盖。
+## 验收顺序
 
-### Task 1: 来源 Episode 生产上下文与工作区入口
+1. 导入 TXT/Markdown/DOCX 或粘贴正文，确认章节预览后确认来源导入。
+2. 来源分析完成后检查事件结果、状态和可重试行为；编辑章节会产生新 revision 并标记影响项。
+3. 生成拆集预览，人工修正标题/边界，确认后检查 Series、Episode、章节关联和 9:16/R2V 设置。
+4. 从来源页打开任意 Episode，确认进入同一个 ProjectClient，并依次完成剧本保存、实体提取、资产、分镜、视频、配音、合成导出。
+5. 修改来源章节后返回工作区，确认来源参考显示 stale；人工核对后再改写剧本，不自动覆盖人工内容。
+6. 检查每个视频任务的 ratio 为 9:16，导出分辨率/方向保持工作区设置。
 
-**Files:**
-- Create: `src/apps/comic_gen/source_production.py`
-- Modify: `src/apps/comic_gen/source_models.py`
-- Modify: `src/apps/comic_gen/source_api.py`
-- Modify: `frontend/src/lib/api.ts`
-- Modify: `frontend/src/components/source/SourceEpisodePanel.tsx`
-- Modify: `frontend/src/components/source/SourceWorkspace.tsx`
-- Test: `src/apps/comic_gen/test_source_production.py`
-- Test: `frontend/src/components/source/SourceEpisodePanel.test.tsx`
+## 已知限制
 
-**Interfaces:**
-- `build_source_production_context(repository, workspace_id, episode_id) -> dict` 返回 `episode_id`、来源依赖、开放影响项、生产阶段、资产/镜头/计划计数和 `aspect_ratio`。
-- `GET /episodes/{episode_id}/production-context` 返回 `SourceProductionContextRead`。
-- Episode 卡片显示当前生产阶段和“进入生产工作区”按钮，点击跳转 `#/project/{episode_id}`。
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_source_production_context_includes_episode_mapping_and_portrait_ratio(client, linked_episode):
-    response = client.get(f"/episodes/{linked_episode.id}/production-context")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["episode_id"] == linked_episode.id
-    assert body["source_dependencies"]
-    assert body["aspect_ratio"] == "9:16"
-    assert "production_stage" in body
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest src/apps/comic_gen/test_source_production.py::test_source_production_context_includes_episode_mapping_and_portrait_ratio -q`
-
-Expected: FAIL with `404 Not Found` because the endpoint and response model do not exist.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Add `SourceProductionContextRead`, call the existing source repository dependency/impact methods, load the Episode through the pipeline, derive counts from `Script`, and return a default `9:16` when the Episode has no explicit storyboard ratio. Add a `sourceApi.getProductionContext` client method and a panel button that navigates to `#/project/{id}`.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest src/apps/comic_gen/test_source_production.py -q` and `cd frontend; npm test -- --run src/components/source/SourceEpisodePanel.test.tsx`.
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/apps/comic_gen/source_production.py src/apps/comic_gen/source_models.py src/apps/comic_gen/source_api.py frontend/src/lib/api.ts frontend/src/components/source/SourceEpisodePanel.tsx frontend/src/components/source/SourceWorkspace.tsx src/apps/comic_gen/test_source_production.py frontend/src/components/source/SourceEpisodePanel.test.tsx
-git commit -m "feat: expose source episode production context"
-```
-
-### Task 2: 分析事件到剧本草稿桥接
-
-**Files:**
-- Create: `src/apps/comic_gen/source_script_bridge.py`
-- Modify: `src/apps/comic_gen/source_api.py`
-- Modify: `src/apps/comic_gen/source_models.py`
-- Modify: `frontend/src/lib/api.ts`
-- Modify: `frontend/src/components/source/SourceAnalysisPanel.tsx`
-- Test: `src/apps/comic_gen/test_source_script_bridge.py`
-
-**Interfaces:**
-- `build_script_draft_from_source_events(events, chapter, existing_script) -> ScriptDraftBridge`。
-- `POST /episodes/{episode_id}/source-script-draft` 支持 preview/apply，保存 source 引用元数据。
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_source_events_become_traceable_script_draft(events, chapter):
-    draft = build_script_draft_from_source_events(events, chapter, None)
-    assert draft.nodes[0].type == "scene_heading"
-    assert draft.nodes[0].source_excerpt == events[0].source_excerpt
-    assert draft.source_revision_id == chapter.current_revision_id
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest src/apps/comic_gen/test_source_script_bridge.py::test_source_events_become_traceable_script_draft -q`
-
-Expected: FAIL with `ModuleNotFoundError`.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Map each event to heading/action/dialogue nodes, preserve chapter and revision identifiers, reject apply when the script has a newer manual revision unless `force=true`, and expose preview/apply responses.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest src/apps/comic_gen/test_source_script_bridge.py -q`.
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/apps/comic_gen/source_script_bridge.py src/apps/comic_gen/source_api.py src/apps/comic_gen/source_models.py frontend/src/lib/api.ts frontend/src/components/source/SourceAnalysisPanel.tsx src/apps/comic_gen/test_source_script_bridge.py
-git commit -m "feat: bridge source analysis into script drafts"
-```
-
-### Task 3: 剧本草稿到可编辑生产计划
-
-**Files:**
-- Create: `src/apps/comic_gen/source_plan_bridge.py`
-- Modify: `src/apps/comic_gen/source_api.py`
-- Modify: `frontend/src/components/source/SourceAnalysisPanel.tsx`
-- Test: `src/apps/comic_gen/test_source_plan_bridge.py`
-
-**Interfaces:**
-- `build_production_plan_draft(events, script, assets, aspect_ratio="9:16") -> ProductionPlan`。
-- 每个 PlannedShot 必须有 `description`、`camera`、`duration`、`source_quote`，并把角色/场景/道具名放入 reference_names。
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_plan_draft_contains_editable_portrait_shots(events, script):
-    plan = build_production_plan_draft(events, script, {}, aspect_ratio="9:16")
-    assert plan.segments[0].shots[0].source_quote == events[0].source_excerpt
-    assert plan.metadata["aspect_ratio"] == "9:16"
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest src/apps/comic_gen/test_source_plan_bridge.py::test_plan_draft_contains_editable_portrait_shots -q`
-
-Expected: FAIL with `ModuleNotFoundError`.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Create deterministic segments/shots from source events, resolve known asset names, set portrait metadata, and let the existing production plan dialog review/apply the draft.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest src/apps/comic_gen/test_source_plan_bridge.py -q`.
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/apps/comic_gen/source_plan_bridge.py src/apps/comic_gen/source_api.py frontend/src/components/source/SourceAnalysisPanel.tsx src/apps/comic_gen/test_source_plan_bridge.py
-git commit -m "feat: create production plans from source events"
-```
-
-### Task 4: 资产匹配、生成与连续性引用
-
-**Files:**
-- Modify: `src/apps/comic_gen/source_plan_bridge.py`
-- Modify: `src/apps/comic_gen/pipeline.py`
-- Modify: `frontend/src/components/source/SourceWorkspace.tsx`
-- Test: `src/apps/comic_gen/test_source_asset_bridge.py`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_unknown_source_names_are_pending_assets_and_known_names_reuse_shared_assets(...):
-    result = resolve_source_asset_references(...)
-    assert result.pending[0].status == "pending"
-    assert result.references["林默"] == "shared-character-1"
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest src/apps/comic_gen/test_source_asset_bridge.py::test_unknown_source_names_are_pending_assets_and_known_names_reuse_shared_assets -q`
-
-Expected: FAIL because no source asset bridge exists.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Reuse `resolve_episode_assets`, shared series assets, lock/replacement behavior, and create pending generation entries for unresolved names without silently inventing IDs.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest src/apps/comic_gen/test_source_asset_bridge.py -q`.
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/apps/comic_gen/source_plan_bridge.py src/apps/comic_gen/pipeline.py frontend/src/components/source/SourceWorkspace.tsx src/apps/comic_gen/test_source_asset_bridge.py
-git commit -m "feat: bind source references to reusable assets"
-```
-
-### Task 5: 9:16 设置贯穿 Episode 生产
-
-**Files:**
-- Modify: `src/apps/comic_gen/pipeline.py`
-- Modify: `src/apps/comic_gen/api.py`
-- Modify: `frontend/src/components/project/ProjectClient.tsx`
-- Modify: `frontend/src/components/modules/StoryboardR2V.tsx`
-- Test: `src/apps/comic_gen/test_portrait_production_defaults.py`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_source_episode_defaults_all_visual_stages_to_portrait(...):
-    settings = production_settings_for_episode(...)
-    assert settings.character_aspect_ratio == "9:16"
-    assert settings.scene_aspect_ratio == "9:16"
-    assert settings.prop_aspect_ratio == "9:16"
-    assert settings.storyboard_aspect_ratio == "9:16"
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest src/apps/comic_gen/test_portrait_production_defaults.py::test_source_episode_defaults_all_visual_stages_to_portrait -q`
-
-Expected: FAIL because existing defaults are mixed `16:9`/`1:1`.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Apply portrait defaults only to Episodes created from source split or explicitly marked source production, persist them in Episode settings, and pass the same ratio to storyboard, video, preview and export requests.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest src/apps/comic_gen/test_portrait_production_defaults.py -q` plus frontend typecheck.
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/apps/comic_gen/pipeline.py src/apps/comic_gen/api.py frontend/src/components/project/ProjectClient.tsx frontend/src/components/modules/StoryboardR2V.tsx src/apps/comic_gen/test_portrait_production_defaults.py
-git commit -m "feat: carry portrait settings through source episodes"
-```
-
-### Task 6: 完整生成、配音、合成和导出验收
-
-**Files:**
-- Modify: `src/apps/comic_gen/api.py`
-- Modify: `frontend/src/components/source/SourceEpisodePanel.tsx`
-- Modify: `frontend/src/components/project/ProjectClient.tsx`
-- Test: `src/apps/comic_gen/test_source_to_export_flow.py`
-- Test: `frontend/src/components/source/SourceWorkspace.test.tsx`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_source_episode_can_reach_export_ready_state(...):
-    context = client.get(f"/episodes/{episode_id}/production-context").json()
-    assert context["stages"] == ["script", "assets", "storyboard", "video", "audio", "assembly", "export"]
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest src/apps/comic_gen/test_source_to_export_flow.py::test_source_episode_can_reach_export_ready_state -q`
-
-Expected: FAIL because source context does not expose the complete stage contract.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Expose stage states and retryable failure IDs from the existing job/task records, render a production checklist on the source Episode card, and keep every stage navigable to the same `ProjectClient` step.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest src/apps/comic_gen/test_source_to_export_flow.py -q`; `cd frontend; npm run typecheck`; `npm run test:all`.
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/apps/comic_gen/api.py frontend/src/components/source/SourceEpisodePanel.tsx frontend/src/components/project/ProjectClient.tsx src/apps/comic_gen/test_source_to_export_flow.py frontend/src/components/source/SourceWorkspace.test.tsx
-git commit -m "feat: expose complete source production checklist"
-```
-
-## Verification and release
-
-- [ ] Run backend focused tests after every task, then `pytest -q` before the PR.
-- [ ] Run `cd frontend; npm run typecheck; npm run test:all; npm run build`.
-- [ ] Run `python scripts/check_workflow_parity.py` if any mirrored workflow file changes.
-- [ ] Push only to `github` and open a PR from `feature/source-to-production-pipeline`.
-- [ ] Do not claim the full flow is complete until a source Episode reaches editable script, asset, portrait storyboard, video, audio, assembly and export states in an end-to-end test.
+- 真实模型生成、TTS、FFmpeg 和 OSS 结果取决于部署环境配置；自动化测试使用 provider mock，不声称生成真实成片。
+- 已有历史 Episode 不会被静默改成 R2V/9:16，仍按其实际有效配置进入工作区；只有来源拆集新建 Episode 使用来源流程默认值。

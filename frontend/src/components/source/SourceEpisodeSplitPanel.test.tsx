@@ -112,5 +112,7 @@ describe("SourceEpisodeSplitPanel", () => {
 
     expect(screen.getByText("已创建 2 个 Episode")).toBeVisible();
     expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("夜班开始");
+    fireEvent.click(screen.getByRole("button", { name: "进入生产工作区 夜班开始" }));
+    expect(window.location.hash).toBe("#/project/episode-1");
   });
 });

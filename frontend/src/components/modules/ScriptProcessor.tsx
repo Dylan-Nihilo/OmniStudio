@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Film, Upload, Save, Image as ImageIcon } from "lucide-react";
 import { Button, EmptyState, SelectField, Tabs } from "@omnistudio/ui";
-import { api } from "@/lib/api";
+import { api, sourceApi, type SourceChapterAnalysis, type SourceProductionContext } from "@/lib/api";
 import { useProjectStore } from "@/store/projectStore";
 import { toast } from "@/store/toastStore";
 import PreviousEpisodeSummary from "@/components/modules/PreviousEpisodeSummary";
@@ -51,9 +51,43 @@ export default function ScriptProcessor() {
     const pricing = usePricingTable();
     const ratesVisible = useBillingStore((state) => Boolean(state.enabled) || state.ratesPublished);
     const [textModel, setTextModel] = useState<string | null>(null);
+    const [sourceContext, setSourceContext] = useState<SourceProductionContext | null>(null);
+    const [sourceAnalyses, setSourceAnalyses] = useState<SourceChapterAnalysis[]>([]);
     const estimatedCredits = estimateTextCredits(pricing, textModel, script.length);
 
     const readOnly = leaseStatus !== "editing";
+
+    useEffect(() => {
+        const projectId = currentProject?.id;
+        if (!projectId) {
+            setSourceContext(null);
+            setSourceAnalyses([]);
+            return;
+        }
+        let active = true;
+        void sourceApi.getProductionContext(projectId)
+            .then(context => { if (active) setSourceContext(context); })
+            .catch(() => { if (active) setSourceContext(null); });
+        return () => { active = false; };
+    }, [currentProject?.id]);
+
+    useEffect(() => {
+        const dependencies = sourceContext?.source_dependencies ?? [];
+        if (!dependencies.length) {
+            setSourceAnalyses([]);
+            return;
+        }
+        let active = true;
+        void Promise.all(dependencies.map(async dependency => {
+            const sourceId = typeof dependency.source_id === "string" ? dependency.source_id : "";
+            const chapterId = typeof dependency.chapter_id === "string" ? dependency.chapter_id : "";
+            if (!sourceId || !chapterId) return null;
+            try { return await sourceApi.getChapterAnalysis(sourceId, chapterId); } catch { return null; }
+        })).then(results => {
+            if (active) setSourceAnalyses(results.filter((item): item is SourceChapterAnalysis => item !== null));
+        });
+        return () => { active = false; };
+    }, [sourceContext]);
 
     useEffect(() => {
         setScript(projectText);
@@ -203,6 +237,27 @@ export default function ScriptProcessor() {
         </div> : <EmptyState title={t("noScenes")} description={t("analysisHint")} media={<ImageIcon size={24} />} />}
         <div className={styles.characters}><h3>{t("characters")}</h3>{characters.map(character => <article key={character.id}><strong>{character.name}</strong><p>{character.description}</p></article>)}{!characters.length && <p>{t("noCharacters")}</p>}</div>
     </section>;
+    const sourceReference = <section className={styles.analysis} aria-label={t("sourceReference")}>
+        <p className={styles.eyebrow}>{t("sourceReference")}</p>
+        {sourceContext?.source_dependencies?.length ? <>
+            <h2>{t("sourceDependencies")}</h2>
+            <p className={styles.muted}>{t("sourceReferenceHint", { count: sourceContext.source_dependencies.length })}</p>
+            <ul className={styles.outline}>
+                {sourceContext.source_dependencies.map(item => <li key={`${String(item.source_id)}:${String(item.chapter_id)}`}>
+                    <span>↳</span><div><h3>{String(item.chapter_title || item.source_title || "")}</h3><p>{String(item.source_title || "")}</p></div>
+                </li>)}
+            </ul>
+            {sourceAnalyses.length > 0 && <>
+                <h2>{t("sourceAnalysisReference")}</h2>
+                <ul className={styles.outline}>
+                    {sourceAnalyses.flatMap(analysis => analysis.events.slice(0, 6).map((event, index) => <li key={`${analysis.id}:${index}`}>
+                        <span>{event.sequence}</span><div><h3>{event.description}</h3><p>{event.source_excerpt || event.location || ""}</p></div>
+                    </li>))}
+                </ul>
+            </>}
+            {sourceContext.stale_targets.length > 0 && <p className={styles.error}>{t("sourceStale")}</p>}
+        </> : <EmptyState title={t("noSourceReference")} description={t("noSourceReferenceHint")} />}
+    </section>;
     return <div className={styles.page}>
         <header className={styles.header}><div><p>{t("script")}{currentProject?.episode_number ? ` / EP.${currentProject.episode_number}` : ""}</p><h2>{currentProject?.title}</h2></div><div className={styles.actions}>
             <input ref={fileInput} type="file" accept=".txt,.md" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; void importScript(file); }} />
@@ -220,7 +275,7 @@ export default function ScriptProcessor() {
         </div>}
         <ScriptWritingEditor key={`${workspaceId}:${currentProject?.id}`} projectId={currentProject?.id || ''}
             value={script} readOnly={readOnly || reading} onChange={changeScript} onSave={() => void save()}
-            outline={outline} reference={<Tabs aria-label={t("referencePanels")} items={[{ id: "analysis", label: t("structure"), content: analysis }, { id: "previous", label: t("previous"), content: <PreviousEpisodeSummary scriptId={currentProject?.id ?? null} /> }]} />}
+            outline={outline} reference={<Tabs aria-label={t("referencePanels")} items={[{ id: "analysis", label: t("structure"), content: analysis }, { id: "source", label: t("sourceReference"), content: sourceReference }, { id: "previous", label: t("previous"), content: <PreviousEpisodeSummary scriptId={currentProject?.id ?? null} /> }]} />}
             footer={<>
                 <footer className={styles.status}><span role="status">{saving ? t("saving") : script !== savedText ? t("unsaved") : t("saved")}</span><span>{t("words", { count: script.length })}</span><Button variant="quiet" onPress={() => void save()} isPending={saving} isDisabled={readOnly || script === savedText}><Save size={14} />{t("save")}</Button></footer>
                 {saveError && <p role="alert" className={styles.error}>{saveError}</p>}

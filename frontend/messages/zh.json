@@ -570,7 +570,14 @@
     "words": "{count} 字",
     "save": "保存",
     "referencePanels": "参考信息",
-    "previous": "前情回顾"
+    "previous": "前情回顾",
+    "sourceReference": "来源参考",
+    "sourceDependencies": "关联章节",
+    "sourceReferenceHint": "当前剧集关联了 {count} 个来源章节。修改前请核对版本。",
+    "sourceAnalysisReference": "章节分析参考",
+    "noSourceReference": "暂无来源参考",
+    "noSourceReferenceHint": "可在来源资料页将章节关联到当前剧集。",
+    "sourceStale": "来源版本已更新，当前剧本需要重新核对。"
   },
   "pipelineChrome": {
     "workspace": "制作台",

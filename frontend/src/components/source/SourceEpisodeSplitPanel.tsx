@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, RefreshCw, Save, Sparkles, X } from "lucide-react";
+import { Check, ExternalLink, RefreshCw, Save, Sparkles, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button, TextAreaField, TextField } from "@omnistudio/ui";
 import * as React from "react";
@@ -124,7 +124,12 @@ export default function SourceEpisodeSplitPanel({
           {preview.status === "confirmed" && createdEpisodes.length > 0 && (
             <div className={styles.createdEpisodes} role="status">
               <strong>{t("createdEpisodes", { count: createdEpisodes.length })}</strong>
-              <ul>{createdEpisodes.map(episode => <li key={episode.id}>{t("episodeShort", { number: episode.episode_number })} · {episode.title}</li>)}</ul>
+              <ul>{createdEpisodes.map(episode => <li key={episode.id}>
+                <span>{t("episodeShort", { number: episode.episode_number })} · {episode.title}</span>
+                <Button variant="quiet" onPress={() => { window.location.hash = `#/project/${episode.id}`; }} aria-label={`${t("openProduction")} ${episode.title}`}>
+                  <ExternalLink size={14} />{t("openProduction")}
+                </Button>
+              </li>)}</ul>
             </div>
           )}
           {preview.status === "canceled" && <p className={styles.emptyInline}>{t("splitCanceled")}</p>}

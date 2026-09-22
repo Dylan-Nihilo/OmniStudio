@@ -570,7 +570,14 @@
     "words": "{count} characters",
     "save": "Save",
     "referencePanels": "Reference information",
-    "previous": "Previously on"
+    "previous": "Previously on",
+    "sourceReference": "Source reference",
+    "sourceDependencies": "Linked chapters",
+    "sourceReferenceHint": "This episode uses {count} linked source chapters. Check the revision before editing.",
+    "sourceAnalysisReference": "Chapter analysis reference",
+    "noSourceReference": "No source reference",
+    "noSourceReferenceHint": "Link a chapter to this episode from Source Materials.",
+    "sourceStale": "The source revision changed. Review this script before continuing."
   },
   "pipelineChrome": {
     "workspace": "STUDIO",
