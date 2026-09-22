@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ...storage.errors import StorageError
 from ...storage.job_repository import JobItemRecord, JobRepository
+from ...billing.metering import current_job_item_id
 from .contracts import MediaRef, sanitize_error_text
 
 DispatchResult = Sequence[MediaRef | Mapping[str, Any]]
@@ -144,6 +145,11 @@ class ProductionJobAdapter:
         dispatcher = self._dispatchers.get(item.kind)
         if dispatcher is None:
             return self._fail_if_active(item, workspace_id, "JOB_DISPATCH_UNAVAILABLE", "没有注册生产任务调度器")
+        # Text and voice are charged where they are called, far below this frame, and the
+        # LLM adapter has no idea which task it is serving. Announcing the item here is what
+        # lets those credits be attributed to it — otherwise the task centre shows nothing
+        # spent on script analysis, which is most of what this pipeline does.
+        item_token = current_job_item_id.set(item.id)
         try:
             media_refs = list(dispatcher(item))
             if not media_refs and not item.payload.get("allow_empty_result"):
@@ -154,6 +160,8 @@ class ProductionJobAdapter:
             return self.repository.transition_item(item.id, "succeeded", media_refs=list(media_refs))
         except Exception as exc:
             return self._fail_if_active(item, workspace_id, "PROVIDER_DISPATCH_FAILED", sanitize_error_text(str(exc)))
+        finally:
+            current_job_item_id.reset(item_token)
 
     def _fail_if_active(
         self,

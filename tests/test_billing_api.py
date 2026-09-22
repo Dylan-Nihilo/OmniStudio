@@ -348,3 +348,70 @@ def test_setting_a_balance_respects_what_running_tasks_hold(tmp_path: Path, monk
         refused = _credits(client, workspace_id, "set", 100)
         assert refused.status_code == 402, refused.text
         assert client.get(f"/admin/wallets/workspace/{workspace_id}").json()["balance"] == 1000
+
+
+def test_text_charges_are_attributed_to_the_task_that_caused_them(tmp_path: Path, monkeypatch):
+    """Otherwise the task centre shows nothing spent on script analysis.
+
+    Image and video are quoted up front and carry the item id through the hold. Text and
+    voice are charged at the call site, deep inside the LLM adapter, which has no idea which
+    task it is serving — so the item id travels in a context variable and the meters attach
+    it to the ledger row. Without it those credits belong to no task and cannot be shown.
+    """
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, engine, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        _credits(client, workspace_id, "add", 1000)
+
+        client.put("/admin/pricing/items", json={
+            "model_id": "text/gpt-5.6-sol", "stage": "text", "billing_unit": "chars_1k",
+            "match": {"direction": "in"}, "purchase_price_cny": 0.004, "credits_override": 2})
+        client.put("/admin/pricing/items", json={
+            "model_id": "text/gpt-5.6-sol", "stage": "text", "billing_unit": "chars_1k",
+            "match": {"direction": "out"}, "purchase_price_cny": 0.032, "credits_override": 4})
+        assert client.post("/admin/pricing/publish", json={}).status_code == 200
+
+    from src.billing.metering import TextMeter, current_job_item_id
+
+    services = BillingServices.build(engine)
+    services.runtime.invalidate()
+    meter = TextMeter(services, enabled=True)
+
+    token = current_job_item_id.set("item-under-test")
+    try:
+        charged = meter.charge_text(workspace_id, "gpt-5.6-sol", 10_000, 2_000, "charge-1")
+    finally:
+        current_job_item_id.reset(token)
+    assert charged > 0
+
+    wallet = services.wallets.for_workspace(workspace_id)
+    entries = services.wallets.ledger(wallet["id"])
+    charge = next(entry for entry in entries if entry["type"] == "settle")
+    assert charge["job_item_id"] == "item-under-test", "the charge has to name the task"
+
+
+def test_a_charge_outside_any_task_still_works(tmp_path: Path, monkeypatch):
+    """Not every LLM call runs under a job — an interactive polish does not. It is still
+    charged; it just has no task to belong to."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, engine, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        _credits(client, workspace_id, "add", 1000)
+        for direction, credits in (("in", 2), ("out", 4)):
+            # quote_text prices both directions, so both rows have to exist.
+            client.put("/admin/pricing/items", json={
+                "model_id": "text/gpt-5.6-sol", "stage": "text", "billing_unit": "chars_1k",
+                "match": {"direction": direction}, "purchase_price_cny": 0.004,
+                "credits_override": credits})
+        assert client.post("/admin/pricing/publish", json={}).status_code == 200
+
+    from src.billing.metering import TextMeter
+
+    services = BillingServices.build(engine)
+    services.runtime.invalidate()
+    assert TextMeter(services, enabled=True).charge_text(workspace_id, "gpt-5.6-sol", 5_000, 0, "charge-2") > 0
+    wallet = services.wallets.for_workspace(workspace_id)
+    charge = next(e for e in services.wallets.ledger(wallet["id"]) if e["type"] == "settle")
+    assert charge["job_item_id"] is None

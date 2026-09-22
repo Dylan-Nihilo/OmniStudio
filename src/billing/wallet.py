@@ -227,7 +227,7 @@ class WalletService:
                 return self.release_in(connection, job_item_id, reason=reason)
 
     def debit(self, wallet_id: str, quote: Quote, idempotency_key: str, *, cap_to_available: bool = True,
-              reason: str = "") -> int:
+              reason: str = "", job_item_id: str | None = None) -> int:
         """Immediate charge for post-paid usage (LLM tokens). Returns the credits actually charged."""
         if quote.credits <= 0:
             return 0
@@ -243,7 +243,8 @@ class WalletService:
                 if charge == 0:
                     return 0
                 posted = self._post(connection, wallet_id, "settle", -charge, idempotency_key,
-                                    d_balance=-charge, d_frozen=0, reason=reason, quote=quote)
+                                    d_balance=-charge, d_frozen=0, reason=reason, quote=quote,
+                                    job_item_id=job_item_id)
                 return charge if posted else 0
 
 

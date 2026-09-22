@@ -35,6 +35,12 @@ TEXT_HOLD_SAFETY = 1.3
 # Set by the auth middleware for the request and copied into background tasks by _context_call.
 current_workspace_id: ContextVar[str | None] = ContextVar("current_workspace_id", default=None)
 current_actor_user_id: ContextVar[str | None] = ContextVar("current_actor_user_id", default=None)
+# The job item being executed, so a charge made deep inside a provider call can still be
+# attributed to the task that caused it. Image and video are quoted up front and carry the
+# item id through the hold, but text and voice are charged at the call site — the LLM
+# adapter has no idea which task it is running under, and without this their credits land
+# in the ledger belonging to nothing the task centre can show.
+current_job_item_id: ContextVar[str | None] = ContextVar("current_job_item_id", default=None)
 
 _SIZE_RE = re.compile(r"(\d+)\s*[x*×]\s*(\d+)", re.IGNORECASE)
 
@@ -261,7 +267,8 @@ class TextMeter:
         quote = self.services.runtime.quote_text(f"text/{model_id}" if "/" not in model_id else model_id,
                                                   chars_in, chars_out)
         reason = f"llm:{model_id} chars={chars_in}/{chars_out}" + (f" tokens={tokens}" if tokens else "")
-        return self.services.wallets.debit(wallet_id, quote, idempotency_key, reason=reason)
+        return self.services.wallets.debit(wallet_id, quote, idempotency_key, reason=reason,
+                                           job_item_id=current_job_item_id.get())
 
     def charge_voice(self, workspace_id: str | None, model_id: str, chars: int, idempotency_key: str,
                      variant: str | None = None) -> int:
@@ -272,7 +279,8 @@ class TextMeter:
         params = {"variant": variant} if variant else {}
         quote = self.services.runtime.quote(f"tts/{model_id}" if "/" not in model_id else model_id, params, chars / 1000)
         return self.services.wallets.debit(wallet_id, quote, idempotency_key,
-                                            reason=f"tts:{model_id} chars={chars}")
+                                            reason=f"tts:{model_id} chars={chars}",
+                                            job_item_id=current_job_item_id.get())
 
 
 def billing_hook_for(app_state: Any) -> JobBillingHook | None:
