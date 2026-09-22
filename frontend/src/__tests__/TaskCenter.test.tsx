@@ -204,7 +204,7 @@ describe("what a task row is allowed to say", () => {
   it("never puts the provider's own words on screen", async () => {
     mocks.listTasks.mockResolvedValue({ items: [providerFailure], page: 1, page_size: 20, total: 1 });
     mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 0, failed: 1, canceled: 0, skipped: 0 });
-    await act(async () => { render(<TaskCenter isOpen onClose={vi.fn()} />); });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
 
     await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
     const body = document.body.textContent ?? "";
@@ -218,7 +218,7 @@ describe("what a task row is allowed to say", () => {
   it("labels the row by project and a readable task name", async () => {
     mocks.listTasks.mockResolvedValue({ items: [providerFailure], page: 1, page_size: 20, total: 1 });
     mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 0, failed: 1, canceled: 0, skipped: 0 });
-    await act(async () => { render(<TaskCenter isOpen onClose={vi.fn()} />); });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
 
     await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
     const body = document.body.textContent ?? "";
@@ -236,7 +236,7 @@ describe("what a task row is allowed to say", () => {
                                 error_code: null, error_message: null }] };
     mocks.listTasks.mockResolvedValue({ items: [charged], page: 1, page_size: 20, total: 1 });
     mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 1, failed: 0, canceled: 0, skipped: 0 });
-    await act(async () => { render(<TaskCenter isOpen onClose={vi.fn()} />); });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
 
     await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
     expect(document.body.textContent).toContain("creditsSpent");
