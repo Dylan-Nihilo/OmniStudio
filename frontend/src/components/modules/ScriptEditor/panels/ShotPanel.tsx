@@ -5,7 +5,8 @@ import { useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion } from 'framer-motion';
 import { Film, Camera, Plus, Eye } from 'lucide-react';
-import type { Editor } from '@tiptap/react';
+import { useEditorState, type Editor } from '@tiptap/react';
+import { createUuid } from '@/lib/id';
 import type { Project } from '@/store/projectStore';
 import PreviewImage from '@/components/shared/preview/PreviewImage';
 import PreviewVideo from '@/components/shared/preview/PreviewVideo';
@@ -96,6 +97,7 @@ function ShotCard({
 
 export default function ShotPanel({ editor, project }: ShotPanelProps) {
   const t = useTranslations('scriptEditor');
+  const doc = useEditorState({ editor, selector: ({ editor }) => editor?.state.doc });
 
   // Extract ShotBlock nodes from editor JSON
   const shotBlocks = useMemo<ShotBlockData[]>(() => {
@@ -114,18 +116,18 @@ export default function ShotPanel({ editor, project }: ShotPanelProps) {
         };
       });
     }
-    if (!editor) return [];
+    if (!doc) return [];
 
     const shots: ShotBlockData[] = [];
     let shotNumber = 1;
 
-    editor.state.doc.descendants((node, pos) => {
+    doc.descendants((node, pos) => {
       if (node.type.name === 'shotBlock') {
         shots.push({
           id: node.attrs.id || `shot-${pos}`,
           shotNumber: node.attrs.shotNumber ?? shotNumber,
           shotType: node.attrs.shotType || '',
-          status: (node.attrs.status as ShotStatus) || 'suggested',
+          status: (node.attrs.pipelineStatus as ShotStatus) || 'suggested',
           description: node.attrs.description || node.textContent?.slice(0, 60) || '',
           pos,
         });
@@ -134,7 +136,7 @@ export default function ShotPanel({ editor, project }: ShotPanelProps) {
     });
 
     return shots;
-  }, [editor, editor?.state.doc, project]);
+  }, [doc, project]);
 
   const handleShotClick = useCallback(
     (shot: ShotBlockData) => {
@@ -150,8 +152,7 @@ export default function ShotPanel({ editor, project }: ShotPanelProps) {
     // Insert a new ShotBlock node at the end of the current selection
     editor.chain().focus().insertContent({
       type: 'shotBlock',
-      attrs: { status: 'suggested', shotType: '' },
-      content: [{ type: 'paragraph' }],
+      attrs: { id: createUuid(), pipelineStatus: 'suggested' },
     }).run();
   }, [editor]);
 

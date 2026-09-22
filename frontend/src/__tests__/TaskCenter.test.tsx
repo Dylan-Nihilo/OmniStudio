@@ -108,7 +108,7 @@ describe("TaskCenter", () => {
     mocks.retryTask.mockRejectedValueOnce(new Error("Retry unavailable"));
     fireEvent.click(screen.getByRole("button", {name:"重试"}));
     expect(await screen.findByRole("alert")).toHaveTextContent("Retry unavailable");
-    expect(screen.getByText("reasonTimeout")).toBeInTheDocument();
+    expect(within(screen.getByRole("article")).getByText("reasonTimeout")).toBeInTheDocument();
     mocks.listTasks.mockResolvedValue({items:[runningJob], total:1});
     mocks.getTaskSummary.mockResolvedValue({running:1, failed:0, succeeded:0, total:1});
     vi.useFakeTimers();
@@ -126,7 +126,7 @@ describe("TaskCenter", () => {
     view.rerender(<TaskCenter workspaceId="workspace-2" onOpenObject={vi.fn()} onClose={vi.fn()} />);
     await screen.findByText("empty");
     await act(async () => finish({items:[failedJob],total:1}));
-    expect(screen.queryByText("reasonTimeout")).not.toBeInTheDocument();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
   });
 
   beforeEach(() => {
@@ -142,6 +142,7 @@ describe("TaskCenter", () => {
     render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />);
 
     expect(await screen.findByText("reasonTimeout")).toBeInTheDocument();
+    expect(screen.queryByText(/PROVIDER_TIMEOUT|Provider timed out/)).not.toBeInTheDocument();
     expect(within(screen.getByRole("article")).getByText("失败")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
 
