@@ -2901,6 +2901,7 @@
     "reasonEmptyResult": "Nothing was produced this time. Adjust the description and try again.",
     "reasonGenerationFailed": "Generation failed. Adjust the input and retry; contact an administrator if it keeps failing.",
     "reasonServiceBusy": "The service is busy. Please try again shortly.",
+    "reasonTimeout": "The task timed out. Please try again shortly.",
     "reasonCanceled": "Task canceled.",
     "reasonGeneric": "The task failed. Please try again shortly; contact an administrator if it keeps failing.",
     "confirmCancel": "Cancel this task?",
