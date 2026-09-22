@@ -157,6 +157,23 @@ class SourceEpisodeRead(BaseModel):
     linked_at: float
 
 
+class SourceProductionContextRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    episode_id: str
+    project_id: str
+    title: str
+    episode_number: int | None = None
+    source_dependencies: list[dict[str, Any]] = Field(default_factory=list)
+    stale_targets: list[dict[str, Any]] = Field(default_factory=list)
+    production_stage: Literal["script", "assets", "storyboard", "video", "audio", "assembly", "export"]
+    stages: list[str] = Field(min_length=1)
+    stage_statuses: dict[str, Literal["ready", "pending", "failed"]] = Field(default_factory=dict)
+    aspect_ratio: str = Field(default="9:16", pattern=r"^\d+:\d+$")
+    counts: dict[str, int] = Field(default_factory=dict)
+    has_merged_video: bool = False
+
+
 class SourceDocumentRead(SourceDocumentSummary):
     chapters: list[SourceChapterRead] = Field(default_factory=list)
     episodes: list[SourceEpisodeRead] = Field(default_factory=list)

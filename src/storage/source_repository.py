@@ -1818,7 +1818,29 @@ class SourceRepository:
         """Return the current Source chapter revisions linked to one Script/Episode."""
         with self.engine.connect() as connection:
             self._episode_row(connection, episode_id, workspace_id)
-            rows = connection.execute(
+            explicit_rows = connection.execute(
+                select(
+                    SourceDocument.id.label("source_id"),
+                    SourceDocument.title.label("source_title"),
+                    SourceChapter.id.label("chapter_id"),
+                    SourceChapter.title.label("chapter_title"),
+                    SourceRevision.id.label("revision_id"),
+                    SourceRevision.revision_number,
+                )
+                .select_from(SourceChapterEpisodeLink)
+                .join(SourceChapter, SourceChapter.id == SourceChapterEpisodeLink.chapter_id)
+                .join(SourceDocument, SourceDocument.id == SourceChapter.source_document_id)
+                .join(SourceRevision, SourceRevision.id == SourceChapter.current_revision_id)
+                .where(
+                    SourceChapterEpisodeLink.episode_id == episode_id,
+                    SourceDocument.workspace_id == workspace_id,
+                )
+                .order_by(SourceDocument.id, SourceChapter.chapter_number, SourceChapter.id)
+            ).mappings().all()
+            # Older links only recorded the document relation.  Preserve that
+            # compatibility, while allowing split/import flows to narrow the
+            # dependency graph to the chapters explicitly mapped to an Episode.
+            legacy_rows = connection.execute(
                 select(
                     SourceDocument.id.label("source_id"),
                     SourceDocument.title.label("source_title"),
@@ -1836,6 +1858,12 @@ class SourceRepository:
                 )
                 .order_by(SourceDocument.id, SourceChapter.chapter_number, SourceChapter.id)
             ).mappings().all()
+            explicit_keys = {(str(row["source_id"]), str(row["chapter_id"])) for row in explicit_rows}
+            explicit_sources = {source_id for source_id, _ in explicit_keys}
+            rows = [*explicit_rows, *[
+                row for row in legacy_rows
+                if str(row["source_id"]) not in explicit_sources
+            ]]
             return [
                 {
                     "source_id": str(row["source_id"]),

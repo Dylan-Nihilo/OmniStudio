@@ -96,6 +96,23 @@ describe("SourceEpisodePanel", () => {
     expect(onOpenScript).toHaveBeenCalledWith("episode-linked");
   });
 
+  it("点击进入生产工作区后传递 Episode id", () => {
+    const onOpenProduction = vi.fn();
+    render(
+      <SourceEpisodePanel
+        linkedEpisodes={[linkedEpisode()]}
+        availableEpisodes={[]}
+        onLink={vi.fn()}
+        onUnlink={vi.fn()}
+        onOpenProduction={onOpenProduction}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "openProduction" }));
+
+    expect(onOpenProduction).toHaveBeenCalledWith("episode-linked");
+  });
+
   it("没有关系时显示空态并隐藏关联操作", () => {
     render(
       <SourceEpisodePanel

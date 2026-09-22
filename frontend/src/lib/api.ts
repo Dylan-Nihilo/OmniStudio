@@ -281,6 +281,21 @@ export interface SourceEpisode {
     linked_at: number;
 }
 
+export interface SourceProductionContext {
+    episode_id: string;
+    project_id: string;
+    title: string;
+    episode_number: number | null;
+    source_dependencies: Array<Record<string, unknown>>;
+    stale_targets: Array<Record<string, unknown>>;
+    production_stage: "script" | "assets" | "storyboard" | "video" | "audio" | "assembly" | "export";
+    stages: string[];
+    stage_statuses: Record<string, "ready" | "pending" | "failed">;
+    aspect_ratio: string;
+    counts: Record<string, number>;
+    has_merged_video: boolean;
+}
+
 export interface SourceEpisodeCandidateList {
     linked: SourceEpisode[];
     available: SourceEpisode[];
@@ -528,6 +543,7 @@ export const sourceApi = {
     listChapterRevisionImpacts: (sourceId: string, chapterId: string) => apiClient.get<SourceRevisionImpactList>(`${API_URL}/sources/${sourceId}/chapters/${chapterId}/impact-events`).then((response) => response.data),
     acknowledgeRevisionImpact: (sourceId: string, impactId: string, targetIds?: string[]) => apiClient.post<{ impact_event_id: string; status: "open" | "resolved"; resolved_target_count: number }>(`${API_URL}/sources/${sourceId}/impact-events/${impactId}/ack`, { target_ids: targetIds }).then((response) => response.data),
     listEpisodes: (sourceId: string) => apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`).then((response) => response.data),
+    getProductionContext: (episodeId: string) => apiClient.get<SourceProductionContext>(`${API_URL}/episodes/${episodeId}/production-context`).then((response) => response.data),
     listEpisodeCandidates: async (sourceId: string): Promise<SourceEpisodeCandidateList> => {
         const [linkedResponse, projectsResponse] = await Promise.all([
             apiClient.get<SourceList<SourceEpisode>>(`${API_URL}/sources/${sourceId}/episodes`),

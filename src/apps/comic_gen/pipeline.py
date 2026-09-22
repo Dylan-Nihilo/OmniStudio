@@ -3469,10 +3469,16 @@ class ComicGenPipeline:
                 if model == "minimax/minimax-h3" and audio_mode == "driven" and frame.prompt_mode != "complete":
                     prompt += "。使用参考音频中的对白、音色和说话节奏；只在对应对白发声时说话，台词结束后自然闭口，不新增台词。"
 
-        # Seedance's I2V panel has no ratio control. Snapshot the effective shot/episode
-        # format now, rather than letting dispatch silently force a portrait into 16:9.
-        if ratio is None and model and model.startswith("seedance"):
-            ratio = self.resolve_model_settings(script_id, frame_id).settings.storyboard_aspect_ratio
+        # Persist the effective shot/episode format on every task.  Provider
+        # adapters can then receive the same portrait setting instead of
+        # silently falling back to their own 16:9 default.
+        if ratio is None:
+            try:
+                ratio = self.resolve_model_settings(script_id, frame_id).settings.storyboard_aspect_ratio
+            except (AttributeError, ValueError):
+                # Lightweight/local-only callers may construct a pipeline
+                # fixture without the storage-backed settings layers.
+                ratio = getattr(getattr(script, "model_settings", None), "storyboard_aspect_ratio", "16:9")
 
         task = VideoTask(
             id=task_id,
@@ -5417,7 +5423,7 @@ class ComicGenPipeline:
                     duration=task.duration,
                     model=task.model,
                     negative_prompt=task.negative_prompt,
-                    aspect_ratio="16:9",
+                    aspect_ratio=task.ratio or "16:9",
                     mode=task.mode or "std",
                     sound=audio_options["sound"],
                     cfg_scale=task.cfg_scale,
@@ -5435,7 +5441,7 @@ class ComicGenPipeline:
                     duration=task.duration,
                     model=task.model,
                     resolution=task.resolution,
-                    aspect_ratio="16:9",
+                    aspect_ratio=task.ratio or "16:9",
                     seed=task.seed or 0,
                     audio=audio_options["vidu_audio"],
                     movement_amplitude=task.movement_amplitude or "auto",
@@ -7555,10 +7561,38 @@ class ComicGenPipeline:
         """Analyze one Source chapter without mutating Studio project data."""
         return self.script_processor.analyze_chapter_events(text, chapter_title)
 
-    def create_series_from_import(self, title: str, text: str, episodes_data: List[Dict],
-                                   description: str = "") -> Dict:
+    def create_series_from_import(
+        self,
+        title: str,
+        text: str,
+        episodes_data: List[Dict],
+        description: str = "",
+        *,
+        workflow_mode: str | None = None,
+        aspect_ratio: str | None = None,
+    ) -> Dict:
         """Create a Series with Episodes from import data.
-        episodes_data: list of dicts with episode_number, title, start_marker, end_marker."""
+        episodes_data: list of dicts with episode_number, title, start_marker, end_marker.
+
+        ``workflow_mode`` and ``aspect_ratio`` are opt-in import defaults.  The
+        ordinary import path keeps its historical defaults; source imports can
+        explicitly create the same R2V/portrait setup used by the workspace.
+        """
+        import_workflow = workflow_mode or "i2v_legacy"
+        import_ratio = aspect_ratio or "16:9"
+        if import_workflow not in {"r2v", "i2v_legacy"}:
+            raise ValueError("Unsupported workflow mode")
+        if import_ratio not in {"9:16", "16:9", "1:1"}:
+            raise ValueError("Unsupported aspect ratio")
+
+        def configure_series(series: Series) -> Series:
+            series.workflow_mode = import_workflow
+            if aspect_ratio is not None:
+                series.model_settings.character_aspect_ratio = import_ratio
+                series.model_settings.scene_aspect_ratio = import_ratio
+                series.model_settings.storyboard_aspect_ratio = import_ratio
+            return series
+
         if self.storage_enabled:
             with self._save_lock:
                 now = time.time()
@@ -7566,9 +7600,11 @@ class ComicGenPipeline:
                     id=str(uuid.uuid4()),
                     title=title,
                     description=description,
+                    workflow_mode=import_workflow,
                     created_at=now,
                     updated_at=now,
                 )
+                configure_series(series)
                 self.series_store[series.id] = series
                 # Keep the legacy ordering: create the Series before splitting
                 # and creating its imported episode Scripts.
@@ -7583,7 +7619,8 @@ class ComicGenPipeline:
                 self.repository.save_bundle(created_scripts, {series.id: series})
         else:
             # Preserve the legacy JSON path, including the initial Series save.
-            series = self.create_series(title, description)
+            series = self.create_series(title, description, workflow_mode=import_workflow)
+            configure_series(series)
             with self._save_lock:
                 episode_texts = self._split_text_by_markers(text, episodes_data)
                 created_episodes = self._create_import_episodes_unlocked(
@@ -7614,6 +7651,10 @@ class ComicGenPipeline:
             script = self.script_processor.create_draft_script(ep_title, ep_text)
             script.series_id = series.id
             script.episode_number = episode_number
+            script.workflow_mode = series.workflow_mode
+            script.default_generation_mode = series.default_generation_mode
+            script.model_settings = copy.deepcopy(series.model_settings)
+            script.model_settings_overrides = None
             self.scripts[script.id] = script
 
             series.episode_ids.append(script.id)

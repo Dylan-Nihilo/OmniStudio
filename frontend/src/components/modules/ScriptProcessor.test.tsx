@@ -3,13 +3,13 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import ScriptProcessor from './ScriptProcessor';
 import { useProjectStore } from '@/store/projectStore';
 import { useEditLeaseStore } from '@/store/editLeaseStore';
-import { api } from '@/lib/api';
+import { api, sourceApi } from '@/lib/api';
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
 // getPromptConfig/updatePromptConfig back the in-flow script model tier, which lives in
 // the header next to the analyse button.
 vi.mock('@/lib/api', () => ({ api: { updateScriptText: vi.fn(), extractPreview: vi.fn(), getProject: vi.fn(),
-  getPromptConfig: vi.fn().mockResolvedValue({ polish_model: '' }), updatePromptConfig: vi.fn().mockResolvedValue({}) } }));
+  getPromptConfig: vi.fn().mockResolvedValue({ polish_model: '' }), updatePromptConfig: vi.fn().mockResolvedValue({}) }, sourceApi: { getProductionContext: vi.fn().mockRejectedValue(new Error('not a source episode')), getChapterAnalysis: vi.fn() } }));
 vi.mock('./script-writing/ScriptWritingEditor', () => ({ default: ({ value, readOnly, onChange, onSave, footer }: any) => <><textarea aria-label="scriptEditor" value={value} readOnly={readOnly} onChange={event => onChange(event.target.value)} onBlur={onSave} />{footer}</> }));
 vi.mock('./PreviousEpisodeSummary', () => ({ default: () => <p>Previous episode</p> }));
 vi.mock('./ReconcileModal', () => ({ default: () => null }));
@@ -20,6 +20,7 @@ beforeEach(() => {
   // mount — without this it would call a mock that returns undefined and blow up on .then.
   vi.mocked(api.getPromptConfig).mockResolvedValue({ polish_model: '' });
   vi.mocked(api.updatePromptConfig).mockResolvedValue({});
+  vi.mocked(sourceApi.getProductionContext).mockRejectedValue(new Error('not a source episode'));
   localStorage.clear();
   useProjectStore.setState({ currentProject: { ...project } as never, projects: [], isAnalyzing: false, pendingExtraction: null, pendingExtractionScript: null });
   useEditLeaseStore.setState({ status: 'editing', scriptId: project.id, token: 'lease', revision: '1', clientInstanceId: 'tab' });
