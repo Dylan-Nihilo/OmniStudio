@@ -722,13 +722,30 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
     if repository is None:
         return None
     workspace_id = None
+    job_project_id = project_id
+    job_episode_id = episode_id
     if project_id:
-        for resolver in ("workspace_for_script", "workspace_for_series"):
+        # Project-scoped routes historically receive the legacy Script/Episode id,
+        # while the durable jobs table stores the parent W2 Project id in
+        # ``project_id`` and the Episode id separately. Resolve the resource before
+        # inserting the job so MySQL's projects FK is satisfied for series episodes.
+        resolvers = (
+            ("workspace_for_project", None, None),
+            ("workspace_for_script", "project_id_for_script", project_id),
+            ("workspace_for_series", "project_id_for_series", None),
+        )
+        for resolver, project_resolver, fallback_episode_id in resolvers:
             try:
                 workspace_id = getattr(repository, resolver)(project_id)
-            except (KeyError, ValueError):
+            except (AttributeError, KeyError, ValueError):
                 workspace_id = None
             if workspace_id:
+                if project_resolver:
+                    resolved_project_id = getattr(repository, project_resolver, lambda _: None)(project_id)
+                    if resolved_project_id:
+                        job_project_id = resolved_project_id
+                    if fallback_episode_id:
+                        job_episode_id = job_episode_id or fallback_episode_id
                 break
     if not workspace_id:
         if billing_enabled():
@@ -744,7 +761,7 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
     spec = _billing_spec(kind, project_id, payload)
     if spec and spec.get("model_id"):
         payload = {**payload, "billing": spec}
-    return _production_adapter().create(kind, workspace_id, project_id, episode_id, payload, idempotency_key)
+    return _production_adapter().create(kind, workspace_id, job_project_id, job_episode_id, payload, idempotency_key)
 
 
 @app.on_event("startup")

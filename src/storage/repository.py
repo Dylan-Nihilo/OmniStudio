@@ -178,6 +178,16 @@ class SQLiteRepository:
                 .where(Episode.__table__.c.id == script_id)
             ).scalar_one_or_none()
 
+    def project_id_for_script(self, script_id: str) -> str | None:
+        """Resolve the parent Project id for an episode/script resource."""
+        self._validate_id(script_id, "script_id")
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(Episode.__table__.c.project_id).where(
+                    Episode.__table__.c.id == script_id
+                )
+            ).scalar_one_or_none()
+
     def workspace_for_series(self, series_id: str) -> str | None:
         """Resolve the owning Workspace for a Series resource."""
         self._validate_id(series_id, "series_id")
@@ -191,6 +201,16 @@ class SQLiteRepository:
                     )
                 )
                 .where(Series.__table__.c.id == series_id)
+            ).scalar_one_or_none()
+
+    def project_id_for_series(self, series_id: str) -> str | None:
+        """Resolve the parent Project id for a Series resource."""
+        self._validate_id(series_id, "series_id")
+        with self.engine.connect() as connection:
+            return connection.execute(
+                select(Series.__table__.c.project_id).where(
+                    Series.__table__.c.id == series_id
+                )
             ).scalar_one_or_none()
 
     def script_revision(self, script_id: str) -> str:
