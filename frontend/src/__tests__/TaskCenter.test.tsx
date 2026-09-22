@@ -181,3 +181,86 @@ describe("TaskCenter", () => {
     expect(mocks.listTasks).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("what a task row is allowed to say", () => {
+  const providerFailure = {
+    ...failedJob,
+    id: "job-leaky",
+    project_title: "斗破苍穹 第一集",
+    kind: "production.video",
+    credits_spent: 45,
+    items: [{
+      ...failedJob.items[0],
+      id: "item-leaky",
+      error_code: "PROVIDER_FAILED",
+      // The kind of text that actually comes back: a vendor's own wording, its endpoint,
+      // and the model we bought capacity on.
+      error_message: "451 from https://open302.com/v1/images/generations: gpt-image-2 refused",
+      started_at: 1_700_000_000,
+      finished_at: 1_700_000_060,
+    }],
+  };
+
+  it("never puts the provider's own words on screen", async () => {
+    mocks.listTasks.mockResolvedValue({ items: [providerFailure], page: 1, page_size: 20, total: 1 });
+    mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 0, failed: 1, canceled: 0, skipped: 0 });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
+
+    await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
+    const body = document.body.textContent ?? "";
+    for (const leak of ["open302", "gpt-image-2", "PROVIDER_FAILED", "https://", "refused"]) {
+      expect(body).not.toContain(leak);
+    }
+    // ...and it does say something, rather than failing silently.
+    expect(body).toContain("reasonGenerationFailed");
+  });
+
+  it("labels the row by project and a readable task name", async () => {
+    mocks.listTasks.mockResolvedValue({ items: [providerFailure], page: 1, page_size: 20, total: 1 });
+    mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 0, failed: 1, canceled: 0, skipped: 0 });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
+
+    await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("斗破苍穹 第一集");
+    expect(body).toContain("kindVideo");
+    // The internal kind string and the id fragment are what this replaced.
+    expect(body).not.toContain("production.video");
+    expect(body).not.toContain("job-leaky");
+  });
+
+  it("shows what the task cost", async () => {
+    const charged = { ...providerFailure, id: "job-charged", status: "succeeded", failed: 0,
+                      succeeded: 2, credits_spent: 45,
+                      items: [{ ...providerFailure.items[0], status: "succeeded",
+                                error_code: null, error_message: null }] };
+    mocks.listTasks.mockResolvedValue({ items: [charged], page: 1, page_size: 20, total: 1 });
+    mocks.getTaskSummary.mockResolvedValue({ pending: 0, processing: 0, succeeded: 1, failed: 0, canceled: 0, skipped: 0 });
+    await act(async () => { render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />); });
+
+    await waitFor(() => expect(mocks.listTasks).toHaveBeenCalled());
+    expect(document.body.textContent).toContain("creditsSpent");
+    expect(document.body.textContent).toContain("45");
+  });
+
+  it("reads the times off the items", () => {
+    const view = toTaskViewModel(providerFailure as never);
+    expect(view.startedAt).toBe(1_700_000_000);
+    expect(view.finishedAt).toBe(1_700_000_060);
+    expect(view.creditsSpent).toBe(45);
+    expect(view.projectTitle).toBe("斗破苍穹 第一集");
+  });
+
+  it("does not claim a finish time while an item is still running", () => {
+    const halfDone = {
+      ...providerFailure,
+      items: [
+        { ...providerFailure.items[0], started_at: 100, finished_at: 200 },
+        { ...providerFailure.items[0], id: "item-2", started_at: 150, finished_at: null },
+      ],
+    };
+    const view = toTaskViewModel(halfDone as never);
+    expect(view.startedAt).toBe(100);
+    expect(view.finishedAt).toBeNull();
+  });
+});

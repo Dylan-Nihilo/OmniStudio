@@ -150,6 +150,40 @@ class AuthRepository:
             for row in rows
         ]
 
+    def list_all_workspaces(self) -> list[dict[str, Any]]:
+        """Every workspace, with how many people are in it.
+
+        The only listing until now was scoped to one user's memberships, which is the wrong
+        question for an operator: root has to top up a customer's credits without being a
+        member of their workspace, and could not even discover the id to top up.
+
+        Counted in the query rather than per row — this backs a console table, and a
+        membership round trip per workspace is how that table gets slow as customers are
+        added.
+        """
+        member_count = func.count(WorkspaceMembership.user_id).label("member_count")
+        statement = (
+            select(Workspace.id, Workspace.name, Workspace.slug, Workspace.created_at, member_count)
+            .outerjoin(
+                WorkspaceMembership.__table__,
+                WorkspaceMembership.workspace_id == Workspace.id,
+            )
+            .group_by(Workspace.id, Workspace.name, Workspace.slug, Workspace.created_at)
+            .order_by(Workspace.created_at)
+        )
+        with self.engine.connect() as connection:
+            rows = connection.execute(statement).mappings().all()
+        return [
+            {
+                "id": str(row["id"]),
+                "name": row["name"],
+                "slug": row["slug"],
+                "created_at": row["created_at"],
+                "member_count": int(row["member_count"] or 0),
+            }
+            for row in rows
+        ]
+
     def get_membership(self, workspace_id: str, user_id: str) -> WorkspaceMembership | None:
         with self.engine.connect() as connection:
             row = connection.execute(

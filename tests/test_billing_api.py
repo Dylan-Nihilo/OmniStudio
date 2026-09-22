@@ -206,3 +206,68 @@ def test_rates_can_be_shown_before_anything_is_charged(tmp_path: Path, monkeypat
         # An ordinary member sees the same verdict: costs are for everyone, not just root.
         _invite_member(client, owner["workspace_id"], "member")
         assert client.get("/billing/wallet").json()["rates_published"] is True
+
+
+def test_root_can_find_a_workspace_to_top_up(tmp_path: Path, monkeypatch):
+    """The grant endpoint existed for months with nothing able to call it: root is not a
+    member of a customer's workspace and had no way to discover its id. Listing them is what
+    makes the console able to hand out credits at all."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        owner = _setup_owner(client)
+        workspace_id = owner["workspace"]["id"]
+
+        listed = client.get("/admin/workspaces")
+        assert listed.status_code == 200, listed.text
+        rows = listed.json()
+        mine = next(row for row in rows if row["id"] == workspace_id)
+        assert mine["member_count"] >= 1 and mine["balance"] == 0
+        # Listing customers must not open a wallet for each of them.
+        assert mine["wallet_id"] is None
+
+        granted = client.post("/admin/wallets/grant", json={
+            "workspace_id": workspace_id, "amount": 5000, "reason": "线下付款"})
+        assert granted.status_code == 200, granted.text
+        assert granted.json()["balance"] == 5000
+
+        after = next(row for row in client.get("/admin/workspaces").json() if row["id"] == workspace_id)
+        assert after["balance"] == 5000 and after["available"] == 5000
+
+
+def test_granting_the_same_key_twice_only_pays_once(tmp_path: Path, monkeypatch):
+    """A double-clicked button must not double a customer's balance."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        body = {"workspace_id": workspace_id, "amount": 300, "reason": "充值",
+                "idempotency_key": "grant-once"}
+        assert client.post("/admin/wallets/grant", json=body).status_code == 200
+        assert client.post("/admin/wallets/grant", json=body).status_code == 200
+        assert client.get(f"/admin/wallets/workspace/{workspace_id}").json()["balance"] == 300
+
+
+def test_a_grant_has_to_be_a_positive_number(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        for amount in (0, -100):
+            refused = client.post("/admin/wallets/grant",
+                                  json={"workspace_id": workspace_id, "amount": amount})
+            assert refused.status_code == 422, refused.text
+
+
+def test_only_root_can_list_workspaces_or_hand_out_credits(tmp_path: Path, monkeypatch):
+    """Credits are money. A workspace owner topping up their own balance would be the whole
+    billing system undone."""
+    monkeypatch.setenv("OMNI_STUDIO_BILLING_ENABLED", "true")
+    app, _, _ = _make_app(tmp_path)
+    with make_client(app, local=True) as client:
+        workspace_id = _setup_owner(client)["workspace"]["id"]
+        _invite_member(client, workspace_id, "member")
+
+        assert client.get("/admin/workspaces").status_code == 403
+        assert client.post("/admin/wallets/grant", json={
+            "workspace_id": workspace_id, "amount": 1000}).status_code == 403

@@ -8,6 +8,7 @@ import { Button, Dialog, IconButton, SelectField, TextField } from "@omnistudio/
 
 import {
     billingAdminApi,
+    type AdminWorkspace,
     type BillingUnit,
     type CreditRule,
     type PriceBookVersion,
@@ -22,7 +23,7 @@ import styles from "./BillingAdminPanel.module.css";
 const STAGES: readonly PriceItemKind[] = ["video", "image", "text", "tts"];
 const UNITS: Record<PriceItemKind, BillingUnit> = { video: "second", image: "image", text: "chars_1k", tts: "chars_1k" };
 
-type Tab = "rule" | "items" | "versions" | "roles";
+type Tab = "rule" | "items" | "versions" | "wallets" | "roles";
 
 /**
  * Root console for the credit ratio and the price book.
@@ -76,8 +77,8 @@ export default function BillingAdminPanel() {
     return (
         <section className={styles.panel}>
             <nav className={styles.tabs} aria-label={t("title")}>
-                {(["rule", "items", "versions", "roles"] as Tab[])
-                    .filter((id) => id !== "roles" || isRoot)
+                {(["rule", "items", "versions", "wallets", "roles"] as Tab[])
+                    .filter((id) => (id !== "roles" && id !== "wallets") || isRoot)
                     .map((id) => (
                         <button key={id} type="button" onClick={() => setTab(id)}
                                 aria-current={tab === id ? "page" : undefined}
@@ -113,6 +114,7 @@ export default function BillingAdminPanel() {
             {tab === "rule" && rule && <RuleTab rule={rule} isRoot={isRoot} onSaved={reload} />}
             {tab === "items" && <ItemsTab items={items} isRoot={isRoot} onChanged={reload} />}
             {tab === "versions" && <VersionsTab versions={versions} isRoot={isRoot} onChanged={reload} />}
+            {tab === "wallets" && isRoot && <WalletsTab />}
             {tab === "roles" && isRoot && <RolesTab roles={roles} onChanged={reload} />}
         </section>
     );
@@ -442,6 +444,82 @@ function VersionsTab({ versions, isRoot, onChanged }: { versions: PriceBookVersi
                     {versions.length === 0 && <tr><td colSpan={6} className={styles.hint}>{t("noVersions")}</td></tr>}
                 </tbody>
             </table>
+        </div>
+    );
+}
+
+/**
+ * Credits are handed out here, workspace by workspace.
+ *
+ * A wallet belongs to a workspace, not a person, so topping a customer up means finding
+ * their workspace — which root, not being a member of it, could not do from anywhere in the
+ * product. The grant endpoint had existed unused for exactly that reason.
+ */
+function WalletsTab() {
+    const t = useTranslations("billing.admin");
+    const [rows, setRows] = useState<AdminWorkspace[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [target, setTarget] = useState<string | null>(null);
+    const [amount, setAmount] = useState("");
+    const [reason, setReason] = useState("");
+    const [busy, setBusy] = useState(false);
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        try {
+            setRows(await billingAdminApi.listWorkspaces());
+        } catch {
+            toast.warning(t("walletsLoadFailed"));
+        } finally {
+            setLoading(false);
+        }
+    }, [t]);
+    useEffect(() => { void load(); }, [load]);
+
+    const credits = Number(amount);
+    const amountValid = Number.isInteger(credits) && credits > 0;
+
+    const grant = async (workspaceId: string) => {
+        setBusy(true);
+        try {
+            await billingAdminApi.grantCredits(workspaceId, credits, reason.trim());
+            setTarget(null); setAmount(""); setReason("");
+            await load();
+            toast.success(t("grantedCredits", { credits }));
+        } catch {
+            toast.warning(t("grantCreditsFailed"));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className={styles.body}>
+            <table className={styles.table}>
+                <thead><tr><th>{t("workspace")}</th><th>{t("members")}</th><th>{t("balance")}</th>
+                           <th>{t("frozen")}</th><th /></tr></thead>
+                <tbody>
+                    {rows.map((row) => (
+                        <tr key={row.id}>
+                            <td>{row.name}<div className={styles.hint}>{row.slug ?? row.id.slice(0, 8)}</div></td>
+                            <td>{row.member_count}</td>
+                            <td className={styles.mono}>{row.balance}</td>
+                            <td className={styles.mono}>{row.frozen}</td>
+                            <td><Button size="sm" variant="quiet" isDisabled={busy}
+                                        onPress={() => setTarget(target === row.id ? null : row.id)}>
+                                {t("topUp")}
+                            </Button></td>
+                        </tr>
+                    ))}
+                    {!loading && rows.length === 0 && <tr><td colSpan={5} className={styles.hint}>{t("noWorkspaces")}</td></tr>}
+                </tbody>
+            </table>
+            {target && <div className={styles.newItem}>
+                <TextField label={t("grantAmount")} value={amount} onChange={setAmount} inputMode="numeric" />
+                <TextField label={t("grantReason")} value={reason} onChange={setReason} />
+                <Button isDisabled={!amountValid || busy} isPending={busy}
+                        onPress={() => void grant(target)}>{t("confirmTopUp")}</Button>
+            </div>}
         </div>
     );
 }

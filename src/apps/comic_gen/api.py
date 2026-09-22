@@ -5266,12 +5266,84 @@ def _task_item_payload(item):
     }
 
 
-def _task_payload(job):
+def _task_credits(jobs: list) -> Dict[str, Dict[str, Any]]:
+    """Credits each job actually cost, read from the ledger in one query.
+
+    `settle` is the charge (negative), `hold` the freeze that precedes it and `release` the
+    refund on failure — so a finished job reports what it took, a running one reports what
+    is frozen for it, and a failed one reports nothing because the freeze went back.
+    """
+    item_ids = [item.id for job in jobs for item in job.items]
+    if not item_ids:
+        return {}
+    try:
+        from sqlalchemy import select as sa_select
+
+        from ...storage.schema import CreditLedger
+
+        engine = pipeline.repository.engine if getattr(pipeline, "repository", None) else None
+        if engine is None:
+            return {}
+        table = CreditLedger.__table__
+        with engine.connect() as connection:
+            rows = connection.execute(
+                sa_select(table.c.job_item_id, table.c.type, table.c.amount)
+                .where(table.c.job_item_id.in_(item_ids),
+                       table.c.type.in_(("settle", "hold", "release")))
+            ).mappings().all()
+    except Exception as error:               # a ledger problem must not hide the task list
+        logger.warning("Could not read task credits: %s", error)
+        return {}
+
+    per_item: Dict[str, Dict[str, int]] = {}
+    for row in rows:
+        bucket = per_item.setdefault(str(row["job_item_id"]), {"settle": 0, "hold": 0, "release": 0})
+        bucket[str(row["type"])] += abs(int(row["amount"]))
+
+    totals: Dict[str, Dict[str, Any]] = {}
+    for job in jobs:
+        spent = held = 0
+        for item in job.items:
+            bucket = per_item.get(item.id)
+            if not bucket:
+                continue
+            spent += bucket["settle"]
+            # Still frozen only while nothing has resolved the hold.
+            if not bucket["settle"] and not bucket["release"]:
+                held += bucket["hold"]
+        totals[job.id] = {"credits_spent": spent, "credits_held": held}
+    return totals
+
+
+def _task_project_titles(jobs: list) -> Dict[str, str]:
+    """Project titles for a page of jobs, looked up once each."""
+    titles: Dict[str, str] = {}
+    for project_id in {job.project_id for job in jobs if job.project_id}:
+        try:
+            script = pipeline.get_script(project_id)
+        except Exception:                    # a missing project must not break the list
+            script = None
+        if script is not None and getattr(script, "title", None):
+            titles[project_id] = script.title
+    return titles
+
+
+def _task_payload_enriched(job):
+    """One job, with the same project name and credit figures a listed row carries."""
+    return _task_payload(job, project_title=_task_project_titles([job]).get(job.project_id),
+                         credits=_task_credits([job]).get(job.id))
+
+
+def _task_payload(job, *, project_title: Optional[str] = None,
+                  credits: Optional[Dict[str, Any]] = None):
     return {
         "id": job.id,
         "workspace_id": job.workspace_id,
         "project_id": job.project_id,
         "episode_id": job.episode_id,
+        # Which project this ran for, by name. The client cannot resolve it reliably: the
+        # task centre spans every project and its store only holds the open one.
+        "project_title": project_title,
         "kind": job.kind,
         "status": job.status,
         "total": job.total,
@@ -5279,6 +5351,8 @@ def _task_payload(job):
         "failed": job.failed,
         "canceled": job.canceled,
         "skipped": job.skipped,
+        "credits_spent": (credits or {}).get("credits_spent", 0),
+        "credits_held": (credits or {}).get("credits_held", 0),
         "items": [_task_item_payload(item) for item in job.items],
         "created_at": job.created_at,
         "updated_at": job.updated_at,
@@ -5313,8 +5387,12 @@ def list_tasks(
         page=page,
         page_size=page_size,
     )
+    titles = _task_project_titles(result.items)
+    credits = _task_credits(result.items)
     return {
-        "items": [_task_payload(job) for job in result.items],
+        "items": [_task_payload(job, project_title=titles.get(job.project_id),
+                                credits=credits.get(job.id))
+                  for job in result.items],
         "page": result.page,
         "page_size": result.page_size,
         "total": result.total,
@@ -5371,7 +5449,7 @@ def cancel_task(job_id: str, request: Request):
         object_type="job",
         object_id=job_id,
     )
-    return _task_payload(job)
+    return _task_payload_enriched(job)
 
 
 @app.post("/tasks/{job_id}/retry")
@@ -5403,7 +5481,7 @@ def retry_task(job_id: str, request: Request, background_tasks: BackgroundTasks,
     for item in job.items:
         if item.status == "pending" and item.retry_of and (not body.item_ids or item.retry_of in body.item_ids):
             background_tasks.add_task(_context_call(_start_production_item, item.id))
-    return _task_payload(job)
+    return _task_payload_enriched(job)
 
 
 @app.get("/tasks/{task_id}")
@@ -5414,7 +5492,7 @@ def get_task_status(task_id: str, request: Request):
     job = repository.get_job(context.workspace.id, task_id)
     if job is not None:
         events = repository.list_item_events(context.workspace.id, task_id) or []
-        return {"job": _task_payload(job), "events": events}
+        return {"job": _task_payload_enriched(job), "events": events}
     if repository.job_exists(task_id):
         raise TaskAPIError("AUTH_RESOURCE_NOT_FOUND", "任务不存在", status_code=404)
 
