@@ -102,11 +102,11 @@ describe("TaskCenter", () => {
 
   it("retains the task after retry failure and resumes polling when a later retry starts work", async () => {
     render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />);
-    await screen.findByText("PROVIDER_TIMEOUT");
+    await screen.findByText("reasonGeneric");
     mocks.retryTask.mockRejectedValueOnce(new Error("Retry unavailable"));
     fireEvent.click(screen.getByRole("button", {name:"重试"}));
     expect(await screen.findByRole("alert")).toHaveTextContent("Retry unavailable");
-    expect(screen.getByText("PROVIDER_TIMEOUT")).toBeInTheDocument();
+    expect(within(screen.getByRole("article")).getByText("reasonGeneric")).toBeInTheDocument();
     mocks.listTasks.mockResolvedValue({items:[runningJob], total:1});
     mocks.getTaskSummary.mockResolvedValue({running:1, failed:0, succeeded:0, total:1});
     vi.useFakeTimers();
@@ -124,7 +124,7 @@ describe("TaskCenter", () => {
     view.rerender(<TaskCenter workspaceId="workspace-2" onOpenObject={vi.fn()} onClose={vi.fn()} />);
     await screen.findByText("empty");
     await act(async () => finish({items:[failedJob],total:1}));
-    expect(screen.queryByText("PROVIDER_TIMEOUT")).not.toBeInTheDocument();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
   });
 
   beforeEach(() => {
@@ -139,7 +139,8 @@ describe("TaskCenter", () => {
   it("renders a failed task with a retry action", async () => {
     render(<TaskCenter workspaceId="workspace-1" onOpenObject={vi.fn()} onClose={vi.fn()} />);
 
-    expect(await screen.findByText("PROVIDER_TIMEOUT")).toBeInTheDocument();
+    expect(await screen.findByText("reasonGeneric")).toBeInTheDocument();
+    expect(screen.queryByText(/PROVIDER_TIMEOUT|Provider timed out/)).not.toBeInTheDocument();
     expect(within(screen.getByRole("article")).getByText("失败")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
 
@@ -177,7 +178,7 @@ describe("TaskCenter", () => {
     expect(await screen.findByText("network unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
 
-    expect(await screen.findByText("PROVIDER_TIMEOUT")).toBeInTheDocument();
+    expect(await screen.findByText("reasonGeneric")).toBeInTheDocument();
     expect(mocks.listTasks).toHaveBeenCalledTimes(2);
   });
 });
