@@ -43,9 +43,27 @@ interface ToastStore {
 }
 
 let counter = 0;
+const dismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 function nextId(): string {
     counter += 1;
     return `toast-${Date.now()}-${counter}`;
+}
+
+function clearDismissTimer(id: string): void {
+    const timer = dismissTimers.get(id);
+    if (timer) {
+        clearTimeout(timer);
+        dismissTimers.delete(id);
+    }
+}
+
+function scheduleDismiss(id: string, autoCloseMs: number): void {
+    clearDismissTimer(id);
+    dismissTimers.set(id, setTimeout(() => {
+        dismissTimers.delete(id);
+        useToastStore.getState().dismiss(id);
+    }, autoCloseMs));
 }
 
 export const useToastStore = create<ToastStore>((set) => ({
@@ -55,9 +73,7 @@ export const useToastStore = create<ToastStore>((set) => ({
         const full: Toast = { ...toast, id, createdAt: Date.now() };
         set((state) => ({ toasts: [...state.toasts, full] }));
         if (full.autoCloseMs && full.autoCloseMs > 0) {
-            setTimeout(() => {
-                useToastStore.getState().dismiss(id);
-            }, full.autoCloseMs);
+            scheduleDismiss(id, full.autoCloseMs);
         }
         return id;
     },
@@ -65,11 +81,19 @@ export const useToastStore = create<ToastStore>((set) => ({
         set((state) => ({
             toasts: state.toasts.map((t) => (t.id === id ? { ...t, ...patch } : t)),
         }));
+        if (Object.prototype.hasOwnProperty.call(patch, "autoCloseMs")) {
+            if (patch.autoCloseMs && patch.autoCloseMs > 0) scheduleDismiss(id, patch.autoCloseMs);
+            else clearDismissTimer(id);
+        }
     },
     dismiss: (id) => {
+        clearDismissTimer(id);
         set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
     },
-    clear: () => set({ toasts: [] }),
+    clear: () => {
+        for (const id of dismissTimers.keys()) clearDismissTimer(id);
+        set({ toasts: [] });
+    },
 }));
 
 /** Convenience helpers — keep call sites short. */
