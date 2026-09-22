@@ -34,6 +34,7 @@ from .source_models import (
     SourceEpisodeSplitPreviewRequest,
     SourceEpisodeSplitProposal,
     SourceEpisodeList,
+    SourceProductionContextRead,
     SourceLinkResponse,
     SourceImportBoundaryPatch,
     SourceImportConfirmResponse,
@@ -1271,6 +1272,23 @@ def unlink_source_episode(source_id: str, episode_id: str, request: Request):
 def list_episode_sources(episode_id: str, request: Request):
     items = _repository(request).list_sources_for_episode(_workspace_id(request), episode_id)
     return {"items": items, "total": len(items)}
+
+
+@router.get("/episodes/{episode_id}/production-context", response_model=SourceProductionContextRead)
+def get_episode_production_context(episode_id: str, request: Request):
+    from .source_production import build_source_production_context
+
+    repository = _repository(request)
+    workspace_id = _workspace_id(request)
+    try:
+        return build_source_production_context(
+            repository=repository,
+            pipeline=_pipeline(request),
+            workspace_id=workspace_id,
+            episode_id=episode_id,
+        )
+    except LookupError as exc:
+        raise SourceRepositoryError("EPISODE_NOT_FOUND", "剧集不存在", status_code=404) from exc
 
 
 __all__ = ["router", "source_error_payload"]

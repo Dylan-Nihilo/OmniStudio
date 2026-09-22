@@ -563,7 +563,7 @@ export default function SourceWorkspace() {
             {!selectedChapter && <>
               {analysisPollError && <div className={styles.error} role="alert">{analysisPollError}</div>}
               <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisRunning} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
-              <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} loading={episodeLinksLoading} loadError={episodeLinksError} onRetry={() => { if (selectedSourceId) void loadEpisodeLinks(selectedSourceId); }} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
+              <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} loading={episodeLinksLoading} loadError={episodeLinksError} onRetry={() => { if (selectedSourceId) void loadEpisodeLinks(selectedSourceId); }} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} onOpenProduction={episodeId => { window.location.hash = `#/project/${episodeId}`; }} />
               <SourceEpisodeSplitPanel preview={splitPreview} busy={splitBusy} createdEpisodes={splitCreatedEpisodes} onPreview={previewEpisodeSplit} onChange={(proposals: SourceEpisodeSplitProposal[]) => setSplitPreview(current => current ? { ...current, proposals } : current)} onSave={() => void saveEpisodeSplitPreview()} onCancel={() => void cancelEpisodeSplitPreview()} onConfirm={payload => void confirmEpisodeSplit(payload)} />
             </>}
           </>}

@@ -20,6 +20,7 @@ export interface SourceEpisodePanelProps {
   onLink: (episodeId: string) => void | Promise<void>;
   onUnlink: (episodeId: string) => void | Promise<void>;
   onOpenScript?: (episodeId: string) => void;
+  onOpenProduction?: (episodeId: string) => void;
 }
 
 function episodeLabel(episode: SourceEpisode): string {
@@ -27,7 +28,7 @@ function episodeLabel(episode: SourceEpisode): string {
   return `EP.${String(episode.episode_number).padStart(2, "0")} · ${episode.title}`;
 }
 
-export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, busy = false, loading = false, loadError = null, onRetry, onLink, onUnlink, onOpenScript }: SourceEpisodePanelProps) {
+export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, busy = false, loading = false, loadError = null, onRetry, onLink, onUnlink, onOpenScript, onOpenProduction }: SourceEpisodePanelProps) {
   const t = useTranslations("sourceWorkspace");
   const tc = useTranslations("common");
   const ts = useTranslations("script");
@@ -115,6 +116,14 @@ export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, 
                   >
                     <FileText size={15} aria-hidden="true" />
                     {tc("open")}
+                  </Button>}
+                  {onOpenProduction && <Button
+                    variant="secondary"
+                    aria-label={t("openProduction")}
+                    isDisabled={relationBusy}
+                    onPress={() => onOpenProduction(episode.id)}
+                  >
+                    {t("openProduction")}
                   </Button>}
                   <Button
                     variant="quiet"

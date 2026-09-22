@@ -3027,6 +3027,7 @@
     "episodeLinksLoadFailed": "Failed to load Episode links. Try again.",
     "episodeLinksLoading": "Loading episode links…",
     "episodeLinksRetry": "Retry",
+    "openProduction": "Open production workspace",
     "episodeLinked": "Episode linked",
     "episodeUnlinked": "Episode unlinked",
     "linkFailed": "Could not link the Episode. Try again.",
