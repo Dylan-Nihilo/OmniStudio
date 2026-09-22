@@ -127,6 +127,57 @@ beforeEach(() => {
 });
 
 describe("SourceWorkspace", () => {
+  it("keeps links, analysis and the edited split preview when the current source is selected again", async () => {
+    const episode = { id: "episode-1", project_id: "episode-1", title: "已关联第一集", episode_number: 1, status: "draft", linked_at: 1 };
+    mocks.listEpisodeCandidates.mockResolvedValue({ linked: [episode], available: [] });
+    mocks.analyzeSourceBatch.mockResolvedValue({ ...processingBatch, status: "succeeded", succeeded: 1 });
+    mocks.previewEpisodeSplit.mockResolvedValue(splitPreview);
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByText("已关联第一集");
+    fireEvent.click(screen.getByRole("button", { name: "分析全部章节" }));
+    await screen.findByText("成功 1 · 失败 0 · 跳过 0");
+    fireEvent.click(screen.getByRole("button", { name: "生成拆集预览" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "第 1 集标题" }), { target: { value: "保留分集修改" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /既有来源/ }));
+
+    expect(screen.getByText("已关联第一集")).toBeVisible();
+    expect(screen.getByText("成功 1 · 失败 0 · 跳过 0")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "第 1 集标题" })).toHaveValue("保留分集修改");
+    expect(mocks.unlinkEpisode).not.toHaveBeenCalled();
+  });
+
+  it("shows loading and recoverable errors instead of claiming no linked episodes", async () => {
+    let rejectLinks!: (error: Error) => void;
+    mocks.listEpisodeCandidates.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectLinks = reject; }));
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    expect(screen.queryByText("暂无已关联 Episode")).not.toBeInTheDocument();
+    expect(screen.getByText("正在加载 Episode 关联…")).toBeVisible();
+    await act(async () => { rejectLinks(new Error("关联请求超时")); });
+    expect(screen.getByRole("alert")).toHaveTextContent("关联请求超时");
+    expect(screen.queryByText("暂无已关联 Episode")).not.toBeInTheDocument();
+    mocks.listEpisodeCandidates.mockResolvedValue({ linked: [{ id: "episode-1", title: "已恢复关联", episode_number: 1 }], available: [] });
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByText("已恢复关联")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("ignores late episode links from a previously selected source", async () => {
+    let finishLinks!: (value: unknown) => void;
+    mocks.list.mockResolvedValue({ items: [source, { ...source, id: "source-2", title: "另一来源" }], total: 2 });
+    mocks.get.mockImplementation(async (id: string) => ({ ...source, id, title: id === "source-1" ? "既有来源" : "另一来源", chapters: [chapter], episodes: [] }));
+    mocks.listEpisodeCandidates.mockImplementationOnce(() => new Promise(resolve => { finishLinks = resolve; }))
+      .mockResolvedValue({ linked: [{ id: "episode-2", title: "另一来源的关联", episode_number: 2 }], available: [] });
+    renderWithIntl(<SourceWorkspace />);
+    await screen.findByRole("heading", { name: "既有来源" });
+    fireEvent.click(screen.getByRole("button", { name: /另一来源/ }));
+    await screen.findByText("另一来源的关联");
+    await act(async () => { finishLinks({ linked: [], available: [] }); });
+    expect(screen.getByText("另一来源的关联")).toBeVisible();
+    expect(screen.queryByText("暂无已关联 Episode")).not.toBeInTheDocument();
+  });
+
   it("returns to split settings after cancellation and generates a new preview without reloading", async () => {
     mocks.previewEpisodeSplit.mockResolvedValueOnce(splitPreview).mockResolvedValueOnce({
       ...splitPreview, id: "split-preview-2", proposals: [{ ...splitPreview.proposals[0], title: "重新拆集" }],

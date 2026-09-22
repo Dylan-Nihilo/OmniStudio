@@ -3025,6 +3025,8 @@
     "linkEpisode": "Link Episode",
     "unlinkEpisode": "Unlink Episode",
     "episodeLinksLoadFailed": "Failed to load Episode links. Try again.",
+    "episodeLinksLoading": "Loading episode links…",
+    "episodeLinksRetry": "Retry",
     "episodeLinked": "Episode linked",
     "episodeUnlinked": "Episode unlinked",
     "linkFailed": "Could not link the Episode. Try again.",

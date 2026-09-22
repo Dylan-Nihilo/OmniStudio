@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileText, Link2, Unlink } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { Button, EmptyState, SelectField } from "@omnistudio/ui";
+import { Button, EmptyState, LoadingState, SelectField } from "@omnistudio/ui";
 import type { SourceEpisode } from "@/lib/api";
 import styles from "./SourceEpisodePanel.module.css";
 
@@ -14,6 +14,9 @@ export interface SourceEpisodePanelProps {
   availableEpisodes: readonly SourceEpisode[];
   /** Disables all relation mutations while the parent is refreshing. */
   busy?: boolean;
+  loading?: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
   onLink: (episodeId: string) => void | Promise<void>;
   onUnlink: (episodeId: string) => void | Promise<void>;
   onOpenScript?: (episodeId: string) => void;
@@ -24,7 +27,7 @@ function episodeLabel(episode: SourceEpisode): string {
   return `EP.${String(episode.episode_number).padStart(2, "0")} · ${episode.title}`;
 }
 
-export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, busy = false, onLink, onUnlink, onOpenScript }: SourceEpisodePanelProps) {
+export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, busy = false, loading = false, loadError = null, onRetry, onLink, onUnlink, onOpenScript }: SourceEpisodePanelProps) {
   const t = useTranslations("sourceWorkspace");
   const tc = useTranslations("common");
   const ts = useTranslations("script");
@@ -42,7 +45,7 @@ export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, 
     () => availableEpisodes.map(episode => ({ id: episode.id, label: episodeLabel(episode), description: episode.status || undefined })),
     [availableEpisodes],
   );
-  const relationBusy = busy || pendingAction !== null;
+  const relationBusy = busy || loading || Boolean(loadError) || pendingAction !== null;
 
   const linkSelected = async () => {
     if (!selectedEpisodeId || relationBusy) return;
@@ -83,7 +86,12 @@ export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, 
 
       {actionError && <p className={styles.error} role="alert">{actionError}</p>}
 
-      <div className={styles.columns}>
+      {loading ? <LoadingState label={t("episodeLinksLoading")} /> : loadError ? (
+        <div>
+          <p className={styles.error} role="alert">{loadError}</p>
+          {onRetry && <Button variant="secondary" onPress={onRetry}>{t("episodeLinksRetry")}</Button>}
+        </div>
+      ) : <div className={styles.columns}>
         <div className={styles.column}>
           <div className={styles.sectionHeading}>
             <h3>{t("linkedEpisodes")}</h3>
@@ -151,7 +159,7 @@ export default function SourceEpisodePanel({ linkedEpisodes, availableEpisodes, 
             </div>
           )}
         </div>
-      </div>
+      </div>}
     </section>
   );
 }
