@@ -3025,6 +3025,8 @@
     "linkEpisode": "关联 Episode",
     "unlinkEpisode": "解除关联",
     "episodeLinksLoadFailed": "Episode 关系加载失败，请重试。",
+    "episodeLinksLoading": "正在加载 Episode 关联…",
+    "episodeLinksRetry": "重试",
     "episodeLinked": "Episode 已关联",
     "episodeUnlinked": "Episode 已解除关联",
     "linkFailed": "关联 Episode 失败，请重试。",

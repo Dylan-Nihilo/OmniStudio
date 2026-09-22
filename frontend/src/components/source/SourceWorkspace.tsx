@@ -64,6 +64,9 @@ export default function SourceWorkspace() {
   const [linkedEpisodes, setLinkedEpisodes] = useState<SourceEpisode[]>([]);
   const [availableEpisodes, setAvailableEpisodes] = useState<SourceEpisode[]>([]);
   const [episodeBusy, setEpisodeBusy] = useState(false);
+  const [episodeLinksLoading, setEpisodeLinksLoading] = useState(true);
+  const [episodeLinksError, setEpisodeLinksError] = useState<string | null>(null);
+  const episodeLinksRequest = useRef(0);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -121,16 +124,25 @@ export default function SourceWorkspace() {
   };
 
   const loadEpisodeLinks = async (sourceId: string) => {
+    const requestId = ++episodeLinksRequest.current;
+    setEpisodeLinksLoading(true);
+    setEpisodeLinksError(null);
     try {
       const result = await sourceApi.listEpisodeCandidates(sourceId);
+      if (requestId !== episodeLinksRequest.current) return;
       setLinkedEpisodes(result.linked);
       setAvailableEpisodes(result.available);
     } catch (cause) {
-      setError(errorMessage(cause, t("episodeLinksLoadFailed")));
+      if (requestId === episodeLinksRequest.current) {
+        setEpisodeLinksError(errorMessage(cause, t("episodeLinksLoadFailed")));
+      }
+    } finally {
+      if (requestId === episodeLinksRequest.current) setEpisodeLinksLoading(false);
     }
   };
 
   useEffect(() => { void loadSources(); }, []);
+  useEffect(() => () => { episodeLinksRequest.current += 1; }, []);
 
   useEffect(() => {
     setAnalysisBatch(null);
@@ -170,6 +182,10 @@ export default function SourceWorkspace() {
   }, [selectedSourceId, chapterPage, chapterQuery]);
 
   const selectSource = (sourceId: string) => {
+    if (sourceId === selectedSourceId) return;
+    episodeLinksRequest.current += 1;
+    setEpisodeLinksLoading(true);
+    setEpisodeLinksError(null);
     setError(null);
     setNotice(null);
     setSelectedSourceId(sourceId);
@@ -547,7 +563,7 @@ export default function SourceWorkspace() {
             {!selectedChapter && <>
               {analysisPollError && <div className={styles.error} role="alert">{analysisPollError}</div>}
               <SourceAnalysisPanel chapters={chapters} batch={analysisBatch} busy={analysisRunning} onAnalyze={runAnalysis} onRetry={retryAnalysis} />
-              <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
+              <SourceEpisodePanel linkedEpisodes={linkedEpisodes} availableEpisodes={availableEpisodes} busy={episodeBusy} loading={episodeLinksLoading} loadError={episodeLinksError} onRetry={() => { if (selectedSourceId) void loadEpisodeLinks(selectedSourceId); }} onLink={linkEpisode} onUnlink={unlinkEpisode} onOpenScript={episodeId => { window.location.hash = `#/project/${episodeId}/editor`; }} />
               <SourceEpisodeSplitPanel preview={splitPreview} busy={splitBusy} createdEpisodes={splitCreatedEpisodes} onPreview={previewEpisodeSplit} onChange={(proposals: SourceEpisodeSplitProposal[]) => setSplitPreview(current => current ? { ...current, proposals } : current)} onSave={() => void saveEpisodeSplitPreview()} onCancel={() => void cancelEpisodeSplitPreview()} onConfirm={payload => void confirmEpisodeSplit(payload)} />
             </>}
           </>}
