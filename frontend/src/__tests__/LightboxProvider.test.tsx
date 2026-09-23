@@ -35,6 +35,7 @@ describe("LightboxProvider", () => {
         const backdrop = document.querySelector('[aria-hidden="true"]');
         const toolbar = screen.getByTitle("copyUrl").parentElement;
 
+        expect(root).toHaveAttribute("data-react-aria-top-layer", "true");
         expect(root).toHaveClass("z-[1000]", "pointer-events-auto");
         expect(backdrop).toHaveClass("z-0", "pointer-events-auto");
         expect(dialog).toHaveClass("z-10", "pointer-events-auto");
