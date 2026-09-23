@@ -5,7 +5,10 @@ import {
     getCastKindChipClasses,
     getCastThumbnailClasses,
 } from "@/components/modules/Cast";
-import { getCastPromptTextareaClasses } from "@/components/modules/cast/CastWorkbenchModal";
+import {
+    getCastPromptTextareaClasses,
+    getCastTemplateSwitchWarningClasses,
+} from "@/components/modules/cast/CastWorkbenchModal";
 
 describe("Cast light-theme surfaces", () => {
     it("uses semantic surfaces for empty and generating asset cards", () => {
@@ -28,6 +31,15 @@ describe("Cast light-theme surfaces", () => {
         expect(prompt).toContain("disabled:text-text-secondary");
         expect(prompt).toContain("disabled:opacity-100");
         expect(prompt).not.toContain("bg-black/");
+    });
+
+    it("keeps the dirty-template warning readable against its amber surface", () => {
+        const warning = getCastTemplateSwitchWarningClasses();
+
+        expect(warning.container).toContain("bg-amber-500/15");
+        expect(warning.container).toContain("border-amber-400/40");
+        expect(warning.message).toContain("text-amber-100");
+        expect(warning.confirm).toContain("text-amber-100");
     });
 
     it("keeps asset kind chips legible over bright and dark artwork", () => {

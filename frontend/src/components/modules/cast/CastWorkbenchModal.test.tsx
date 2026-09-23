@@ -75,6 +75,18 @@ describe("CastWorkbenchModal asset generation", () => {
         expect(screen.getByRole('textbox')).toHaveValue('my custom draft');
     });
 
+    it("uses a high-contrast warning when switching a dirty template", async () => {
+        render(<CastWorkbenchModal isOpen kind="character" entityId="character-1" onClose={vi.fn()} />);
+        await act(async () => {});
+
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited prompt' } });
+        fireEvent.click(screen.getByRole('button', { name: /tplDetailedLabel/ }));
+
+        const warning = screen.getByText('tplSwitchConfirm');
+        expect(warning).toHaveClass('text-amber-100');
+        expect(screen.getByRole('button', { name: 'tplSwitchYes' })).toHaveClass('text-amber-100');
+    });
+
     it("shows batch accounting and cancels without counting pending work as failed", async () => {
         api.generateAsset.mockResolvedValue({ _task_id: "task-1", _job_id: "job-1" });
         api.cancelTask.mockResolvedValue({ status: "canceled" });
