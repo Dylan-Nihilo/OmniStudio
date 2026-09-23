@@ -6,6 +6,16 @@ export function episodeAssets<C extends Asset, S extends Asset, P extends Asset>
   characters?: C[]; scenes?: S[]; props?: P[]; frames?: Frame[];
 } | null | undefined) {
   const frames = project?.frames ?? [];
+  // Before storyboard extraction there are no frame references to identify
+  // which shared assets belong to this episode. Keep the complete project
+  // entity pool visible so freshly extracted series assets remain usable.
+  if (frames.length === 0) {
+    return {
+      characters: project?.characters ?? [],
+      scenes: project?.scenes ?? [],
+      props: project?.props ?? [],
+    };
+  }
   const characterIds = new Set(frames.flatMap(f => f.character_ids ?? []));
   const sceneIds = new Set(frames.map(f => f.scene_id));
   const propIds = new Set(frames.flatMap(f => f.prop_ids ?? []));

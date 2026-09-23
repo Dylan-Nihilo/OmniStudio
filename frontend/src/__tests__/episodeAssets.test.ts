@@ -19,6 +19,22 @@ describe('episode asset presentation', () => {
     expect(result.props.map(x => x.id)).toEqual(['box']);
     expect(project.characters).toHaveLength(5);
   });
+
+  it('shows extracted shared assets before storyboard frames exist', () => {
+    const project = {
+      characters: [{ id: 'series-character', source: 'series' }],
+      scenes: [{ id: 'series-scene', source: 'series' }],
+      props: [{ id: 'series-prop', source: 'series' }],
+      frames: [],
+    };
+
+    expect(episodeAssets(project)).toEqual({
+      characters: project.characters,
+      scenes: project.scenes,
+      props: project.props,
+    });
+  });
+
   it('handles a project that has not loaded', () => {
     expect(episodeAssets(null)).toEqual({ characters: [], scenes: [], props: [] });
   });
