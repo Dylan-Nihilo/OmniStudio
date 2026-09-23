@@ -45,6 +45,12 @@ type BatchSummary = { requested: number; pending: number; succeeded: number; fai
 export const getCastPromptTextareaClasses = () =>
     "w-full min-h-[260px] max-h-[400px] rounded-md border border-glass-border bg-input-bg px-3.5 py-2.5 text-[0.875rem] text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/40 disabled:cursor-wait disabled:bg-surface-inset disabled:text-text-secondary disabled:opacity-100 resize-y leading-relaxed";
 
+export const getCastTemplateSwitchWarningClasses = () => ({
+    container: "bg-amber-500/15 border-amber-400/40",
+    message: "text-amber-100",
+    confirm: "bg-amber-500/25 text-amber-100 hover:bg-amber-500/40",
+});
+
 function startAssetPoll(
     entityId: string,
     taskId: string,
@@ -411,6 +417,8 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
         setPendingTemplate(null);
     };
 
+    const templateSwitchWarningClasses = getCastTemplateSwitchWarningClasses();
+
     const handleGenerate = async () => {
         if (generating || referenceError) return;
         if (!prompt.trim()) {
@@ -775,11 +783,11 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
                                     </div>
                                     {/* Inline confirm when switching with dirty prompt */}
                                     {pendingTemplate && (
-                                        <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/20">
-                                            <span className="text-[0.6875rem] text-amber-200/90">{t("tplSwitchConfirm")}</span>
+                                        <div className={`mt-2 flex items-center gap-2 px-2 py-1.5 rounded-md border ${templateSwitchWarningClasses.container}`}>
+                                            <span className={`text-[0.6875rem] font-medium ${templateSwitchWarningClasses.message}`}>{t("tplSwitchConfirm")}</span>
                                             <button
                                                 onClick={confirmTemplateSwitch}
-                                                className="px-2 py-0.5 rounded text-[0.6875rem] font-medium bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 transition-colors"
+                                                className={`px-2 py-0.5 rounded text-[0.6875rem] font-medium transition-colors ${templateSwitchWarningClasses.confirm}`}
                                             >
                                                 {t("tplSwitchYes")}
                                             </button>
