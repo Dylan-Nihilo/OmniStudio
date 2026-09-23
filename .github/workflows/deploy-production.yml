@@ -22,7 +22,12 @@ jobs:
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A warm build finishes in about five minutes. A cold one — no build cache on the host,
+    # every npm package fetched again — ran past 30 minutes and the job was killed
+    # mid-build, which surfaces as "cancelled" and reads as though somebody stopped it.
+    # Deploys keep the cache trimmed rather than wiped, so builds are normally warm, but the
+    # budget should cover the cold case instead of turning it into a mystery cancellation.
+    timeout-minutes: 60
     environment: production
     env:
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}

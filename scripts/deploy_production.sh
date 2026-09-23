@@ -32,9 +32,22 @@ trap rollback ERR
 
 cd "$APP_DIR"
 
+# Every deploy builds images here and nothing ever reclaimed what that leaves behind, so
+# the host filled up over a few weeks: 25 GiB of build cache and 91 dangling images against
+# a 49 GiB disk, which is how a deploy came to fail on the free-space check below with
+# nothing actually wrong. Pruning before the check rather than after a failure means the
+# disk is reclaimed on the deploy that would otherwise be the one to break.
+#
+# Deliberately not `image prune -a`: the rollback images this script depends on
+# (omnistudio-rollback-{backend,frontend}:previous) have no container attached and would be
+# taken with it, leaving nothing to roll back to.
+docker builder prune -f --keep-storage 4GB >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
+
 available_kb=$(df --output=avail "$APP_DIR" | tail -n 1)
 if (( available_kb < 2097152 )); then
-  echo "Deployment requires at least 2 GiB of free disk space" >&2
+  echo "Deployment requires at least 2 GiB of free disk space, and pruning did not free enough." >&2
+  echo "Check what is using the disk: docker system df; du -sh /var/lib/docker /var/log" >&2
   exit 1
 fi
 
