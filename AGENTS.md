@@ -5,6 +5,7 @@ This file provides guidance to AI coding agents (Codex CLI / Qoder) when working
 ## 交流语言（Communication Language）
 
 - 与用户交流时（解释、总结、回答、报告、文档说明等）**默认使用中文（简体）回复**，除非用户明确要求使用其他语言或提供的内容本身是其他语言。
+- 涉及 Git 提交、推送、PR 创建或更新、审核、合并、部署等操作时，操作后的状态、验证结果和下一步说明**必须使用中文（简体）总结**；命令、Commit Message、PR 标题和 CI 原生状态可按现有流程保留英文。
 
 ## Git Commit Rules
 
