@@ -7,13 +7,14 @@ export function episodeAssets<C extends Asset, S extends Asset, P extends Asset>
 } | null | undefined) {
   const frames = project?.frames ?? [];
   // Before storyboard extraction there are no frame references to identify
-  // which shared assets belong to this episode. Keep the complete project
-  // entity pool visible so freshly extracted series assets remain usable.
+  // which shared assets belong to this episode. Keep episode-local and
+  // current-series entities visible so freshly extracted assets remain usable,
+  // but exclude the workspace-wide global library from this episode view.
   if (frames.length === 0) {
     return {
-      characters: project?.characters ?? [],
-      scenes: project?.scenes ?? [],
-      props: project?.props ?? [],
+      characters: (project?.characters ?? []).filter(asset => asset.source !== 'global'),
+      scenes: (project?.scenes ?? []).filter(asset => asset.source !== 'global'),
+      props: (project?.props ?? []).filter(asset => asset.source !== 'global'),
     };
   }
   const characterIds = new Set(frames.flatMap(f => f.character_ids ?? []));
