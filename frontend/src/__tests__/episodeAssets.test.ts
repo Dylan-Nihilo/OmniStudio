@@ -22,16 +22,25 @@ describe('episode asset presentation', () => {
 
   it('shows extracted shared assets before storyboard frames exist', () => {
     const project = {
-      characters: [{ id: 'series-character', source: 'series' }],
-      scenes: [{ id: 'series-scene', source: 'series' }],
-      props: [{ id: 'series-prop', source: 'series' }],
+      characters: [
+        { id: 'series-character', source: 'series' },
+        { id: 'global-character', source: 'global' },
+      ],
+      scenes: [
+        { id: 'series-scene', source: 'series' },
+        { id: 'global-scene', source: 'global' },
+      ],
+      props: [
+        { id: 'series-prop', source: 'series' },
+        { id: 'global-prop', source: 'global' },
+      ],
       frames: [],
     };
 
     expect(episodeAssets(project)).toEqual({
-      characters: project.characters,
-      scenes: project.scenes,
-      props: project.props,
+      characters: [project.characters[0]],
+      scenes: [project.scenes[0]],
+      props: [project.props[0]],
     });
   });
 
