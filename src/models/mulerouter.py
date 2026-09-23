@@ -52,6 +52,19 @@ GPT_IMAGE_VALID_SIZES = {
 def _normalize_gpt_image_size(size: str) -> str:
     """Convert DashScope-style size (e.g. 1024*768) to GPT-Image-2 format."""
     normalized = size.replace("*", "x")
+    # The shared storyboard settings use DashScope canvas sizes.  OpenAI-compatible
+    # image relays accept a small canonical vocabulary instead; passing the raw
+    # 9:16 canvas (576x1024) through the generic scaler produced 1152x2048, which
+    # is outside that vocabulary and is rejected as an invalid request parameter.
+    # Preserve the intended orientation while using the relay's supported sizes.
+    storyboard_size = {
+        "576x1024": "1024x1536",
+        "768x1024": "1024x1536",
+        "1024x576": "1536x1024",
+        "1024x768": "1536x1024",
+    }.get(normalized)
+    if storyboard_size:
+        return storyboard_size
     if normalized in GPT_IMAGE_VALID_SIZES:
         return normalized
     try:
