@@ -241,6 +241,8 @@ def test_invalid_model_proposals_never_replace_project(api_client, monkeypatch, 
     saved = api_client.get('/projects/' + project_id).json()
     assert saved['production_plan_draft'] is None
     assert saved['production_planning_job']['status'] == 'failed'
+    assert saved['production_planning_job']['error'] != '制作计划未生成成功，原有方案和分镜已保留，请重试'
+    assert '片段 1' in saved['production_planning_job']['error']
     assert saved['frames'][0]['video_url'] == 'video/old.mp4'
 
 

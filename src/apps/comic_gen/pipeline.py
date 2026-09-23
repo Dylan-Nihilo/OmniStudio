@@ -2216,13 +2216,18 @@ class ComicGenPipeline:
                 self._save_fields(current, production_plan_draft=proposal,
                                   production_planning_job=job.model_copy(update={"status": "completed"}))
                 return current
-        except Exception:
+        except Exception as exc:
             with self._save_lock:
                 current = self.scripts.get(script_id)
                 if current and current.production_planning_job and current.production_planning_job.id == job.id:
-                    # Provider credentials and raw responses must never enter persisted errors.
+                    # Keep validation failures actionable while preventing provider credentials
+                    # or raw model responses from entering persisted project data.
+                    if isinstance(exc, ValueError) and str(exc).strip():
+                        error = str(exc).strip()[:500]
+                    else:
+                        error = "AI 返回的制作计划无法解析，请检查模型配置后重试"
                     self._save_fields(current, production_planning_job=job.model_copy(update={
-                        "status": "failed", "error": "制作计划未生成成功，原有方案和分镜已保留，请重试"}))
+                        "status": "failed", "error": error}))
             raise
 
     def revise_production_plan(self, script_id: str) -> Script:
