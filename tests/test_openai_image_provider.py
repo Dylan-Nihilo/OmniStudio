@@ -38,7 +38,7 @@ def test_openai_image_response_supports_url_and_base64_payloads():
     assert _extract_openai_image_url({"data": [{"b64_json": "aGVsbG8="}]}) == "data:image/png;base64,aGVsbG8="
 
 
-@pytest.mark.parametrize("size,expected", [("1024*576", "2048x1152"), ("576*1024", "1152x2048"), ("1024*768", "1024x768")])
+@pytest.mark.parametrize("size,expected", [("1024*576", "1536x1024"), ("576*1024", "1024x1536"), ("1024*768", "1536x1024")])
 def test_gpt_size_preserves_storyboard_aspect_ratio(size, expected):
     assert _normalize_gpt_image_size(size) == expected
 
@@ -52,7 +52,7 @@ def test_openai_image_generation_and_edit_send_high_quality(tmp_path, editing):
         MuleRouterImageModel({})._generate_via_openai_compatible("Static anime frame", str(tmp_path / "result.png"), size="1024*576", ref_image_paths=[str(ref)] if editing else [])
         body = request.call_args.kwargs["data" if editing else "json"]
         assert body["quality"] == "high"
-        assert body["size"] == "2048x1152"
+        assert body["size"] == "1536x1024"
 
 
 def test_storyboard_routes_gpt_image_to_the_selected_adapter(tmp_path, monkeypatch):
