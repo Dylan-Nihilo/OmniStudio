@@ -214,6 +214,7 @@ function LightboxPortal({
     const modal = (
         <div
             data-testid="lightbox-root"
+            data-react-aria-top-layer="true"
             className="fixed inset-0 z-[1000] pointer-events-auto"
         >
             <div
