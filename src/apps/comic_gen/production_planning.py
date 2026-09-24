@@ -152,6 +152,27 @@ def reference_assets(assets: dict) -> dict[str, tuple[str, Any, str | None]]:
     return result
 
 
+def _without_whitespace(text: str) -> str:
+    return "".join(character for character in text if not character.isspace())
+
+
+def quotes_the_script(quoted: str, original: str) -> bool:
+    """Whether `quoted` reproduces a contiguous run of the script.
+
+    Compared with whitespace removed, because a script is written in paragraphs and the
+    planner quotes across them: a quote that runs from a stage direction into the next
+    line of dialogue is faithful word for word, yet fails a plain substring test purely
+    because the blank line between them is missing. Two of three generations against a real
+    episode were rejected for exactly that and nothing else.
+
+    Whitespace is the only thing forgiven. A quote that skips over a sentence still fails,
+    which is the case worth catching — the third rejection was a quote that jumped from a
+    stage direction straight to a line four sentences later, and passing that off as a
+    contiguous quote would let the plan drift from the script it claims to follow.
+    """
+    return _without_whitespace(quoted) in _without_whitespace(original)
+
+
 def validate_content(content: PlanContent, settings: PlanSettings, script, assets: dict) -> list[str]:
     durations = model_durations(settings.model)
     scenes = {a.id for a in assets["scenes"]}
@@ -181,11 +202,26 @@ def validate_content(content: PlanContent, settings: PlanSettings, script, asset
             if shot.id in ids:
                 raise ValueError("镜头编号重复，请重新生成方案")
             ids.add(shot.id)
-            if shot.source_quote not in script.original_text:
-                raise ValueError(f"片段 {index} 的剧本依据已变化，请重新规划")
+            if not quotes_the_script(shot.source_quote, script.original_text):
+                # Deliberately not "the script has changed": nothing changed. The planner
+                # quoted something that is not a contiguous run of the script, usually by
+                # skipping a sentence, and telling someone to re-plan sent them round a
+                # loop that failed the same way every time.
+                raise ValueError(
+                    f"片段 {index} 的镜头「{shot.title}」引用的剧本原文不连续"
+                    f"（跳过了中间内容），请重新生成方案，或在剧本中补齐这段。"
+                    f"引用内容：{shot.source_quote[:40]}")
             for dialogue in shot.dialogue:
-                if (dialogue.mode == "on_screen" and dialogue.speaker not in people) or dialogue.line not in script.original_text:
-                    raise ValueError(f"片段 {index} 的台词或说话人不符合原剧本")
+                # Two different problems used to share one message, and it named neither of
+                # them: which speaker, or which line, and no way to tell them apart.
+                if dialogue.mode == "on_screen" and dialogue.speaker not in people:
+                    raise ValueError(
+                        f"片段 {index} 的说话人「{dialogue.speaker}」不在本集素材里，"
+                        f"请先在「角色」中添加该角色，或把这句改为旁白。")
+                if not quotes_the_script(dialogue.line, script.original_text):
+                    raise ValueError(
+                        f"片段 {index} 的台词不在剧本原文中，请重新生成方案，"
+                        f"或把这句台词补进剧本。台词：{dialogue.line[:40]}")
             if sum(len(d.line) for d in shot.dialogue) > shot.duration * 5:
                 warnings.append(f"「{shot.title}」台词可能过密，请检查语速与停顿")
         total += segment.duration

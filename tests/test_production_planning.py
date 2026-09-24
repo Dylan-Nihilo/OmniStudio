@@ -418,3 +418,43 @@ def test_revised_plan_retains_media_only_for_unchanged_segments(api_client, monk
             {**p, 'production_plan_id': after['production_plan']['id']} for p in before['production_previews'][2:]]
         assert not any(p['t2i_image_urls'] for p in after['production_previews'][:2])
         assert api_client.get(route + '/review').status_code == 200
+
+
+# --- quoting the script ---------------------------------------------------------------
+# From a real episode (潮骨·第1集): two of three generated plans were rejected purely
+# because the planner quoted across a blank line, and the message blamed the script for
+# having changed. The third was a genuine elision and should still be refused.
+
+SCRIPT_EXTRACT = (
+    "观测站的地面裂开一条细缝，蓝色潮光从缝里涌出。沈砚秋把潜水灯照向墙面，"
+    "七道波纹标记在墙上逐一亮起。\n\n"
+    "沈砚秋：如果你要问为什么是你，先活过这扇门。\n\n"
+    "地下传来第二声回响，闸门上的水珠同时向上浮起。"
+)
+
+
+def test_a_quote_that_spans_a_blank_line_is_still_the_script():
+    """A script is written in paragraphs and the planner quotes straight through them. Word
+    for word this is the script; only the blank line is missing."""
+    from src.apps.comic_gen.production_planning import quotes_the_script
+
+    spans_paragraphs = ("七道波纹标记在墙上逐一亮起。"
+                        "沈砚秋：如果你要问为什么是你，先活过这扇门。")
+    assert spans_paragraphs not in SCRIPT_EXTRACT, "a plain substring test rejects it"
+    assert quotes_the_script(spans_paragraphs, SCRIPT_EXTRACT)
+
+
+def test_a_quote_that_skips_a_sentence_is_refused():
+    """The case worth catching: the planner jumped from a stage direction to a line four
+    sentences later. Accepting that would let the plan drift from the script it cites."""
+    from src.apps.comic_gen.production_planning import quotes_the_script
+
+    elided = ("观测站的地面裂开一条细缝，蓝色潮光从缝里涌出。"
+              "沈砚秋：如果你要问为什么是你，先活过这扇门。")
+    assert not quotes_the_script(elided, SCRIPT_EXTRACT)
+
+
+def test_invented_dialogue_is_still_refused():
+    from src.apps.comic_gen.production_planning import quotes_the_script
+
+    assert not quotes_the_script("沈砚秋：我从来没说过这句话。", SCRIPT_EXTRACT)
