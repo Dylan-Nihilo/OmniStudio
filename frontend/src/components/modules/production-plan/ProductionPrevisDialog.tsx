@@ -206,7 +206,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                         const pending = preview.image_generation_status === 'processing' || preview.image_generation_status === 'pending' || busy === preview.id;
                         return <article key={shot.id} className={styles.previewCard}>
                             <header><strong>{qi + 1}. {shot.title}</strong><span>{shot.duration}s</span></header>
-                            {url ? <PreviewImage src={url} alt={shot.title} className={styles.previewImage} /> : <div className={styles.previewEmpty}>{t(pending ? 'busyImage' : 'previsEmpty')}</div>}
+                            {url ? <PreviewImage src={url} alt={shot.title} alwaysShowMagnify className={styles.previewImage} /> : <div className={styles.previewEmpty}>{t(pending ? 'busyImage' : 'previsEmpty')}</div>}
                             <p className={styles.hint}>{shot.camera} · {shot.description}</p>
                             {!!preview.image_error && <p className={styles.error}>{preview.image_error}</p>}
                             <div className={styles.tools}>

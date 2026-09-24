@@ -186,7 +186,7 @@ export default function PreviewImage({
                             aria-label={t("zoom")}
                             title={t("zoom")}
                             className={clsx(
-                                "absolute right-1 top-1 grid h-6 w-6 place-items-center rounded bg-black/55 text-foreground backdrop-blur transition-opacity duration-fast ease-out-quart hover:bg-black/75 focus-visible:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/55",
+                                "absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md border border-white/70 bg-white/90 text-black shadow-[0_1px_5px_rgba(0,0,0,0.45)] backdrop-blur transition-[opacity,transform,background-color] duration-fast ease-out-quart hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/70",
                                 alwaysShowMagnify
                                     ? "opacity-100"
                                     : "opacity-0 group-hover/preview:opacity-100",
