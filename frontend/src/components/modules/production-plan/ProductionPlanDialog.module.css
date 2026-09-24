@@ -51,3 +51,14 @@
 
 .brief > summary { cursor: pointer; font-size: 13px; color: var(--color-text-secondary); }
 .brief > div { margin-top: 16px; }
+
+/* A blocking problem sits on the shot it belongs to, next to the inputs that fix it. */
+.problem { margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px; line-height: 1.6;
+    color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent); overflow-wrap: anywhere; }
+.problemSummary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 12px;
+    padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent); }
+.progress { margin-right: auto; font-size: 12px; color: var(--color-text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }

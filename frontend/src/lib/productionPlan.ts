@@ -25,6 +25,15 @@ export interface PlannedSegment {
     shots: PlannedShot[];
     frame_id?: string | null;
 }
+/** A blocking issue the server found; `warnings` stay advisory. */
+export interface PlanProblem {
+    segment_index: number;
+    segment_id: string;
+    shot_id: string | null;
+    field: 'source_quote' | 'dialogue' | 'speaker' | 'duration' | 'reference_names' | 'scene_id' | 'ids';
+    message: string;
+}
+
 export interface ProductionPlan {
     id: string;
     revision: string;
@@ -37,6 +46,7 @@ export interface ProductionPlan {
     continuity_rules: string;
     segments: PlannedSegment[];
     warnings: string[];
+    problems: PlanProblem[];
 }
 export interface ProductionReview {
     frame_id: string;

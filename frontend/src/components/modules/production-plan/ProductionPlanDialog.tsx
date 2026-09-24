@@ -44,6 +44,9 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
     const [dirty, setDirty] = useState(false);
     const [undo, setUndo] = useState<ProductionPlan | null>(null);
     const [historyOpen, setHistoryOpen] = useState(false);
+    // Segments counted off the model's own stream — the one honest progress signal for a
+    // single long call. Null while nothing is generating.
+    const [progress, setProgress] = useState<{ segments: number; title: string } | null>(null);
     const [editing, setEditing] = useState(false);
     const active = useRef(true);
     const operation = useRef(false);
@@ -84,6 +87,12 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         || draft.segments.some(segment => !segment.title.trim() || !segment.purpose.trim() || !segment.start_state.trim() || !segment.end_state.trim()
             || segment.shots.some(shot => !shot.title.trim() || !shot.description.trim() || !shot.camera.trim() || !Number.isInteger(shot.duration) || shot.duration < 1)));
     const invalidTarget = settings.target_duration !== null && (!Number.isInteger(settings.target_duration) || settings.target_duration < 1 || settings.target_duration > 600);
+    // Problems the server found on the draft as last saved. They are what stops a plan from
+    // being applied; saving stays open so a fix can be made one problem at a time.
+    const problems = draft?.problems ?? [];
+    const problemsFor = (segmentId: string, shotId?: string) =>
+        problems.filter(problem => problem.segment_id === segmentId
+            && (shotId ? problem.shot_id === shotId : !problem.shot_id));
 
 
     async function run(kind: string, work: () => Promise<void>) {
@@ -125,13 +134,20 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
         return saved;
     }
     async function generate() {
-        setPlanningError('');
+        setPlanningError(''); setProgress({ segments: 0, title: '' });
         if (!await beforeChange() || !active.current) return;
-        const result = await api.generateProductionPlan(project.id, settings);
+        try {
+            await api.generateProductionPlanStream(project.id, settings, (segments, title) => {
+                if (active.current) setProgress({ segments, title });
+            });
+        } finally {
+            if (active.current) setProgress(null);
+        }
         if (!active.current) return;
-        setDraft(result.production_plan_draft); savedRevision.current = result.production_plan_draft?.revision;
+        // The stream carries progress, not the plan: `refresh` is what reads the saved
+        // draft back, and it is also the path a reconnecting client takes.
+        savedRevision.current = undefined;
         setDirty(false); dirtyRef.current = false; setUndo(null);
-        onUpdate({ production_plan_draft: result.production_plan_draft, production_planning_job: result.production_planning_job });
         await refresh();
     }
     async function apply() {
@@ -157,8 +173,9 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
             <span className={styles.footerSummary}>{dirty ? t('unsaved') : draft ? t('saved') : ''}</span>
             <Button variant="secondary" isDisabled={atomicBusy} onPress={close}>{t(dirty && !readOnly ? 'saveAndClose' : 'close')}</Button>
             {dirty && <Button variant="quiet" isDisabled={atomicBusy} onPress={() => { if (operation.current) return; setDraft(overview?.draft ?? project.production_plan_draft ?? null); setDirty(false); dirtyRef.current = false; onClose(); }}>{t('discardChanges')}</Button>}
-            {draft && !historyOpen && <><Button variant="secondary" isDisabled={readOnly || !dirty || !!busy || !!invalid || !!incomplete} onPress={() => void run('save', async () => { await save(); })}>{t('save')}</Button>
-                <Button isDisabled={readOnly || !!busy || !!invalid || !!incomplete || planning} isPending={busy === 'apply'} onPress={() => void run('apply', apply)}>{t('apply')}</Button></>}
+            {progress && <span className={styles.progress}>{t('planProgress', { count: progress.segments })}{progress.title && ` · ${progress.title}`}</span>}
+            {draft && !historyOpen && <><Button variant="secondary" isDisabled={readOnly || !dirty || !!busy || !!incomplete} onPress={() => void run('save', async () => { await save(); })}>{t('save')}</Button>
+                <Button isDisabled={readOnly || !!busy || !!invalid || !!incomplete || planning || problems.length > 0} isPending={busy === 'apply'} onPress={() => void run('apply', apply)}>{t('apply')}</Button></>}
         </>}>
         <div className={styles.tabs}>
             <Button variant={!historyOpen ? 'secondary' : 'quiet'} aria-pressed={!historyOpen} onPress={() => setHistoryOpen(false)}>{t('planTab')}</Button>
@@ -212,6 +229,10 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                 })}>{t('reviseActive')}</Button>
             </div>}
             {draft && <>
+                {problems.length > 0 && <div role="alert" className={styles.problemSummary}>
+                    {t('problemsFound', { count: problems.length })}
+                    <span className={styles.hint}>{t('problemsHint')}</span>
+                </div>}
                 <div className={styles.stats}><strong>{t('totalDuration', { seconds: planDuration(draft) })}</strong><span>{t('shotCount', { count: shotCount })}</span><span>{t('generationCount', { count: draft.segments.length })}</span>
                     <CreditCost modelId={settings.model} quantity={planDuration(draft)} /></div>
                 <Button variant="quiet" onPress={() => setEditing(!editing)}>{t(editing ? 'reviewPlan' : 'editPlan')}</Button>
@@ -226,9 +247,11 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                     <p className={styles.hint}>{segment.purpose}</p>
                     <div className={styles.pair}><p className={styles.hint}><strong>{t('startState')}：</strong>{segment.start_state}</p><p className={styles.hint}><strong>{t('endState')}：</strong>{segment.end_state}</p></div>
                     {segment.connection && <p className={styles.hint}>{t('connection')}：{segment.connection}</p>}
+                    {problemsFor(segment.id).map((problem, pi) => <p key={pi} role="alert" className={styles.problem}>{problem.message}</p>)}
                     <ol className={styles.readShots}>{segment.shots.map((shot, i) => <li key={shot.id}>
                         <strong>{i + 1}. {shot.title} · {shot.duration}s</strong><p className={styles.hint}>{shot.camera} · {shot.description}</p>
                         {shot.dialogue.map((line, j) => <p key={j} className={styles.hint}>{line.speaker}：{line.line}</p>)}
+                        {problemsFor(segment.id, shot.id).map((problem, pi) => <p key={pi} role="alert" className={styles.problem}>{problem.message}</p>)}
                     </li>)}</ol>
                 </section> : <section key={segment.id} className={styles.segment} aria-label={t('segmentNumber', { number: si + 1 })}>
                     <div className={styles.segmentHeader}><h3>{t('segmentNumber', { number: si + 1 })} · {segmentDuration(segment)}s</h3>
@@ -244,6 +267,8 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                                 onPress={() => change(mergePlanSegment(draft, si), true)}>{t('mergeNext')}</Button>}
                         </div>
                     </div>
+                    {problemsFor(segment.id).map((problem, pi) =>
+                        <p key={pi} role="alert" className={styles.problem}>{problem.message}</p>)}
                     <SelectField label={t('scene')} value={segment.scene_id} options={project.scenes.map(scene => ({ id: scene.id, label: scene.name }))}
                         onChange={key => { const previous = project.scenes.find(scene => scene.id === segment.scene_id); const next = project.scenes.find(scene => scene.id === key);
                             editSegment(si, { scene_id: String(key), reference_names: [...segment.reference_names.filter(name => name !== previous?.name), ...(next ? [next.name] : [])] }); }} />
@@ -252,15 +277,26 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                     <div className={styles.pair}><TextAreaField label={t('startState')} rows={2} value={segment.start_state} onChange={value => editSegment(si, { start_state: value })} />
                         <TextAreaField label={t('endState')} rows={2} value={segment.end_state} onChange={value => editSegment(si, { end_state: value })} /></div>
                     {si > 0 && <TextField label={t('connection')} value={segment.connection} onChange={value => editSegment(si, { connection: value })} />}
-                    <div className={styles.shots}>{segment.shots.map((shot, qi) => <div key={shot.id} className={styles.shot}>
+                    <div className={styles.shots}>{segment.shots.map((shot, qi) => { const shotProblems = problemsFor(segment.id, shot.id); return <div key={shot.id} className={styles.shot} role="group" aria-label={t('shotNumber', { number: qi + 1 })}>
                         <span className={styles.shotIndex}>{String(qi + 1).padStart(2, '0')}</span>
                         <div className={styles.shotBody}>
+                            {shotProblems.map((problem, pi) =>
+                                <p key={pi} role="alert" className={styles.problem}>{problem.message}</p>)}
                             <TextField label={t('shotTitle')} value={shot.title} onChange={value => editShot(si, qi, { title: value })} />
                             <TextAreaField label={t('description')} rows={2} value={shot.description} onChange={value => editShot(si, qi, { description: value })} />
-                            <details><summary>{t('shotDetails')}</summary><div>
+                            <details open={shotProblems.length > 0 || undefined}><summary>{t('shotDetails')}</summary><div>
                                 <TextField label={t('camera')} value={shot.camera} onChange={value => editShot(si, qi, { camera: value })} />
-                                <p className={styles.hint}>{t('sourceQuote')}：{shot.source_quote}</p>
-                                {shot.dialogue.map((dialogue, di) => <p key={di}>{dialogue.speaker}：{dialogue.line}</p>)}
+                                {/* Editable, not read-only text. These are the two fields validation rejects
+                                    most often, and while they were <p> the only way to fix a rejected plan was
+                                    to go back and edit the script itself. */}
+                                <TextAreaField label={t('sourceQuote')} rows={2} value={shot.source_quote}
+                                    onChange={value => editShot(si, qi, { source_quote: value })} />
+                                {shot.dialogue.map((dialogue, di) => <div key={di} className={styles.pair}>
+                                    <TextField label={t('speaker')} value={dialogue.speaker}
+                                        onChange={value => editShot(si, qi, { dialogue: shot.dialogue.map((d, i) => i === di ? { ...d, speaker: value } : d) })} />
+                                    <TextAreaField label={t('dialogueLine')} rows={2} value={dialogue.line}
+                                        onChange={value => editShot(si, qi, { dialogue: shot.dialogue.map((d, i) => i === di ? { ...d, line: value } : d) })} />
+                                </div>)}
                             </div></details>
                             <div className={styles.tools}>
                                 <Button variant="quiet" isIconOnly aria-label={t('moveUp')} isDisabled={qi === 0} onPress={() => {
@@ -278,7 +314,7 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                             </div>
                         </div>
                         <label className={styles.duration}>{t('seconds')}<input type="number" min={1} max={60} value={shot.duration} onChange={e => editShot(si, qi, { duration: Number(e.target.value) })} /></label>
-                    </div>)}</div>
+                    </div>; })}</div>
                     <Button variant="quiet" onPress={() => change({ ...draft, segments: draft.segments.map((s, i) => i === si ? { ...s,
                         shots: [...s.shots, { ...s.shots[s.shots.length - 1], id: crypto.randomUUID(), title: t('newShot'), description: '', dialogue: [], duration: 4 }],
                     } : s) }, true)}><Plus size={14} />{t('addShot')}</Button>

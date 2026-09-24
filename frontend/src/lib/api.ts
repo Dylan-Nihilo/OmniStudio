@@ -902,6 +902,61 @@ function asObject(value: unknown): Record<string, any> {
         : {};
 }
 
+/**
+ * Read an SSE endpoint as complete records.
+ *
+ * Shared rather than written per caller: the framing (CRLF, multi-line `data:`, the final
+ * flush of a record that arrives without a trailing blank line) is easy to get subtly wrong
+ * twice. Callers decide what ends the stream — reaching the end of this generator means the
+ * connection closed, which on its own is never proof that the work succeeded.
+ */
+export async function* eventStream(
+    url: string,
+    body: unknown,
+    startFailure: string,
+    stallMs = 120_000,
+): AsyncGenerator<{ event: string; data: Record<string, unknown> }> {
+    const controller = new AbortController();
+    let timer = setTimeout(() => controller.abort(), stallMs);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+        const response = await apiStreamRequest(url, {
+            method: "POST", signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error(startFailure);
+        reader = response.body?.getReader();
+        if (!reader) throw new Error(startFailure);
+        const decoder = new TextDecoder();
+        let buffer = "", eventType = "", data: string[] = [];
+        while (true) {
+            clearTimeout(timer);
+            // A stalled connection must yield to project readback, not wait indefinitely.
+            timer = setTimeout(() => controller.abort(), stallMs);
+            const { done, value } = await reader.read();
+            buffer += done ? decoder.decode() + "\n\n" : decoder.decode(value, { stream: true });
+            let end: number;
+            while ((end = buffer.indexOf("\n")) >= 0) {
+                const line = buffer.slice(0, end).replace(/\r$/, "");
+                buffer = buffer.slice(end + 1);
+                if (line.startsWith("event:")) eventType = line.slice(6).trim();
+                else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+                else if (!line) {
+                    if (data.length) yield { event: eventType, data: JSON.parse(data.join("\n")) };
+                    eventType = ""; data = [];
+                }
+            }
+            if (done) return;
+        }
+    } finally {
+        clearTimeout(timer);
+        await reader?.cancel().catch(() => {});
+        reader?.releaseLock();
+        controller.abort();
+    }
+}
+
 export const api = {
     listTasks: async (filters: UnifiedTaskFilters = {}): Promise<UnifiedTaskPage> => {
         const res = await apiClient.get<UnifiedTaskPage>(`${API_URL}/tasks`, { params: filters });
@@ -1715,6 +1770,26 @@ export const api = {
         (await apiClient.get(`${API_URL}/projects/${scriptId}/production-plan`)).data,
     generateProductionPlan: async (scriptId: string, settings: PlanSettings) =>
         (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/generate`, settings, { timeout: 180_000 })).data,
+    /**
+     * Generate a plan, reporting segments as the model emits them.
+     *
+     * Only progress and the outcome travel on the stream; the draft itself is read back
+     * afterwards, so a client that drops the connection still finds the saved draft.
+     */
+    generateProductionPlanStream: async (
+        scriptId: string,
+        settings: PlanSettings,
+        onProgress: (segments: number, title: string) => void,
+    ): Promise<void> => {
+        for await (const record of eventStream(`${API_URL}/projects/${scriptId}/production-plan/generate/stream`,
+            settings, "制作计划生成未能启动")) {
+            const data = record.data as { segments?: number; title?: string; message?: string };
+            if (record.event === "plan_progress") onProgress(data.segments ?? 0, data.title || "");
+            else if (record.event === "plan_failed") throw new Error(data.message || "制作计划生成失败");
+            else if (record.event === "plan_complete") return;
+        }
+        throw new Error("制作计划生成中断，请重试");
+    },
     reviseProductionPlan: async (scriptId: string) =>
         (await apiClient.post(`${API_URL}/projects/${scriptId}/production-plan/revise`)).data,
     saveProductionPlan: async (scriptId: string, plan: ProductionPlan) =>
@@ -1963,55 +2038,18 @@ export const api = {
         onEvent: (event: RefineSSEEvent) => void,
         frameIds?: string[],
     ): Promise<{ total: number; success: number; failed: number }> => {
-        const controller = new AbortController();
-        let timer = setTimeout(() => controller.abort(), 120_000);
-        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-        try {
-            const response = await apiStreamRequest(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`, {
-                method: "POST", signal: controller.signal,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ frame_ids: frameIds }),
-            });
-            if (!response.ok) throw new Error("Failed to start batch refinement");
-            reader = response.body?.getReader();
-            if (!reader) throw new Error("Batch refinement returned no stream");
-            const decoder = new TextDecoder();
-            let buffer = "", eventType = "", data: string[] = [];
-            while (true) {
-                clearTimeout(timer);
-                // A stalled connection must yield to project readback, not wait indefinitely.
-                timer = setTimeout(() => controller.abort(), 120_000);
-                const { done, value } = await reader.read();
-                buffer += done ? decoder.decode() + "\n\n" : decoder.decode(value, { stream: true });
-                let end: number;
-                while ((end = buffer.indexOf("\n")) >= 0) {
-                    const line = buffer.slice(0, end).replace(/\r$/, "");
-                    buffer = buffer.slice(end + 1);
-                    if (line.startsWith("event:")) eventType = line.slice(6).trim();
-                    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
-                    else if (!line) {
-                        if (data.length) {
-                            const payload = JSON.parse(data.join("\n"));
-                            if (["frame_refine_start", "frame_refine_complete", "frame_refine_error", "batch_complete"].includes(eventType)) {
-                                onEvent({ ...payload, type: eventType as RefineSSEEvent["type"] });
-                                if (eventType === "batch_complete") {
-                                    const { total, success, failed } = payload;
-                                    if (![total, success, failed].every(value => Number.isInteger(value) && value >= 0) || success + failed !== total) throw new Error("Invalid batch refinement result");
-                                    return { total, success, failed };
-                                }
-                            }
-                        }
-                        eventType = ""; data = [];
-                    }
-                }
-                if (done) throw new Error("Batch refinement ended before completion");
+        const known = ["frame_refine_start", "frame_refine_complete", "frame_refine_error", "batch_complete"];
+        for await (const record of eventStream(`${API_URL}/projects/${scriptId}/storyboard/refine_batch`,
+            { frame_ids: frameIds }, "Failed to start batch refinement")) {
+            if (!known.includes(record.event)) continue;
+            onEvent({ ...record.data, type: record.event as RefineSSEEvent["type"] } as RefineSSEEvent);
+            if (record.event === "batch_complete") {
+                const { total, success, failed } = record.data as { total: number; success: number; failed: number };
+                if (![total, success, failed].every(value => Number.isInteger(value) && value >= 0) || success + failed !== total) throw new Error("Invalid batch refinement result");
+                return { total, success, failed };
             }
-        } finally {
-            clearTimeout(timer);
-            await reader?.cancel().catch(() => {});
-            reader?.releaseLock();
-            controller.abort();
         }
+        throw new Error("Batch refinement ended before completion");
     },
 
     /** PR-3k · BGM preset catalog for Assembly Mix phase. */
