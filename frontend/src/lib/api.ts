@@ -1698,7 +1698,10 @@ export const api = {
             composition_data: compositionData,
             prompt: prompt,
             batch_size: batchSize
-        }, { timeout: 120_000 });
+        // Image relays can legitimately take several minutes, especially for
+        // reference based portrait renders. Match the backend/provider wait
+        // budget so a successful render is not reported as a client failure.
+        }, { timeout: 900_000 });
         return res.data;
     },
 

@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { useCallback, useState } from 'react';
 import { renderWithIntl } from '@/test/renderWithIntl';
 import type { Project } from '@/store/projectStore';
-import ProductionPrevisDialog from './ProductionPrevisDialog';
+import ProductionPrevisDialog, { waitForPreviewCompletion } from './ProductionPrevisDialog';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), review: vi.fn(), render: vi.fn(), confirm: vi.fn(), upload: vi.fn(), update: vi.fn(), remove: vi.fn(), clear: vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: { getProject: mocks.get, reviewProductionPlan: mocks.review, renderFrame: mocks.render, confirmProductionSegment: mocks.confirm, uploadT2IFrame: mocks.upload, updateProductionPreview: mocks.update, removeProductionPreviewCandidate: mocks.remove, clearProductionPreviewCandidates: mocks.clear } }));
@@ -64,6 +64,26 @@ it('stops a batch after a failed image instead of submitting the rest', async ()
     expect(mocks.render).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: '确认画面与衔接' })).toBeDisabled();
     expect(mocks.confirm).not.toHaveBeenCalled();
+});
+
+it('waits for a timed-out render to finish before the batch continues', async () => {
+    let reads = 0;
+    const loaded = vi.fn(async () => ({
+        production_previews: [{ id: 'a', t2i_image_urls: reads++ > 0 ? ['/a.png'] : [], image_generation_status: reads > 1 ? 'completed' : 'processing' }],
+    } as unknown as Project));
+    const onUpdate = vi.fn();
+    const wait = waitForPreviewCompletion({
+        load: loaded,
+        previewId: 'a',
+        onUpdate,
+        pollIntervalMs: 0,
+        timeoutMs: 100,
+    });
+
+    const result = await wait;
+    expect(result?.t2i_image_urls).toEqual(['/a.png']);
+    expect(loaded).toHaveBeenCalledTimes(2);
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ production_previews: expect.any(Array) }));
 });
 
 it('removes the selected preview candidate and clears the preview through the server', async () => {
