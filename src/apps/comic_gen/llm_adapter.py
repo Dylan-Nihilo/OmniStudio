@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from ...utils.endpoints import get_provider_base_url
@@ -193,6 +193,7 @@ class LLMAdapter:
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
         response_format: Optional[Dict[str, str]] = None,
+        on_progress: Optional[Callable[[str], None]] = None,
     ) -> str:
         """
         Send a chat completion request and return the response content.
@@ -201,6 +202,9 @@ class LLMAdapter:
             messages: List of {"role": ..., "content": ...} dicts
             model: Model name override (uses provider default if None)
             response_format: Optional {"type": "json_object"} constraint
+            on_progress: Called with the text accumulated so far as it arrives. The
+                transport already streams; this is the only way a caller can tell how far a
+                long generation has got, instead of watching a spinner for two minutes.
 
         Returns:
             The assistant's response content as a string.
@@ -212,16 +216,16 @@ class LLMAdapter:
 
         # 显式 model override 路径：单次尝试，失败就抛。
         if model:
-            return self._chat_once(client, model, messages, response_format)
+            return self._chat_once(client, model, messages, response_format, on_progress)
 
         # Provider 默认路径：DashScope 走 fallback chain，OpenAI 单次尝试。
         if self.provider == "openai":
-            return self._chat_once(client, self._get_default_model(), messages, response_format)
+            return self._chat_once(client, self._get_default_model(), messages, response_format, on_progress)
 
         last_err: Optional[Exception] = None
         for idx, candidate in enumerate(self._DASHSCOPE_MODEL_FALLBACK_CHAIN):
             try:
-                return self._chat_once(client, candidate, messages, response_format)
+                return self._chat_once(client, candidate, messages, response_format, on_progress)
             except RuntimeError as e:
                 # 仅在 "模型不存在 / 不可用" 类错误时回退；其他错误（鉴权、限流、网络）
                 # 直接抛，不浪费第二次重试。判定关键字宽松匹配 DashScope 文案。
@@ -270,6 +274,7 @@ class LLMAdapter:
         model: str,
         messages: List[Dict[str, str]],
         response_format: Optional[Dict[str, str]],
+        on_progress: Optional[Callable[[str], None]] = None,
     ) -> str:
         kwargs: Dict[str, Any] = {
             "model": model,
@@ -298,6 +303,11 @@ class LLMAdapter:
                         choice = chunk.choices[0]
                         if choice.delta.content:
                             parts.append(choice.delta.content)
+                            if on_progress is not None:
+                                try:
+                                    on_progress("".join(parts))
+                                except Exception:   # reporting must not fail the generation
+                                    logger.debug("progress callback failed", exc_info=True)
                         if choice.finish_reason:
                             finish_reason = choice.finish_reason
                 if finish_reason != "stop" or not parts:

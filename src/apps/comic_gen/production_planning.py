@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
 from typing import Any, Literal
@@ -67,6 +68,27 @@ class PlanContent(BaseModel):
     segments: list[PlannedSegment] = Field(min_length=1, max_length=100)
 
 
+class PlanProblem(BaseModel):
+    """Something that must be fixed before the plan can go into production.
+
+    Carried on the draft rather than raised, so a plan that breaks one rule is still there
+    to be corrected. Throwing it away left nothing to edit and no way forward: the planner
+    is meant to draft and a person to fix it, and that is only possible if the draft
+    survives being wrong.
+
+    `segment_id` / `shot_id` let the editor put the message on the shot it belongs to, and
+    `field` says which input to correct.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    segment_index: int
+    segment_id: str
+    shot_id: str | None = None
+    field: Literal["source_quote", "dialogue", "speaker", "duration",
+                   "reference_names", "scene_id", "ids"]
+    message: str
+
+
 class ProductionPlan(PlanContent):
     id: str = Field(default_factory=new_id)
     revision: str = Field(default_factory=new_id)
@@ -76,6 +98,8 @@ class ProductionPlan(PlanContent):
     source_fingerprint: str
     storyboard_fingerprint: str
     warnings: list[str] = Field(default_factory=list)
+    # Blocking, unlike `warnings`: a draft may carry these, an approved plan may not.
+    problems: list[PlanProblem] = Field(default_factory=list)
     approved_from_revision: str | None = None
 
 
@@ -173,64 +197,109 @@ def quotes_the_script(quoted: str, original: str) -> bool:
     return _without_whitespace(quoted) in _without_whitespace(original)
 
 
-def validate_content(content: PlanContent, settings: PlanSettings, script, assets: dict) -> list[str]:
+def collect_problems(content: PlanContent, settings: PlanSettings, script,
+                     assets: dict) -> tuple[list[PlanProblem], list[str]]:
+    """Everything wrong with a plan, and everything merely worth mentioning.
+
+    Collected rather than raised. The planner drafts and a person corrects it, which only
+    works if a draft that breaks a rule still reaches the editor — the previous behaviour
+    threw the whole plan away on the first violation, so there was nothing to correct and
+    re-planning hit the same rule again. `problems` block production; `warnings` do not.
+    """
     durations = model_durations(settings.model)
     scenes = {a.id for a in assets["scenes"]}
     refs = reference_assets(assets)
     people = {a.name for a in assets["characters"]}
     ids: set[str] = set()
-    warnings = []
+    problems: list[PlanProblem] = []
+    warnings: list[str] = []
     total = 0
     reference_limit = load_generated_model_catalog()["models"][settings.model].get("inputs", {}).get("reference_images", {}).get("max")
+
     for index, segment in enumerate(content.segments, 1):
+        def problem(field: str, message: str, shot_id: str | None = None) -> None:
+            problems.append(PlanProblem(segment_index=index, segment_id=segment.id,
+                                        shot_id=shot_id, field=field, message=message))
+
         if segment.id in ids:
-            raise ValueError("片段编号重复，请重新生成方案")
+            problem("ids", "片段编号重复，请重新生成方案")
         ids.add(segment.id)
         if segment.scene_id not in scenes:
-            raise ValueError(f"片段 {index} 的场景不存在，请先在本集素材中补充")
+            problem("scene_id", "这一段的场景不在本集素材里，请先在「场景」中补充，或改选一个已有场景")
         if segment.duration not in durations:
-            raise ValueError(f"片段 {index} 共 {segment.duration} 秒，不符合所选模型时长，请拆分或调整镜头时长")
+            allowed = "、".join(f"{d} 秒" for d in sorted(durations))
+            problem("duration", f"这一段共 {segment.duration} 秒，所选模型只支持 {allowed}；"
+                                f"请调整镜头时长或把这一段拆开")
         if reference_limit and len(segment.reference_names) + len(segment.shots) > reference_limit:
-            raise ValueError(f"片段 {index} 的素材和分镜图共超过 {reference_limit} 张，请拆分片段")
+            problem("reference_names", f"素材与分镜图共 {len(segment.reference_names) + len(segment.shots)} 张，"
+                                       f"超过所选模型的 {reference_limit} 张上限，请减少引用或拆分这一段")
         if len(set(segment.reference_names)) != len(segment.reference_names):
-            raise ValueError(f"片段 {index} 重复引用素材")
-        if any(name not in refs for name in segment.reference_names):
-            raise ValueError(f"片段 {index} 引用了不存在的素材")
-        if not any(refs[name][1].id == segment.scene_id for name in segment.reference_names):
-            raise ValueError(f"片段 {index} 需要引用对应场景")
+            problem("reference_names", "同一个素材被引用了多次，请去掉重复项")
+        for name in segment.reference_names:
+            if name not in refs:
+                problem("reference_names", f"引用的素材「{name}」不存在，请改成本集已有的素材")
+        if not any(refs[name][1].id == segment.scene_id for name in segment.reference_names if name in refs):
+            problem("reference_names", "这一段没有引用它所在的场景，请把该场景加入素材引用")
+
         for shot in segment.shots:
             if shot.id in ids:
-                raise ValueError("镜头编号重复，请重新生成方案")
+                problem("ids", "镜头编号重复，请重新生成方案", shot.id)
             ids.add(shot.id)
             if not quotes_the_script(shot.source_quote, script.original_text):
-                # Deliberately not "the script has changed": nothing changed. The planner
-                # quoted something that is not a contiguous run of the script, usually by
-                # skipping a sentence, and telling someone to re-plan sent them round a
-                # loop that failed the same way every time.
-                raise ValueError(
-                    f"片段 {index} 的镜头「{shot.title}」引用的剧本原文不连续"
-                    f"（跳过了中间内容），请重新生成方案，或在剧本中补齐这段。"
-                    f"引用内容：{shot.source_quote[:40]}")
+                # Not "the script has changed" — nothing changed. The quote skips over part
+                # of the script. Quoted in full: truncating it hid the part that was wrong
+                # and left a prefix that looked perfectly valid.
+                problem("source_quote",
+                        f"镜头「{shot.title}」引用的原文不连续（中间有跳过的内容）。"
+                        f"请改成剧本里一段连续的原文。当前引用：{shot.source_quote}", shot.id)
             for dialogue in shot.dialogue:
-                # Two different problems used to share one message, and it named neither of
-                # them: which speaker, or which line, and no way to tell them apart.
+                # Two distinct problems used to share one message that named neither.
                 if dialogue.mode == "on_screen" and dialogue.speaker not in people:
-                    raise ValueError(
-                        f"片段 {index} 的说话人「{dialogue.speaker}」不在本集素材里，"
-                        f"请先在「角色」中添加该角色，或把这句改为旁白。")
+                    problem("speaker",
+                            f"说话人「{dialogue.speaker}」不在本集素材里。"
+                            f"请在「角色」中添加该角色，或把这句改为旁白。", shot.id)
                 if not quotes_the_script(dialogue.line, script.original_text):
-                    raise ValueError(
-                        f"片段 {index} 的台词不在剧本原文中，请重新生成方案，"
-                        f"或把这句台词补进剧本。台词：{dialogue.line[:40]}")
+                    problem("dialogue",
+                            f"这句台词不在剧本原文中，请改成原文里的台词，或把它补进剧本。"
+                            f"当前台词：{dialogue.line}", shot.id)
             if sum(len(d.line) for d in shot.dialogue) > shot.duration * 5:
                 warnings.append(f"「{shot.title}」台词可能过密，请检查语速与停顿")
         total += segment.duration
+
     if settings.target_duration and abs(total - settings.target_duration) > max(3, settings.target_duration * .1):
         warnings.append(f"方案共 {total} 秒，目标为 {settings.target_duration} 秒，请确认节奏是否合适")
+    return problems, warnings
+
+
+def validate_content(content: PlanContent, settings: PlanSettings, script, assets: dict) -> list[str]:
+    """Strict gate for approval: refuse a plan that still has problems.
+
+    Reports every problem at once. Fixing one only to be shown the next is the loop this
+    whole change exists to end.
+    """
+    problems, warnings = collect_problems(content, settings, script, assets)
+    if problems:
+        detail = "；".join(f"片段 {p.segment_index}：{p.message}" for p in problems[:5])
+        more = f"（共 {len(problems)} 处）" if len(problems) > 5 else ""
+        raise ValueError(f"方案还有未解决的问题{more}：{detail}")
     return warnings
 
 
-def propose_plan(script, assets: dict, settings: PlanSettings) -> ProductionPlan:
+# One segment carries exactly one scene_id, so counting them in the partial JSON is a
+# stable way to tell how far the planner has got. Titles are picked up alongside so the
+# progress line can name what is being worked on rather than only counting.
+_SEGMENT_MARKER = re.compile(r'"scene_id"\s*:')
+_TITLE = re.compile(r'"title"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def plan_progress(partial: str) -> tuple[int, str]:
+    """How many segments have been drafted so far, and the latest title seen."""
+    titles = _TITLE.findall(partial)
+    return len(_SEGMENT_MARKER.findall(partial)), (titles[-1] if titles else "")
+
+
+def propose_plan(script, assets: dict, settings: PlanSettings,
+                 on_progress=None) -> ProductionPlan:
     from .script_writing import _complete
 
     durations = model_durations(settings.model)
@@ -252,14 +321,17 @@ continuity_rules明确同场人物站位、屏幕朝向、持物左右手及物�
         "references": [{"name": name, "type": kind, "description": asset.description} for name, (kind, asset, _) in refs.items()],
         "existing_shots": [{"description": f.visual_description or f.action_description, "duration": f.duration,
                             "has_video": bool(f.video_url)} for f in script.frames],
-    }, PlanContent)
+    }, PlanContent, on_progress=(lambda partial: on_progress(*plan_progress(partial))) if on_progress else None)
     content = PlanContent.model_validate(result)
     for segment in content.segments:
         segment.id, segment.frame_id = new_id(), None
         for shot in segment.shots:
             shot.id = new_id()
-    warnings = validate_content(content, settings, script, assets)
+    # Problems ride along on the draft instead of destroying it: the planner drafts, a
+    # person corrects. Approval is where problems still block (see validate_content).
+    problems, warnings = collect_problems(content, settings, script, assets)
     return ProductionPlan(**content.model_dump(), settings=settings, warnings=warnings,
+                          problems=problems,
                           source_fingerprint=source_fingerprint(script, assets),
                           storyboard_fingerprint=storyboard_fingerprint(script))
 

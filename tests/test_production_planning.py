@@ -225,7 +225,18 @@ def test_old_plan_cannot_overwrite_new_creative_changes(api_client, monkeypatch,
 
 
 @pytest.mark.parametrize('invalid', ['duration', 'scene', 'quote', 'dialogue', 'reference', 'reference_limit'])
-def test_invalid_model_proposals_never_replace_project(api_client, monkeypatch, invalid):
+def test_a_flawed_proposal_is_kept_for_editing_but_never_reaches_production(api_client, monkeypatch, invalid):
+    """Deliberate reversal of how this used to work.
+
+    A proposal that broke one rule used to be thrown away: the request failed, no draft was
+    stored, and the only advice was to generate again — which hit the same rule again. There
+    was nothing to correct, and the fields that failed were not even editable, so a user
+    could get permanently stuck on one bad segment.
+
+    The invariant that mattered is unchanged and still asserted below: a flawed plan must
+    not replace the approved plan, the frames or the rendered video. It simply arrives as a
+    draft carrying its problems, and approval is where the refusal now happens.
+    """
     project_id, content, _ = setup_plan(api_client, monkeypatch)
     bad = copy.deepcopy(content)
     segment = bad['segments'][0]
@@ -237,23 +248,44 @@ def test_invalid_model_proposals_never_replace_project(api_client, monkeypatch, 
     if invalid == 'reference_limit': segment['shots'] = [{**copy.deepcopy(segment['shots'][0]), 'duration': 1} for _ in range(28)]
     configure_writer(api_client, monkeypatch, bad)
     response = api_client.post(f'/projects/{project_id}/production-plan/generate', json={'model': 'seedance-2.5-r2v'})
-    assert response.status_code == 502, response.text
+    assert response.status_code == 200, response.text
+
     saved = api_client.get('/projects/' + project_id).json()
-    assert saved['production_plan_draft'] is None
-    assert saved['production_planning_job']['status'] == 'failed'
-    assert saved['production_planning_job']['error'] != '制作计划未生成成功，原有方案和分镜已保留，请重试'
-    assert '片段 1' in saved['production_planning_job']['error']
+    draft = saved['production_plan_draft']
+    assert draft is not None, 'the draft has to survive so it can be corrected'
+    problems = draft['problems']
+    assert problems, 'and it has to say what is wrong'
+    assert all(p['segment_index'] == 1 for p in problems), problems
+    # Enough to locate the offending input in the editor.
+    assert all(p['field'] for p in problems) and all(p['message'] for p in problems)
+
+    # Nothing about production moved.
     assert saved['frames'][0]['video_url'] == 'video/old.mp4'
+    refused = api_client.post(f'/projects/{project_id}/production-plan/apply',
+                              json={'expected_revision': draft['revision']})
+    assert refused.status_code == 422, refused.text
+    assert '未解决的问题' in str(refused.json()['detail'])
 
 
-def test_edit_checks_duration_and_running_video_blocks_plan_application(api_client, monkeypatch):
+def test_a_partial_fix_can_be_saved_and_running_video_blocks_plan_application(api_client, monkeypatch):
+    """Editing records problems rather than refusing the save.
+
+    Also a reversal: an edit that still broke a rule was rejected outright, so someone
+    working through three problems could not save after fixing the first one.
+    """
     project_id, _, _ = setup_plan(api_client, monkeypatch)
     draft = generate(api_client, project_id)['production_plan_draft']
     edit = {k: draft[k] for k in ('summary', 'continuity_rules', 'segments')}
     edit['expected_revision'] = draft['revision']
     edit['segments'][0]['shots'][0]['duration'] = 30
     route = f'/projects/{project_id}/production-plan'
-    assert api_client.put(route, json=edit).status_code == 422
+    saved_edit = api_client.put(route, json=edit)
+    assert saved_edit.status_code == 200, saved_edit.text
+    stored = saved_edit.json()['production_plan_draft']
+    assert [p['field'] for p in stored['problems']] == ['duration']
+    # ...but it cannot be applied while that problem stands.
+    assert api_client.post(route + '/apply', json={'expected_revision': stored['revision']}).status_code == 422
+    draft = stored
     script = api_module.pipeline.scripts[project_id]
     script.video_tasks[0].status = 'processing'
     api_module.pipeline._save_data()
@@ -458,3 +490,98 @@ def test_invented_dialogue_is_still_refused():
     from src.apps.comic_gen.production_planning import quotes_the_script
 
     assert not quotes_the_script("沈砚秋：我从来没说过这句话。", SCRIPT_EXTRACT)
+
+
+def test_a_problem_quotes_the_offending_text_in_full():
+    """The message used to truncate the quote at 40 characters, and the part that was wrong
+    was usually past that point: a user looked at a prefix that was perfectly valid script
+    and could not see what the complaint was about. Reported from production on 斗破苍穹.
+    """
+    from src.apps.comic_gen.production_planning import (
+        PlanContent, PlanSettings, collect_problems,
+    )
+
+    tail = "结尾一句，" + "很长" * 30 + "。"
+    script_text = f"开头一句。\n\n中间被跳过的一句。\n\n{tail}"
+    long_quote = f"开头一句。{tail}"
+    assert len(long_quote) > 40, "the point only holds for a quote past the old cutoff"
+
+    content = PlanContent.model_validate({
+        "summary": "一段", "continuity_rules": "无",
+        "segments": [{
+            "id": "seg-1", "title": "片段一", "scene_id": "scene-1", "purpose": "推进",
+            "start_state": "开场", "end_state": "结尾", "reference_names": ["场景"],
+            "shots": [{"id": "shot-1", "title": "镜头一", "description": "画面",
+                       "camera": "中景", "duration": 4, "source_quote": long_quote,
+                       "dialogue": []}],
+        }],
+    })
+
+    class _Scene:
+        id, name, description = "scene-1", "场景", ""
+        image_asset = None
+
+    class _Script:
+        original_text = script_text
+
+    assets = {"characters": [], "scenes": [_Scene()], "props": []}
+    problems, _ = collect_problems(content, PlanSettings(model="seedance-2.5-r2v"), _Script(), assets)
+    quote_problems = [p for p in problems if p.field == "source_quote"]
+    assert quote_problems, problems
+    assert long_quote in quote_problems[0].message, "the whole quote has to be shown"
+
+
+def _stream_headers(client) -> dict:
+    """`stream()` bypasses the wrapper that normally attaches these."""
+    return {"Origin": "http://testserver",
+            "X-CSRF-Token": client.cookies.get("omni_studio_csrf") or ""}
+
+
+def test_generation_reports_progress_as_it_drafts(api_client, monkeypatch):
+    """The planner is one long model call, so the only honest progress comes from the
+    stream. Without it a user watches a spinner for a minute or two with no idea whether
+    anything is happening or which part is being worked on."""
+    project_id, content, _ = setup_plan(api_client, monkeypatch)
+    configure_writer(api_client, monkeypatch, content)
+
+    with api_client.stream("POST", f"/projects/{project_id}/production-plan/generate/stream",
+                           json={"model": "seedance-2.5-r2v"},
+                           headers=_stream_headers(api_client)) as response:
+        assert response.status_code == 200
+        events = []
+        event_type = None
+        for line in response.iter_lines():
+            line = line.rstrip("\r")
+            if line.startswith("event:"):
+                event_type = line.split(":", 1)[1].strip()
+            elif line.startswith("data:"):
+                events.append((event_type, json.loads(line.split(":", 1)[1].strip())))
+
+    kinds = [kind for kind, _ in events]
+    assert kinds[-1] == "plan_complete", kinds
+    completion = events[-1][1]
+    assert completion["segments"] == len(content["segments"])
+
+    progress = [payload for kind, payload in events if kind == "plan_progress"]
+    assert progress, "the stream has to say something before it finishes"
+    counts = [item["segments"] for item in progress]
+    assert counts == sorted(counts), f"progress must not go backwards: {counts}"
+    assert counts[-1] == len(content["segments"])
+
+
+def test_a_failed_generation_is_reported_through_the_stream(api_client, monkeypatch):
+    """A stream that simply closes leaves the client unable to tell success from failure."""
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("provider exploded at https://relay.example/v1 using gpt-image-2")
+
+    monkeypatch.setattr(api_module.pipeline, "generate_production_plan", explode)
+    with api_client.stream("POST", f"/projects/{project_id}/production-plan/generate/stream",
+                           json={"model": "seedance-2.5-r2v"},
+                           headers=_stream_headers(api_client)) as response:
+        body = "\n".join(response.iter_lines())
+
+    assert "plan_failed" in body
+    # Same rule as everywhere else: a user-facing failure names no vendor and no endpoint.
+    assert "relay.example" not in body and "gpt-image-2" not in body

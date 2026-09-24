@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from enum import Enum
 from typing import Any
 
@@ -135,6 +136,30 @@ def summarize_job_items(items: list[JobItemDTO]) -> dict[str, int | str]:
     return {**counts, "status": status}
 
 
+@lru_cache(maxsize=1)
+def _vendor_model_names() -> tuple[str, ...]:
+    """Upstream model names we buy capacity under, longest first.
+
+    Taken from the catalog rather than hard-coded: it is already the list of what we call,
+    and a name added there should not have to be remembered here too. Longest first so
+    `gpt-image-2.5-sunburst` is removed before `gpt-image-2` can match inside it.
+    """
+    try:
+        from ...utils.model_catalog import load_generated_model_catalog
+
+        catalog = load_generated_model_catalog()
+        names = set()
+        for mode in (catalog.get("modes") or {}).values():
+            for runtime in (mode.get("runtime") or {}).values():
+                for key in ("api_model_id", "upstream_model", "overseas_model"):
+                    value = runtime.get(key)
+                    if isinstance(value, str) and len(value) > 3:
+                        names.add(value)
+        return tuple(sorted(names, key=len, reverse=True))
+    except Exception:                       # a redaction list must never break a response
+        return ()
+
+
 def sanitize_error_text(text: str) -> str:
     """Remove credentials, local paths and provider endpoints from public errors.
 
@@ -147,6 +172,11 @@ def sanitize_error_text(text: str) -> str:
     redacted = re.sub(r"(?i)(?:OPENAI_API_KEY|DASHSCOPE_API_KEY|MULEROUTER_API_KEY)\s*=\s*[^\s]+", "[credential redacted]", text)
     redacted = re.sub(r"(?:[A-Za-z]:\\|/Users/|/home/|/root/)[^\s,;]+", "[local path redacted]", redacted)
     redacted = re.sub(r"(?i)\bhttps?://[^\s'\"<>]+", "[endpoint redacted]", redacted)
+    # The vendor's model name says as much about where we buy as the endpoint does, and a
+    # provider's own error text quotes it freely.
+    for name in _vendor_model_names():
+        if name in redacted:
+            redacted = redacted.replace(name, "[model redacted]")
     return redacted
 
 

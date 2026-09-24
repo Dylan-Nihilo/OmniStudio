@@ -16,7 +16,14 @@ def configure_writer(client, monkeypatch, answer):
         assert self.provider == 'openai' and self._get_default_model() == 'fixture-writer'
         assert self.is_configured
         calls.append(json.loads(messages[1]['content']))
-        return json.dumps(answer, ensure_ascii=False)
+        payload = json.dumps(answer, ensure_ascii=False)
+        # Feed it in pieces like the real adapter does, so callers that report progress are
+        # exercised rather than silently skipped by the stub.
+        on_progress = kwargs.get('on_progress')
+        if on_progress is not None:
+            for cut in range(0, len(payload), 120):
+                on_progress(payload[:cut + 120])
+        return payload
     monkeypatch.setattr(LLMAdapter, 'chat', chat)
     return calls
 

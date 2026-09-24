@@ -2188,7 +2188,9 @@ class ComicGenPipeline:
                               image_url=report["preview_urls"][0], rendered_image_url=report["preview_urls"][0])
             return script
 
-    def generate_production_plan(self, script_id: str, settings) -> Script:
+    def generate_production_plan(self, script_id: str, settings, on_progress=None) -> Script:
+        """Draft a production plan. `on_progress(segments, title)` is called as the planner
+        works, so a caller can report real progress instead of a spinner."""
         from .production_planning import PlanningJob, propose_plan, source_fingerprint
         with self._save_lock:
             script = self.scripts.get(script_id)
@@ -2201,7 +2203,7 @@ class ComicGenPipeline:
             job = PlanningJob()
             self._save_fields(script, production_planning_job=job)
         try:
-            proposal = propose_plan(snapshot, assets, settings)
+            proposal = propose_plan(snapshot, assets, settings, on_progress=on_progress)
             with self._save_lock:
                 current = self.scripts.get(script_id)
                 if current is None:
@@ -2252,7 +2254,7 @@ class ComicGenPipeline:
             return script
 
     def edit_production_plan(self, script_id: str, request) -> Script:
-        from .production_planning import validate_content, source_fingerprint, new_id
+        from .production_planning import collect_problems, source_fingerprint, new_id
         with self._save_lock:
             script = self.scripts.get(script_id)
             if script is None:
@@ -2263,9 +2265,12 @@ class ComicGenPipeline:
             assets = self.resolve_episode_assets(script)
             if plan.source_fingerprint != source_fingerprint(script, assets):
                 raise GenerationInProgressError("剧本或素材设定已更新，请重新规划")
-            warnings = validate_content(request, plan.settings, script, assets)
+            # Recorded, not refused: someone fixing three problems has to be able to save
+            # after the first. Approval is the gate that still insists on none.
+            problems, warnings = collect_problems(request, plan.settings, script, assets)
             edited = type(plan).model_validate({**plan.model_dump(), **request.model_dump(exclude={"expected_revision"}),
-                                               "revision": new_id(), "warnings": warnings})
+                                               "revision": new_id(), "warnings": warnings,
+                                               "problems": [p.model_dump() for p in problems]})
             self._save_fields(script, production_plan_draft=edited)
             return script
 

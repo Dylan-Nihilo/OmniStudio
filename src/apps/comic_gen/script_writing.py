@@ -81,14 +81,15 @@ def selected_text(text: str, selection: ScriptSelection) -> str:
         raise ValueError("选区不能截断一个字符") from exc
 
 
-def _complete(system: str, payload: dict, result_type: type[BaseModel]) -> dict:
+def _complete(system: str, payload: dict, result_type: type[BaseModel],
+              on_progress=None) -> dict:
     llm = LLMAdapter()
     if not llm.is_configured:
         raise ValueError("请先在 API 密钥设置中配置剧本写作的 AI 服务")
     response = llm.chat(messages=[
         {"role": "system", "content": system},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-    ], response_format={"type": "json_object"})
+    ], response_format={"type": "json_object"}, on_progress=on_progress)
     return result_type.model_validate_json(_strip_markdown_json(response)).model_dump()
 
 

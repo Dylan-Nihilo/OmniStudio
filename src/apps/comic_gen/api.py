@@ -4612,6 +4612,87 @@ async def generate_production_plan(script_id: str, payload: PlanSettings, reques
         raise HTTPException(status_code=502, detail={"code": "PRODUCTION_PLAN_FAILED", "message": _redact_provider_message(str(exc))}) from exc
 
 
+@app.post("/projects/{script_id}/production-plan/generate/stream")
+def generate_production_plan_stream(script_id: str, payload: PlanSettings, request: Request):
+    """Same generation, reported as it happens.
+
+    The planner is one long model call, so the only honest progress comes from the stream
+    itself: segments are counted as they arrive. Shaped like `refine_storyboard_batch` —
+    including `_context_iterator`, without which the workspace context is lost inside the
+    generator and credential resolution falls back to the process environment.
+    """
+    script = pipeline.get_script(script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    from .production_planning import model_durations
+    try:
+        model_durations(payload.model)
+        if not pipeline.resolve_episode_assets(script)["scenes"]:
+            raise ValueError("请先分析剧本或在本集素材中添加场景，再生成制作计划")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def run():
+        import contextvars
+        import queue as _queue
+        import threading
+
+        updates: "_queue.Queue[tuple[str, dict] | None]" = _queue.Queue()
+        outcome: dict[str, Any] = {}
+        last = {"segments": -1}
+
+        def on_progress(segments: int, title: str) -> None:
+            # Only on change: a chunk arrives every few tokens and the client does not need
+            # an event per token.
+            if segments != last["segments"]:
+                last["segments"] = segments
+                updates.put(("plan_progress", {"segments": segments, "title": title}))
+
+        def worker():
+            try:
+                result = pipeline.generate_production_plan(script_id, payload, on_progress=on_progress)
+                draft = result.production_plan_draft
+                outcome["ok"] = {"segments": len(draft.segments) if draft else 0,
+                                 "problems": len(draft.problems) if draft else 0,
+                                 "revision": draft.revision if draft else None}
+            except Exception as exc:
+                # Reported rather than raised: the stream is the channel. Through the same
+                # boundary as every other public error, so no endpoint or vendor name
+                # travels with it.
+                from .contracts import sanitize_error_text
+
+                outcome["error"] = sanitize_error_text(_redact_provider_message(str(exc)))
+            finally:
+                updates.put(None)
+
+        # A plain Thread does not inherit context variables, and the generation reads the
+        # workspace and its credentials from them — `_context_iterator` only covers the
+        # generator, not a thread started inside it.
+        context = contextvars.copy_context()
+        thread = threading.Thread(target=lambda: context.run(worker), daemon=True)
+        thread.start()
+        while True:
+            item = updates.get()
+            if item is None:
+                break
+            yield item
+        thread.join()
+        if "error" in outcome:
+            yield ("plan_failed", {"message": outcome["error"]})
+        else:
+            yield ("plan_complete", outcome.get("ok") or {})
+
+    def event_stream():
+        iterator = _context_iterator(run())
+        try:
+            for event_type, data in iterator:
+                yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        finally:
+            iterator.close()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @app.post("/projects/{script_id}/production-plan/revise", response_model=Script)
 def revise_production_plan(script_id: str):
     try:
