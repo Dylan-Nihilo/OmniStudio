@@ -23,7 +23,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Sparkles, Loader2, Check, RefreshCw, Wand2, Palette, Star } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
-import { supportsAssetReferences } from '@/lib/modelCatalog';
+import { DEFAULT_IMAGE_MODEL_ID, supportsAssetReferences } from '@/lib/modelCatalog';
 import { selectedAssetReference, referenceInput, type AssetReferenceSnapshot, type HoldingPosition } from '@/lib/assetReferences';
 import AssetReferenceControls, { type ReferenceMode } from './AssetReferenceControls';
 import { useProjectStore, IMAGE_MODELS } from "@/store/projectStore";
@@ -319,7 +319,7 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
     // Effective t2i model — drives the "design_sheet" template gating: that
     // template only works with gpt-image-2, so it stays locked unless the
     // user has selected gpt-image-2 (override or project default).
-    const selectedModelId = modelOverride || currentProject?.model_settings?.t2i_model || "wan2.1-t2i";
+    const selectedModelId = modelOverride || currentProject?.model_settings?.t2i_model || DEFAULT_IMAGE_MODEL_ID;
     const isGptImage2 = selectedModelId === "gpt-image-2";
     const pricing = usePricingTable();
     // The rate belongs on the option itself: choosing a tier is a spending decision, and it

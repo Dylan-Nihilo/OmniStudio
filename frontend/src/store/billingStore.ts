@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 
 import { billingApi, type PlatformRole, type PricingTable, type WalletSummary } from "@/lib/billing";
+import { getCanonicalModeId } from "@/lib/modelCatalog";
 
 /**
  * Wallet state shared by the sidebar badge, the generate buttons and the admin console.
@@ -94,7 +95,8 @@ export const useBillingStore = create<BillingState>((set, get) => ({
  */
 export function creditsFor(pricing: PricingTable | null, modelId: string, params: Record<string, unknown> = {}): number | null {
     if (!pricing) return null;
-    const candidates = pricing.items.filter((item) => item.model_id === modelId
+    const pricingModelId = getCanonicalModeId(modelId) ?? modelId;
+    const candidates = pricing.items.filter((item) => item.model_id === pricingModelId
         && Object.entries(item.match).every(([key, value]) => params[key] === value));
     if (!candidates.length) return null;
     // Most specific match wins, mirroring PriceBookSnapshot.find on the server.
@@ -116,7 +118,8 @@ export function creditsFor(pricing: PricingTable | null, modelId: string, params
  */
 export function creditRange(pricing: PricingTable | null, modelId: string): { min: number; max: number; unit: string } | null {
     if (!pricing) return null;
-    const rates = pricing.items.filter((item) => item.model_id === modelId);
+    const pricingModelId = getCanonicalModeId(modelId) ?? modelId;
+    const rates = pricing.items.filter((item) => item.model_id === pricingModelId);
     if (!rates.length) return null;
     const credits = rates.map((item) => item.credits);
     return { min: Math.min(...credits), max: Math.max(...credits), unit: rates[0].unit };

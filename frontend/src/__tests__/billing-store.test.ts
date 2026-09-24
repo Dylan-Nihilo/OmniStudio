@@ -42,6 +42,10 @@ describe("creditsFor", () => {
         expect(creditsFor(PRICING, "wan/wan2.7-image#image", { size_tier: "2K" })).toBe(9);
     });
 
+    it("resolves legacy image ids before looking up a published price", () => {
+        expect(creditsFor(PRICING, "wan2.7-image", { size_tier: "2K" })).toBe(9);
+    });
+
     it("returns the whole rate the server charges, not the underlying cost", () => {
         // text rounds up to 1 credit per 1000 characters, which is what a user is billed
         expect(creditsFor(PRICING, "text/DeepSeek-V4.1-Flash", { direction: "out" })).toBe(1);
