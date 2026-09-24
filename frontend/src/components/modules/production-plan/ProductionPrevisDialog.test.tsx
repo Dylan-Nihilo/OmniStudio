@@ -96,6 +96,10 @@ it('removes the selected preview candidate and clears the preview through the se
     await waitFor(() => expect(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[0]).toBeVisible());
     fireEvent.click(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[0]);
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('project', 'a', 1, 'revision-1'));
+    // Both of these carry `project._revision`, so the second one waits for the first to
+    // land rather than racing it — previously this clicked while the removal was still in
+    // flight and happened to win.
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '清空本镜头候选图' })[0]).toBeEnabled());
     fireEvent.click(screen.getAllByRole('button', { name: '清空本镜头候选图' })[0]);
     expect(screen.getByRole('dialog', { name: '清空本镜头候选图' })).toBeVisible();
     fireEvent.click(within(screen.getByRole('dialog', { name: '清空本镜头候选图' })).getByRole('button', { name: '确认清空' }));
