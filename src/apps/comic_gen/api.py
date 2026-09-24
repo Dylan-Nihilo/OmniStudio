@@ -1983,6 +1983,9 @@ class UpdateScriptTextRequest(BaseModel):
 
 class EditLeaseRequest(BaseModel):
     client_instance_id: str = Field(min_length=1, max_length=128)
+    # Only honoured when the lease is already this user's own; see
+    # `acquire_script_edit_lease`. Never set by the automatic re-check.
+    takeover: bool = False
 
 
 def _lease_payload(lease) -> dict[str, Any]:
@@ -2008,6 +2011,7 @@ def acquire_edit_lease(script_id: str, payload: EditLeaseRequest, request: Reque
             user_id=context.user.id,
             display_name=context.user.display_name or context.user.username,
             client_instance_id=payload.client_instance_id,
+            takeover=payload.takeover,
         )
     except Exception as exc:
         if repository.workspace_for_script(script_id) is None:

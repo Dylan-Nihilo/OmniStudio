@@ -74,10 +74,14 @@ export default function EpisodeEditLeaseGuard({
 
   const readOnly = viewer || status !== "editing";
   const acquiring = status === "acquiring" || status === "idle";
+  // Only ever offered for a lease this user already holds elsewhere. Someone else's unsaved
+  // edits are not ours to discard, and the automatic re-check never takes over — that is
+  // what stops two tabs from stealing the lease back and forth.
+  const ownOtherWindow = status === "locked" && !!userId && holderUserId === userId;
   const message = viewer ? "当前账号只能查看这一集" : acquiring ? "正在检查编辑状态"
     : status === "locked"
-      ? holderUserId === userId && userId
-        ? "你的另一个窗口或编辑会话正在编辑这一集，当前只读。结束后会自动恢复。"
+      ? ownOtherWindow
+        ? "你的另一个窗口正在编辑这一集，当前只读。可以在本窗口继续编辑，那个窗口会转为只读。"
         : `${holder} 正在编辑这一集，当前只读。对方结束后会自动恢复。`
       : "编辑连接已中断，正在自动恢复。未保存内容仍保留在本页。";
   return (
@@ -86,6 +90,7 @@ export default function EpisodeEditLeaseGuard({
         <div role="status" className="absolute inset-x-3 top-3 z-[90] mx-auto flex w-fit max-w-full flex-wrap items-center gap-2 rounded-2xl border border-amber-400/30 bg-elevated px-4 py-2 text-sm text-foreground shadow-xl">
           {acquiring && !viewer ? <Loader2 size={15} className="shrink-0 animate-spin" /> : <Lock size={15} className="shrink-0 text-amber-400" />}
           <span className="min-w-0 flex-1 break-words">{message}</span>
+          {ownOtherWindow && <Button variant="secondary" onPress={() => { void acquire(scriptId, undefined, true).catch(() => {}); }}>在本窗口继续编辑</Button>}
           {!viewer && !acquiring && <Button variant="quiet" onPress={() => { void check(); }}>重新检查</Button>}
         </div>
       )}

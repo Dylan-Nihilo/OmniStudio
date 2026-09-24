@@ -405,3 +405,43 @@ def test_delete_series_preserves_project_and_scripts_and_detaches_episodes(repos
         assert connection.execute(
             select(Episode.series_id).where(Episode.id == episode.id)
         ).scalar_one() is None
+
+
+def test_a_user_can_reclaim_their_own_lease_but_never_someone_elses(repository, memory_engine):
+    """A second tab is a different client instance, and that used to be an unbreakable lock.
+
+    Reported from production: the lease was held by the user's own other window, which kept
+    heartbeating, so their current window sat read-only indefinitely while the notice
+    promised it would recover on its own. Takeover is granted only on explicit request and
+    only to the same person — someone else's unsaved edits are not ours to discard, and an
+    automatic takeover would have two tabs stealing the lease back and forth.
+    """
+    seed_collaboration_identities(memory_engine)
+    script = make_script()
+    repository.save_scripts({script.id: script})
+    repository.assign_workspace_for_script(script.id, "workspace-1")
+
+    def acquire(user, client, *, at, takeover=False):
+        return repository.acquire_script_edit_lease(
+            script.id, workspace_id="workspace-1", user_id=user, display_name=user.upper(),
+            client_instance_id=client, now=at, ttl_seconds=90, takeover=takeover)
+
+    held = acquire("user-a", "tab-one", at=100.0)
+    assert held.acquired
+
+    # The same person's second tab is still refused without asking for it, so the two tabs
+    # cannot fight over the lease on their heartbeats.
+    assert not acquire("user-a", "tab-two", at=101.0).acquired
+
+    reclaimed = acquire("user-a", "tab-two", at=102.0, takeover=True)
+    assert reclaimed.acquired and reclaimed.client_instance_id == "tab-two"
+    # The first tab's token stops working, which is how it learns it lost the lease.
+    assert repository.heartbeat_script_edit_lease(
+        script.id, user_id="user-a", client_instance_id="tab-one",
+        lease_token=held.token or "", now=103.0) is None
+
+    # Another person cannot take it, asking or not.
+    for takeover in (False, True):
+        refused = acquire("user-b", "browser-b", at=104.0, takeover=takeover)
+        assert not refused.acquired
+        assert refused.holder_user_id == "user-a"

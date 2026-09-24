@@ -23,7 +23,8 @@ interface EditLeaseStore {
   holderDisplayName: string | null;
   holderUserId: string | null;
   clientInstanceId: string;
-  acquire: (scriptId: string, loadedRevision?: string) => Promise<void>;
+  /** `takeover` reclaims a lease this user already holds in another window. */
+  acquire: (scriptId: string, loadedRevision?: string, takeover?: boolean) => Promise<void>;
   heartbeat: () => Promise<void>;
   release: () => Promise<void>;
   setRevision: (revision: string) => void;
@@ -41,14 +42,15 @@ if (typeof window !== "undefined") {
 const acquireRequests = new Map<string, Promise<LeasePayload>>();
 let acquisitionVersion = 0;
 
-const requestLease = (scriptId: string, clientId: string): Promise<LeasePayload> => {
-  const existing = acquireRequests.get(scriptId);
+const requestLease = (scriptId: string, clientId: string, takeover: boolean): Promise<LeasePayload> => {
+  const key = takeover ? `${scriptId}:takeover` : scriptId;
+  const existing = acquireRequests.get(key);
   if (existing) return existing;
   const request = apiClient.post<LeasePayload>(
     `${API_URL}/projects/${scriptId}/edit-lease`,
-    { client_instance_id: clientId },
-  ).then((response) => response.data).finally(() => acquireRequests.delete(scriptId));
-  acquireRequests.set(scriptId, request);
+    { client_instance_id: clientId, takeover },
+  ).then((response) => response.data).finally(() => acquireRequests.delete(key));
+  acquireRequests.set(key, request);
   return request;
 };
 
@@ -61,13 +63,13 @@ export const useEditLeaseStore = create<EditLeaseStore>((set, get) => ({
   holderUserId: null,
   clientInstanceId,
 
-  acquire: async (scriptId, loadedRevision) => {
+  acquire: async (scriptId, loadedRevision, takeover = false) => {
     const version = ++acquisitionVersion;
     // Reacquiring edit access must not rebase a local draft onto unseen changes.
     const revision = (get().scriptId === scriptId ? get().revision : null) ?? loadedRevision ?? null;
     set({ status: "acquiring", scriptId, token: null, revision, holderDisplayName: null, holderUserId: null });
     try {
-      const data = await requestLease(scriptId, get().clientInstanceId);
+      const data = await requestLease(scriptId, get().clientInstanceId, takeover);
       if (version !== acquisitionVersion) {
         if (get().scriptId !== scriptId && data.token) {
           void apiClient.delete(`${API_URL}/projects/${scriptId}/edit-lease`, {

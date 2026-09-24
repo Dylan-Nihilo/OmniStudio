@@ -233,6 +233,7 @@ class SQLiteRepository:
         client_instance_id: str,
         now: float | None = None,
         ttl_seconds: int = 90,
+        takeover: bool = False,
     ) -> ScriptEditLeaseResult:
         self._validate_id(script_id, "script_id")
         self._validate_id(workspace_id, "workspace_id")
@@ -262,12 +263,20 @@ class SQLiteRepository:
                     .join(User, User.id == ScriptEditLease.holder_user_id)
                     .where(ScriptEditLease.script_id == script_id)
                 ).mappings().first()
+                # `takeover` only ever helps the same person: a lease held by someone else is
+                # refused regardless, because their unsaved edits are not ours to discard.
+                # The client instance lives in sessionStorage, so a second tab or a reopened
+                # window is a different client — without an explicit takeover a user could be
+                # locked out of their own episode for as long as the other window kept
+                # heartbeating, which is exactly what happened in production. Granting it only
+                # on request (never automatically) is what keeps two tabs from stealing the
+                # lease back and forth every heartbeat.
                 if (
                     existing is not None
                     and existing["expires_at"] > now
                     and (
                         existing["holder_user_id"] != user_id
-                        or existing["client_instance_id"] != client_instance_id
+                        or (existing["client_instance_id"] != client_instance_id and not takeover)
                     )
                 ):
                     return ScriptEditLeaseResult(

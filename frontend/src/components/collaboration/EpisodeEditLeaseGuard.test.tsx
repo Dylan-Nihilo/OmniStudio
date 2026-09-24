@@ -29,7 +29,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 it('explains another session of the same account and recovers after it ends', async () => {
   post.mockRejectedValueOnce(locked()).mockResolvedValue(acquired());
   await showEditor();
-  expect(screen.getByRole('status')).toHaveTextContent('你的另一个窗口或编辑会话');
+  expect(screen.getByRole('status')).toHaveTextContent('你的另一个窗口正在编辑这一集');
   await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
   expect(useEditLeaseStore.getState()).toMatchObject({ status: 'editing', revision: 'loaded-version' });
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -73,4 +73,32 @@ it('does not try to acquire edit access for a viewer', async () => {
   expect(post).not.toHaveBeenCalled();
   expect(screen.getByRole('status')).toHaveTextContent('当前账号只能查看');
   expect(screen.queryByRole('button', { name: '重新检查' })).not.toBeInTheDocument();
+});
+
+it('lets a user reclaim a lease their own other window is holding', async () => {
+  // Reported from production: the lease was held by the user's own other window, which kept
+  // heartbeating every 20s, so this window sat read-only indefinitely while the notice
+  // promised it would recover by itself. Nothing on screen could break the deadlock.
+  post.mockRejectedValue(locked());
+  await showEditor();
+  expect(useEditLeaseStore.getState().status).toBe('locked');
+
+  // The automatic re-check must not take over, or two tabs would steal it back and forth.
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+  expect(post.mock.calls.every(([, body]) => body.takeover === false)).toBe(true);
+  expect(useEditLeaseStore.getState().status).toBe('locked');
+
+  post.mockResolvedValue(acquired());
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '在本窗口继续编辑' })); });
+  expect(post).toHaveBeenLastCalledWith('/api-proxy/projects/episode-1/edit-lease',
+    expect.objectContaining({ takeover: true }));
+  expect(useEditLeaseStore.getState().status).toBe('editing');
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+
+it('never offers to take a lease away from a different person', async () => {
+  post.mockRejectedValue(locked('user-2'));
+  await showEditor();
+  expect(screen.getByRole('status')).toHaveTextContent('creation_runner 正在编辑');
+  expect(screen.queryByRole('button', { name: '在本窗口继续编辑' })).not.toBeInTheDocument();
 });
