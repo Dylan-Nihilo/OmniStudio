@@ -25,7 +25,8 @@ import { X, Play, Pause, Check, Sparkles, Loader2, Trash2 } from "lucide-react";
 import { Button, Dialog } from "@omnistudio/ui";
 import { useTranslations } from "next-intl";
 import { api, type VoiceMeta, type CustomVoice, type VoiceRecommendation } from "@/lib/api";
-import { getAssetUrl } from "@/lib/utils";
+import { getApiErrorCode } from "@/lib/apiClient";
+import { extractErrorDetail, getAssetUrl } from "@/lib/utils";
 import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import VoiceCloneModal from "./VoiceCloneModal";
 import VoiceDesignModal from "./VoiceDesignModal";
@@ -95,7 +96,7 @@ export default function VoicePickerModal({
         try {
             const name = voices.find(v => v.id === selectedId)?.name || customVoices.find(v => v.id === selectedId)?.label || selectedId;
             await onApply(selectedId, name); onClose();
-        } catch (e) { setApplyError(e instanceof Error ? e.message : tc('actionFailed')); }
+        } catch (e) { setApplyError(extractErrorDetail(e, tc('actionFailed'))); }
         finally { submitting.current = false; setApplying(false); }
     };
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -137,7 +138,7 @@ export default function VoicePickerModal({
                     }
                 }
             })
-            .catch((e) => { if (!cancelled) setError(e?.message || "Failed to load voices"); })
+            .catch((e) => { if (!cancelled) setError(extractErrorDetail(e, t("loadFailed"))); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
     }, [isOpen, seriesId, reload]);
@@ -217,7 +218,10 @@ export default function VoicePickerModal({
             setPlayingId(voiceId);
             await audio.play();
         } catch (e: any) {
-            setError(e?.message || "Preview failed");
+            const code = getApiErrorCode(e);
+            setError(code === "PRICING_ITEM_NOT_FOUND"
+                ? t("pricingUnavailable")
+                : extractErrorDetail(e, t("previewFailed")));
         } finally {
             setPreviewingId(null);
         }
@@ -346,6 +350,7 @@ export default function VoicePickerModal({
                                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                                         {recommended.map((v) => (
                                             <VoiceCard
+                                                t={t}
                                                 key={v.id}
                                                 voice={v}
                                                 selected={selectedId === v.id}
@@ -361,11 +366,11 @@ export default function VoicePickerModal({
                             )}
 
                             {/* Grouped catalog */}
-                            <VoiceGroup label="Qwen Audio 3.0 Plus" voices={groups.qwenAudio} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
-                            <VoiceGroup label={t("groupCosyvoice")} voices={groups.cosy} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
-                            <VoiceGroup label={t("groupStandardZh")} voices={groups.qwenStandard} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
-                            <VoiceGroup label={t("groupDialect")} voices={groups.qwenDialect} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
-                            <VoiceGroup label={t("groupInternational")} voices={groups.qwenIntl} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup t={t} label={t("groupQwenAudio")} voices={groups.qwenAudio} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup t={t} label={t("groupCosyvoice")} voices={groups.cosy} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup t={t} label={t("groupStandardZh")} voices={groups.qwenStandard} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup t={t} label={t("groupDialect")} voices={groups.qwenDialect} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
+                            <VoiceGroup t={t} label={t("groupInternational")} voices={groups.qwenIntl} selectedId={selectedId} playingId={playingId} previewingId={previewingId} onSelect={setSelectedId} onPreview={handlePreview} recommendationReasons={recommendationReasons} />
                         </div>
                     )}
 
@@ -457,6 +462,7 @@ export default function VoicePickerModal({
 // ──────────────────────────────────────────────────────────────────
 
 function VoiceGroup({
+    t,
     label,
     voices,
     selectedId,
@@ -466,6 +472,7 @@ function VoiceGroup({
     onPreview,
     recommendationReasons,
 }: {
+    t: (key: string) => string;
     label: string;
     voices: VoiceMeta[];
     selectedId?: string;
@@ -484,6 +491,7 @@ function VoiceGroup({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                 {voices.map((v) => (
                     <VoiceCard
+                        t={t}
                         key={v.id}
                         voice={v}
                         selected={selectedId === v.id}
@@ -500,6 +508,7 @@ function VoiceGroup({
 }
 
 function VoiceCard({
+    t,
     voice,
     selected,
     playing,
@@ -508,6 +517,7 @@ function VoiceCard({
     onPreview,
     recommendationReasons,
 }: {
+    t: (key: string) => string;
     voice: VoiceMeta;
     selected: boolean;
     playing: boolean;
@@ -531,16 +541,16 @@ function VoiceCard({
                         {voice.name}
                     </p>
                     <p className="mt-0.5 font-mono text-[0.59375rem] uppercase tracking-[0.14em] text-text-muted">
-                        {voice.gender}
-                        {voice.dialect ? ` · ${voice.dialect}` : ""}
-                        {voice.lang_primary ? ` · ${voice.lang_primary}` : ""}
-                        {voice.supports_instruction ? " · instr" : ""}
+                        {t(`gender.${(voice.gender || "Unknown").toLowerCase()}`)}
+                        {voice.dialect ? ` · ${t(`dialect.${voice.dialect}`)}` : ""}
+                        {voice.lang_primary ? ` · ${t(`language.${voice.lang_primary}`)}` : ""}
+                        {voice.supports_instruction ? ` · ${t("instructionTag")}` : ""}
                     </p>
                     {recommendationReasons?.length ? <p className="mt-1 text-[0.625rem] text-primary/80">{recommendationReasons.join(" · ")}</p> : null}
                 </button>
                 <button
                     onClick={(e) => { e.stopPropagation(); onPreview(); }}
-                    aria-label={playing ? "Stop preview" : "Play preview"}
+                    aria-label={playing ? t("stopPreview") : t("playPreview")}
                     className={`shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                         playing
                             ? "border-primary bg-primary/15 text-primary"
@@ -648,7 +658,7 @@ function CustomVoiceList({
                                     <div className="flex shrink-0 items-center gap-1">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onPreview(cv); }}
-                                            aria-label="Play preview"
+                                            aria-label={t("playPreview")}
                                             className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                                                 isPlaying
                                                     ? "border-primary bg-primary/15 text-primary"
@@ -659,7 +669,7 @@ function CustomVoiceList({
                                         </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onDelete(cv.id); }}
-                                            aria-label="Delete custom voice"
+                                            aria-label={t("deleteCustomVoice")}
                                             className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-glass-border bg-black/30 text-text-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger transition-colors"
                                         >
                                             <Trash2 size={11} />

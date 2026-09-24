@@ -80,6 +80,7 @@
     "recommended": "推荐",
     "basedOnCharacter": "基于角色 {gender}",
     "groupCosyvoice": "CosyVoice 标准",
+    "groupQwenAudio": "Qwen Audio 3.0 Plus",
     "groupStandardZh": "Qwen3-TTS 标准",
     "groupDialect": "方言",
     "groupInternational": "国际",
@@ -100,6 +101,16 @@
     "noSelection": "请选择音色",
     "cancel": "取消",
     "apply": "应用",
+    "loadFailed": "音色列表加载失败，请重试。",
+    "previewFailed": "试听失败，请重试。",
+    "pricingUnavailable": "该音色暂未配置积分价格，暂时不能试听。请联系管理员配置后再试。",
+    "playPreview": "试听",
+    "stopPreview": "停止试听",
+    "deleteCustomVoice": "删除自定义音色",
+    "instructionTag": "支持语气",
+    "gender": { "male": "男声", "female": "女声", "neutral": "中性", "unknown": "未标注" },
+    "dialect": { "shanghai": "上海", "beijing": "北京", "nanjing": "南京", "shaanxi": "陕西", "minnan": "闽南", "tianjin": "天津", "sichuan": "四川", "cantonese": "粤语" },
+    "language": { "es": "西语", "ru": "俄语", "it": "意语", "ko": "韩语", "ja": "日语", "de": "德语", "fr": "法语", "pt": "葡语" },
     "playFailed": "试听失败，请重试",
     "previewTextNamed": "你好，我是{name}。今天遇到件有趣的事，让我慢慢说给你听。",
     "previewTextDefault": "你好，这是音色试听。今天遇到件有趣的事，让我慢慢说给你听。"
@@ -492,7 +503,8 @@
     "copyFailed": "复制失败，请选择详情手动复制。",
     "copyErrorDetails": "复制错误详情",
     "offlineBannerText": "网络已断开 — 重新连接后可继续操作",
-    "actionFailed": "操作失败，请重试。"
+    "actionFailed": "操作失败，请重试。",
+    "retry": "重试"
   },
   "pendingTask": {
     "cancel": "取消任务",

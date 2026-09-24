@@ -80,6 +80,7 @@
     "recommended": "Recommended",
     "basedOnCharacter": "based on character ({gender})",
     "groupCosyvoice": "CosyVoice standard",
+    "groupQwenAudio": "Qwen Audio 3.0 Plus",
     "groupStandardZh": "Qwen3-TTS standard",
     "groupDialect": "Dialect",
     "groupInternational": "International",
@@ -100,6 +101,16 @@
     "noSelection": "Pick a voice",
     "cancel": "Cancel",
     "apply": "Apply",
+    "loadFailed": "Could not load voices. Please retry.",
+    "previewFailed": "Preview failed. Please retry.",
+    "pricingUnavailable": "This voice has no published credit price yet, so preview is unavailable. Ask an administrator to publish pricing.",
+    "playPreview": "Play preview",
+    "stopPreview": "Stop preview",
+    "deleteCustomVoice": "Delete custom voice",
+    "instructionTag": "instruction",
+    "gender": { "male": "male", "female": "female", "neutral": "neutral", "unknown": "unspecified" },
+    "dialect": { "shanghai": "Shanghai", "beijing": "Beijing", "nanjing": "Nanjing", "shaanxi": "Shaanxi", "minnan": "Minnan", "tianjin": "Tianjin", "sichuan": "Sichuan", "cantonese": "Cantonese" },
+    "language": { "es": "Spanish", "ru": "Russian", "it": "Italian", "ko": "Korean", "ja": "Japanese", "de": "German", "fr": "French", "pt": "Portuguese" },
     "playFailed": "Preview failed — please retry",
     "previewTextNamed": "Hi, I'm {name}. Something interesting happened today — let me tell you all about it.",
     "previewTextDefault": "Hi, this is a voice preview. Something interesting happened today — let me tell you all about it."
@@ -492,7 +503,8 @@
     "copyFailed": "Copy failed. Select the details to copy them.",
     "copyErrorDetails": "Copy error details",
     "offlineBannerText": "You're offline — you can continue once reconnected",
-    "actionFailed": "The operation failed. Please try again."
+    "actionFailed": "The operation failed. Please try again.",
+    "retry": "Retry"
   },
   "pendingTask": {
     "cancel": "Cancel task",
