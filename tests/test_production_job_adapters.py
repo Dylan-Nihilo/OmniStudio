@@ -112,3 +112,38 @@ def test_supported_production_kinds_share_one_dispatch_contract(adapter_and_repo
     item = adapter.create(kind, "workspace-1", None, None, {"kind": kind}, f"{kind}:contract:v1")
     adapter.start(item.id)
     assert repository.get_item(item.id).status == "succeeded"
+
+
+def test_startup_does_not_wait_for_an_interrupted_video_to_finish(monkeypatch):
+    """A deploy that landed while a video was in flight used to take production down.
+
+    Recovery re-dispatches the interrupted work synchronously, and a video runs for
+    minutes. On the startup event that blocked application startup, so the health check
+    failed, the deploy aborted, and the automatic rollback recreated the container and
+    blocked on the very same item. Observed in production on 2026-09-24: one item logged
+    `recovered` twice, two minutes apart, with the site down in between.
+    """
+    import threading
+
+    from src.apps.comic_gen import api as api_module
+
+    dispatching, release = threading.Event(), threading.Event()
+
+    class _Blocking:
+        def recover_inflight(self):
+            dispatching.set()
+            assert release.wait(timeout=10), "the recovery thread was never released"
+            return {"recovered": 1, "failed": 0, "skipped": 0}
+
+    monkeypatch.setattr(api_module, "_production_adapter", lambda: _Blocking())
+    monkeypatch.setattr(api_module.pipeline, "process_video_task", lambda *a, **k: None, raising=False)
+    try:
+        api_module.recover_production_jobs()
+        # Startup has already returned while the dispatch is still running.
+        assert dispatching.wait(timeout=5), "recovery never started"
+    finally:
+        release.set()
+    thread = next((t for t in threading.enumerate() if t.name == "job-recovery"), None)
+    if thread:
+        thread.join(timeout=10)
+        assert not thread.is_alive()

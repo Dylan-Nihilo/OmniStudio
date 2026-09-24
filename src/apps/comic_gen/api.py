@@ -36,6 +36,7 @@ import json
 import os
 import secrets
 import shutil
+import threading
 import uuid
 import logging
 import traceback
@@ -764,20 +765,32 @@ def _create_production_item(kind: str, project_id: str | None, episode_id: str |
     return _production_adapter().create(kind, workspace_id, job_project_id, job_episode_id, payload, idempotency_key)
 
 
-@app.on_event("startup")
-def recover_production_jobs() -> None:
-    """Resume processing JobItems after a worker restart."""
-    # Test fixtures and lightweight embedding apps replace ``pipeline`` with a
-    # stub.  They do not own the legacy provider workers, so recovery must not
-    # mutate their seeded JobItems during TestClient startup.
-    if not hasattr(pipeline, "process_video_task"):
-        return
+def _recover_production_jobs() -> None:
     try:
         report = _production_adapter().recover_inflight()
         if report["recovered"] or report["failed"]:
             logger.info("production JobItem recovery: %s", report)
     except Exception:
         logger.exception("production JobItem recovery failed")
+
+
+@app.on_event("startup")
+def recover_production_jobs() -> None:
+    """Resume processing JobItems after a worker restart, off the startup path.
+
+    Recovery re-dispatches the interrupted work *synchronously*, and a video generation
+    runs for minutes. Done inline, that blocked application startup: the health check
+    failed, the deploy aborted, the automatic rollback recreated the container and blocked
+    on the very same item, and the site stayed down. Any deploy that landed while a video
+    was in flight took production with it — which is exactly what happened on 2026-09-24.
+    A daemon thread keeps the resume behaviour without holding the port hostage to it.
+    """
+    # Test fixtures and lightweight embedding apps replace ``pipeline`` with a
+    # stub.  They do not own the legacy provider workers, so recovery must not
+    # mutate their seeded JobItems during TestClient startup.
+    if not hasattr(pipeline, "process_video_task"):
+        return
+    threading.Thread(target=_context_call(_recover_production_jobs), name="job-recovery", daemon=True).start()
 app.include_router(auth_router)
 app.include_router(source_router)
 app.include_router(billing_router)
