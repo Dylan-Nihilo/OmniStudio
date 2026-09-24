@@ -8,6 +8,8 @@ import {
 import {
     getCastPromptTextareaClasses,
     getCastTemplateSwitchWarningClasses,
+    getCastGenerationAccentClasses,
+    getCastGenerationSummaryClasses,
 } from "@/components/modules/cast/CastWorkbenchModal";
 
 describe("Cast light-theme surfaces", () => {
@@ -51,5 +53,15 @@ describe("Cast light-theme surfaces", () => {
         expect(chip).toContain("text-[0.625rem]");
         expect(chip).toContain("font-semibold");
         expect(chip).not.toContain("text-text-muted");
+    });
+
+    it("keeps selected batch and aspect controls readable in the light theme", () => {
+        for (const kind of ["character", "scene", "prop"] as const) {
+            const active = getCastGenerationAccentClasses(kind).batchActive;
+            expect(active).toContain("text-foreground");
+            expect(active).not.toMatch(/text-(purple|emerald|amber)-200/);
+        }
+
+        expect(getCastGenerationSummaryClasses()).toContain("text-foreground");
     });
 });

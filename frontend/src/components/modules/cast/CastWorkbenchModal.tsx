@@ -51,6 +51,34 @@ export const getCastTemplateSwitchWarningClasses = () => ({
     confirm: "bg-amber-500/25 text-amber-100 hover:bg-amber-500/40",
 });
 
+const CAST_GENERATION_ACCENT_CLASSES = {
+    character: {
+        headerPill: "bg-purple-500/15 text-purple-300 border-purple-500/30",
+        // Use the semantic foreground token so the selection remains readable on both
+        // the paper theme and the dark studio themes. The tint still communicates the kind.
+        batchActive: "border-purple-400/60 bg-purple-500/15 text-foreground font-semibold",
+        variantSelected: "border-purple-400 ring-2 ring-purple-500/40",
+        selectBadge: "bg-purple-500",
+    },
+    scene: {
+        headerPill: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+        batchActive: "border-emerald-400/60 bg-emerald-500/15 text-foreground font-semibold",
+        variantSelected: "border-emerald-400 ring-2 ring-emerald-500/40",
+        selectBadge: "bg-emerald-500",
+    },
+    prop: {
+        headerPill: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+        batchActive: "border-amber-400/60 bg-amber-500/15 text-foreground font-semibold",
+        variantSelected: "border-amber-400 ring-2 ring-amber-500/40",
+        selectBadge: "bg-amber-500",
+    },
+} as const;
+
+export const getCastGenerationAccentClasses = (kind: keyof typeof CAST_GENERATION_ACCENT_CLASSES) =>
+    CAST_GENERATION_ACCENT_CLASSES[kind];
+
+export const getCastGenerationSummaryClasses = () => "ml-auto text-xs text-foreground font-medium";
+
 function startAssetPoll(
     entityId: string,
     taskId: string,
@@ -571,34 +599,14 @@ export default function CastWorkbenchModal({ isOpen, kind, entityId, onClose }: 
 
     // Per-kind accent — Tailwind JIT can't resolve dynamic `bg-${name}-500/15`,
     // so we ship full class strings per kind keyed off a static record.
-    const accentClasses = {
-        character: {
-            headerPill: "bg-purple-500/15 text-purple-300 border-purple-500/30",
-            batchActive: "border-purple-400/60 bg-purple-500/15 text-purple-200",
-            variantSelected: "border-purple-400 ring-2 ring-purple-500/40",
-            selectBadge: "bg-purple-500",
-        },
-        scene: {
-            headerPill: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-            batchActive: "border-emerald-400/60 bg-emerald-500/15 text-emerald-200",
-            variantSelected: "border-emerald-400 ring-2 ring-emerald-500/40",
-            selectBadge: "bg-emerald-500",
-        },
-        prop: {
-            headerPill: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-            batchActive: "border-amber-400/60 bg-amber-500/15 text-amber-200",
-            variantSelected: "border-amber-400 ring-2 ring-amber-500/40",
-            selectBadge: "bg-amber-500",
-        },
-    } as const;
-    const accent = accentClasses[kind];
+    const accent = getCastGenerationAccentClasses(kind);
 
     return <Dialog isOpen title={entity.name} closeLabel={t('close')} onOpenChange={open => { if (!open) onClose(); }}
         className="!w-[min(96rem,calc(100vw-2rem))] !max-w-none" footer={<>
                         <span className="font-mono text-[0.6875rem] uppercase tracking-[0.16em] text-text-muted">
                             {selectedId ? t("selectedFooter") : t("noneSelectedFooter")}
                         </span>
-                        <span className="ml-auto text-xs text-text-secondary">{tw('generateSummary', { count: batchSize, ratio: effectiveAspectRatio })}</span>
+                        <span className={getCastGenerationSummaryClasses()}>{tw('generateSummary', { count: batchSize, ratio: effectiveAspectRatio })}</span>
                         <CreditCost modelId={selectedModelId} quantity={Math.max(1, Math.min(4, batchSize))}
                                     params={imageCostParams(ASSET_SIZE_BY_RATIO[effectiveAspectRatio])} />
                         <button
