@@ -22,6 +22,7 @@ import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
 import DialogueAudioRow, { useDialogueAudioRequests } from "./storyboard-r2v/DialogueAudioRow";
 import ProductionPlanDialog from "./production-plan/ProductionPlanDialog";
 import ProductionPrevisDialog from "./production-plan/ProductionPrevisDialog";
+import PreviewImage from "@/components/shared/preview/PreviewImage";
 import OmniReferenceSection from './storyboard-r2v/OmniReferenceSection';
 import { supportsOmniReferences, type OmniReferenceSettings } from '@/lib/omniReferences';
 import { useEditLeaseStore } from "@/store/editLeaseStore";
@@ -1995,6 +1996,15 @@ function StoryboardWorkbench() {
                                     <Button variant="quiet" onPress={() => setPrevisDialogOpen(true)}>{tPlan('previsTab')}</Button></div>
                                 <details><summary>{plannedSegment.title}</summary>{plannedSegment.shots.map((item, i) => <p key={item.id}>{i + 1}. {item.title} · {item.duration}s</p>)}
                                     <p>{tPlan('startState')}：{plannedSegment.start_state}</p><p>{tPlan('endState')}：{plannedSegment.end_state}</p></details>
+                                {/* The confirmed storyboard images, which `reviewed_video_inputs` passes to the
+                                    video model as references in shot order. They were used all along and said
+                                    nowhere on this screen, so the previs step looked disconnected from the
+                                    generation it feeds. */}
+                                {!!productionReview?.preview_urls.length && <div className={styles.productionPrevis}>
+                                    <p>{tPlan('previsReferenced', { count: productionReview.preview_urls.length })}</p>
+                                    <div>{productionReview.preview_urls.map((url, i) =>
+                                        <PreviewImage key={`${i}:${url}`} src={url} alt={tPlan('shotNumber', { number: i + 1 })} />)}</div>
+                                </div>}
                             </section> : undefined}
                             generationHint={plannedSegment && (!productionReview?.ready || draftSave.pending) ? tPlan(productionReview?.changed_after_review || draftSave.pending ? 'reviewNotice' : 'reviewFirst') : undefined}
                             index={index}

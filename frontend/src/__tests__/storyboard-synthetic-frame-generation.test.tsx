@@ -12,7 +12,7 @@ import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
 import { DEFAULT_MODEL_SETTINGS } from "@/lib/modelCatalog";
 
-const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, refineBatchFrames, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, updateShotModelSettings, refineSingleFrame, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
+const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, refineBatchFrames, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, updateShotModelSettings, refineSingleFrame, reviewProductionPlan, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
     createFrame: vi.fn(),
     createVideoTask: vi.fn(),
     retryVideoTask: vi.fn(),
@@ -31,6 +31,7 @@ const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFram
     updateFrameWorkbench: vi.fn(),
     updateShotModelSettings: vi.fn(),
     refineSingleFrame: vi.fn(),
+    reviewProductionPlan: vi.fn(),
     cancelVideoTask: vi.fn(),
     annotateVideoTask: vi.fn(),
     selectVideo: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock("@/lib/api", () => ({
         updateFrame,
         updateShotModelSettings,
         refineSingleFrame,
+        reviewProductionPlan,
         cancelVideoTask,
         annotateVideoTask,
         selectVideo,
@@ -89,6 +91,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", async importOriginal => 
         onGenerateBatch: (count: number) => void;
         onGenerateT2I: () => void;
         sequence?: React.ReactNode;
+        productionInfo?: React.ReactNode;
         candidates?: React.ReactNode;
         configuration?: React.ReactNode;
         audio?: React.ReactNode;
@@ -120,6 +123,7 @@ vi.mock("@/components/modules/storyboard-r2v/ShotCard", async importOriginal => 
             <output aria-label="first frame state">{props.shot.t2iStatus}</output>
             <output aria-label="first frame error">{props.shot.t2iError}</output>
             <textarea aria-label="shot prompt" value={props.shot.prompt} onChange={event => props.onUpdatePrompt(event.target.value)} />
+            {props.productionInfo}
             {props.sequence}
             {props.candidates}
             {props.configuration}
@@ -1482,4 +1486,35 @@ describe("StoryboardR2V synthetic frame generation", () => {
         expect(useProjectStore.getState().currentProject!.frames.map(frame => frame.id)).toEqual(["frame-1", "frame-2"]);
     });
 
+});
+
+it("shows the storyboard images the segment's video will be generated from", async () => {
+    // The plan's images were passed to the video model as references all along
+    // (`reviewed_video_inputs`) and said nowhere on this screen, so the previs step looked
+    // disconnected from the generation it feeds.
+    const frames = [{ id: "segment-frame", action_description: "Segment one", production_plan_id: "plan", production_segment_id: "one" }];
+    const project = {
+        ...useProjectStore.getState().currentProject!,
+        frames,
+        production_plan: { id: "plan", continuity_rules: "", segments: [{
+            id: "one", frame_id: "segment-frame", title: "对峙", start_state: "亭口相望", end_state: "沈砚垂眼",
+            connection: "", shots: [{ id: "a", title: "镜头a", description: "", duration: 4, camera: "", dialogue: [] }],
+        }] },
+    };
+    useProjectStore.setState({ currentProject: project as never, selectedFrameId: "segment-frame" });
+    reviewProductionPlan.mockResolvedValue({ segments: [{
+        segment_id: "one", frame_id: "segment-frame", fingerprint: "f", ready: true, can_confirm: true,
+        blockers: [], needs_review: false, reference_urls: ["assets/scene.png"],
+        preview_urls: ["storyboard/a.png", "storyboard/b.png"],
+    }] });
+    const view = render(<StoryboardR2V />);
+    try {
+        await waitFor(() => expect(reviewProductionPlan).toHaveBeenCalled());
+        await waitFor(() => expect(screen.getByText("previsReferenced")).toBeVisible());
+        const shown = screen.getAllByRole("img").map(image => image.getAttribute("src") ?? "");
+        // Both plan images appear, and the character/scene assets are not passed off as them.
+        expect(shown.filter(src => src.includes("storyboard/a.png"))).toHaveLength(1);
+        expect(shown.filter(src => src.includes("storyboard/b.png"))).toHaveLength(1);
+        expect(shown.some(src => src.includes("assets/scene.png"))).toBe(false);
+    } finally { view.unmount(); }
 });

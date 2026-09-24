@@ -3090,6 +3090,7 @@
   },
   "billing": {
     "cost": "消耗 {credits} 积分",
+    "costRange": "约消耗 {low}–{high} 积分",
     "unpriced": "未定价",
     "unitSecond": "积分/秒",
     "unitImage": "积分/张",
@@ -3686,6 +3687,7 @@
     "saveImagePrompt": "保存画面描述",
     "busyImage": "分镜图生成中…",
     "previsCount": "片段内 {count} 个镜头",
+      "previsReferenced": "按镜头顺序引用这 {count} 张分镜图作为参考",
     "reviewNotice": "内容或前一片段有更新，请重新检查画面与衔接。",
     "editPlan": "编辑方案",
     "reviewPlan": "查看方案",

@@ -38,3 +38,8 @@
 .productionInfo button { height: 30px; min-height: 30px; padding-inline: 6px; font-size: 12px; }
 .productionInfo summary { cursor: pointer; }
 .productionInfo details p { margin-top: 6px; }
+
+/* The storyboard images this segment's video is generated from, in shot order. */
+.productionPrevis { margin-top: 8px; }
+.productionPrevis > div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.productionPrevis img { width: 72px; height: 41px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border-default); }

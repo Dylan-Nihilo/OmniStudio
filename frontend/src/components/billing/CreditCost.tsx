@@ -6,7 +6,8 @@ import { useTranslations } from "next-intl";
 import clsx from "clsx";
 
 import { billingApi } from "@/lib/billing";
-import { creditsFor, useBillingStore, usePricingTable } from "@/store/billingStore";
+import { getCanonicalModeId } from "@/lib/modelCatalog";
+import { creditRange, creditsFor, useBillingStore, usePricingTable } from "@/store/billingStore";
 import styles from "./CreditCost.module.css";
 
 interface CreditCostProps {
@@ -51,11 +52,30 @@ export default function CreditCost({ modelId, params = {}, quantity = 1, exact =
 
     if (!visible || !modelId) return null;
 
-    const unit = creditsFor(pricing, modelId, params);
+    // Every picker in the app holds a legacy flat id (`seedance-2.5-r2v`) while the price book
+    // is keyed by canonical mode id (`seedance/seedance-2.5-video#r2v`). Resolving here rather
+    // than in each caller is what fixes video, image, cast and plan costs at once — they all
+    // funnel through this component, and every one of them was showing 未定价.
+    const priceBookId = getCanonicalModeId(modelId) ?? modelId;
+    const unit = creditsFor(pricing, priceBookId, params);
     // Round once on the total, like the server: a unit that costs a fraction of a credit must
     // not be rounded up before it is multiplied.
-    const credits = quoted ?? (unit === null ? null : Math.max(1, Math.ceil(unit * quantity - 1e-9)));
+    const total = (value: number) => Math.max(1, Math.ceil(value * quantity - 1e-9));
+    const credits = quoted ?? (unit === null ? null : total(unit));
     if (credits === null) {
+        // No single row matches, which for video means the resolution is not settled yet —
+        // it is chosen per shot, after the model. A range is the honest answer there; saying
+        // 未定价 implies we cannot price it at all, and picking one row would be a guess.
+        // Deliberately not the dearest row either: see the note in modelCost.ts on why the
+        // catch-all image row must not be used as a display figure.
+        const range = creditRange(pricing, priceBookId);
+        if (range) {
+            const [low, high] = [total(range.min), total(range.max)];
+            return <span className={styles.cost}>
+                <Coins size={12} strokeWidth={2} aria-hidden="true" />
+                {low === high ? t("cost", { credits: low }) : t("costRange", { low, high })}
+            </span>;
+        }
         return <span className={clsx(styles.cost, styles.unpriced)}>{t("unpriced")}</span>;
     }
 

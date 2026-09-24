@@ -108,6 +108,11 @@ export default function ParamsSection({
     const pricing = usePricingTable();
     const tBilling = useTranslations("billing");
     const modelParams: ModelParamSupport = activeModel?.params ?? {};
+    // What the resolution control actually displays (see its `value` below). The cost used to
+    // read `params.resolution` alone, so a shot left on the model default priced as though no
+    // resolution had been chosen — and every video rate is keyed by resolution, so it showed
+    // 未定价.
+    const effectiveResolution = params.resolution ?? modelParams.resolution?.default;
     const durationCfg: DurationConfig = activeModel?.duration ?? { type: "fixed", value: 5 };
 
     const set = useCallback(<K extends keyof ParamsState>(key: K, value: ParamsState[K]) => {
@@ -198,7 +203,7 @@ export default function ParamsSection({
                     resolution are all right here, so the figure is exact rather than a range. */}
                 <div className="flex justify-end">
                     <CreditCost modelId={params.model} quantity={params.duration}
-                                params={params.resolution ? { resolution: params.resolution } : {}} />
+                                params={effectiveResolution ? { resolution: effectiveResolution } : {}} />
                 </div>
 
                 {/* Duration */}

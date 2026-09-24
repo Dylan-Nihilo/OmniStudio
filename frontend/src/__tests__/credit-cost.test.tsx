@@ -19,7 +19,8 @@ import type { PricingTable } from '@/lib/billing';
 
 vi.mock('next-intl', () => ({
     useTranslations: () => (key: string, values?: Record<string, unknown>) =>
-        key === 'cost' ? `消耗 ${values?.credits} 积分` : key,
+        key === 'cost' ? `消耗 ${values?.credits} 积分`
+        : key === 'costRange' ? `约消耗 ${values?.low}–${values?.high} 积分` : key,
 }));
 vi.mock('@/components/billing/CreditCost.module.css', () => ({
     default: { cost: 'cost', unpriced: 'unpriced', insufficient: 'insufficient' },
@@ -31,6 +32,11 @@ const PRICING: PricingTable = {
     items: [
         { item_id: 'v', model_id: 'seedance/seedance-2.0-mini#i2v', stage: 'video', unit: 'second',
           match: { resolution: '480p' }, credits: 19, credits_raw: 19, display_name: '标准' },
+        ...[['480p', 32], ['720p', 68], ['1080p', 153]].map(([resolution, credits]) => ({
+            item_id: `r2v-${resolution}`, model_id: 'seedance/seedance-2.5-video#r2v', stage: 'video' as const,
+            unit: 'second' as const, match: { resolution: String(resolution) }, credits: credits as number,
+            credits_raw: credits as number, display_name: 'Seedance 2.5',
+        })),
     ],
 };
 
@@ -146,5 +152,35 @@ describe('loading the rate table', () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         expect(pricingTable).not.toHaveBeenCalled();
         vi.doUnmock('@/lib/billing');
+    });
+});
+
+describe('the id a picker actually holds', () => {
+    /**
+     * Every picker in the app stores the legacy flat id while the price book is keyed by
+     * canonical mode id, and this component handed the raw value straight to the lookup. The
+     * result was 未定价 on video, images, cast and the production plan — on a model whose rate
+     * the server was charging correctly the whole time.
+     */
+    it('prices a legacy flat model id', () => {
+        setBilling({ enabled: false, ratesPublished: true });
+        render(<CreditCost modelId="seedance-2.5-r2v" params={{ resolution: '720p' }} quantity={26} />);
+        // The rate the server settled that 26-second take at: 68 × 26 = 1768.
+        expect(screen.getByText('消耗 1768 积分')).toBeInTheDocument();
+    });
+
+    it('gives a range when the resolution is not settled yet instead of claiming no price', () => {
+        // The production plan shows a whole-episode cost before any shot has a resolution;
+        // resolution is a per-shot choice, so a single figure there would be a guess.
+        setBilling({ enabled: false, ratesPublished: true });
+        render(<CreditCost modelId="seedance-2.5-r2v" quantity={10} />);
+        expect(screen.getByText('约消耗 320–1530 积分')).toBeInTheDocument();
+        expect(screen.queryByText('unpriced')).not.toBeInTheDocument();
+    });
+
+    it('still says unpriced when the model has no rate at all', () => {
+        setBilling({ enabled: false, ratesPublished: true });
+        render(<CreditCost modelId="seedance-9.9-r2v" quantity={10} />);
+        expect(screen.getByText('unpriced')).toBeInTheDocument();
     });
 });

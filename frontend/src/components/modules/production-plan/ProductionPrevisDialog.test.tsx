@@ -211,3 +211,63 @@ it('keeps other segments going when one segment fails, and reports how many imag
     expect(mocks.render.mock.calls.map(call => call[1])).not.toContain('b');
     expect(stored.production_previews!.filter(p => p.t2i_image_urls?.length).map(p => p.id)).toEqual(['c', 'd']);
 });
+
+it('lets an unrelated image be regenerated while one is still rendering', async () => {
+    // Regenerating a single image used to take a lock on the whole dialog, so the other
+    // images could neither be regenerated nor even have their candidate switched — on a
+    // segment of three shots that made fixing one frame a strictly serial chore.
+    stored = twoSegments();
+    const renders = gatedRenders();
+    renderWithIntl(<Harness />);
+
+    const cardFor = (title: string) => within(screen.getByText(title).closest('article')!);
+    fireEvent.click(cardFor('1. 镜头a').getByRole('button', { name: '生成分镜图' }));
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledOnce());
+
+    // The other image's own button is still live.
+    const other = cardFor('2. 镜头b').getByRole('button', { name: '生成分镜图' });
+    expect(other).toBeEnabled();
+    fireEvent.click(other);
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
+    expect(renders.inFlight()).toEqual(['a', 'b']);
+
+    // ...while the one that is rendering does not accept a second submission.
+    expect(cardFor('1. 镜头a').getByRole('button', { name: '生成分镜图' })).toBeDisabled();
+    await renders.settle('a');
+    await renders.settle('b');
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
+});
+
+it('lets another image switch candidates while one is rendering', async () => {
+    stored = twoSegments();
+    stored = { ...stored, production_previews: stored.production_previews!.map(p =>
+        p.id === 'c' ? { ...p, t2i_image_urls: ['/c1.png', '/c2.png'], t2i_selected_index: 0 } : p) };
+    const renders = gatedRenders();
+    mocks.update.mockImplementation(async () => stored);
+    renderWithIntl(<Harness />);
+
+    fireEvent.click(within(screen.getByText('1. 镜头a').closest('article')!).getByRole('button', { name: '生成分镜图' }));
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledOnce());
+
+    const choice = screen.getByRole('button', { name: '选择分镜图 2' });
+    expect(choice).toBeEnabled();
+    fireEvent.click(choice);
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('project', 'c', { selected_index: 1 }));
+    await renders.settle('a');
+});
+
+it('keeps candidate removal exclusive because it carries the project revision', async () => {
+    // Remove and clear send `project._revision`; two of them in flight would make the
+    // second lose the optimistic-concurrency check.
+    stored = twoSegments();
+    stored = { ...stored, _revision: 'rev-1', production_previews: stored.production_previews!.map(p =>
+        ({ ...p, t2i_image_urls: [`/${p.id}.png`], t2i_selected_index: 0 })) } as Project;
+    const renders = gatedRenders();
+    renderWithIntl(<Harness />);
+
+    fireEvent.click(within(screen.getByText('1. 镜头a').closest('article')!).getByRole('button', { name: '重新生成' }));
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledOnce());
+    for (const button of screen.getAllByRole('button', { name: '移除当前分镜候选图' })) expect(button).toBeDisabled();
+    await renders.settle('a');
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[1]).toBeEnabled());
+});

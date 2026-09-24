@@ -3090,6 +3090,7 @@
   },
   "billing": {
     "cost": "{credits} credits",
+    "costRange": "About {low}–{high} credits",
     "unpriced": "Not priced",
     "unitSecond": "credits/sec",
     "unitImage": "credits/image",
@@ -3686,6 +3687,7 @@
     "saveImagePrompt": "Save image description",
     "busyImage": "Generating storyboard image…",
     "previsCount": "{count} shots in this segment",
+      "previsReferenced": "These {count} storyboard image(s) are referenced in shot order",
     "reviewNotice": "Content or the preceding segment changed. Review composition and continuity again.",
     "editPlan": "Edit plan",
     "reviewPlan": "Review plan",

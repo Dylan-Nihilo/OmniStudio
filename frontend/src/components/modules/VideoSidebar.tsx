@@ -50,6 +50,10 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
         VIDEO_I2V_MODELS.find((model) => model.id === R2V_SELECTION_MODEL_ID)?.name ??
         tm("currentR2VModel");
     const modelParams: ModelParamSupport = currentModelConfig?.params ?? {};
+    // The resolution the request will actually carry: the model's default applies when the
+    // user has not picked one, and every video rate is keyed by resolution — reading
+    // `params.resolution` alone priced an untouched shot as "unspecified" and showed 未定价.
+    const sidebarResolution = params.resolution ?? modelParams.resolution?.default;
 
     const updateParam = (key: string, value: any) => {
         const newParams = { ...params, [key]: value };
@@ -196,7 +200,7 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
                                     <div className="mt-2 flex justify-end">
                                         <CreditCost modelId={params.generationMode === "r2v" ? R2V_SELECTION_MODEL_ID : params.model}
                                                     quantity={params.duration ?? 5}
-                                                    params={params.resolution ? { resolution: params.resolution } : {}} />
+                                                    params={sidebarResolution ? { resolution: sidebarResolution } : {}} />
                                     </div>
                                 </div>
 
