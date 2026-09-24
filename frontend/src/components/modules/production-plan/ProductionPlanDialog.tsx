@@ -230,7 +230,7 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
             </div>}
             {draft && <>
                 {problems.length > 0 && <div role="alert" className={styles.problemSummary}>
-                    {t('problemsFound', { count: problems.length })}
+                    <span>{t('problemsFound', { count: problems.length })}</span>
                     <span className={styles.hint}>{t('problemsHint')}</span>
                 </div>}
                 <div className={styles.stats}><strong>{t('totalDuration', { seconds: planDuration(draft) })}</strong><span>{t('shotCount', { count: shotCount })}</span><span>{t('generationCount', { count: draft.segments.length })}</span>

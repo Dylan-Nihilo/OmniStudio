@@ -18,8 +18,8 @@ const plan: ProductionPlan = { id: 'plan', revision: 'v1', created_at: 0, status
 const initial = { id: 'project', title: '归鞘', originalText: '沈砚停步。', frames: [{ id: 'old', video_url: '/old.mp4' }], characters: [], scenes: [], props: [] } as unknown as Project;
 const close = vi.fn(), previs = vi.fn(), before = vi.fn();
 let saved: ProductionPlan | null;
-function Harness({ existing = false }: { existing?: boolean }) {
-    const [project, setProject] = useState<Project>({ ...initial, production_plan_draft: existing ? plan : null });
+function Harness({ existing = false, initialPlan = plan }: { existing?: boolean; initialPlan?: ProductionPlan }) {
+    const [project, setProject] = useState<Project>({ ...initial, production_plan_draft: existing ? initialPlan : null });
     const update = useCallback((patch: Partial<Project>) => setProject(current => ({ ...current, ...patch })), []);
     return <><p data-testid="current-frame">{project.frames[0]?.id}</p><ProductionPlanDialog isOpen onClose={close} project={project} modelId="seedance-2.5-r2v"
         beforeChange={before} onUpdate={update} onPrevis={previs} /></>;
@@ -184,7 +184,7 @@ it('keeps a flawed plan on screen for editing and refuses to apply it until the 
     flawed.problems = [{ segment_index: 1, segment_id: 'segment-0', shot_id: 'shot-0-1', field: 'source_quote',
         message: '片段 1 的镜头「画面0-1」引用的剧本原文不连续' }];
     saved = flawed;
-    renderWithIntl(<Harness existing />);
+    renderWithIntl(<Harness existing initialPlan={flawed} />);
     fireEvent.click(screen.getByRole('button', { name: '编辑方案' }));
     // The reason sits on the shot that has to change, not only in a banner.
     const shot = within(screen.getByRole('region', { name: '片段 1' })).getByRole('group', { name: '镜头 2' });
@@ -193,7 +193,7 @@ it('keeps a flawed plan on screen for editing and refuses to apply it until the 
     expect(screen.getByRole('button', { name: '确认方案，制作分镜图' })).toBeDisabled();
 
     // The offending text is editable in place — no trip back to the script.
-    const quote = within(shot).getByRole('textbox', { name: '剧本原文' });
+    const quote = within(shot).getByRole('textbox', { name: '剧本依据' });
     expect(quote).toHaveValue('沈砚停步。');
     fireEvent.change(quote, { target: { value: '沈砚停步，雨声压下来。' } });
     mocks.save.mockImplementationOnce(async (_id, draft) => {
