@@ -231,8 +231,12 @@ it('lets an unrelated image be regenerated while one is still rendering', async 
     await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
     expect(renders.inFlight()).toEqual(['a', 'b']);
 
-    // ...while the one that is rendering does not accept a second submission.
-    expect(cardFor('1. 镜头a').getByRole('button', { name: '生成分镜图' })).toBeDisabled();
+    // ...while the one that is rendering does not accept a second submission. Asserted on
+    // the guard rather than the attribute: the button is `isPending` here, and React Aria
+    // marks that with aria-disabled rather than the `disabled` property.
+    fireEvent.click(cardFor('1. 镜头a').getByRole('button', { name: '生成分镜图' }));
+    await Promise.resolve();
+    expect(mocks.render).toHaveBeenCalledTimes(2);
     await renders.settle('a');
     await renders.settle('b');
     await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
