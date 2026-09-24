@@ -14,6 +14,46 @@ import styles from './ProductionPlanDialog.module.css';
 
 type Preview = NonNullable<Project['production_previews']>[number];
 const imageUrl = (frame?: Preview) => frame?.t2i_image_urls?.[frame.t2i_selected_index ?? 0] || frame?.rendered_image_url || frame?.image_url;
+
+type PreviewPollOptions = {
+    load: () => Promise<Pick<Project, 'production_previews'>>;
+    previewId: string;
+    onUpdate: (patch: Partial<Project>) => void;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+};
+
+/**
+ * A render request can outlive the browser's HTTP timeout. In that case the
+ * backend keeps working and the only safe recovery is to observe the saved
+ * preview state until it reaches a terminal state. Keeping this helper
+ * outside the component also makes the timeout path independently testable.
+ */
+export async function waitForPreviewCompletion({
+    load,
+    previewId,
+    onUpdate,
+    pollIntervalMs = 2500,
+    timeoutMs = 15 * 60 * 1000,
+}: PreviewPollOptions): Promise<Preview | undefined> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() <= deadline) {
+        const updated = await load();
+        onUpdate({ production_previews: updated.production_previews });
+        const preview = updated.production_previews?.find(item => item.id === previewId);
+        if (!preview) return undefined;
+        const status = preview.image_generation_status;
+        if (imageUrl(preview) || status === 'failed') return preview;
+        if (Date.now() >= deadline) break;
+        await new Promise(resolve => window.setTimeout(resolve, Math.min(pollIntervalMs, Math.max(0, deadline - Date.now()))));
+    }
+    return undefined;
+}
+
+function isRequestTimeout(error: any) {
+    return error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT' || /timeout/i.test(String(error?.message || ''));
+}
+
 function errorMessage(error: any) {
     const detail = error?.response?.data?.detail;
     if (typeof detail === 'string') return detail;
@@ -87,11 +127,22 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     }
     async function generate(preview: Preview) {
         if (!await beforeChange() || !mounted.current) return;
-        const result = await api.renderFrame(project.id, preview.id, null, prompts[preview.id] ?? preview.image_prompt ?? '', 1);
-        if (!mounted.current) return;
-        onUpdate({ production_previews: result.production_previews });
-        const rendered = result.production_previews?.find((frame: Preview) => frame.id === preview.id);
-        if (!imageUrl(rendered) || rendered.image_generation_status === 'failed') throw new Error(rendered?.image_error || t('imageFailed'));
+        let rendered: Preview | undefined;
+        try {
+            const result = await api.renderFrame(project.id, preview.id, null, prompts[preview.id] ?? preview.image_prompt ?? '', 1);
+            if (!mounted.current) return;
+            onUpdate({ production_previews: result.production_previews });
+            rendered = result.production_previews?.find((frame: Preview) => frame.id === preview.id);
+        } catch (error) {
+            if (!isRequestTimeout(error) || !mounted.current) throw error;
+            rendered = await waitForPreviewCompletion({
+                load: async () => api.getProject(project.id),
+                previewId: preview.id,
+                onUpdate,
+            });
+            if (!mounted.current) return;
+        }
+        if (!rendered || !imageUrl(rendered) || rendered.image_generation_status === 'failed') throw new Error(rendered?.image_error || t('imageFailed'));
         setPrompts(current => { const next = { ...current }; delete next[preview.id]; return next; });
     }
     async function upload(preview: Preview, file?: File) {
