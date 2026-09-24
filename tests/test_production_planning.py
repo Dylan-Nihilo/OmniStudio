@@ -531,6 +531,58 @@ def test_a_problem_quotes_the_offending_text_in_full():
     assert long_quote in quote_problems[0].message, "the whole quote has to be shown"
 
 
+def test_a_shot_waits_only_on_its_own_segment_so_segments_can_render_at_once(api_client, monkeypatch):
+    """Storyboard images used to be one strictly serial queue for a whole episode.
+
+    Each shot carried the *previous* shot's rendered image as an I2I reference and refused
+    to start until it existed, and the chain only broke when the scene changed — so an
+    episode shot in a single scene (斗破苍穹: 19 shots, one scene) could not render anything
+    in parallel. The chain now stops at the segment boundary: a segment is one video
+    generation with a cut on either side, and its first shot carries the opening state as
+    text instead. Continuity inside a segment is unchanged.
+    """
+    from src.apps.comic_gen.models import AssetUnit, ImageAsset, ImageVariant
+    from src.apps.comic_gen.production_planning import production_preview_inputs
+
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    script = api_module.pipeline.scripts[project_id]
+    for person in script.characters:
+        person.reference_sheet = AssetUnit(selected_image_id=person.id,
+                                           image_variants=[ImageVariant(id=person.id, url=f'assets/{person.id}.png')])
+    script.scenes[0].image_asset = ImageAsset(selected_id='scene', variants=[ImageVariant(id='scene', url='assets/scene.png')])
+    api_module.pipeline._save_data()
+    draft = generate(api_client, project_id)['production_plan_draft']
+    api_client.post(f'/projects/{project_id}/production-plan/apply', json={'expected_revision': draft['revision']})
+    script = api_module.pipeline.scripts[project_id]
+    assets = api_module.pipeline.resolve_episode_assets(script)
+    first_of_one, second_of_one, first_of_two, _ = script.production_previews
+    assert first_of_one.scene_id == first_of_two.scene_id, "the same scene is what used to chain them"
+
+    def inputs(preview):
+        return production_preview_inputs(script, preview, preview.image_prompt, assets)
+
+    # Nothing rendered yet: the opening shot of *either* segment can start right now.
+    for preview in (first_of_one, first_of_two):
+        prompt, _ = inputs(preview)
+        assert '上一镜' not in prompt
+
+    # A later shot in a segment still waits for the one before it — that dependency is real.
+    with pytest.raises(ValueError, match='请先完成上一张分镜图'):
+        inputs(second_of_one)
+
+    first_of_one.t2i_image_urls = ['storyboard/first.png']
+    first_of_one.image_generation_status = GenerationStatus.COMPLETED
+    api_module.pipeline._save_data()
+
+    prompt, composition = inputs(second_of_one)
+    assert '上一镜' in prompt
+    assert 'storyboard/first.png' in composition['reference_image_urls']
+
+    # ...but the next segment never picks it up, however far along segment one is.
+    _, across = inputs(first_of_two)
+    assert 'storyboard/first.png' not in across['reference_image_urls']
+
+
 def _stream_headers(client) -> dict:
     """`stream()` bypasses the wrapper that normally attaches these."""
     return {"Origin": "http://testserver",

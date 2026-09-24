@@ -3592,6 +3592,8 @@
     "readOnly": "当前为只读，可以查看方案，获得编辑权限后再修改。",
     "generateMissing": "生成缺少的分镜图（{count} 张）",
     "stopFollowing": "停止后续生成",
+      "bulkProgress": "已完成 {done} / {total}",
+      "bulkFailed": "{count} 张生成失败：{reason}",
     "playPreview": "播放画面节奏预演（无音频）",
     "pausePreview": "暂停预演",
     "saveAndClose": "保存并关闭",

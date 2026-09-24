@@ -56,7 +56,7 @@ it('generates missing keyframes in order, previews timing, and requires explicit
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith('project', 'segment-frame', 'inputs-v1'));
 });
 
-it('stops a batch after a failed image instead of submitting the rest', async () => {
+it('stops the rest of a segment after a failed image instead of submitting shots that depend on it', async () => {
     mocks.render.mockRejectedValueOnce(new Error('图像供应商繁忙'));
     renderWithIntl(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '生成缺少的分镜图（2 张）' }));
@@ -140,4 +140,74 @@ it('keeps an unsaved preview prompt when closing is cancelled', async () => {
     expect(close).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
     expect(screen.getAllByRole('textbox', { name: '分镜图描述' })[0]).toHaveValue('保留这段编辑');
+});
+
+/** Two segments in the same scene — the shape that used to serialize into one queue. */
+function twoSegments(): Project {
+    const shots = (ids: string[]) => ids.map(id => ({ id, title: `镜头${id}`, description: '人物在檐下', duration: 4, camera: '中景', dialogue: [] }));
+    return { id: 'project', frames: [{ id: 'frame-one' }, { id: 'frame-two' }], production_plan: { id: 'plan', continuity_rules: '两人站在亭檐下', segments: [
+        { id: 'one', frame_id: 'frame-one', title: '对峙', start_state: '亭口相望', end_state: '沈砚垂眼', connection: '', shots: shots(['a', 'b']) },
+        { id: 'two', frame_id: 'frame-two', title: '回身', start_state: '沈砚垂眼', end_state: '转身离去', connection: '延续雨声', shots: shots(['c', 'd']) },
+    ] }, production_previews: ['a', 'b', 'c', 'd'].map(id => ({ id, scene_id: 'scene', image_prompt: `画面${id}`, t2i_image_urls: [], t2i_selected_index: 0 })) } as unknown as Project;
+}
+
+/** Hold every render open so what is in flight at once is observable. */
+function gatedRenders() {
+    const open = new Map<string, (ok: boolean) => void>();
+    mocks.render.mockImplementation((_project: string, id: string) => new Promise((resolve, reject) => {
+        open.set(id, (ok: boolean) => {
+            if (!ok) return reject(new Error(`${id} 生成失败`));
+            stored = { ...stored, production_previews: stored.production_previews!.map(p =>
+                p.id === id ? { ...p, t2i_image_urls: [`/${id}.png`], image_generation_status: 'completed' } : p) };
+            resolve(stored);
+        });
+    }));
+    return {
+        inFlight: () => [...open.keys()].sort(),
+        settle: async (id: string, ok = true) => { const finish = open.get(id); open.delete(id); await act(async () => { finish!(ok); }); },
+    };
+}
+
+it('renders segments at the same time while keeping each segment in shot order', async () => {
+    stored = twoSegments();
+    const renders = gatedRenders();
+    renderWithIntl(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '生成缺少的分镜图（4 张）' }));
+
+    // Both segments open their first shot before either has finished — the whole point.
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
+    expect(renders.inFlight()).toEqual(['a', 'c']);
+    expect(screen.getByText('已完成 0 / 4')).toBeVisible();
+
+    // The second shot of a segment waits for that segment's first, not for the other segment.
+    await renders.settle('a');
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(3));
+    expect(renders.inFlight()).toEqual(['b', 'c']);
+    expect(screen.getByText('已完成 1 / 4')).toBeVisible();
+
+    await renders.settle('c');
+    await renders.settle('b');
+    await renders.settle('d');
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(4));
+    expect(mocks.render.mock.calls.map(call => call[1])).toEqual(['a', 'c', 'b', 'd']);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps other segments going when one segment fails, and reports how many images failed', async () => {
+    stored = twoSegments();
+    const renders = gatedRenders();
+    renderWithIntl(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '生成缺少的分镜图（4 张）' }));
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
+
+    await renders.settle('a', false);          // segment one dies on its first shot
+    await renders.settle('c');
+    await waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(3));
+    expect(renders.inFlight()).toEqual(['d']); // segment two carried on
+    await renders.settle('d');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('1 张生成失败：a 生成失败');
+    // 'b' needs a's image as a reference, so submitting it would only be refused.
+    expect(mocks.render.mock.calls.map(call => call[1])).not.toContain('b');
+    expect(stored.production_previews!.filter(p => p.t2i_image_urls?.length).map(p => p.id)).toEqual(['c', 'd']);
 });

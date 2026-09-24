@@ -82,6 +82,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const [playing, setPlaying] = useState(false);
     const [playIndex, setPlayIndex] = useState(0);
     const [clearTarget, setClearTarget] = useState<Preview | null>(null);
+    const [bulk, setBulk] = useState({ done: 0, total: 0 });
     const running = useRef(false);
     const mutationVersion = useRef(0);
     const stopBulk = useRef(false);
@@ -92,6 +93,10 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     const previews = project.production_previews ?? [];
     const allShots = plan?.segments.flatMap(segment => segment.shots) ?? [];
     const missing = previews.filter(preview => !imageUrl(preview));
+    // Previews grouped into the chains the backend actually enforces: shot order within a
+    // segment, nothing across segments.
+    const chains = (plan?.segments ?? []).map(segment =>
+        segment.shots.map(shot => previews.find(preview => preview.id === shot.id)).filter((p): p is Preview => !!p));
     const imageRunning = previews.some(preview => preview.image_generation_status === 'processing' || preview.image_generation_status === 'pending');
     const refresh = useCallback(async () => {
         const version = mutationVersion.current;
@@ -127,12 +132,21 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
     }
     async function generate(preview: Preview) {
         if (!await beforeChange() || !mounted.current) return;
+        await render(preview);
+    }
+    /**
+     * One image. `apply` lets the bulk run merge its own result instead of taking the
+     * whole snapshot: renders happen in parallel now, and a response serialized before a
+     * sibling finished would otherwise overwrite that sibling's image on the way in.
+     */
+    async function render(preview: Preview, apply?: (rendered: Preview) => void) {
         let rendered: Preview | undefined;
         try {
             const result = await api.renderFrame(project.id, preview.id, null, prompts[preview.id] ?? preview.image_prompt ?? '', 1);
             if (!mounted.current) return;
-            onUpdate({ production_previews: result.production_previews });
             rendered = result.production_previews?.find((frame: Preview) => frame.id === preview.id);
+            if (apply && rendered) apply(rendered);
+            else onUpdate({ production_previews: result.production_previews });
         } catch (error) {
             if (!isRequestTimeout(error) || !mounted.current) throw error;
             rendered = await waitForPreviewCompletion({
@@ -173,12 +187,32 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
             <div className={styles.tools}>
                 {missing.length > 0 && <Button variant="secondary" isDisabled={!!busy || imageRunning} isPending={busy === 'all'} onPress={() => void run('all', async () => {
                     stopBulk.current = false;
-                    for (const preview of previews) {
-                        if (stopBulk.current || !mounted.current) break;
-                        if (!imageUrl(preview)) await generate(preview);
-                    }
+                    if (!await beforeChange() || !mounted.current) return;
+                    setBulk({ done: 0, total: missing.length });
+                    // One chain per segment. Inside a segment each shot carries the previous
+                    // shot's image, so it stays serial; segments are independent, so they
+                    // run at once. `allSettled` — with `all`, the first failure would leave
+                    // the other chains' rejections unhandled.
+                    const fresh = new Map<string, Preview>();
+                    const snapshot = previews;
+                    const outcomes = await Promise.allSettled(chains.map(async chain => {
+                        for (const preview of chain) {
+                            if (stopBulk.current || !mounted.current) return;
+                            if (imageUrl(preview)) continue;
+                            // A failure stops the rest of *this* segment: the shots after it
+                            // need its image as a reference and would only be refused.
+                            await render(preview, rendered => {
+                                fresh.set(rendered.id, rendered);
+                                setBulk(current => ({ ...current, done: fresh.size }));
+                                onUpdate({ production_previews: snapshot.map(p => fresh.get(p.id) ?? p) });
+                            });
+                        }
+                    }));
+                    const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+                    if (failures.length) throw new Error(t('bulkFailed', { count: failures.length, reason: errorMessage(failures[0].reason) || t('imageFailed') }));
                 })}>{t('generateMissing', { count: missing.length })}</Button>}
-                {busy === 'all' && <Button variant="quiet" onPress={() => { stopBulk.current = true; }}>{t('stopFollowing')}</Button>}
+                {busy === 'all' && <><span className={styles.hint}>{t('bulkProgress', { done: bulk.done, total: bulk.total })}</span>
+                    <Button variant="quiet" onPress={() => { stopBulk.current = true; }}>{t('stopFollowing')}</Button></>}
                 <Button variant="quiet" isDisabled={missing.length > 0 || !allShots.length} onPress={() => { if (!playing) setPlayIndex(0); setPlaying(!playing); }}>{playing ? <Pause size={14} /> : <Play size={14} />}{t(playing ? 'pausePreview' : 'playPreview')}</Button>
             </div>
             {playing && playingShot && <section className={styles.animatic} aria-label={t('playPreview')}>

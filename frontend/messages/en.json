@@ -3592,6 +3592,8 @@
     "readOnly": "Read-only. You can review the plan; editing requires an active edit session.",
     "generateMissing": "Generate missing images ({count})",
     "stopFollowing": "Stop remaining images",
+      "bulkProgress": "{done} of {total} done",
+      "bulkFailed": "{count} image(s) failed: {reason}",
     "playPreview": "Play timed storyboard (no audio)",
     "pausePreview": "Pause preview",
     "saveAndClose": "Save & close",

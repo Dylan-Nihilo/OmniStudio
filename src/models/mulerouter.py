@@ -12,6 +12,7 @@ import json
 import logging
 import mimetypes
 import os
+import random
 import shutil
 import subprocess
 import time
@@ -417,14 +418,25 @@ def _describe_http_failure(resp: requests.Response) -> str:
         "服务暂时不可用，请稍后重试。" if resp.status_code >= 500 else "图片生成失败，请稍后重试。")
 
 
+def _backoff_seconds(attempt: int) -> float:
+    """Exponential backoff with jitter.
+
+    The jitter matters now that storyboard images are generated concurrently: without it
+    every parallel render that hits the same rate limit sleeps for exactly the same
+    interval and they all retry in lockstep, rebuilding the burst that caused the limit.
+    """
+    base = min(2 ** attempt * 5, 60)
+    return base * random.uniform(0.7, 1.3)
+
+
 def _request_with_retry(method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
     """HTTP request with exponential backoff retry on transient errors."""
     for attempt in range(max_retries):
         try:
             resp = requests.request(method, url, **kwargs)
             if resp.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
-                wait = min(2 ** attempt * 5, 60)
-                logger.warning(f"[MuleRouter] HTTP {resp.status_code}, retry in {wait}s (attempt {attempt + 1})")
+                wait = _backoff_seconds(attempt)
+                logger.warning(f"[MuleRouter] HTTP {resp.status_code}, retry in {wait:.1f}s (attempt {attempt + 1})")
                 time.sleep(wait)
                 continue
             if resp.status_code >= 400:
@@ -433,8 +445,8 @@ def _request_with_retry(method: str, url: str, max_retries: int = 3, **kwargs) -
             return resp
         except requests.exceptions.ConnectionError:
             if attempt < max_retries - 1:
-                wait = min(2 ** attempt * 5, 60)
-                logger.warning(f"[MuleRouter] Connection error, retry in {wait}s (attempt {attempt + 1})")
+                wait = _backoff_seconds(attempt)
+                logger.warning(f"[MuleRouter] Connection error, retry in {wait:.1f}s (attempt {attempt + 1})")
                 time.sleep(wait)
             else:
                 raise

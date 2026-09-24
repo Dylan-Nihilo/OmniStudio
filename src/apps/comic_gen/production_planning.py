@@ -445,10 +445,17 @@ def production_preview_inputs(script, preview, prompt: str, assets: dict) -> tup
     if missing:
         raise ValueError("请先补充素材参考图：" + "、".join(missing))
     urls = list(report['reference_urls'])
-    ordered = [shot.id for f in script.frames for s in plan.segments if s.frame_id == f.id for shot in s.shots]
+    # The chain of "carry over the previous shot's composition" stops at the segment
+    # boundary. It used to run across the whole episode as long as the scene held, which
+    # made the images one strictly serial queue — an episode shot in a single scene could
+    # not render anything in parallel, and every image waited on the one before it. A
+    # segment is a single video generation with a cut on either side, and its first shot
+    # already carries "本片段开场状态" in its prompt (see `apply_production_plan`), so
+    # continuity between segments rides on the plan's text rather than on an I2I reference.
+    ordered = [shot.id for shot in segment.shots]
     index = ordered.index(preview.id)
     previous = next((p for p in script.production_previews if index and p.id == ordered[index - 1]), None)
-    if previous and previous.scene_id == preview.scene_id:
+    if previous:
         url = preview_url(previous)
         if not url or previous.image_generation_status in ('pending', 'processing'):
             raise ValueError("请先完成上一张分镜图，再沿用它的空间关系制作这一张")
