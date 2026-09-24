@@ -371,29 +371,69 @@ def segment_review(script, frame, assets: dict) -> dict:
     previews = {f.id: f for f in script.production_previews}
     selected_previews = [(shot, previews.get(shot.id)) for shot in segment.shots]
     images = [preview_url(f) for _, f in selected_previews if f and preview_url(f)]
-    blockers = []
+    # Blockers carry a code and a `fix` telling the UI where the problem is corrected, plus
+    # the actual numbers in the message. The bare strings they replaced named neither: a
+    # segment quietly switched to a shorter-capacity model reported only "片段时长不符合当前
+    # 模型，请调整时长或拆分", which says nothing about which model, what it allows, how long
+    # the segment is, or that the setting is this segment's own override.
+    blockers: list[dict[str, Any]] = []
+
+    def block(code: str, message: str, fix: str | None = None, **extra: Any) -> None:
+        blockers.append({"code": code, "message": message, **({"fix": fix} if fix else {}), **extra})
+
     if source_fingerprint(script, assets) != plan.source_fingerprint:
-        blockers.append("剧本或素材设定已变化，请先更新制作计划")
+        block("SOURCE_CHANGED", "剧本或素材设定已变化，请先更新制作计划", "plan")
     if frame.duration != segment.duration:
-        blockers.append("片段时长与镜头安排不一致，请在制作计划中调整各镜头时长")
+        block("DURATION_MISMATCH",
+              f"本片段设为 {frame.duration} 秒，但各镜头时长相加是 {segment.duration} 秒。"
+              "请在制作计划里调整镜头时长，使两者一致。", "plan_timing")
     if not names:
-        blockers.append("请添加本片段的参考素材")
+        block("REFERENCES_REQUIRED", "请添加本片段的参考素材", "assets")
     if missing:
-        blockers.append("参考图不可用：" + "、".join(missing))
+        block("REFERENCES_UNAVAILABLE", "参考图不可用：" + "、".join(missing), "assets",
+              names=missing)
     if len(images) != len(segment.shots):
-        blockers.append("请先为本片段的每个镜头生成或上传分镜图")
+        block("PREVIEWS_MISSING",
+              f"本片段 {len(segment.shots)} 个镜头里还有 {len(segment.shots) - len(images)} 个没有分镜图，"
+              "请在上方生成或上传。", "previs")
     if any(f and f.image_generation_status in ("pending", "processing") for _, f in selected_previews):
-        blockers.append("分镜图仍在生成，请完成后再确认")
+        block("PREVIEWS_RUNNING", "分镜图仍在生成，请完成后再确认")
     model = (frame.model_settings_overrides or {}).get("r2v_model") or plan.settings.model
+    catalog_models = load_generated_model_catalog().get("models", {})
+
+    def model_label(model_id: str) -> str:
+        return catalog_models.get(model_id, {}).get("display_name") or model_id
+
     try:
-        if frame.duration not in model_durations(model):
-            blockers.append("片段时长不符合当前模型，请调整时长或拆分")
+        allowed = model_durations(model)
+        if frame.duration not in allowed:
+            overridden = (frame.model_settings_overrides or {}).get("r2v_model")
+            detail = (f"本片段 {frame.duration} 秒，当前所选的「{model_label(model)}」只支持 "
+                      f"{min(allowed)}–{max(allowed)} 秒。")
+            # The override is the part nobody could see. Naming the plan's model and its own
+            # limit turns "adjust the duration" into a choice the user can actually make.
+            if overridden and overridden != plan.settings.model:
+                try:
+                    plan_allowed = model_durations(plan.settings.model)
+                    detail += (f"这是本片段单独设置的模型；制作计划用的是「{model_label(plan.settings.model)}」，"
+                               f"支持 {min(plan_allowed)}–{max(plan_allowed)} 秒。"
+                               "可以把本片段换回计划模型，或在制作计划里缩短、拆分这一段。")
+                except ValueError:
+                    detail += "这是本片段单独设置的模型，可换回计划模型，或在制作计划里缩短、拆分这一段。"
+            else:
+                detail += "请在制作计划里缩短这一段，或把它拆成两段。"
+            block("DURATION_UNSUPPORTED", detail, "segment_model",
+                  duration=frame.duration, allowed_min=min(allowed), allowed_max=max(allowed),
+                  model=model, plan_model=plan.settings.model, is_override=bool(overridden))
     except ValueError as error:
-        blockers.append(str(error))
-    entry = load_generated_model_catalog().get("models", {}).get(model, {})
+        block("MODEL_UNAVAILABLE", str(error), "segment_model", model=model)
+    entry = catalog_models.get(model, {})
     limit = entry.get("inputs", {}).get("reference_images", {}).get("max")
     if limit and len(reference_urls) + len(images) > limit:
-        blockers.append(f"当前模型最多使用 {limit} 张参考图，请减少素材或拆分片段")
+        block("REFERENCE_LIMIT",
+              f"本片段要用 {len(reference_urls) + len(images)} 张参考图，"
+              f"而「{model_label(model)}」最多支持 {limit} 张。请减少素材或在制作计划里拆分这一段。",
+              "plan", limit=limit, used=len(reference_urls) + len(images))
     index = next((i for i, item in enumerate(script.frames) if item.id == frame.id), 0)
     previous = script.frames[index - 1] if index else None
     preceding = {key: getattr(previous, key) for key in ("id", "scene_id", "visual_description", "duration", "selected_video_id", "video_url", "out_point")} if previous else None

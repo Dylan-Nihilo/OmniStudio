@@ -48,13 +48,35 @@ export interface ProductionPlan {
     warnings: string[];
     problems: PlanProblem[];
 }
+/**
+ * Something stopping a segment from being confirmed, with where it is fixed.
+ *
+ * `fix` is what turns a complaint into an instruction: bare strings told a user the segment
+ * duration did not suit "the current model" without naming the model, its limit, or the fact
+ * that the setting was this segment's own override.
+ */
+export interface PlanBlocker {
+    code: string;
+    message: string;
+    fix?: 'segment_model' | 'plan_timing' | 'plan' | 'previs' | 'assets';
+    duration?: number;
+    allowed_min?: number;
+    allowed_max?: number;
+    model?: string;
+    plan_model?: string;
+    is_override?: boolean;
+    limit?: number;
+    used?: number;
+    names?: string[];
+}
+
 export interface ProductionReview {
     frame_id: string;
     segment_id: string;
     fingerprint: string;
     ready: boolean;
     can_confirm: boolean;
-    blockers: string[];
+    blockers: PlanBlocker[];
     reference_urls: string[];
     preview_urls: string[];
     previous_frame_id?: string | null;

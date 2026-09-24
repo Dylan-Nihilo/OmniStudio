@@ -345,7 +345,7 @@ def test_previs_review_is_required_and_includes_images_in_video_inputs(api_clien
     api_module.pipeline._save_data()
     timing_review = api_client.get(plan_route + '/review').json()['segments'][0]
     assert not timing_review['can_confirm']
-    assert any('时长与镜头安排不一致' in item for item in timing_review['blockers'])
+    assert any(item['code'] == 'DURATION_MISMATCH' for item in timing_review['blockers'])
     script = api_module.pipeline.scripts[project_id]
     script.frames[0].duration = 8
     api_module.pipeline._save_data()
@@ -529,6 +529,56 @@ def test_a_problem_quotes_the_offending_text_in_full():
     quote_problems = [p for p in problems if p.field == "source_quote"]
     assert quote_problems, problems
     assert long_quote in quote_problems[0].message, "the whole quote has to be shown"
+
+
+def test_a_blocker_names_the_numbers_and_where_the_setting_lives(api_client, monkeypatch):
+    """"请调整时长或拆分" did not say which model, what it allows, or where the setting is.
+
+    Reported from production: 斗破苍穹 片段2 was 25s while quietly switched to a model that
+    caps at 15s — every other segment was on the 30s model. Nothing on screen mentioned the
+    per-segment override, so there was no way to know what to change.
+    """
+    from src.apps.comic_gen.production_planning import model_durations, segment_review
+
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    api_client.post(f'/projects/{project_id}/production-plan/apply',
+                    json={'expected_revision': draft['revision']})
+    script = api_module.pipeline.scripts[project_id]
+    plan_max = max(model_durations(script.production_plan.settings.model))
+    short_model = 'seedance-2.0-r2v'
+    short_max = max(model_durations(short_model))
+    assert short_max < plan_max, "the point needs a model with less capacity than the plan's"
+
+    frame, segment = script.frames[0], script.production_plan.segments[0]
+    frame.model_settings_overrides = {'r2v_model': short_model}
+    # A segment's duration is the sum of its shots (a computed property), so the shots are
+    # what set it. Chosen to keep 26 / 15 / 30 distinct, which is what makes the assertion
+    # below mean something — and it mirrors the reported case.
+    for shot in segment.shots:
+        shot.duration = 13
+    frame.duration = segment.duration
+    assert frame.duration == 26 and frame.duration > short_max
+    api_module.pipeline._save_data()
+
+    blockers = {item['code']: item for item in
+                segment_review(script, frame, api_module.pipeline.resolve_episode_assets(script))['blockers']}
+    duration = blockers['DURATION_UNSUPPORTED']
+    assert duration['fix'] == 'segment_model', "the UI needs to know the setting is per-segment"
+    # Every number a person needs in order to decide: how long the segment is, what this
+    # model takes, and what the plan's own model would take.
+    for number in (frame.duration, short_max, plan_max):
+        assert str(number) in duration['message'], duration['message']
+    assert duration['is_override'] is True
+
+    # A mismatch between the segment and its shots names both figures rather than neither.
+    frame.duration = short_max
+    api_module.pipeline._save_data()
+    mismatch = next(item for item in segment_review(
+        script, frame, api_module.pipeline.resolve_episode_assets(script))['blockers']
+        if item['code'] == 'DURATION_MISMATCH')
+    assert mismatch['fix'] == 'plan_timing'
+    assert str(short_max) in mismatch['message'] and str(segment.duration) in mismatch['message']
 
 
 def test_a_shot_waits_only_on_its_own_segment_so_segments_can_render_at_once(api_client, monkeypatch):

@@ -5,17 +5,18 @@ import { renderWithIntl } from '@/test/renderWithIntl';
 import type { Project } from '@/store/projectStore';
 import ProductionPrevisDialog, { waitForPreviewCompletion } from './ProductionPrevisDialog';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), review: vi.fn(), render: vi.fn(), confirm: vi.fn(), upload: vi.fn(), update: vi.fn(), remove: vi.fn(), clear: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { getProject: mocks.get, reviewProductionPlan: mocks.review, renderFrame: mocks.render, confirmProductionSegment: mocks.confirm, uploadT2IFrame: mocks.upload, updateProductionPreview: mocks.update, removeProductionPreviewCandidate: mocks.remove, clearProductionPreviewCandidates: mocks.clear } }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), review: vi.fn(), render: vi.fn(), confirm: vi.fn(), upload: vi.fn(), update: vi.fn(), remove: vi.fn(), clear: vi.fn(), modelSettings: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: { getProject: mocks.get, reviewProductionPlan: mocks.review, renderFrame: mocks.render, confirmProductionSegment: mocks.confirm, uploadT2IFrame: mocks.upload, updateProductionPreview: mocks.update, removeProductionPreviewCandidate: mocks.remove, clearProductionPreviewCandidates: mocks.clear, updateShotModelSettings: mocks.modelSettings } }));
 vi.mock('@/components/shared/preview/PreviewImage', () => ({ default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} /> }));
 vi.mock('@/components/shared/preview/PreviewVideo', () => ({ default: () => <video /> }));
 let stored: Project;
 let confirmed = false;
 const close = vi.fn();
+const editPlan = vi.fn();
 function Harness({ readOnly = false }: { readOnly?: boolean }) {
     const [project, setProject] = useState(stored);
     const update = useCallback((patch: Partial<Project>) => setProject(current => ({ ...current, ...patch })), []);
-    return <ProductionPrevisDialog isOpen onClose={close} project={project} beforeChange={async () => true} onUpdate={update} readOnly={readOnly} />;
+    return <ProductionPrevisDialog isOpen onClose={close} project={project} beforeChange={async () => true} onUpdate={update} onEditPlan={editPlan} readOnly={readOnly} />;
 }
 beforeEach(() => {
     vi.clearAllMocks(); confirmed = false; vi.stubGlobal('confirm', vi.fn(() => true));
@@ -274,4 +275,47 @@ it('keeps candidate removal exclusive because it carries the project revision', 
     for (const button of screen.getAllByRole('button', { name: '移除当前分镜候选图' })) expect(button).toBeDisabled();
     await renders.settle('a');
     await waitFor(() => expect(screen.getAllByRole('button', { name: '移除当前分镜候选图' })[1]).toBeEnabled());
+});
+
+it('points a blocker at the setting that causes it instead of leaving the user to guess', async () => {
+    // Reported from production: 片段2 was 25s while quietly switched to a model capping at
+    // 15s, and the message said only "片段时长不符合当前模型，请调整时长或拆分" — it named
+    // neither the model, its limit, nor the fact that the setting was this segment's own.
+    stored = twoSegments();
+    mocks.review.mockResolvedValue({ segments: [{
+        segment_id: 'one', frame_id: 'frame-one', fingerprint: 'f1', ready: false, can_confirm: false,
+        needs_review: true, reference_urls: [], preview_urls: [],
+        blockers: [{
+            code: 'DURATION_UNSUPPORTED', fix: 'segment_model', is_override: true,
+            duration: 25, allowed_min: 4, allowed_max: 15, model: 'seedance-2.0-r2v',
+            plan_model: 'seedance-2.5-r2v',
+            message: '本片段 25 秒，当前所选的「Seedance 2.0 卓越 R2V」只支持 4–15 秒。',
+        }],
+    }] });
+    mocks.modelSettings.mockResolvedValue({ frames: [{ id: 'frame-one' }] });
+    renderWithIntl(<Harness />);
+
+    expect(await screen.findByText('本片段 25 秒，当前所选的「Seedance 2.0 卓越 R2V」只支持 4–15 秒。')).toBeVisible();
+
+    // Both routes are offered; which one is right is the user's creative call, so neither
+    // is taken for them.
+    fireEvent.click(screen.getByRole('button', { name: '去制作计划调整' }));
+    expect(editPlan).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: '换回计划模型' }));
+    await waitFor(() => expect(mocks.modelSettings).toHaveBeenCalledWith('project', 'frame-one', { reset_fields: ['r2v_model'] }));
+});
+
+it('does not offer a fix for a blocker that has no setting to change', async () => {
+    stored = twoSegments();
+    mocks.review.mockResolvedValue({ segments: [{
+        segment_id: 'one', frame_id: 'frame-one', fingerprint: 'f1', ready: false, can_confirm: false,
+        needs_review: true, reference_urls: [], preview_urls: [],
+        blockers: [{ code: 'PREVIEWS_RUNNING', message: '分镜图仍在生成，请完成后再确认' }],
+    }] });
+    renderWithIntl(<Harness />);
+
+    expect(await screen.findByText('分镜图仍在生成，请完成后再确认')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '换回计划模型' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '去制作计划调整' })).not.toBeInTheDocument();
 });

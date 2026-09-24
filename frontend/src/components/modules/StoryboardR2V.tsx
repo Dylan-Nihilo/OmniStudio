@@ -2333,6 +2333,7 @@ function StoryboardWorkbench() {
             onPrevis={() => setPrevisDialogOpen(true)}
         />
         <ProductionPrevisDialog isOpen={previsDialogOpen} onClose={() => setPrevisDialogOpen(false)}
+            onEditPlan={() => { setPrevisDialogOpen(false); setGenDialogOpen(true); }}
             project={currentProject} readOnly={planReadOnly} beforeChange={saveAllDrafts} onUpdate={updateProduction} /></>}
         </div>
     );

@@ -68,9 +68,11 @@ interface Props {
     onClose: () => void;
     beforeChange: () => Promise<boolean>;
     onUpdate: (patch: Partial<Project>) => void;
+    /** Open the production plan — where segment timing and splitting are edited. */
+    onEditPlan?: () => void;
     readOnly?: boolean;
 }
-export default function ProductionPrevisDialog({ project, isOpen, onClose, beforeChange, onUpdate, readOnly = false }: Props) {
+export default function ProductionPrevisDialog({ project, isOpen, onClose, beforeChange, onUpdate, onEditPlan, readOnly = false }: Props) {
     const t = useTranslations('productionPlan');
     const tOmni = useTranslations('omniReference');
     const [reviews, setReviews] = useState<ProductionReview[]>([]);
@@ -305,7 +307,19 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                             </details>
                         </article>;
                     })}</div>
-                    {report?.blockers.map((blocker, i) => <p key={i} className={styles.error}>{blocker}</p>)}
+                    {report?.blockers.map((blocker, i) => <div key={i} className={styles.error}>
+                        <p>{blocker.message}</p>
+                        <div className={styles.tools}>
+                            {blocker.fix === 'segment_model' && blocker.is_override && <Button variant="secondary"
+                                isDisabled={segmentBusy || busy.has(`${report.frame_id}:model`)}
+                                onPress={() => void run(`${report.frame_id}:model`, async () => {
+                                    const result = await api.updateShotModelSettings(project.id, report.frame_id, { reset_fields: ['r2v_model'] });
+                                    if (mounted.current) onUpdate({ frames: result.frames });
+                                })}>{t('useplanModel')}</Button>}
+                            {(blocker.fix === 'plan_timing' || blocker.fix === 'plan' || blocker.fix === 'segment_model') && onEditPlan
+                                && <Button variant="quiet" onPress={onEditPlan}>{t('goEditPlan')}</Button>}
+                        </div>
+                    </div>)}
                     {report?.changed_after_review && report.can_confirm && <p className={styles.hint}>{t('reviewNotice')}</p>}
                     <Button variant={report?.ready ? 'quiet' : 'secondary'} isDisabled={!report?.can_confirm || report.ready || segmentBusy || busy.has(segment.id) || hasDirtyPrompts}
                         onPress={() => void run(segment.id, async () => {

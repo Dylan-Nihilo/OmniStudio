@@ -2183,7 +2183,7 @@ class ComicGenPipeline:
             if report["fingerprint"] != expected_fingerprint:
                 raise GenerationInProgressError("画面或前一片段已有更新，请重新查看后确认")
             if report["blockers"]:
-                raise ValueError("；".join(report["blockers"]))
+                raise ValueError("；".join(item["message"] for item in report["blockers"]))
             self._save_fields(frame, production_review_fingerprint=expected_fingerprint,
                               image_url=report["preview_urls"][0], rendered_image_url=report["preview_urls"][0])
             return script

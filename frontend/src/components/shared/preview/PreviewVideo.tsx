@@ -37,6 +37,14 @@ export interface PreviewVideoProps {
     placeholder?: React.ReactNode;
 }
 
+/** `HTMLMediaElement.error.code` in words. The element knows why it failed; say so. */
+const MEDIA_ERROR_KEYS: Record<number, string> = {
+    1: "videoErrAborted",
+    2: "videoErrNetwork",
+    3: "videoErrDecode",
+    4: "videoErrUnsupported",
+};
+
 export default function PreviewVideo({
     src, poster, alt, className, noLightbox = false,
     groupId, groupIndex, alwaysShowMagnify = false,
@@ -46,6 +54,7 @@ export default function PreviewVideo({
     const { open, openInGroup } = useLightbox();
     const t = useTranslations("preview");
     const [errored, setErrored] = useState(false);
+    const [errorKey, setErrorKey] = useState<string | null>(null);
     const [retryNonce, setRetryNonce] = useState(0);
     const [hasRetriedOnce, setHasRetriedOnce] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -55,6 +64,7 @@ export default function PreviewVideo({
 
     useEffect(() => {
         setErrored(false);
+        setErrorKey(null);
         setHasRetriedOnce(false);
         setRetryNonce(0);
     }, [src]);
@@ -82,6 +92,8 @@ export default function PreviewVideo({
         : "";
 
     const handleError = () => {
+        const code = videoRef.current?.error?.code;
+        setErrorKey(code ? MEDIA_ERROR_KEYS[code] ?? null : null);
         if (!hasRetriedOnce) {
             setHasRetriedOnce(true);
             setRetryNonce(n => n + 1);
@@ -203,6 +215,7 @@ export default function PreviewVideo({
                     onRetry={handleManualRetry}
                     onCopyUrl={handleCopyUrl}
                     copied={copied}
+                    reason={errorKey ? t(errorKey) : null}
                 />
             )}
         </div>
@@ -215,9 +228,10 @@ interface VideoFallbackPanelProps {
     onRetry: () => void;
     onCopyUrl: () => void;
     copied: boolean;
+    reason: string | null;
 }
 
-function VideoFallbackPanel({ sizeBucket, url, onRetry, onCopyUrl, copied }: VideoFallbackPanelProps) {
+function VideoFallbackPanel({ sizeBucket, url, onRetry, onCopyUrl, copied, reason }: VideoFallbackPanelProps) {
     const t = useTranslations("preview");
     if (sizeBucket === "micro") {
         return (
@@ -258,6 +272,7 @@ function VideoFallbackPanel({ sizeBucket, url, onRetry, onCopyUrl, copied }: Vid
             <AlertTriangle size={22} aria-hidden="true" />
             <div className="space-y-1">
                 <p className="font-sans text-body-sm font-medium">{t("videoLoadFailed")}</p>
+                {reason && <p className="font-sans text-chrome-sm">{reason}</p>}
                 <p
                     className="max-w-[26rem] truncate font-mono text-chrome-sm text-status-failed-fg/75"
                     title={url}
@@ -282,6 +297,14 @@ function VideoFallbackPanel({ sizeBucket, url, onRetry, onCopyUrl, copied }: Vid
                     {copied ? <Check size={11} /> : <Copy size={11} />}
                     {copied ? t("copied") : t("copyUrl")}
                 </button>
+                <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-[28px] items-center gap-1 rounded border border-glass-border bg-black/30 px-2.5 py-1 font-mono text-chrome font-medium text-text-secondary transition-colors duration-fast ease-out-quart hover:bg-hover-bg hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55"
+                >
+                    {t("openInNewTab")}
+                </a>
             </div>
         </div>
     );

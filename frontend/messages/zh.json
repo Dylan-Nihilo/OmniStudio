@@ -2241,6 +2241,10 @@
     "imgLoadFailed": "图片加载失败",
     "imgLoadFailedRetry": "加载失败，点击重试",
     "videoLoadFailed": "视频加载失败",
+    "videoErrAborted": "播放已被中断",
+    "videoErrNetwork": "网络中断，文件没有取完",
+    "videoErrDecode": "文件已取到，但解码失败",
+    "videoErrUnsupported": "浏览器不支持这个视频格式，或文件无法访问",
     "videoLoadFailedRetry": "视频加载失败，点击重试"
   },
   "playground": {
@@ -3688,6 +3692,8 @@
     "busyImage": "分镜图生成中…",
     "previsCount": "片段内 {count} 个镜头",
       "previsReferenced": "按镜头顺序引用这 {count} 张分镜图作为参考",
+      "useplanModel": "换回计划模型",
+      "goEditPlan": "去制作计划调整",
     "reviewNotice": "内容或前一片段有更新，请重新检查画面与衔接。",
     "editPlan": "编辑方案",
     "reviewPlan": "查看方案",
