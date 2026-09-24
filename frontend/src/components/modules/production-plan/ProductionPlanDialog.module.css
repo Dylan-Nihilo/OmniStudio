@@ -3,6 +3,7 @@
 .settings { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
 .stack { display: grid; gap: 20px; }
 .stats { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 16px 0; border-block: 1px solid var(--color-border-default); font-size: 13px; }
+.statsEdit { margin-left: auto; border: 1px solid var(--color-border-default); border-radius: 6px; padding-inline: 12px; }
 .hint { color: var(--color-text-secondary); font-size: 13px; line-height: 1.7; }
 .error { color: var(--color-status-failed-fg); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .segment { border-top: 1px solid var(--color-border-default); padding-top: 20px; display: grid; gap: 16px; min-width: 0; }

@@ -49,7 +49,7 @@ class _Catalog:
 
 def test_seed_publishes_and_every_row_clears_the_margin_target(published):
     table = published.runtime.require_current().table()
-    assert len(table) == 53
+    assert len(table) == 54
     assert [row["item_id"] for row in table if not row["meets_target"]] == []
 
 
@@ -86,6 +86,7 @@ def test_text_and_tts_quote_through_their_own_entry_points(published):
     assert published.runtime.quote_text("text/claude-opus-5", 20_000, 5_000).credits == 90
     # 600 characters of dialogue at 9 credits per 1000
     assert published.runtime.quote("tts/cosyvoice-v2", {}, 600 / 1000).credits == 6
+    assert published.runtime.quote("tts/qwen-audio-3.0-tts-plus", {}, 600 / 1000).credits == 5
 
 
 def test_a_spec_outside_the_price_book_is_refused_rather_than_free(published):

@@ -18,7 +18,7 @@ it('asks in an app dialog before deleting a voice and retains it after a failure
   render(<VoicePickerModal isOpen onClose={vi.fn()} characterName="Rae" seriesId="series" onApply={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'tabClone' }));
   await screen.findByText('My voice');
-  fireEvent.click(screen.getByRole('button', { name: 'Delete custom voice' }));
+  fireEvent.click(screen.getByRole('button', { name: 'deleteCustomVoice' }));
   const dialog = await screen.findByRole('dialog', { name: 'delete' });
   expect(remove).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole('button', { name: 'confirm' }));
@@ -42,7 +42,7 @@ it('shows explainable voice recommendations without binding before Apply', async
   render(<VoicePickerModal isOpen onClose={vi.fn()} characterName="Rae" characterGender="Female" onApply={apply} />);
   expect((await screen.findAllByText('recommendationReasons.gender_match'))[0]).toBeVisible();
   expect(apply).not.toHaveBeenCalled();
-  fireEvent.click((screen.getAllByText('Female')[0]).closest('div.relative')!);
+  fireEvent.click((screen.getAllByText(/gender\.female/)[0]).closest('div.relative')!);
   fireEvent.click(screen.getByRole('button', { name: 'apply' }));
   expect(apply).toHaveBeenCalledWith('voice-female', 'Female');
 });
@@ -73,4 +73,23 @@ it('keeps the selected voice and dialog open when applying fails, then retries',
   fireEvent.click(screen.getByRole('button',{name:'apply'}));
   await waitFor(()=>expect(close).toHaveBeenCalledOnce());
   expect(apply).toHaveBeenCalledTimes(2);
+});
+
+it('localizes voice metadata and the retry action', async () => {
+  const { api } = await import('@/lib/api');
+  vi.mocked(api.getVoices).mockResolvedValueOnce([{
+    id: 'voice-female', name: 'Female', gender: 'Female', model: 'cosyvoice-v2', family: 'cosyvoice',
+    supports_instruction: true, origin: 'system', dialect: 'shanghai', lang_primary: null,
+  }]);
+  render(<VoicePickerModal isOpen onClose={vi.fn()} characterName="Rae" onApply={vi.fn()} />);
+  expect(await screen.findByText(/gender\.female/)).toBeVisible();
+  expect(screen.getByText(/dialect\.shanghai/)).toBeVisible();
+  expect(screen.getByText(/instructionTag/)).toBeVisible();
+});
+
+it('uses the common retry translation when loading voices fails', async () => {
+  const { api } = await import('@/lib/api');
+  vi.mocked(api.getVoices).mockRejectedValueOnce(new Error('offline'));
+  render(<VoicePickerModal isOpen onClose={vi.fn()} characterName="Rae" onApply={vi.fn()} />);
+  expect(await screen.findByRole('button', { name: 'retry' })).toBeVisible();
 });

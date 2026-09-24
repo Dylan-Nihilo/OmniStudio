@@ -527,6 +527,14 @@
       "match": {},
       "purchase_price_cny": 0.08,
       "display_name": "Qwen TTS"
+    },
+    {
+      "model_id": "tts/qwen-audio-3.0-tts-plus",
+      "stage": "tts",
+      "billing_unit": "chars_1k",
+      "match": {},
+      "purchase_price_cny": 0.14,
+      "display_name": "Qwen Audio TTS"
     }
   ]
 }

@@ -40,6 +40,17 @@ const PRICING: PricingTable = {
     ],
 };
 
+const IMAGE_PRICING: PricingTable = {
+    version: 1,
+    credit_face_value_cny: 0.1,
+    items: [
+        { item_id: 'image-1k', model_id: 'gpt-image/gpt-image-2#image', stage: 'image', unit: 'image',
+          match: { size_tier: '1K' }, credits: 12, credits_raw: 11.2, display_name: '高级' },
+        { item_id: 'image-2k', model_id: 'gpt-image/gpt-image-2#image', stage: 'image', unit: 'image',
+          match: { size_tier: '2K' }, credits: 20, credits_raw: 19.4, display_name: '高级' },
+    ],
+};
+
 function setBilling(state: { enabled: boolean; ratesPublished: boolean; available?: number }) {
     useBillingStore.setState({
         enabled: state.enabled,
@@ -62,6 +73,13 @@ describe('when a cost is shown', () => {
         render(<CreditCost {...shot} />);
         // 19 credits a second for 5 seconds.
         expect(screen.getByText('消耗 95 积分')).toBeInTheDocument();
+    });
+
+    it('prices a legacy image model after resolving its canonical id', () => {
+        setBilling({ enabled: false, ratesPublished: true });
+        useBillingStore.setState({ pricing: IMAGE_PRICING });
+        render(<CreditCost modelId="gpt-image-2" params={{ size_tier: '2K' }} quantity={2} />);
+        expect(screen.getByText('消耗 40 积分')).toBeInTheDocument();
     });
 
     it('shows nothing at all on a deployment that neither charges nor publishes rates', () => {

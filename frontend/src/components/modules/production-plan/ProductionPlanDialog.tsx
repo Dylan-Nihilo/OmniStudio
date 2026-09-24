@@ -234,8 +234,8 @@ export default function ProductionPlanDialog({ isOpen, onClose, project, modelId
                     <span className={styles.hint}>{t('problemsHint')}</span>
                 </div>}
                 <div className={styles.stats}><strong>{t('totalDuration', { seconds: planDuration(draft) })}</strong><span>{t('shotCount', { count: shotCount })}</span><span>{t('generationCount', { count: draft.segments.length })}</span>
-                    <CreditCost modelId={settings.model} quantity={planDuration(draft)} /></div>
-                <Button variant="quiet" onPress={() => setEditing(!editing)}>{t(editing ? 'reviewPlan' : 'editPlan')}</Button>
+                    <CreditCost modelId={settings.model} quantity={planDuration(draft)} />
+                    <Button variant="quiet" className={styles.statsEdit} onPress={() => setEditing(!editing)}>{t(editing ? 'reviewPlan' : 'editPlan')}</Button></div>
                 {editing ? <><TextAreaField label={t('summary')} rows={2} value={draft.summary} onChange={value => change({ ...draft, summary: value })} />
                 <TextAreaField label={t('continuity')} rows={2} value={draft.continuity_rules} onChange={value => change({ ...draft, continuity_rules: value })} /></> : <><p className={styles.hint}>{draft.summary}</p><details><summary>{t('continuity')}</summary><p className={styles.hint}>{draft.continuity_rules}</p></details></>}
                 {draft.warnings.map((warning, i) => <p key={i} className={styles.hint}>{warning}</p>)}

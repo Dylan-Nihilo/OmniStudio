@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import create_autospec, patch
 
 import dashscope
@@ -6,6 +7,7 @@ from dashscope.audio.tts_v2 import SpeechSynthesizer
 
 from src.apps.comic_gen.audio import AudioGenerator
 from src.audio.tts import TTSProcessor
+from src.billing import BillingError
 from src.utils.workspace_env import current_workspace_config
 from tests.test_billing_metering import env
 
@@ -55,3 +57,39 @@ def test_unpriced_qwen_voice_is_rejected_before_synthesis(env, monkeypatch, tmp_
         assert services.wallets.balance(wallet_id) == {"balance": 1000, "frozen": 0, "available": 1000}
     finally:
         current_workspace_id.reset(token)
+
+
+def test_qwen_audio_price_is_present_in_the_shipped_seed():
+    import json
+    from pathlib import Path
+
+    seed = json.loads((Path(__file__).resolve().parents[1] / "config" / "pricing" / "price_book.seed.json").read_text(encoding="utf-8"))
+    item = next(item for item in seed["items"] if item["model_id"] == "tts/qwen-audio-3.0-tts-plus")
+    assert item["purchase_price_cny"] == 0.14
+    assert item["billing_unit"] == "chars_1k"
+
+
+def test_voice_preview_preserves_structured_billing_error(monkeypatch, tmp_path):
+    """The picker must receive a pricing error instead of a misleading HTTP 500."""
+    import src.apps.comic_gen.api as api_module
+
+    class FailingTTS:
+        def synthesize(self, **_kwargs):
+            raise BillingError("PRICING_ITEM_NOT_FOUND", "没有 qwen-audio 的积分定价", status_code=422)
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            auth_context=SimpleNamespace(workspace=SimpleNamespace(id="voice-preview-test")),
+        ),
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(api_module.pipeline.audio_generator, "tts", FailingTTS())
+    monkeypatch.setattr(api_module.pipeline, "find_custom_voice", lambda *_args: None)
+
+    with pytest.raises(BillingError) as error:
+        api_module.voice_preview(
+            api_module.VoicePreviewRequest(voice_id="qwen-audio-3.0-tts-plus-longyujunxuan", text="试听"),
+            request,
+        )
+    assert error.value.code == "PRICING_ITEM_NOT_FOUND"
+    assert error.value.status_code == 422

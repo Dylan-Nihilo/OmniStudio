@@ -180,7 +180,10 @@ for tier, model_line, premium in (("高级", "gpt-image/gpt-image-2", 0.0),
 # 百炼 quotes per 10k characters; divided by ten so voice shares the text unit.
 VOICE = [("tts/cosyvoice-v2", 2.0, "标准"), ("tts/cosyvoice-v3-flash", 1.0, "快速"),
          ("tts/cosyvoice-v3-plus", 2.0, "高清"), ("tts/cosyvoice-v3.5-plus", 1.5, "克隆音色"),
-         ("tts/qwen3-tts-flash", 0.8, "Qwen TTS")]
+         ("tts/qwen3-tts-flash", 0.8, "Qwen TTS"),
+         # DashScope Qwen Audio 3.0 TTS Plus, Beijing region: ¥1.4 / 10k chars.
+         # Source: https://help.aliyun.com/zh/model-studio/qwen-audio-3-0-tts-plus
+         ("tts/qwen-audio-3.0-tts-plus", 1.4, "Qwen Audio TTS")]
 voice = [{"model_id": model_id, "stage": "tts", "billing_unit": "chars_1k", "match": {},
           "purchase_price_cny": round(price_per_10k / 10, 6), "display_name": label}
          for model_id, price_per_10k, label in VOICE]

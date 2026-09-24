@@ -447,6 +447,7 @@ export const I2V_MODELS = PROJECT_I2V_MODELS;
 export const VIDEO_SIDEBAR_I2V_MODELS = VIDEO_I2V_MODELS;
 
 export const DEFAULT_I2V_MODEL_ID = resolveModelId('i2v', undefined, 'video_sidebar');
+export const DEFAULT_IMAGE_MODEL_ID = resolveModelId('image', undefined, 'project_settings');
 
 // Default R2V selection/route follow the catalog meta default
 // (defaults.model_settings.r2v_model) via getFallbackVisibleModelId, NOT raw
