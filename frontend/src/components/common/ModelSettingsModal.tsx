@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, X, Image, Video, Film, Check, Layout, User, Building, Box, RotateCcw } from 'lucide-react';
+import { Settings, Image, Video, Film, Check, Layout, User, Building, Box, RotateCcw } from 'lucide-react';
 import { useProjectStore, IMAGE_MODELS, I2V_MODELS, ASPECT_RATIOS } from '@/store/projectStore';
 import { resolveModelSettings, VIDEO_R2V_MODELS, DEFAULT_R2V_MODEL_ID } from '@/lib/modelCatalog';
 import { api } from '@/lib/api';
 import { useTranslations } from "next-intl";
 import GroupedModelGrid from '@/components/common/GroupedModelGrid';
+import { Dialog } from '@omnistudio/ui';
 import type { FrontendModelSettings } from '@/lib/modelCatalog';
 
 interface ModelSettingsModalProps {
@@ -120,61 +120,72 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
         }
     };
 
-    const requestClose = () => {
-        if (!isSaving) onClose();
-    };
-
     if (!isOpen) return null;
 
     return (
-        <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 bg-overlay backdrop-blur-sm flex items-center justify-center p-4"
-                onClick={requestClose}
-            >
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-elevated rounded-2xl border border-glass-border w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {/* Header */}
-                    <div className="flex items-center justify-between p-5 border-b border-glass-border">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-lg">
-                                <Settings size={20} className="text-blue-400" />
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-foreground">{t("genSettings")}</h2>
-                                <p className="text-xs text-text-muted">{t("genSettingsDesc")}</p>
-                            </div>
-                        </div>
-                        {isEpisode && (
-                            <button
-                                type="button"
-                                onClick={restoreEpisodeInheritance}
-                                aria-label={t("resetModelInheritance")}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-glass-border px-2.5 py-1.5 text-xs text-text-secondary hover:text-foreground hover:bg-hover-bg"
-                            >
-                                <RotateCcw size={13} />
-                                {t("resetModelInheritance")}
-                            </button>
-                        )}
-                        <button
-                            onClick={requestClose}
-                            disabled={isSaving}
-                            className="p-2 hover:bg-hover-bg rounded-lg transition-colors disabled:cursor-wait disabled:opacity-50"
-                        >
-                            <X size={20} className="text-text-secondary" />
-                        </button>
+        <Dialog
+            isOpen={isOpen}
+            title={
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-lg">
+                        <Settings size={20} className="text-blue-400" />
                     </div>
+                    <div>
+                        <span className="block text-lg font-bold text-foreground">{t("genSettings")}</span>
+                        <span className="block text-xs font-normal text-text-muted">{t("genSettingsDesc")}</span>
+                    </div>
+                    {isEpisode && (
+                        <button
+                            type="button"
+                            onClick={restoreEpisodeInheritance}
+                            aria-label={t("resetModelInheritance")}
+                            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-glass-border px-2.5 py-1.5 text-xs font-normal text-text-secondary hover:text-foreground hover:bg-hover-bg"
+                        >
+                            <RotateCcw size={13} />
+                            {t("resetModelInheritance")}
+                        </button>
+                    )}
+                </div>
+            }
+            closeLabel={tc("close")}
+            className="w-full max-w-3xl"
+            isDismissable={!isSaving}
+            onOpenChange={open => { if (!open && !isSaving) onClose(); }}
+            footer={
+                <div className="flex w-full justify-end gap-3">
+                    {saveError ? (
+                        <p role="alert" className="mr-auto self-center text-sm text-red-300">{saveError}</p>
+                    ) : null}
+                    <button
+                        onClick={onClose}
+                        disabled={isSaving}
+                        className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors disabled:cursor-wait disabled:opacity-50"
+                    >
+                        {tc("cancel")}
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50"
+                    >
+                        {isSaving ? (
+                            <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                                {t("saving")}
+                            </>
+                        ) : (
+                            <>
+                                <Check size={16} />
+                                {t("saveSettings")}
+                            </>
+                        )}
+                    </button>
+                </div>
+            }
+        >
 
                     {/* Content */}
-                    <div className="p-5 space-y-6 overflow-y-auto">
+                    <div className="space-y-6">
                         {/* Assets Section */}
                         <div className="space-y-5">
                             <div className="flex items-center gap-2 text-sm font-bold text-foreground">
@@ -348,38 +359,6 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                         </div>
                     </div>
 
-                    {/* Footer */}
-                    <div className="flex justify-end gap-3 p-5 border-t border-glass-border bg-surface">
-                        {saveError ? (
-                            <p role="alert" className="mr-auto self-center text-sm text-red-300">{saveError}</p>
-                        ) : null}
-                        <button
-                            onClick={requestClose}
-                            disabled={isSaving}
-                            className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors disabled:cursor-wait disabled:opacity-50"
-                        >
-                            {tc("cancel")}
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50"
-                        >
-                            {isSaving ? (
-                                <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                                    {t("saving")}
-                                </>
-                            ) : (
-                                <>
-                                    <Check size={16} />
-                                    {t("saveSettings")}
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </motion.div>
-            </motion.div>
-        </AnimatePresence>
+        </Dialog>
     );
 }

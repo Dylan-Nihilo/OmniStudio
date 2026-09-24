@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
 import PromptConfigModal from './PromptConfigModal';
 import SeriesPromptConfigModal from '../series/SeriesPromptConfigModal';
@@ -8,6 +9,21 @@ const { config, save, updateProject } = vi.hoisted(() => ({
     save: vi.fn(), updateProject: vi.fn(),
 }));
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+vi.mock('@omnistudio/ui', () => ({
+    Dialog: ({ isOpen, title, children, footer }: { isOpen: boolean; title: ReactNode; children: ReactNode; footer?: ReactNode }) => isOpen ? (
+        <div role="dialog" aria-modal="true">
+            <h2>{title}</h2>
+            {children}
+            {footer}
+        </div>
+    ) : null,
+    SelectField: ({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: Array<{ id: string; label: string }> }) => (
+        <div>
+            <button type="button" aria-label={options.find(option => option.id === value)?.label ?? value}>{options.find(option => option.id === value)?.label ?? value}</button>
+            {options.map(option => <div key={option.id} role="option" aria-label={option.label} onClick={() => onChange(option.id)}>{option.label}</div>)}
+        </div>
+    ),
+}));
 vi.mock('@/store/projectStore', () => ({ useProjectStore: (select: (state: unknown) => unknown) => select({ currentProject: { id: 'project' }, updateProject }) }));
 vi.mock('@/lib/api', () => ({ api: {
     getPromptConfig: vi.fn().mockResolvedValue({ prompt_config: config, defaults: config }),

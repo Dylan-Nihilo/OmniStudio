@@ -2,12 +2,12 @@
 
 import { SelectField } from "@omnistudio/ui";
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileText, RotateCcw, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { FileText, RotateCcw, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { getTextTiers } from "@/lib/modelCatalog";
 import { useTranslations } from 'next-intl';
 import { useProjectStore } from '@/store/projectStore';
 import { api } from '@/lib/api';
+import { Dialog } from '@omnistudio/ui';
 
 /**
  * Tier options for the polish model, inherit-first.
@@ -124,40 +124,46 @@ export default function PromptConfigModal({ isOpen, onClose }: PromptConfigModal
     if (!isOpen) return null;
 
     return (
-        <AnimatePresence>
-            <motion.div
-                key="prompt-config"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 bg-overlay backdrop-blur-sm flex items-center justify-center p-4"
-                onClick={requestClose}
-            >
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-elevated rounded-2xl border border-glass-border w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {/* Header */}
-                    <div className="p-6 border-b border-glass-border flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-purple-500/20 rounded-lg">
-                                <FileText size={20} className="text-purple-400" />
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-foreground">{t("promptConfig")}</h2>
-                                <p className="text-xs text-text-secondary">{t("promptConfigSub")}</p>
-                            </div>
-                        </div>
-                        <button onClick={requestClose} aria-label={tc("close")} className="p-2 hover:bg-hover-bg rounded-lg transition-colors">
-                            <X size={20} className="text-text-secondary" />
-                        </button>
+        <Dialog
+            isOpen={isOpen}
+            title={
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-500/20 rounded-lg">
+                        <FileText size={20} className="text-purple-400" />
                     </div>
+                    <div>
+                        <span className="block text-lg font-bold text-foreground">{t("promptConfig")}</span>
+                        <span className="block text-xs font-normal text-text-secondary">{t("promptConfigSub")}</span>
+                    </div>
+                </div>
+            }
+            closeLabel={tc("close")}
+            className="w-full max-w-3xl"
+            isDismissable={!isSaving}
+            onOpenChange={open => { if (!open && !isSaving) requestClose(); }}
+            footer={
+                <div className="flex w-full justify-end gap-3">
+                    {saveError && <div role="alert" className="mr-auto self-center text-sm text-red-300">{saveError}</div>}
+                    <button
+                        onClick={requestClose}
+                        className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
+                    >
+                        {tc("cancel")}
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={isSaving || isLoading || !!loadError}
+                        className="px-6 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-500 text-foreground rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {isSaving && <Loader2 size={14} className="animate-spin" />}
+                        {tc("save")}
+                    </button>
+                </div>
+            }
+        >
 
                     {/* Content */}
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                    <div className="space-y-6 custom-scrollbar">
                         {isLoading ? (
                             <div className="flex items-center justify-center py-12">
                                 <Loader2 size={24} className="animate-spin text-purple-400" />
@@ -234,26 +240,6 @@ export default function PromptConfigModal({ isOpen, onClose }: PromptConfigModal
                         )}
                     </div>
 
-                    {/* Footer */}
-                    <div className="p-6 border-t border-glass-border flex justify-end gap-3">
-                        {saveError && <div role="alert" className="mr-auto self-center text-sm text-red-300">{saveError}</div>}
-                        <button
-                            onClick={requestClose}
-                            className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
-                        >
-                            {tc("cancel")}
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving || isLoading || !!loadError}
-                            className="px-6 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-500 text-foreground rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                        >
-                            {isSaving && <Loader2 size={14} className="animate-spin" />}
-                            {tc("save")}
-                        </button>
-                    </div>
-                </motion.div>
-            </motion.div>
             {confirmClose && (
                 <div key="unsaved-confirm" role="dialog" aria-label={t("unsavedChangesTitle")} className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
                     <div className="w-full max-w-md rounded-xl border border-glass-border bg-elevated p-5 shadow-2xl">
@@ -266,6 +252,6 @@ export default function PromptConfigModal({ isOpen, onClose }: PromptConfigModal
                     </div>
                 </div>
             )}
-        </AnimatePresence>
+        </Dialog>
     );
 }
