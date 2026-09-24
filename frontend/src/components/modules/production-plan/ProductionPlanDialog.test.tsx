@@ -187,7 +187,7 @@ it('keeps a flawed plan on screen for editing and refuses to apply it until the 
     renderWithIntl(<Harness existing />);
     fireEvent.click(screen.getByRole('button', { name: '编辑方案' }));
     // The reason sits on the shot that has to change, not only in a banner.
-    const shot = screen.getByRole('group', { name: '镜头 2' });
+    const shot = within(screen.getByRole('region', { name: '片段 1' })).getByRole('group', { name: '镜头 2' });
     expect(within(shot).getByRole('alert')).toHaveTextContent('引用的剧本原文不连续');
     expect(screen.getByText('还有 1 处需要修改，方案暂时不能应用')).toBeVisible();
     expect(screen.getByRole('button', { name: '确认方案，制作分镜图' })).toBeDisabled();
