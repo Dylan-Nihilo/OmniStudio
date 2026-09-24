@@ -36,7 +36,8 @@ vi.mock("@/components/layout/AppShell", () => ({
     ),
 }));
 vi.mock("@/components/layout/PipelineSidebar", () => ({
-    default: ({ onStepChange, onBack, canGoBack }: { onStepChange: (step: string) => void; onBack: () => void; canGoBack: boolean }) => <>
+    default: ({ onStepChange, onBack, canGoBack, headerActions }: { onStepChange: (step: string) => void; onBack: () => void; canGoBack: boolean; headerActions?: React.ReactNode }) => <>
+        {headerActions}
         <button onClick={() => onStepChange('storyboard_r2v')}>Open storyboard</button>
         {canGoBack && <button onClick={onBack}>Previous page</button>}
     </>,
@@ -58,18 +59,45 @@ vi.mock("@/components/modules/ConsistencyVault", () => ({ default: () => null })
 vi.mock("@/components/modules/ArtDirection", () => ({ default: () => <div data-testid="style-workspace" /> }));
 vi.mock("@/components/modules/StoryboardComposer", () => ({ default: () => null }));
 vi.mock("@/components/modules/StoryboardR2V", () => ({ default: () => <div data-testid="storyboard-workspace" /> }));
-vi.mock("@/components/common/ModelSettingsModal", () => ({ default: () => null }));
-vi.mock("@/components/project/EnvConfigDialog", () => ({ default: () => null }));
-vi.mock("@/components/project/PromptConfigModal", () => ({ default: () => null }));
+vi.mock("@/components/common/ModelSettingsModal", () => ({
+    default: ({ isOpen }: { isOpen: boolean }) => isOpen ? <div data-testid="model-settings-modal" /> : null,
+}));
+vi.mock("@/components/project/EnvConfigDialog", () => ({
+    default: ({ isOpen }: { isOpen: boolean }) => isOpen ? <div data-testid="env-config-dialog" /> : null,
+}));
+vi.mock("@/components/project/PromptConfigModal", () => ({
+    default: ({ isOpen }: { isOpen: boolean }) => isOpen ? <div data-testid="prompt-config-modal" /> : null,
+}));
 vi.mock("@/components/modules/EntityConfirmModal", () => ({
     default: ({ isOpen, onConfirm }: { isOpen: boolean; onConfirm: () => void }) => isOpen ? <button onClick={onConfirm}>Confirm extraction</button> : null,
 }));
 vi.mock("@omnistudio/ui", () => ({
-    ActionMenu: () => null,
+    ActionMenu: ({ items }: { items: Array<{ id: string; label: string; onAction: () => void }> }) => (
+        <div data-testid="project-settings-menu">
+            {items.map(item => <button key={item.id} onClick={item.onAction}>{item.label}</button>)}
+        </div>
+    ),
     Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
     EmptyState: () => null,
     LoadingState: () => <div>Loading</div>,
 }));
+
+it("labels project settings by scope and opens each setting as an in-page dialog", async () => {
+    render(<ProjectClient id="episode-1" />);
+
+    await screen.findByTestId("script-workspace");
+    expect(screen.getByRole("button", { name: "workspaceEnvConfig" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scriptPromptSettings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "scriptGenerationSettings" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "workspaceEnvConfig" }));
+    fireEvent.click(screen.getByRole("button", { name: "scriptPromptSettings" }));
+    fireEvent.click(screen.getByRole("button", { name: "scriptGenerationSettings" }));
+
+    expect(screen.getByTestId("env-config-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("prompt-config-modal")).toBeInTheDocument();
+    expect(screen.getByTestId("model-settings-modal")).toBeInTheDocument();
+});
 
 describe("ProjectClient edit lease scope", () => {
     it("keeps pipeline navigation outside the lease-protected editor content", async () => {

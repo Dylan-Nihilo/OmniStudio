@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
 import ModelSettingsModal from './ModelSettingsModal';
 
@@ -28,6 +29,15 @@ const { updateModelSettings, updateProject, projectFixture } = vi.hoisted(() => 
 }));
 
 vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+vi.mock('@omnistudio/ui', () => ({
+  Dialog: ({ isOpen, title, children, footer }: { isOpen: boolean; title: ReactNode; children: ReactNode; footer?: ReactNode }) => isOpen ? (
+    <div role="dialog" aria-modal="true">
+      <h2>{title}</h2>
+      {children}
+      {footer}
+    </div>
+  ) : null,
+}));
 vi.mock('@/lib/api', () => ({ api: { updateModelSettings } }));
 vi.mock('@/store/projectStore', () => ({
   IMAGE_MODELS: [{ id: 'wan2.7-image', name: 'Image' }],
@@ -66,6 +76,14 @@ it('restores an episode to inherited model settings instead of persisting parent
     undefined,
     expect.arrayContaining(['image_model', 'i2v_model']),
   ));
+});
+
+it('renders generation settings as a dialog with a visible backdrop', () => {
+  render(<ModelSettingsModal isOpen onClose={vi.fn()} />);
+
+  const dialog = screen.getByRole('dialog');
+  expect(dialog).toHaveAttribute('aria-modal', 'true');
+  expect(dialog).toBeVisible();
 });
 
 it('keeps model edits visible and allows retry when saving fails', async () => {

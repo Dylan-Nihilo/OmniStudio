@@ -204,9 +204,9 @@ export default function ProjectClient({ id, breadcrumbSegments }: { id: string; 
     const parentHash = segments.slice(0, -1).reverse().find(segment => segment.hash)?.hash || '#/workspace';
 
     const settingsActions = <ActionMenu label={tChrome("settings")} items={[
-        { id: "env", label: t("apiKeyConfig"), onAction: () => setEnvDialogOpen(true) },
-        { id: "prompt", label: tChrome("promptSettings"), onAction: () => setPromptConfigOpen(true) },
-        { id: "model", label: tChrome("modelSettings"), onAction: () => setModelSettingsOpen(true) },
+        { id: "env", label: t("workspaceEnvConfig"), onAction: () => setEnvDialogOpen(true) },
+        { id: "prompt", label: tChrome("scriptPromptSettings"), onAction: () => setPromptConfigOpen(true) },
+        { id: "model", label: tChrome("scriptGenerationSettings"), onAction: () => setModelSettingsOpen(true) },
     ]} />;
     const context = <PipelineSidebar activeStep={activeStep} onStepChange={navigateStep} steps={steps}
         canGoBack={canGoBack} onBack={() => goBackProjectStep(historyScope, parentHash)}

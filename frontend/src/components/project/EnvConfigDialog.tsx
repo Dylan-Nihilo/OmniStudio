@@ -18,6 +18,7 @@ export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }:
   return <Dialog isOpen title={t("envConfig")} closeLabel={tc("close")}
     className="w-full max-w-4xl" isDismissable={!saving}
     onOpenChange={open => { if (!open && !saving) onClose(); }}>
+    <p className="mb-4 text-sm text-text-secondary">{t("envConfigSub")}</p>
     {isRequired && <p className="mb-4 text-sm text-text-secondary">{t("requiredHint")}</p>}
     <SettingsPage initialCategory="apikeys" onSavingChange={setSaving} onProviderConfigSaved={onClose} />
   </Dialog>;
