@@ -112,7 +112,17 @@ function ToastCard({ toast }: { toast: Toast }) {
 export default function ToastContainer() {
     const toasts = useToastStore((s) => s.toasts);
     return (
-        <div className="pointer-events-none fixed bottom-[calc(72px+env(safe-area-inset-bottom))] md:bottom-4 right-4 z-[200] flex flex-col-reverse gap-2 max-h-[calc(100dvh-100px)] overflow-y-auto">
+        // Marked as a React Aria top layer so a click in here is not read as a click
+        // *outside* whichever overlay happens to be open. Without it, React Aria's
+        // interact-outside handling claims the event first and the dismiss button never
+        // sees it — the toast sits there, plainly visible, and the close button does
+        // nothing. React Aria names this exact case in its own source ("If the target is
+        // within a top layer element (e.g. toasts), ignore"), and the lightbox needed the
+        // same marker for the same reason.
+        <div
+            data-react-aria-top-layer="true"
+            className="pointer-events-none fixed bottom-[calc(72px+env(safe-area-inset-bottom))] md:bottom-4 right-4 z-[200] flex flex-col-reverse gap-2 max-h-[calc(100dvh-100px)] overflow-y-auto"
+        >
             <AnimatePresence initial={false}>
                 {toasts.map((t) => (
                     <ToastCard key={t.id} toast={t} />
