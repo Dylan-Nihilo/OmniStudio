@@ -6135,6 +6135,10 @@ def voice_preview(request: VoicePreviewRequest, http_request: Request):
                 model_override=model_override,
                 family_override=family_override,
             )
+        except (HTTPException, BillingError):
+            # Keep structured business errors (for example an unpublished TTS
+            # price) intact so the client can explain the actionable cause.
+            raise
         except Exception as e:
             logger.error(f"[/voice/preview] TTS error voice={request.voice_id}: {e}")
             raise HTTPException(status_code=500, detail=f"TTS generation failed: {e}")
