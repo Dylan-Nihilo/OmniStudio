@@ -4639,13 +4639,15 @@ def generate_production_plan_stream(script_id: str, payload: PlanSettings, reque
 
         updates: "_queue.Queue[tuple[str, dict] | None]" = _queue.Queue()
         outcome: dict[str, Any] = {}
-        last = {"segments": -1}
+        last: dict[str, object] = {"state": None}
 
         def on_progress(segments: int, title: str) -> None:
             # Only on change: a chunk arrives every few tokens and the client does not need
-            # an event per token.
-            if segments != last["segments"]:
-                last["segments"] = segments
+            # an event per token. Keyed on the title too, not the count alone — a segment's
+            # title streams in after the count has already ticked, so keying on the count
+            # would leave the previous segment's title on screen for the whole segment.
+            if (segments, title) != last["state"]:
+                last["state"] = (segments, title)
                 updates.put(("plan_progress", {"segments": segments, "title": title}))
 
         def worker():
