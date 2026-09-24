@@ -182,7 +182,7 @@ export default function ProductionPrevisDialog({ project, isOpen, onClose, befor
                 <Button variant="quiet" isDisabled={missing.length > 0 || !allShots.length} onPress={() => { if (!playing) setPlayIndex(0); setPlaying(!playing); }}>{playing ? <Pause size={14} /> : <Play size={14} />}{t(playing ? 'pausePreview' : 'playPreview')}</Button>
             </div>
             {playing && playingShot && <section className={styles.animatic} aria-label={t('playPreview')}>
-                {imageUrl(playingPreview) && <PreviewImage src={imageUrl(playingPreview)!} alt={playingShot.title} noLightbox />}
+                {imageUrl(playingPreview) && <PreviewImage src={imageUrl(playingPreview)!} alt={playingShot.title} className={styles.previewImage} noLightbox />}
                 <p>{playIndex + 1} / {allShots.length} · {playingShot.title} · {playingShot.duration}s</p>
                 {playingShot.dialogue.map((line, i) => <p key={i}>{line.speaker}：{line.line}</p>)}
             </section>}
