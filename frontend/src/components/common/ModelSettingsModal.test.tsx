@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { renderWithIntl as render } from '@/test/renderWithIntl';
+import { fireEvent, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
 import ModelSettingsModal from './ModelSettingsModal';
@@ -28,7 +29,7 @@ const { updateModelSettings, updateProject, projectFixture } = vi.hoisted(() => 
   },
 }));
 
-vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+
 vi.mock('@omnistudio/ui', () => ({
   Dialog: ({ isOpen, title, children, footer }: { isOpen: boolean; title: ReactNode; children: ReactNode; footer?: ReactNode }) => isOpen ? (
     <div role="dialog" aria-modal="true">
@@ -59,9 +60,9 @@ vi.mock('@/components/common/GroupedModelGrid', () => ({
 it('restores an episode to inherited model settings instead of persisting parent values as overrides', async () => {
   render(<ModelSettingsModal isOpen onClose={vi.fn()} />);
 
-  expect(screen.getByRole('button', { name: 'resetModelInheritance' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'resetModelInheritance' }));
-  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  expect(screen.getByRole('button', { name: '恢复继承模型' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '恢复继承模型' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
 
   await vi.waitFor(() => expect(updateModelSettings).toHaveBeenCalledWith(
     'episode-1',
@@ -89,8 +90,8 @@ it('renders generation settings as a dialog with a visible backdrop', () => {
 it('labels storyboard ratio as the master output canvas ratio', () => {
   render(<ModelSettingsModal isOpen onClose={vi.fn()} />);
 
-  expect(screen.getByText('storyboardAspectLabel')).toBeInTheDocument();
-  expect(screen.getByText('aspectRatioRuleInherited')).toBeInTheDocument();
+  expect(screen.getByText('成片/分镜画幅')).toBeInTheDocument();
+  expect(screen.getByText('继承：图生视频、参考生视频、分镜预览、最终合成')).toBeInTheDocument();
 });
 
 it('keeps model edits visible and allows retry when saving fails', async () => {
@@ -101,13 +102,13 @@ it('keeps model edits visible and allows retry when saving fails', async () => {
 
   render(<ModelSettingsModal isOpen onClose={onClose} />);
 
-  fireEvent.click(screen.getByRole('button', { name: 'resetModelInheritance' }));
-  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  fireEvent.click(screen.getByRole('button', { name: '恢复继承模型' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('saveSettingsFailed');
+  expect(await screen.findByRole('alert')).toHaveTextContent('保存设置失败');
   expect(onClose).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'saveSettings' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
   await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
 });

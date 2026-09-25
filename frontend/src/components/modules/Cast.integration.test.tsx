@@ -111,3 +111,18 @@ it('supports multi-select quality review and batch locking for series assets', a
     }));
   } finally { view.unmount(); }
 });
+
+it('keeps the asset preview zoom control away from the selection checkbox', () => {
+  const project: any = {
+    id: 'preview-project', title: '预览项目', characters: [
+      { id: 'character-1', name: '甲', image_url: '/a.png', locked: false },
+    ], scenes: [], props: [], frames: [],
+  };
+  useProjectStore.setState({ ...useProjectStore.getInitialState(), currentProject: project, projects: [project] }, true);
+
+  renderWithIntl(<LightboxProvider><Cast /></LightboxProvider>);
+
+  const zoom = screen.getByRole('button', { name: '放大查看' });
+  expect(zoom).toHaveClass('right-2', 'bottom-2');
+  expect(zoom).not.toHaveClass('left-1.5', 'top-1.5');
+});

@@ -1026,7 +1026,7 @@ function CastCard({ item, selected, onToggleSelect, onOpenWorkbench }: { item: C
                                 }}
                                 aria-label="放大查看"
                                 title="放大查看"
-                                className="absolute left-1.5 top-1.5 z-10 grid h-6 w-6 place-items-center rounded bg-black/55 text-foreground/80 backdrop-blur opacity-0 group-hover/cast-card:opacity-100 transition-opacity hover:bg-black/75"
+                                className="absolute right-2 bottom-2 z-10 grid h-7 w-7 place-items-center rounded-md border border-white/70 bg-white/90 text-black shadow-[0_1px_5px_rgba(0,0,0,0.45)] backdrop-blur opacity-0 group-hover/cast-card:opacity-100 transition-[opacity,transform,background-color] hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/70"
                             >
                                 <Maximize2 size={11} />
                             </button>

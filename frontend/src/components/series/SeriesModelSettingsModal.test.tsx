@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { renderWithIntl as render } from '@/test/renderWithIntl';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import SeriesModelSettingsModal from './SeriesModelSettingsModal';
 
@@ -28,7 +29,7 @@ const { getEffectiveSeriesModelSettings, updateSeriesModelSettings } = vi.hoiste
   updateSeriesModelSettings: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+
 vi.mock('@/lib/api', () => ({ api: { getEffectiveSeriesModelSettings, updateSeriesModelSettings } }));
 vi.mock('@/store/projectStore', () => ({
   ASPECT_RATIOS: [{ id: '16:9', name: '16:9', description: 'wide' }],
@@ -59,10 +60,10 @@ vi.mock('@/components/common/GroupedModelGrid', () => ({
 it('loads effective settings and restores only the project fields to Workspace inheritance', async () => {
   render(<SeriesModelSettingsModal isOpen onClose={vi.fn()} seriesId="series-1" />);
 
-  const resetButton = await screen.findByRole('button', { name: 'resetModelInheritance' });
+  const resetButton = await screen.findByRole('button', { name: '恢复继承模型' });
   await waitFor(() => expect(resetButton).toBeVisible());
   fireEvent.click(resetButton);
-  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
 
   await waitFor(() => expect(updateSeriesModelSettings).toHaveBeenCalledWith('series-1', expect.objectContaining({
     reset_fields: expect.arrayContaining(['image_model', 'i2v_model', 'r2v_model']),
@@ -75,8 +76,8 @@ it('loads effective settings and restores only the project fields to Workspace i
 it('shows the master canvas inheritance rule', async () => {
   render(<SeriesModelSettingsModal isOpen onClose={vi.fn()} seriesId="series-1" />);
 
-  expect(await screen.findByText('storyboardAspectLabel')).toBeVisible();
-  expect(screen.getByText('aspectRatioRuleInherited')).toBeVisible();
+  expect(await screen.findByText('成片/分镜画幅')).toBeVisible();
+  expect(screen.getByText('继承：图生视频、参考生视频、分镜预览、最终合成')).toBeVisible();
 });
 
 it('keeps edits visible and allows retry when saving fails', async () => {
@@ -87,17 +88,17 @@ it('keeps edits visible and allows retry when saving fails', async () => {
 
   render(<SeriesModelSettingsModal isOpen onClose={onClose} seriesId="series-1" />);
 
-  const resetButton = await screen.findByRole('button', { name: 'resetModelInheritance' });
+  const resetButton = await screen.findByRole('button', { name: '恢复继承模型' });
   await waitFor(() => expect(resetButton).toBeVisible());
   const callsBefore = updateSeriesModelSettings.mock.calls.length;
   fireEvent.click(resetButton);
-  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('saveSettingsFailed');
+  expect(await screen.findByRole('alert')).toHaveTextContent('保存设置失败');
   expect(onClose).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'saveSettings' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: '保存设置' })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole('button', { name: 'saveSettings' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
   await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   expect(updateSeriesModelSettings.mock.calls.length).toBe(callsBefore + 2);
 });
