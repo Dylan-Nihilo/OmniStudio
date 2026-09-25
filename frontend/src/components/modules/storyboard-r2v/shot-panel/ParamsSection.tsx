@@ -236,11 +236,12 @@ export default function ParamsSection({
 
                 {/* Ratio */}
                 {modelParams.ratio ? (
-                    <ParamRow label="Ratio">
+                    <ParamRow label={t("aspectRatioInherited")}>
                         <PillCluster
                             options={modelParams.ratio.options}
                             value={params.ratio ?? modelParams.ratio.default}
                             onChange={(v) => set("ratio", v)}
+                            disabled
                         />
                     </ParamRow>
                 ) : null}
@@ -482,10 +483,12 @@ function PillCluster({
     options,
     value,
     onChange,
+    disabled = false,
 }: {
     options: ReadonlyArray<string | number>;
     value: string | number;
     onChange: (v: string) => void;
+    disabled?: boolean;
 }) {
     return (
         <div className="flex flex-wrap gap-2">
@@ -496,12 +499,14 @@ function PillCluster({
                         key={String(opt)}
                         type="button"
                         onClick={() => onChange(String(opt))}
+                        disabled={disabled}
+                        aria-disabled={disabled || undefined}
                         aria-pressed={active}
                         className={`min-h-[28px] rounded-full border px-2.5 py-1 font-mono text-[0.59375rem] font-medium transition-colors duration-fast ease-out-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 ${
                             active
                                 ? "border-primary/45 bg-primary/14 text-primary"
                                 : "border-glass-border bg-surface-inset text-text-secondary hover:border-foreground/20 hover:text-foreground"
-                        }`}
+                        } ${disabled ? "cursor-default opacity-80 hover:border-glass-border hover:text-text-secondary" : ""}`}
                     >
                         {opt}
                     </button>

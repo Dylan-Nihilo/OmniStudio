@@ -43,6 +43,7 @@ import { overridePanelSectionState } from "./storyboard-r2v/shot-panel/usePanelS
 import ParamsSection, { type ParamsState } from "./storyboard-r2v/shot-panel/ParamsSection";
 import T2ISubsection, { type T2IUploadError } from "./storyboard-r2v/shot-panel/T2ISubsection";
 import { ASSET_SIZE_BY_RATIO } from "@/lib/modelCost";
+import { detectPromptAspectRatioConflict } from "@/lib/aspectRatio";
 import CandidatesSection from "./storyboard-r2v/shot-panel/CandidatesSection";
 import CompareModal from "./storyboard-r2v/shot-panel/CompareModal";
 import TaskQueueButton from "./storyboard-r2v/shot-panel/TaskQueueButton";
@@ -122,6 +123,15 @@ function StoryboardWorkbench() {
     const { structurePending, beginStructure, endStructure, localShots } = draftSave;
     structurePendingRef.current = structurePending || draftSave.materializing;
     const selectedShot = shots.find(shot => shot.id === selectedFrameId) || shots[0];
+    const masterAspectRatio = currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9";
+    const warnPromptAspectConflict = useCallback((prompt: string) => {
+        const conflict = detectPromptAspectRatioConflict(prompt, masterAspectRatio);
+        if (!conflict.conflict) return;
+        toast.warning(t("promptAspectConflict", {
+            detected: conflict.detected.join(", "),
+            master: masterAspectRatio,
+        }));
+    }, [masterAspectRatio, t]);
 
     // Effective Episode defaults come from the backend. localStorage is only
     // a legacy fallback when an older payload has no model_settings field.
@@ -505,6 +515,10 @@ function StoryboardWorkbench() {
         useStoryboardRequests.setState({ [batchScope]: request });
         let submitted = false;
         try {
+            frameIds.forEach(frameId => {
+                const shot = shotsRef.current.find(candidate => candidate.id === frameId);
+                if (shot) warnPromptAspectConflict(shot.prompt);
+            });
             if (!await saveAllDrafts()) throw new Error(t("saveFailed"));
             if (!isCurrent()) { useStoryboardRequests.setState({ [batchScope]: undefined }); return; }
             submitted = true;
@@ -525,7 +539,7 @@ function StoryboardWorkbench() {
                 error: typeof error?.response?.data?.detail === "string" ? error.response.data.detail : recovering ? t("storyboardUnknown") : error?.message || t("refineFailedToast"),
             } });
         }
-    }, [currentProject?.id, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, t]);
+    }, [currentProject?.id, batchScope, batchPending, storyboardRunning, firstFrameContext, saveAllDrafts, holdRefinements, t, warnPromptAspectConflict]);
 
     const displayedRefinements = useRef<Record<string, number>>({});
     useEffect(() => {
@@ -759,6 +773,7 @@ function StoryboardWorkbench() {
         const shot = shotsRef.current[index];
         if (!currentProject || !shot || (!file && !previousTaskId && !shot.imagePrompt?.trim())) return;
         const operation = file || previousTaskId ? "upload" : "generate";
+        if (operation === "generate") warnPromptAspectConflict(shot.imagePrompt || shot.prompt);
         let key = firstFrameKey(shot.id);
         if (useFirstFrameRequests.getState()[key]?.pending || currentProject.frames.find(frame => frame.id === shot.id)?.image_generation_status === "processing") return;
         const isCurrentScope = () => useAuthStore.getState().user?.id === firstFrameContext.userId
@@ -813,12 +828,13 @@ function StoryboardWorkbench() {
             useFirstFrameRequests.setState({ [key]: { ...requestState, pending: recovering, recovering, error: String(detail) } });
             if (file) return { code: "network", detail: String(detail) };
         }
-    }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, parseAssetTags, t]);
+    }, [currentProject, materializeShot, flushDrafts, firstFrameKey, firstFrameContext, updateProject, parseAssetTags, t, warnPromptAspectConflict]);
 
     // Generate video for a shot
     const generateVideo = useCallback(async (index: number) => {
         const shot = shots[index];
         if (!currentProject || !shot.prompt.trim() || referenceUploads.has(shot.id)) return;
+        warnPromptAspectConflict(shot.prompt);
 
         const promptText = buildAssembledPrompt(shot);
 
@@ -969,7 +985,7 @@ function StoryboardWorkbench() {
                 i === index ? { ...s, videoStatus: "failed" } : s
             ));
         }
-    }, [shots, currentProject, videoConfig, parseAssetTags, materializeShot, flushDrafts, referenceUploads, isCurrentProject, t]);
+    }, [shots, currentProject, videoConfig, parseAssetTags, materializeShot, flushDrafts, referenceUploads, isCurrentProject, t, warnPromptAspectConflict]);
 
     // Batch-aware generation. The user's "抽卡" mental model: one
     // click of Generate ×N fires N independent createVideoTask calls
@@ -985,6 +1001,7 @@ function StoryboardWorkbench() {
     ) => {
         const shot = shots[index];
         if (!currentProject || !shot?.prompt.trim() || referenceUploads.has(shot.id)) return;
+        warnPromptAspectConflict(shot.prompt);
         const promptText = buildAssembledPrompt(shot);
         const tabMode = shot.tabMode;
         const effectiveCount = Math.max(1, Math.min(6, count || 1));
@@ -1177,7 +1194,7 @@ function StoryboardWorkbench() {
                 i === index ? { ...s, videoStatus: "failed" as const } : s
             ));
         }
-    }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot, flushDrafts, referenceUploads, isCurrentProject, t]);
+    }, [shots, currentProject, videoConfig, parseAssetTags, missingRefsMessage, materializeShot, flushDrafts, referenceUploads, isCurrentProject, t, warnPromptAspectConflict]);
 
     const [refreshingTasks, setRefreshingTasks] = useState(false);
     const [taskRefreshError, setTaskRefreshError] = useState(false);
@@ -1630,6 +1647,7 @@ function StoryboardWorkbench() {
             : inheritedModel;
         const model = (isR2v ? VIDEO_R2V_MODELS : VIDEO_I2V_MODELS).find(candidate => candidate.id === modelId);
         const resolutions = model?.params.resolution;
+        const masterAspectRatio = currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9";
         return {
             model: modelId,
             duration: shot.duration ?? videoConfig.duration,
@@ -1639,7 +1657,10 @@ function StoryboardWorkbench() {
             seed: shotSeeds[shot.id],
             resolution: resolutions && !resolutions.options.includes(videoConfig.resolution)
                 ? resolutions.default : videoConfig.resolution,
-            ratio: undefined,
+            // Provider ratio controls are read-only mirrors of the project's
+            // master canvas. The backend supplies the same default for callers
+            // that omit a ratio.
+            ratio: model?.params.ratio?.options.includes(masterAspectRatio) ? masterAspectRatio : undefined,
             negativePrompt: videoConfig.negativePrompt,
             audioMode: shot.omniReferences?.audio_mode ?? videoConfig.audioMode,
             audioUrl: shot.omniReferences ? shot.omniReferences.audios[0]?.url : videoConfig.audioUrl,
@@ -1651,7 +1672,7 @@ function StoryboardWorkbench() {
             viduAudio: videoConfig.viduAudio,
             watermark: videoConfig.watermark,
         };
-    }, [videoConfig, shotCounts, shotSeeds]);
+    }, [currentProject?.model_settings?.storyboard_aspect_ratio, videoConfig, shotCounts, shotSeeds]);
 
     // ParamsSection.onChange handler: per-shot overrides (model, count, seed)
     // go into their dedicated maps; everything else writes back to
