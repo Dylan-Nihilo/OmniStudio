@@ -13,6 +13,7 @@
 .deletePreview { margin-bottom: 16px; padding-left: 12px; border-left: 2px solid var(--color-border-default); color: var(--color-text-secondary); font-size: 13px; line-height: 1.7; }
 .editor { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
 .editor textarea { min-width: 0; }
+.aspectRatioWarning { margin: -8px 0 0 14px; color: var(--color-status-processing-fg); font-size: 11px; line-height: 1.55; }
 .referenceSection { min-width: 0; }
 .referenceHeading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--color-text-secondary); }
 .referenceHeading button, .referenceUndo button { min-height: 32px; height: 32px; padding-inline: 6px; font-size: 12px; gap: 4px; }

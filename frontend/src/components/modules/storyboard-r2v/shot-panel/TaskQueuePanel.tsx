@@ -10,6 +10,7 @@ import type { VideoTask } from "@/lib/api";
 import { useSettingsStore } from "@/store/settingsStore";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
+import { getAspectRatioCssValue } from "@/lib/aspectRatio";
 import styles from "./TaskQueuePanel.module.css";
 
 type TabKey = "active" | "done" | "failed";
@@ -147,7 +148,7 @@ function TaskRow({ task, shotLabel, onJumpToShot, onCancel, onRetry, isRetrying,
             {task.frame_id && <IconButton aria-label={t("queueJumpToShot")} onPress={() => onJumpToShot(task.frame_id!)}><ArrowRight size={16} /></IconButton>}
         </div>
         <div className={styles.summary}>
-            {!expanded && (task.image_url || (task.video_url && task.status === "completed")) && <div className={styles.compactPreview}>
+            {!expanded && (task.image_url || (task.video_url && task.status === "completed")) && <div className={styles.compactPreview} style={{ aspectRatio: getAspectRatioCssValue(task.ratio ?? "16:9") }}>
                 {task.status === "completed" && task.video_url
                     ? <PreviewVideo src={task.video_url} alt={t("queueOutput")} className="h-full w-full" hoverPlay={false} alwaysShowMagnify clickToLightbox />
                     : <PreviewImage src={task.image_url} alt={t("queueInput")} className="h-full w-full" alwaysShowMagnify clickToLightbox />}
@@ -161,8 +162,8 @@ function TaskRow({ task, shotLabel, onJumpToShot, onCancel, onRetry, isRetrying,
         </div>
         {expanded && <div className={styles.details}>
             {(task.image_url || task.video_url) && <div className={styles.media}>
-                {task.image_url && <figure><PreviewImage src={task.image_url} alt={t("queueInput")} className={styles.preview} alwaysShowMagnify clickToLightbox /><figcaption>{t("queueInput")}</figcaption></figure>}
-                {task.video_url && task.status === "completed" && <figure><PreviewVideo src={task.video_url} alt={t("queueOutput")} className={styles.preview} hoverPlay={false} alwaysShowMagnify clickToLightbox /><figcaption>{t("queueOutput")}</figcaption></figure>}
+                {task.image_url && <figure><PreviewImage src={task.image_url} alt={t("queueInput")} className={styles.preview} style={{ aspectRatio: getAspectRatioCssValue(task.ratio ?? "16:9") }} alwaysShowMagnify clickToLightbox /><figcaption>{t("queueInput")}</figcaption></figure>}
+                {task.video_url && task.status === "completed" && <figure><PreviewVideo src={task.video_url} alt={t("queueOutput")} className={styles.preview} style={{ aspectRatio: getAspectRatioCssValue(task.ratio ?? "16:9") }} hoverPlay={false} alwaysShowMagnify clickToLightbox /><figcaption>{t("queueOutput")}</figcaption></figure>}
             </div>}
             <div className={styles.meta}>{typeof task.seed === "number" && <span>seed {task.seed}</span>}{task.generation_mode && <span>{task.generation_mode}</span>}{provider && <span>{provider}</span>}</div>
             {task.error && !canceled && <p className={styles.failure}>{task.error}</p>}

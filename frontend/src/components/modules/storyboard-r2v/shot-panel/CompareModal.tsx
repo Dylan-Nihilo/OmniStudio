@@ -7,6 +7,7 @@ import { Pause, Play, RotateCcw } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { VideoTask } from "@/lib/api";
 import styles from "./CompareModal.module.css";
+import { getAspectRatioCssValue } from "@/lib/aspectRatio";
 
 interface CompareModalProps {
     tasks: VideoTask[];
@@ -166,7 +167,7 @@ export default function CompareModal({ tasks, isOpen = true, onClose, resolveUrl
                     const mediaStatus = task.video_url ? status[task.id] || "loading" : "error";
                     return <figure key={task.id} className={styles.candidate}>
                         <figcaption><strong>{t("compareCandidate", { number: index + 1 })}</strong>{task.is_starred && <StatusBadge tone="info">{t("filterStarred")}</StatusBadge>}</figcaption>
-                        <div className={styles.media}>
+                        <div className={styles.media} style={{ aspectRatio: getAspectRatioCssValue(task.ratio ?? "16:9") }}>
                             {task.video_url && <video ref={refs[index]} src={resolveUrl ? resolveUrl(task.video_url) : task.video_url} aria-label={t("compareCandidate", { number: index + 1 })} controls={!sync} muted={soloId !== task.id} playsInline preload="auto"
                                 onCanPlay={event => { const { duration: length, seeking } = event.currentTarget; setDurations(previous => ({ ...previous, [task.id]: Number.isFinite(length) ? length : 0 })); setStatus(previous => ({ ...previous, [task.id]: seeking ? "seeking" : "ready" })); }}
                                 onSeeking={() => setStatus(previous => ({ ...previous, [task.id]: "seeking" }))}

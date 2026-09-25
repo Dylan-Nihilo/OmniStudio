@@ -36,6 +36,7 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
     const [isGenerating, setIsGenerating] = useState(false);
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [retryBatchSize, setRetryBatchSize] = useState(1);
+    const storyboardAspectRatio = currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9";
 
     // Sync prompt when frame changes
     useEffect(() => {
@@ -114,7 +115,7 @@ export default function StoryboardFrameEditor({ frame: initialFrame, onClose }: 
                             onDelete={handleDeleteVariant}
                             onGenerate={handleGenerate}
                             isGenerating={isGenerating}
-                            aspectRatio="16:9"
+                            aspectRatio={storyboardAspectRatio}
                             className="h-full"
                         />
                         {generationError && <div role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">

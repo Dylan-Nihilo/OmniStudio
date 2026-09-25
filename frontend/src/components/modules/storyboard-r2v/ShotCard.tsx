@@ -34,6 +34,7 @@ import styles from "./ShotCard.module.css";
 import { findCharacterReference, resolveStoryboardReferenceTags, removeStoryboardReference } from '@/lib/assetReferences';
 import { selectedVariantUrl } from "@/lib/characterImage";
 import type { OmniReferenceSettings } from '@/lib/omniReferences';
+import { detectPromptAspectRatioConflict, getAspectRatioCssValue } from '@/lib/aspectRatio';
 
 export interface ShotNode {
     id: string;
@@ -229,6 +230,12 @@ export default function ShotCard({
     // currentProjectId — needed by PolishPanel to look up the
     // project's PromptConfig override server-side.
     const currentProjectId = useProjectStore((state) => state.currentProject?.id);
+    const masterAspectRatio = useProjectStore((state) => state.currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9");
+    const previewAspectStyle = { aspectRatio: getAspectRatioCssValue(masterAspectRatio) };
+    const promptAspectConflict = useMemo(
+        () => detectPromptAspectRatioConflict(shot.prompt, masterAspectRatio),
+        [shot.prompt, masterAspectRatio],
+    );
     // r2vSlots — when R2V tab is active, derive slot context from
     // @character references in the prompt so the polish system
     // prompt knows what character1/character2 ID maps to. Dedup by
@@ -317,13 +324,14 @@ export default function ShotCard({
                     <PreviewVideo
                         src={shot.videoUrl}
                         alt={t("generatedVideo") || "Generated video"}
-                        className="w-full aspect-video"
+                        className="w-full"
+                        style={previewAspectStyle}
                     />
                 );
             }
             if (shot.videoStatus === "processing" || shot.videoStatus === "pending") {
                 return (
-                    <div className="w-full aspect-video flex items-center justify-center">
+                    <div className="w-full flex items-center justify-center" style={previewAspectStyle}>
                         <PendingTaskAffordance
                             statusLabel={shot.videoStatus === "pending" ? t("queued") : t("generatingVideo")}
                             taskId={shot.videoTaskId}
@@ -334,7 +342,7 @@ export default function ShotCard({
             }
             if (shot.videoStatus === "failed") {
                 return (
-                    <div className="w-full aspect-video flex flex-col items-center justify-center gap-2">
+                    <div className="w-full flex flex-col items-center justify-center gap-2" style={previewAspectStyle}>
                         <span className="text-[0.6875rem] text-status-failed-fg font-medium">{t("generationFailed")}</span>
                         <button
                             onClick={onGenerateVideo}
@@ -356,7 +364,7 @@ export default function ShotCard({
                 // video →" so the user knows the first frame is in place and
                 // the next step is downstream, not another image gen.
                 return (
-                    <div className="w-full aspect-video relative">
+                    <div className="w-full relative" style={previewAspectStyle}>
                         <PreviewImage
                             src={shot.t2iImageUrl}
                             alt={t("t2iCompleted") || "First frame"}
@@ -370,7 +378,7 @@ export default function ShotCard({
             }
             if (shot.t2iStatus === "processing" || shot.t2iStatus === "pending") {
                 return (
-                    <div className="w-full aspect-video flex items-center justify-center">
+                    <div className="w-full flex items-center justify-center" style={previewAspectStyle}>
                         <PendingTaskAffordance
                             statusLabel={shot.t2iStatus === "pending" ? t("queued") : t("t2iGenerating")}
                             taskId={shot.t2iTaskId}
@@ -380,7 +388,7 @@ export default function ShotCard({
             }
             if (shot.t2iStatus === "failed") {
                 return (
-                    <div className="w-full aspect-video flex flex-col items-center justify-center gap-2">
+                    <div className="w-full flex flex-col items-center justify-center gap-2" style={previewAspectStyle}>
                         <span className="text-[0.6875rem] text-status-failed-fg font-medium">{t("generationFailed")}</span>
                         <button
                             onClick={onGenerateT2I}
@@ -397,7 +405,7 @@ export default function ShotCard({
             // "waiting for a first frame" so the user knows where to
             // act (Issue 15).
             return (
-                <div className="w-full aspect-video flex flex-col items-center justify-center gap-2.5 text-text-muted">
+                <div className="w-full flex flex-col items-center justify-center gap-2.5 text-text-muted" style={previewAspectStyle}>
                     <ImageIcon size={24} strokeWidth={1.6} className="opacity-50" />
                     <span className="font-mono text-[0.65625rem] uppercase tracking-[0.08em]">{t("generateImageOrUpload")}</span>
                 </div>
@@ -410,13 +418,14 @@ export default function ShotCard({
                 <PreviewVideo
                     src={shot.videoUrl}
                     alt={t("generatedVideo") || "Generated video"}
-                    className="w-full aspect-video"
+                    className="w-full"
+                    style={previewAspectStyle}
                 />
             );
         }
         if (shot.videoStatus === "processing" || shot.videoStatus === "pending") {
             return (
-                <div className="w-full aspect-video flex items-center justify-center">
+                <div className="w-full flex items-center justify-center" style={previewAspectStyle}>
                     <PendingTaskAffordance
                         statusLabel={shot.videoStatus === "pending" ? t("queued") : t("generatingVideo")}
                         taskId={shot.videoTaskId}
@@ -427,7 +436,7 @@ export default function ShotCard({
         }
         if (shot.videoStatus === "failed") {
             return (
-                <div className="w-full aspect-video flex flex-col items-center justify-center gap-2">
+                <div className="w-full flex flex-col items-center justify-center gap-2" style={previewAspectStyle}>
                     <span className="text-[0.6875rem] text-status-failed-fg font-medium">{t("generationFailed")}</span>
                     <button
                         onClick={onGenerateVideo}
@@ -438,9 +447,9 @@ export default function ShotCard({
                 </div>
             );
         }
-        if (shot.imageUrl) return <PreviewImage src={shot.imageUrl} alt={t("shot") + " " + (index + 1)} className="w-full aspect-video" />;
+        if (shot.imageUrl) return <PreviewImage src={shot.imageUrl} alt={t("shot") + " " + (index + 1)} className="w-full" style={previewAspectStyle} />;
         return (
-            <div className="w-full aspect-video flex flex-col items-center justify-center gap-2.5 text-text-muted">
+            <div className="w-full flex flex-col items-center justify-center gap-2.5 text-text-muted" style={previewAspectStyle}>
                 <Video size={24} strokeWidth={1.6} className="opacity-50" />
                 <span className="font-mono text-[0.65625rem] uppercase tracking-[0.08em]">{t("noVideoYet")}</span>
             </div>
@@ -508,7 +517,7 @@ export default function ShotCard({
 
     return <div className={styles.layout}>
         <section ref={previewColumnRef} className={styles.previewColumn} aria-label={t("shotPreview")}>
-            <div className={styles.preview}>
+            <div className={styles.preview} style={previewAspectStyle}>
                         {renderPreview()}
             </div>
             {shot.videoUrl && <div className={styles.previewActions}>
@@ -572,6 +581,12 @@ export default function ShotCard({
                                 <Maximize2 size={12} aria-hidden="true" />
                             </button>
                         </div>
+                        {promptAspectConflict.conflict && <p className={styles.aspectRatioWarning} role="status">
+                            {t("promptAspectConflict", {
+                                detected: promptAspectConflict.detected.join(", "),
+                                master: masterAspectRatio,
+                            })}
+                        </p>}
 
                         <section className={styles.referenceSection} aria-label={t("shotReferences")}>
                             <div className={styles.referenceHeading}>

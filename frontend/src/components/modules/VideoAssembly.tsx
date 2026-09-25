@@ -12,10 +12,11 @@ import { apiStreamRequest } from "@/lib/apiClient";
 import { getAssetUrl, extractErrorDetail } from "@/lib/utils";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import SidePanelHeader from "@/components/shared/SidePanelHeader";
+import { exportResolutionsForAspectRatio, getAspectRatioCssValue, resolutionMatchesAspectRatio } from "@/lib/aspectRatio";
 
 type AssemblyPhase = "takes" | "mix" | "export";
 
-type ExportResolution = "1920x1080" | "1280x720" | "640x360";
+type ExportResolution = "1920x1080" | "1280x720" | "640x360" | "1080x1920" | "720x1280" | "1080x1080" | "720x720";
 type ExportFps = 24 | 25 | 30;
 type ExportCrf = 18 | 20 | 23 | 26 | 28;
 type ExportPreset = "fast" | "medium" | "slow";
@@ -489,7 +490,7 @@ export default function VideoAssembly() {
                                         }`}
                                 >
                                     {/* Left: Preview */}
-                                    <div className="w-48 aspect-video relative flex-shrink-0 border-r border-glass-border bg-elevated">
+                                    <div className="w-48 aspect-video relative flex-shrink-0 border-r border-glass-border bg-elevated" style={{ aspectRatio: getAspectRatioCssValue(currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9") }}>
                                         {selectedVideo ? (
                                             <video
                                                 src={getAssetUrl(
@@ -497,7 +498,7 @@ export default function VideoAssembly() {
                                                         ? frame.dubbed_video_url
                                                         : selectedVideo.video_url
                                                 )}
-                                                className="w-full h-full object-cover"
+                                                className="w-full h-full object-contain"
                                                 muted
                                                 onMouseOver={(e) => e.currentTarget.play()}
                                                 onMouseOut={(e) => {
@@ -510,7 +511,7 @@ export default function VideoAssembly() {
                                                 {frame.image_url ? (
                                                     <img
                                                         src={getAssetUrl(frame.image_url)}
-                                                        className="w-full h-full object-cover opacity-50 grayscale"
+                                                        className="w-full h-full object-contain opacity-50 grayscale"
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full bg-glass" />
@@ -608,6 +609,7 @@ export default function VideoAssembly() {
                             framesReady={framesReady}
                             framesTotal={framesTotal}
                             exportSettings={exportSettings}
+                            masterAspectRatio={currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9"}
                             precheckReport={precheckReport}
                             mergeProgress={mergeProgress}
                             mergeVerification={mergeVerification}
@@ -651,7 +653,7 @@ export default function VideoAssembly() {
                                                 className={`rounded-xl overflow-hidden border transition-all group ${isSelected ? "border-green-500 ring-1 ring-green-500/50 bg-green-500/5" : "border-glass-border bg-glass hover:border-glass-border"
                                                     }`}
                                             >
-                                                <div className="aspect-video relative bg-black">
+                                                <div className="aspect-video relative bg-black" style={{ aspectRatio: getAspectRatioCssValue(currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9") }}>
                                                     <video
                                                         src={getAssetUrl(
                                                             selectedFrame?.dubbed_video_task_id === video.id && selectedFrame?.dubbed_video_url
@@ -880,6 +882,7 @@ export function ExportPhase({
     framesReady,
     framesTotal,
     exportSettings,
+    masterAspectRatio = "16:9",
     precheckReport,
     mergeProgress,
     mergeVerification,
@@ -900,6 +903,7 @@ export function ExportPhase({
     framesReady: number;
     framesTotal: number;
     exportSettings: ExportSettings;
+    masterAspectRatio?: string;
     precheckReport: MergePrecheckReport | null;
     mergeProgress: MergeProgress | null;
     mergeVerification: MergeVerification | null;
@@ -919,10 +923,15 @@ export function ExportPhase({
     const [isPrechecking, setIsPrechecking] = useState(false);
     const [reviewing, setReviewing] = useState<string | null>(null);
     const [reviewError, setReviewError] = useState<string | null>(null);
+    const exportResolutions = useMemo(() => exportResolutionsForAspectRatio(masterAspectRatio), [masterAspectRatio]);
 
     useEffect(() => {
-        setDraftSettings(toExportSettingsDraft(exportSettings));
-    }, [exportSettings]);
+        const next = toExportSettingsDraft(exportSettings);
+        const resolution = next.resolution && resolutionMatchesAspectRatio(next.resolution, masterAspectRatio)
+            ? next.resolution
+            : exportResolutions[0] as ExportResolution;
+        setDraftSettings({ ...next, resolution });
+    }, [exportSettings, masterAspectRatio, exportResolutions]);
 
     const handleSaveSettings = async () => {
         setIsSavingSettings(true);
@@ -987,7 +996,7 @@ export function ExportPhase({
                 <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                     <SelectField label={ta("resolution")} value={draftSettings.resolution || "__none"}
                         onChange={value => setDraftSettings(current => ({ ...current, resolution: value === "__none" ? "" : value as ExportResolution }))}
-                        options={[{ id: "__none", label: "—" }, ...["1920x1080", "1280x720", "640x360"].map(value => ({ id: value, label: value.replace("x", "×") }))]} />
+                        options={[{ id: "__none", label: "—" }, ...exportResolutions.map(value => ({ id: value, label: value.replace("x", "×") }))]} />
                     <SelectField label={ta("fps")} value={draftSettings.fps === "" ? "__none" : String(draftSettings.fps)}
                         onChange={value => setDraftSettings(current => ({ ...current, fps: value === "__none" ? "" : Number(value) as ExportFps }))}
                         options={[{ id: "__none", label: "—" }, ...[24, 25, 30].map(value => ({ id: String(value), label: String(value) }))]} />
@@ -1226,7 +1235,7 @@ export function ExportPhase({
                         className="rounded-xl border border-glass-border bg-elevated overflow-hidden"
                     >
                         <div className="grid md:grid-cols-2 gap-0">
-                            <div className="aspect-video bg-black">
+                            <div className="aspect-video bg-black" style={{ aspectRatio: getAspectRatioCssValue(masterAspectRatio) }}>
                                 <video src={getAssetUrl(mergedVideoUrl)} className="w-full h-full object-contain" controls autoPlay />
                             </div>
                             <div className="p-5 flex flex-col justify-center gap-3">

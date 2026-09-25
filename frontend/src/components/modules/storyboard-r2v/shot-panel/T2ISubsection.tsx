@@ -11,6 +11,8 @@ import { creditLabel, imageCostParams, unitLabels } from "@/lib/modelCost";
 import { GLOBAL_IMAGE_MODELS } from "@/lib/modelCatalog";
 import { SelectField } from "@omnistudio/ui";
 import SectionShell from "./SectionShell";
+import { useProjectStore } from "@/store/projectStore";
+import { getAspectRatioCssValue } from "@/lib/aspectRatio";
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const ALLOWED_UPLOAD_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -64,6 +66,8 @@ export default function T2ISubsection({
     const pricing = usePricingTable();
     const tBilling = useTranslations("billing");
     const t = useTranslations("storyboardR2V");
+    const masterAspectRatio = useProjectStore((state) => state.currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9");
+    const previewAspectStyle = { aspectRatio: getAspectRatioCssValue(masterAspectRatio) };
     const [open, setOpen] = useState(true);
     const [dragHot, setDragHot] = useState(false);
     const [localUploading, setUploading] = useState(false);
@@ -156,7 +160,7 @@ export default function T2ISubsection({
                 </label>
                 {onUseShotPrompt && <Button variant="quiet" className="mb-3" onPress={onUseShotPrompt}>{t("firstFrameUseShotPrompt")}</Button>}
                 {activeUrl ? (
-                    <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-glass-border bg-surface">
+                    <div className="relative w-full overflow-hidden rounded-xl border border-glass-border bg-surface" style={previewAspectStyle}>
                         <PreviewImage src={activeUrl} alt={t("t2iActiveFrame")} className="h-full w-full" alwaysShowMagnify clickToLightbox />
                         {imageUrls.length === 1 && <IconButton variant="secondary" className="absolute right-1 top-1 bg-white" isDisabled={busy}
                             aria-label={t("t2iRemoveCandidate", { index: 1 })}
@@ -173,7 +177,7 @@ export default function T2ISubsection({
                     <div className="mt-3 grid grid-cols-2 gap-2">
                         {imageUrls.map((url, index) => (
                             <div key={`${url}-${index}`} className="min-w-0 space-y-1">
-                                <div className="relative aspect-video overflow-hidden rounded-lg border border-glass-border bg-surface">
+                                <div className="relative overflow-hidden rounded-lg border border-glass-border bg-surface" style={previewAspectStyle}>
                                     <PreviewImage src={url} alt={t("t2iSelectCandidate", { index: index + 1 })} className="h-full w-full" clickToLightbox />
                                     <IconButton variant="secondary" className="absolute right-1 top-1 bg-white" isDisabled={busy}
                                         aria-label={t("t2iRemoveCandidate", { index: index + 1 })}

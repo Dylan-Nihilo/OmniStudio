@@ -27,7 +27,7 @@
  *   - frontend/src/components/modules/ConsistencyVault.tsx
  *   - frontend/src/components/canvas/* (storyboard frame thumbnails)
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { AlertTriangle, RefreshCw, Maximize2, Copy, Check } from "lucide-react";
 import clsx from "clsx";
 import { useTranslations } from "next-intl";
@@ -40,6 +40,7 @@ export interface PreviewImageProps {
     src?: string;
     alt?: string;
     className?: string;
+    style?: CSSProperties;
     /** Disable click-to-lightbox + 🔍 button (e.g. cast avatars in chip bar
      *  where lightbox is overkill for tiny 16px chips). */
     noLightbox?: boolean;
@@ -62,7 +63,7 @@ export interface PreviewImageProps {
 }
 
 export default function PreviewImage({
-    src, alt, className, noLightbox = false,
+    src, alt, className, style, noLightbox = false,
     groupId, groupIndex, alwaysShowMagnify = false,
     clickToLightbox = false, placeholder,
 }: PreviewImageProps) {
@@ -141,7 +142,7 @@ export default function PreviewImage({
 
     if (!src) {
         return (
-            <div ref={wrapperRef} className={clsx("relative overflow-hidden", className)}>
+            <div ref={wrapperRef} style={style} className={clsx("relative overflow-hidden", className)}>
                 {placeholder ?? null}
             </div>
         );
@@ -152,6 +153,7 @@ export default function PreviewImage({
     return (
         <div
             ref={wrapperRef}
+            style={style}
             className={clsx(
                 "group/preview relative overflow-hidden",
                 clickable && "cursor-zoom-in",
@@ -177,7 +179,7 @@ export default function PreviewImage({
                         crossOrigin="use-credentials"
                         loading="lazy"
                         onError={handleError}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-contain bg-surface-inset"
                     />
                     {!noLightbox && sizeBucket !== "micro" ? (
                         <button

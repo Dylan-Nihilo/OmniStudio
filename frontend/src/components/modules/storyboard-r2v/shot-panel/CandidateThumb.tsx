@@ -7,6 +7,7 @@ import { Star, Pencil, Pin, Film, RefreshCw } from "lucide-react";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import type { VideoTask } from "@/lib/api";
 import styles from "./CandidatesSection.module.css";
+import { getAspectRatioCssValue } from "@/lib/aspectRatio";
 
 export interface CandidateThumbProps {
     task: VideoTask;
@@ -60,7 +61,7 @@ export default function CandidateThumb({ task, isCompareSelected, isActive = fal
                 {pending !== "star" && <Star size={16} fill={task.is_starred ? "currentColor" : "none"} />}
             </IconButton>
         </div>
-        <div className={styles.media} onClickCapture={event => {
+        <div className={styles.media} style={{ aspectRatio: getAspectRatioCssValue(task.ratio ?? "16:9") }} onClickCapture={event => {
             if (event.shiftKey && videoUrl) { event.preventDefault(); event.stopPropagation(); onClick(task, { shift: true, meta: event.metaKey || event.ctrlKey }); }
         }}>
             {videoUrl ? <PreviewVideo src={videoUrl} alt={task.label || t("generatedVideo")} className="h-full w-full" alwaysShowMagnify clickToLightbox />
