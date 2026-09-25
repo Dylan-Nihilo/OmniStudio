@@ -86,6 +86,13 @@ it('renders generation settings as a dialog with a visible backdrop', () => {
   expect(dialog).toBeVisible();
 });
 
+it('labels storyboard ratio as the master output canvas ratio', () => {
+  render(<ModelSettingsModal isOpen onClose={vi.fn()} />);
+
+  expect(screen.getByText('storyboardAspectLabel')).toBeInTheDocument();
+  expect(screen.getByText('aspectRatioRuleInherited')).toBeInTheDocument();
+});
+
 it('keeps model edits visible and allows retry when saving fails', async () => {
   const onClose = vi.fn();
   updateModelSettings

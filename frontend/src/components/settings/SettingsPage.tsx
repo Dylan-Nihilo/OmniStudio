@@ -636,6 +636,12 @@ function SettingsPageContent({ initialCategory = "general", onProviderConfigSave
       </div>
     </FormRow>
     <FormRow label={t("storyboardAspectLabel")} hint={t("storyboardAspectHint")}>{ratioField("storyboard_aspect_ratio", t("storyboardAspectLabel"))}</FormRow>
+    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-text-muted">
+      <p className="font-medium text-text-secondary">{t("aspectRatioRuleTitle")}</p>
+      <p>{t("aspectRatioRuleMaster")}</p>
+      <p>{t("aspectRatioRuleInherited")}</p>
+      <p>{t("aspectRatioRuleIndependent")}</p>
+    </div>
     <FormRow label={t("i2vModelLabel")} hint={t("i2vModelHint")}>
       <SelectField label={t("i2vModelLabel")} className="[&>.label]:sr-only" value={modelSettings.i2v_model} onChange={value => updateModel("i2v_model", String(value))} isDisabled={!canManageConfig || modelSettingsLoading} options={GLOBAL_I2V_MODELS.map(m => ({id:m.id, label:m.name, description:withCost(m.id, m.description)}))} />
     </FormRow>

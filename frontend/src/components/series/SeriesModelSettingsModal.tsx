@@ -198,9 +198,9 @@ export default function SeriesModelSettingsModal({ isOpen, onClose, seriesId, on
 
                                     <div className="grid grid-cols-3 gap-4">
                                         {([
-                                            { key: 'character', label: t("character"), icon: User, value: characterAspectRatio, setter: setCharacterAspectRatio },
-                                            { key: 'scene', label: t("scene"), icon: Building, value: sceneAspectRatio, setter: setSceneAspectRatio },
-                                            { key: 'prop', label: t("prop"), icon: Box, value: propAspectRatio, setter: setPropAspectRatio },
+                                            { key: 'character', label: t("assetCharacter"), icon: User, value: characterAspectRatio, setter: setCharacterAspectRatio },
+                                            { key: 'scene', label: t("assetScene"), icon: Building, value: sceneAspectRatio, setter: setSceneAspectRatio },
+                                            { key: 'prop', label: t("assetProp"), icon: Box, value: propAspectRatio, setter: setPropAspectRatio },
                                         ]).map(({ key, label, icon: Icon, value, setter }) => (
                                             <div key={key} className="space-y-2">
                                                 <div className="flex items-center gap-1 text-xs text-text-secondary">
@@ -245,7 +245,7 @@ export default function SeriesModelSettingsModal({ isOpen, onClose, seriesId, on
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-xs text-text-secondary">{t("aspectRatio")}</label>
+                                        <label className="text-xs text-text-secondary">{t("storyboardAspectLabel")}</label>
                                         <div className="grid grid-cols-3 gap-2">
                                             {ASPECT_RATIOS.map((ratio) => (
                                                 <button
@@ -260,6 +260,12 @@ export default function SeriesModelSettingsModal({ isOpen, onClose, seriesId, on
                                                     <span className="text-[0.625rem] text-text-secondary">{ratio.description}</span>
                                                 </button>
                                             ))}
+                                        </div>
+                                        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-text-muted">
+                                            <p className="font-medium text-text-secondary">{t("aspectRatioRuleTitle")}</p>
+                                            <p>{t("aspectRatioRuleMaster")}</p>
+                                            <p>{t("aspectRatioRuleInherited")}</p>
+                                            <p>{t("aspectRatioRuleIndependent")}</p>
                                         </div>
                                     </div>
                                 </div>
