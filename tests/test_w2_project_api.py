@@ -14,7 +14,7 @@ import pytest
 import src.apps.comic_gen.api as api_module
 from src.apps.comic_gen.auth.service import AuthService
 from src.apps.comic_gen.auth.settings import AuthSettings
-from src.apps.comic_gen.models import Prop, VideoTask
+from src.apps.comic_gen.models import ModelSettings, Prop, VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.storage.auth_repository import AuthRepository
 from src.storage.errors import StorageError
@@ -2287,7 +2287,10 @@ def test_export_settings_normalizes_resolution_to_master_ratio(api_client):
     with patch.object(
         api_module.pipeline,
         "resolve_model_settings",
-        return_value=SimpleNamespace(settings=SimpleNamespace(storyboard_aspect_ratio="9:16")),
+        return_value=SimpleNamespace(
+            settings=ModelSettings(storyboard_aspect_ratio="9:16"),
+            sources={},
+        ),
     ):
         response = api_client.put(route, json={"resolution": "1920x1080", "fps": 30})
 

@@ -69,9 +69,20 @@ def effective_export_settings(
     settings = dict(export_settings or {})
     ratio = master_aspect_ratio if master_aspect_ratio in ASPECT_RATIOS else "16:9"
     resolution = settings.get("resolution")
-    if resolution_matches_aspect_ratio(resolution, ratio):
+    if resolution is None:
+        return settings
+    # Only normalize a well-formed resolution with the wrong orientation.
+    # Malformed values must remain visible to the existing export validator so
+    # callers still receive a useful validation error instead of a silent fix.
+    if _RESOLUTION_RE.fullmatch(resolution or "") and resolution_matches_aspect_ratio(resolution, ratio):
         settings["resolution_source"] = settings.get("resolution_source", "explicit")
-    else:
+    elif _RESOLUTION_RE.fullmatch(resolution or "") and any(
+        resolution in options
+        for options in _EXPORT_RESOLUTIONS.values()
+    ):
+        # Known presets from an older project can be stale after the master
+        # ratio changes.  Preserve arbitrary custom WxH values for backwards
+        # compatibility; the export validator has always allowed them.
         settings["resolution"] = export_resolutions_for_aspect_ratio(ratio)[0]
         settings["resolution_source"] = "aspect_ratio_default"
     return settings

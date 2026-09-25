@@ -4578,9 +4578,13 @@ class ComicGenPipeline:
     def _merge_videos_impl(self, script_id: str, script: Script) -> Script:
         # Validate before checking FFmpeg or touching merge inputs so invalid
         # user settings cannot be silently replaced by defaults.
-        master_ratio = resolve_master_aspect_ratio(
-            self.resolve_model_settings(script_id).settings
-        )
+        try:
+            master_settings = self.resolve_model_settings(script_id).settings
+        except (AttributeError, ValueError):
+            # Lightweight merge callers from older integrations may not have
+            # the storage-backed settings layers; use the script snapshot.
+            master_settings = getattr(script, "model_settings", None)
+        master_ratio = resolve_master_aspect_ratio(master_settings)
         export_settings = _resolve_export_settings(
             effective_export_settings(getattr(script, "export_settings", None), master_ratio)
         )
