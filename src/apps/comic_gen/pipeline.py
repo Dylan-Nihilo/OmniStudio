@@ -20,6 +20,7 @@ from .asset_references import AssetReferenceError, resolve_asset_references, ref
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
+from .aspect_ratio import effective_export_settings, resolve_master_aspect_ratio, resolve_video_task_aspect_ratio
 from .storyboard import StoryboardGenerator
 from .video import VideoGenerator
 from .audio import AudioGenerator
@@ -3195,7 +3196,7 @@ class ComicGenPipeline:
             # Get effective size from storyboard_aspect_ratio
             from .assets import ASPECT_RATIO_TO_SIZE
             effective_settings = self.resolve_model_settings(script_id, frame_id).settings
-            storyboard_aspect_ratio = effective_settings.storyboard_aspect_ratio
+            storyboard_aspect_ratio = resolve_master_aspect_ratio(effective_settings)
             effective_size = ASPECT_RATIO_TO_SIZE.get(storyboard_aspect_ratio, "1024*576")  # Default to landscape
             
             # Use model from settings
@@ -3482,13 +3483,15 @@ class ComicGenPipeline:
         # Persist the effective shot/episode format on every task.  Provider
         # adapters can then receive the same portrait setting instead of
         # silently falling back to their own 16:9 default.
-        if ratio is None:
-            try:
-                ratio = self.resolve_model_settings(script_id, frame_id).settings.storyboard_aspect_ratio
-            except (AttributeError, ValueError):
-                # Lightweight/local-only callers may construct a pipeline
-                # fixture without the storage-backed settings layers.
-                ratio = getattr(getattr(script, "model_settings", None), "storyboard_aspect_ratio", "16:9")
+        try:
+            master_ratio = resolve_master_aspect_ratio(
+                self.resolve_model_settings(script_id, frame_id).settings
+            )
+        except (AttributeError, ValueError):
+            # Lightweight/local-only callers may construct a pipeline
+            # fixture without the storage-backed settings layers.
+            master_ratio = resolve_master_aspect_ratio(getattr(script, "model_settings", None))
+        ratio = resolve_video_task_aspect_ratio(ratio, master_ratio)
 
         task = VideoTask(
             id=task_id,
@@ -4575,7 +4578,16 @@ class ComicGenPipeline:
     def _merge_videos_impl(self, script_id: str, script: Script) -> Script:
         # Validate before checking FFmpeg or touching merge inputs so invalid
         # user settings cannot be silently replaced by defaults.
-        export_settings = _resolve_export_settings(getattr(script, "export_settings", None))
+        try:
+            master_settings = self.resolve_model_settings(script_id).settings
+        except (AttributeError, ValueError):
+            # Lightweight merge callers from older integrations may not have
+            # the storage-backed settings layers; use the script snapshot.
+            master_settings = getattr(script, "model_settings", None)
+        master_ratio = resolve_master_aspect_ratio(master_settings)
+        export_settings = _resolve_export_settings(
+            effective_export_settings(getattr(script, "export_settings", None), master_ratio)
+        )
         
         logger.info(f"[MERGE] Starting video merge for script {script_id}")
         

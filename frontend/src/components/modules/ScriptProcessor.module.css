@@ -30,7 +30,7 @@
 .counts { font-size: 11px; color: var(--color-text-muted); padding-bottom: 22px; border-bottom: 1px solid var(--color-border-default); }
 .scene { padding: 22px 0; border-bottom: 1px solid var(--color-border-default); }
 .scene h3 { margin: 12px 0; font-size: 15px; font-weight: 600; }
-.scene img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; margin-bottom: 12px; }
+.scene img { width: 100%; object-fit: contain; background: var(--color-bg-inset); border-radius: 12px; margin-bottom: 12px; }
 .scene p, .characters p { font-size: 12px; color: var(--color-text-secondary); line-height: 1.7; }
 .characters { padding-top: 24px; }
 .characters h3 { font-size: 11px; color: var(--color-text-muted); margin-bottom: 20px; }

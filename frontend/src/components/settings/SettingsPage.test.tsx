@@ -199,6 +199,13 @@ describe('settings controls and recovery', () => {
 
 
 describe('workspace configuration boundaries', () => {
+  it('explains that the storyboard ratio is the master output canvas', async () => {
+    render(<SettingsPage initialCategory="models" />);
+    await waitFor(() => expect(mocks.getGlobalModelSettings).toHaveBeenCalledOnce());
+    expect(screen.getByText('aspectRatioRuleTitle')).toBeVisible();
+    expect(screen.getByText('aspectRatioRuleInherited')).toBeVisible();
+  });
+
   it('preserves unsaved configuration when the user changes language', async () => {
     const view = render(<SettingsPage initialCategory="storage" />);
     fireEvent.change(await screen.findByDisplayValue('original-bucket'), {target:{value:'unsaved-bucket'}});

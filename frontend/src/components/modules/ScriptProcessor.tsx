@@ -6,6 +6,7 @@ import { Film, Upload, Save, Image as ImageIcon } from "lucide-react";
 import { Button, EmptyState, SelectField, Tabs } from "@omnistudio/ui";
 import { api, sourceApi, type SourceChapterAnalysis, type SourceProductionContext } from "@/lib/api";
 import { useProjectStore } from "@/store/projectStore";
+import { getAspectRatioCssValue } from "@/lib/aspectRatio";
 import { toast } from "@/store/toastStore";
 import PreviousEpisodeSummary from "@/components/modules/PreviousEpisodeSummary";
 import ReconcileModal from "@/components/modules/ReconcileModal";
@@ -233,7 +234,7 @@ export default function ScriptProcessor() {
         <p className={styles.eyebrow}>{t("structure")}</p><h2>{t("sceneAnalysis")}</h2><p className={styles.counts}>{t("counts", { shots: currentProject?.frames?.length || 0, characters: characters.length, scenes: scenes.length })}</p>
         {scene ? <div className={styles.scene}>
             {scenes.length > 1 && <SelectField label={t("scene")} value={scene.id} onChange={key => setSelectedScene(String(key))} options={scenes.map(item => ({ id: item.id, label: item.name }))} />}
-            <h3>{scene.name}</h3>{reference && <img src={getAssetUrl(reference)} alt={scene.name} />}<p>{scene.description}</p>
+            <h3>{scene.name}</h3>{reference && <img src={getAssetUrl(reference)} alt={scene.name} style={{ aspectRatio: getAspectRatioCssValue(currentProject?.model_settings?.scene_aspect_ratio ?? "16:9") }} />}<p>{scene.description}</p>
         </div> : <EmptyState title={t("noScenes")} description={t("analysisHint")} media={<ImageIcon size={24} />} />}
         <div className={styles.characters}><h3>{t("characters")}</h3>{characters.map(character => <article key={character.id}><strong>{character.name}</strong><p>{character.description}</p></article>)}{!characters.length && <p>{t("noCharacters")}</p>}</div>
     </section>;

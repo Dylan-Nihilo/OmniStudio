@@ -14,7 +14,7 @@ import pytest
 import src.apps.comic_gen.api as api_module
 from src.apps.comic_gen.auth.service import AuthService
 from src.apps.comic_gen.auth.settings import AuthSettings
-from src.apps.comic_gen.models import Prop, VideoTask
+from src.apps.comic_gen.models import ModelSettings, Prop, VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 from src.storage.auth_repository import AuthRepository
 from src.storage.errors import StorageError
@@ -2279,3 +2279,20 @@ def test_export_settings_keeps_the_web_subtitle_choice(api_client):
     assert response.status_code == 200, response.text
     assert api_client.get(f"/projects/{project['id']}").json()["export_settings"]["subtitles"] == "soft"
     assert api_client.put(route, json={"subtitles": "burn"}).status_code == 400
+
+
+def test_export_settings_normalizes_resolution_to_master_ratio(api_client):
+    project = _create_project(api_client, "Portrait export settings")
+    route = f"/projects/{project['id']}/export_settings"
+    with patch.object(
+        api_module.pipeline,
+        "resolve_model_settings",
+        return_value=SimpleNamespace(
+            settings=ModelSettings(storyboard_aspect_ratio="9:16"),
+            sources={},
+        ),
+    ):
+        response = api_client.put(route, json={"resolution": "1920x1080", "fps": 30})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["export_settings"]["resolution"] == "1080x1920"

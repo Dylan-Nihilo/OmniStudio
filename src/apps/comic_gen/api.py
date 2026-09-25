@@ -53,6 +53,7 @@ from .pipeline import (
     _resolve_export_settings,
     build_video_download_archive,
 )
+from .aspect_ratio import effective_export_settings, resolve_master_aspect_ratio
 from .models import (
     ArtDirection,
     PromptConfig,
@@ -6415,6 +6416,13 @@ def update_export_settings(script_id: str, request: ExportSettingsRequest):
             settings.pop(field_name, None)
         else:
             settings[field_name] = value
+
+    # Keep an explicitly supplied resolution aligned with the effective
+    # storyboard/output ratio.  An omitted resolution remains unset for
+    # backwards compatibility and is normalized immediately before merge.
+    if "resolution" in settings and settings.get("resolution") is not None:
+        master_ratio = resolve_master_aspect_ratio(pipeline.resolve_model_settings(script_id).settings)
+        settings = effective_export_settings(settings, master_ratio)
 
     # Validate eagerly: invalid values surface as HTTP 400 at save time
     # instead of failing much later inside the merge command.

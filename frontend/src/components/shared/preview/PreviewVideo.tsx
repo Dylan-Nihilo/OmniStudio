@@ -13,7 +13,7 @@
  * onError fallback panel reuses the same sized-adaptive treatment as
  * PreviewImage so error UX is consistent across image + video previews.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { AlertTriangle, RefreshCw, Maximize2, Copy, Check, Play } from "lucide-react";
 import clsx from "clsx";
 import { getAssetUrl } from "@/lib/utils";
@@ -25,6 +25,7 @@ export interface PreviewVideoProps {
     poster?: string;
     alt?: string;
     className?: string;
+    style?: CSSProperties;
     noLightbox?: boolean;
     groupId?: string;
     groupIndex?: number;
@@ -46,7 +47,7 @@ const MEDIA_ERROR_KEYS: Record<number, string> = {
 };
 
 export default function PreviewVideo({
-    src, poster, alt, className, noLightbox = false,
+    src, poster, alt, className, style, noLightbox = false,
     groupId, groupIndex, alwaysShowMagnify = false,
     clickToLightbox = false,
     hoverPlay = true, placeholder,
@@ -128,7 +129,7 @@ export default function PreviewVideo({
 
     if (!src) {
         return (
-            <div ref={wrapperRef} className={clsx("relative overflow-hidden", className)}>
+            <div ref={wrapperRef} style={style} className={clsx("relative overflow-hidden", className)}>
                 {placeholder ?? null}
             </div>
         );
@@ -139,6 +140,7 @@ export default function PreviewVideo({
     return (
         <div
             ref={wrapperRef}
+            style={style}
             className={clsx(
                 "group/preview relative overflow-hidden",
                 clickable && "cursor-zoom-in",
@@ -178,7 +180,7 @@ export default function PreviewVideo({
                         playsInline
                         preload="metadata"
                         onError={handleError}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-contain bg-surface-inset"
                     />
                     {/* Subtle play indicator when not hovering — signals "this is a video" */}
                     {hoverPlay ? (

@@ -52,6 +52,17 @@ it('offers an explicit retry action after a merge failure', () => {
   expect(onMerge).toHaveBeenCalledTimes(1);
 });
 
+it('offers only portrait export resolutions for a portrait master canvas', () => {
+  render(<ExportPhase masterAspectRatio="9:16" mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError={null} framesReady={0} framesTotal={0}
+    exportSettings={{ resolution: '1920x1080' }} precheckReport={null} mergeProgress={null} mergeVerification={null}
+    onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole('button', { name: /resolution/ }));
+  expect(screen.getByRole('option', { name: '1080×1920' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: '720×1280' })).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: '1920×1080' })).not.toBeInTheDocument();
+});
+
 it('opens a flagged shot and keeps review retryable after a save error', async () => {
   const inspect = vi.fn();
   const review = vi.fn().mockRejectedValueOnce(new Error('Review was not saved')).mockResolvedValue(undefined);

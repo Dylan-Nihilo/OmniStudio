@@ -209,7 +209,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-1 text-xs text-text-secondary">
                                         <User size={12} />
-                                        <label>{t("character")}</label>
+                                        <label>{t("assetCharacter")}</label>
                                     </div>
                                     <div className="space-y-1">
                                         {ASPECT_RATIOS.map((ratio) => (
@@ -231,7 +231,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-1 text-xs text-text-secondary">
                                         <Building size={12} />
-                                        <label>{t("scene")}</label>
+                                        <label>{t("assetScene")}</label>
                                     </div>
                                     <div className="space-y-1">
                                         {ASPECT_RATIOS.map((ratio) => (
@@ -253,7 +253,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-1 text-xs text-text-secondary">
                                         <Box size={12} />
-                                        <label>{t("prop")}</label>
+                                        <label>{t("assetProp")}</label>
                                     </div>
                                     <div className="space-y-1">
                                         {ASPECT_RATIOS.map((ratio) => (
@@ -294,7 +294,7 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
 
                             {/* Storyboard Aspect Ratio */}
                             <div className="space-y-2">
-                                <label className="text-xs text-text-secondary">{t("aspectRatio")}</label>
+                                <label className="text-xs text-text-secondary">{t("storyboardAspectLabel")}</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {ASPECT_RATIOS.map((ratio) => (
                                         <button
@@ -309,6 +309,12 @@ export default function ModelSettingsModal({ isOpen, onClose }: ModelSettingsMod
                                             <span className="text-[0.625rem] text-text-muted">{ratio.description}</span>
                                         </button>
                                     ))}
+                                </div>
+                                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-text-muted">
+                                    <p className="font-medium text-text-secondary">{t("aspectRatioRuleTitle")}</p>
+                                    <p>{t("aspectRatioRuleMaster")}</p>
+                                    <p>{t("aspectRatioRuleInherited")}</p>
+                                    <p>{t("aspectRatioRuleIndependent")}</p>
                                 </div>
                             </div>
                         </div>

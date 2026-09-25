@@ -72,6 +72,13 @@ it('loads effective settings and restores only the project fields to Workspace i
   expect(payload).not.toHaveProperty('r2v_model');
 });
 
+it('shows the master canvas inheritance rule', async () => {
+  render(<SeriesModelSettingsModal isOpen onClose={vi.fn()} seriesId="series-1" />);
+
+  expect(await screen.findByText('storyboardAspectLabel')).toBeVisible();
+  expect(screen.getByText('aspectRatioRuleInherited')).toBeVisible();
+});
+
 it('keeps edits visible and allows retry when saving fails', async () => {
   const onClose = vi.fn();
   updateSeriesModelSettings
