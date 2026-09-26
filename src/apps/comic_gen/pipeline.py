@@ -527,6 +527,25 @@ class LibraryAssetInUseError(Exception):
         )
 
 
+def _describe_video_failure(error: Exception) -> str:
+    """A video failure phrased for the person who pressed the button.
+
+    Transport detail is useless to a creator and names the provider besides, so the two
+    shapes worth distinguishing are said plainly and everything else goes through the same
+    boundary every other public error does.
+    """
+    from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout
+
+    from .contracts import sanitize_error_text
+
+    text = str(error)
+    if isinstance(error, Timeout) or "timed out" in text.lower():
+        return "视频服务响应超时，参考图可能没有上传完。请稍后重试；一次只提交一两个片段更容易成功。"
+    if isinstance(error, RequestsConnectionError):
+        return "连接视频服务失败，请稍后重试。"
+    return sanitize_error_text(text)[:500]
+
+
 class ComicGenPipeline:
     def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
@@ -5549,7 +5568,12 @@ class ComicGenPipeline:
                 task = next((t for t in script.video_tasks if t.id == task_id), None) if script else None
                 if task and task.status in ("pending", "processing"):
                     task.status = "failed"
-                    task.error = str(e)
+                    # The raw exception used to be stored verbatim, which put the provider's
+                    # own hostname on the customer's screen — a read timeout reported
+                    # `HTTPSConnectionPool(host='...', port=443)` in full. The transport
+                    # detail also tells a creator nothing they can act on, so a timeout is
+                    # named for what it is.
+                    task.error = _describe_video_failure(e)
                     if task.asset_id:
                         self._sync_asset_video_task(script, task)
                     self._save_data()

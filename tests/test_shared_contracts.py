@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 import pytest
 from pydantic import ValidationError
 
@@ -70,3 +71,40 @@ def test_api_error_contract_redacts_credentials_and_absolute_paths():
     assert "secret" not in error.message
     assert "OPENAI_API_KEY" not in error.message
     assert "/Users/alice" not in error.message
+
+
+def test_a_transport_error_does_not_name_the_provider_it_failed_to_reach():
+    """The HTTP stack names the host without a scheme, so the URL rule never caught it.
+
+    Reported from production: six video generations failed on a read timeout and the error
+    stored on each task — and shown to the creator — was
+    `HTTPSConnectionPool(host='video.jojokey.com', port=443): Read timed out.` in full.
+    """
+    from src.apps.comic_gen.contracts import sanitize_error_text
+    from src.utils.endpoints import PROVIDER_DEFAULTS
+
+    cleaned = sanitize_error_text(
+        "HTTPSConnectionPool(host='video.jojokey.com', port=443): Read timed out. (read timeout=120)"
+    )
+    assert "jojokey" not in cleaned.lower()
+    # The useful part survives; only the counterparty is taken out.
+    assert "Read timed out" in cleaned
+
+    # Every provider in the registry is covered, not just the one that happened to break.
+    for url in PROVIDER_DEFAULTS.values():
+        host = urlparse(url).hostname
+        if not host:
+            continue
+        assert host not in sanitize_error_text(f"connection to {host} refused"), host
+
+
+def test_a_video_timeout_tells_the_creator_what_to_do_instead_of_naming_a_socket():
+    from requests.exceptions import ReadTimeout
+
+    from src.apps.comic_gen.pipeline import _describe_video_failure
+
+    message = _describe_video_failure(ReadTimeout(
+        "HTTPSConnectionPool(host='video.jojokey.com', port=443): Read timed out. (read timeout=120)"
+    ))
+    assert "jojokey" not in message.lower() and "HTTPSConnectionPool" not in message
+    assert "超时" in message and "重试" in message

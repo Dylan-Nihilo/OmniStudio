@@ -26,6 +26,7 @@ import hashlib
 import logging
 import mimetypes
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -68,6 +69,10 @@ CN_IMAGE_MAX_ASPECT = 2.5
 
 class CnLineUnavailable(RuntimeError):
     """The CN line is switched off for this account, so the request never reached a model."""
+
+
+# Reference-image uploads share one outbound link; see `_upload_local_media`.
+_UPLOAD_LOCK = threading.Lock()
 
 
 class JojoKeyVideoModel(VideoGenModel):
@@ -280,6 +285,18 @@ class JojoKeyVideoModel(VideoGenModel):
 
     def _upload_local_media(self, path: str, *, modality: str, line: str,
                             group_id: Optional[str]) -> str:
+        # Serialized across the process. Six segments submitted together each pushed ~25 MB
+        # of reference images at once, so every upload crawled, all of them passed the
+        # 120-second read timeout, and all six generations failed — observed in production
+        # on 2026-09-26. Queueing them also lets the digest cache do its job: the character
+        # and scene sheets are shared by every segment, and concurrent submissions all
+        # uploaded their own copy before any cache entry existed. One at a time is slower to
+        # start and finishes, which is the trade that matters here.
+        with _UPLOAD_LOCK:
+            return self._upload_local_media_locked(path, modality=modality, line=line, group_id=group_id)
+
+    def _upload_local_media_locked(self, path: str, *, modality: str, line: str,
+                                   group_id: Optional[str]) -> str:
         content_type = mimetypes.guess_type(path)[0] or ""
         if not content_type.startswith(f"{modality}/"):
             raise ValueError(f"JojoKey {modality} upload has an unsupported file type")

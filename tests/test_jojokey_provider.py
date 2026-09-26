@@ -860,3 +860,55 @@ def test_invalid_cn_image_never_reaches_upload_or_video_submit(monkeypatch, tmp_
     with pytest.raises(ValueError, match="短边"):
         JojoKeyVideoModel({}).generate("reference", str(tmp_path / "out.mp4"), img_path=path,
             model="seedance-2.5-r2v", generation_mode="r2v")
+
+
+def test_concurrent_submissions_upload_one_at_a_time_and_share_the_cache(monkeypatch, tmp_path):
+    """Six segments submitted together pushed ~25 MB of references each and all timed out.
+
+    Every upload crawled against the others on one outbound link, each passed the
+    120-second read timeout, and all six generations failed — observed in production on
+    2026-09-26. Queueing them also lets the digest cache work: the character and scene
+    sheets are shared by every segment, and concurrent submissions each uploaded their own
+    copy because no cache entry existed yet.
+    """
+    import threading
+    import time
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    shared = _image(tmp_path / "output", (640, 360))
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+
+    overlap = []
+    inside = threading.Semaphore(0)
+    active = 0
+    guard = threading.Lock()
+
+    def upload(url, **kwargs):
+        nonlocal active
+        with guard:
+            active += 1
+            overlap.append(active)
+        time.sleep(0.02)                  # long enough for a sibling to overlap if allowed
+        with guard:
+            active -= 1
+        return _Response(payload={"id": "asset_shared", "url": "https://cdn.example.test/a.png",
+                                  "ready": True})
+
+    monkeypatch.setattr("src.models.jojokey.requests.post", upload)
+    monkeypatch.setattr("src.models.jojokey.requests.get", lambda url, **kwargs: _Response(
+        payload={"id": "asset_shared", "url": "https://cdn.example.test/a.png", "ready": True}))
+
+    model = JojoKeyVideoModel({})
+    threads = [threading.Thread(target=lambda: model._resolved_urls(
+        [shared], model_id="seedance-2.5-r2v", modality="image")) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    inside.release()
+
+    assert max(overlap) == 1, f"uploads overlapped: {overlap}"
+    # The same file is uploaded once; the rest are served from the digest cache.
+    assert len(overlap) == 1, f"the shared reference was uploaded {len(overlap)} times"

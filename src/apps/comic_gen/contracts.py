@@ -160,6 +160,30 @@ def _vendor_model_names() -> tuple[str, ...]:
         return ()
 
 
+@lru_cache(maxsize=1)
+def _provider_hosts() -> tuple[str, ...]:
+    """Hostnames of every provider we call, longest first.
+
+    A scheme-less hostname is how the HTTP stack names a provider in its own errors —
+    `HTTPSConnectionPool(host='...', port=443)` — so the URL rule below never caught it and
+    a read timeout carried the vendor's domain straight to a customer's screen. Read from
+    the endpoint registry rather than hard-coded so a provider added there is covered here.
+    """
+    try:
+        from urllib.parse import urlparse
+
+        from ...utils.endpoints import PROVIDER_DEFAULTS
+
+        hosts = set()
+        for url in PROVIDER_DEFAULTS.values():
+            host = urlparse(url).hostname
+            if host:
+                hosts.add(host)
+        return tuple(sorted(hosts, key=len, reverse=True))
+    except Exception:                       # a redaction list must never break a response
+        return ()
+
+
 def sanitize_error_text(text: str) -> str:
     """Remove credentials, local paths and provider endpoints from public errors.
 
@@ -172,6 +196,11 @@ def sanitize_error_text(text: str) -> str:
     redacted = re.sub(r"(?i)(?:OPENAI_API_KEY|DASHSCOPE_API_KEY|MULEROUTER_API_KEY)\s*=\s*[^\s]+", "[credential redacted]", text)
     redacted = re.sub(r"(?:[A-Za-z]:\\|/Users/|/home/|/root/)[^\s,;]+", "[local path redacted]", redacted)
     redacted = re.sub(r"(?i)\bhttps?://[^\s'\"<>]+", "[endpoint redacted]", redacted)
+    # `HTTPSConnectionPool(host='...', port=443)` and friends name the host without a scheme.
+    redacted = re.sub(r"(?i)\bhost\s*=\s*'[^']*'", "host='[redacted]'", redacted)
+    for host in _provider_hosts():
+        if host in redacted:
+            redacted = redacted.replace(host, "[endpoint redacted]")
     # The vendor's model name says as much about where we buy as the endpoint does, and a
     # provider's own error text quotes it freely.
     for name in _vendor_model_names():
