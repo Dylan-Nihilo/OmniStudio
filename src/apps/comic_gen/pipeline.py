@@ -15,7 +15,7 @@ import copy
 from io import BytesIO
 import zipfile
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings
+from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings, DialogueStructured
 from .asset_references import AssetReferenceError, resolve_asset_references, reference_instruction
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
@@ -527,6 +527,33 @@ class LibraryAssetInUseError(Exception):
         )
 
 
+def plan_dialogue_fields(shots) -> Dict[str, Any]:
+    """The plan's dialogue, in the fields the dubbing workbench reads.
+
+    The plan already holds every line — lifted from the script and checked against it word
+    for word — and applying the plan dropped all of it, so the workbench opened with an
+    empty box and the text had to be typed again by hand.
+
+    The text goes to TTS verbatim (`audio._effective_dialogue_text`), so speaker names stay
+    out of it or they would be read aloud. A speaker is recorded only when the segment has
+    exactly one: naming one of several would be wrong, and an empty speaker leaves the voice
+    an open choice rather than a bad default.
+    """
+    lines = [line for shot in shots for line in (shot.dialogue or [])]
+    if not lines:
+        return {}
+    speakers = list(dict.fromkeys(line.speaker for line in lines))
+    text = "\n".join(line.line for line in lines)
+    fields: Dict[str, Any] = {
+        "dialogue": text,
+        "dialogue_mode": "voiceover" if all(line.mode == "voiceover" for line in lines) else "on_screen",
+    }
+    if len(speakers) == 1:
+        fields["speaker"] = speakers[0]
+        fields["dialogue_structured"] = DialogueStructured(speaker=speakers[0], line=text)
+    return fields
+
+
 def _describe_video_failure(error: Exception) -> str:
     """A video failure phrased for the person who pressed the button.
 
@@ -628,6 +655,7 @@ class ComicGenPipeline:
         # Project-independent global asset library (lowest resolver layer).
         self.library_store: GlobalAssetLibrary = self._load_library_data()
         self._repair_series_bindings()
+        self._backfill_plan_dialogue()
 
         # Extraction preview cache: {project_id: (timestamp, Script)}
         self._extraction_cache: Dict[str, tuple] = {}
@@ -1051,6 +1079,33 @@ class ComicGenPipeline:
                     repaired = True
                     logger.info(f"Repaired series binding: episode {ep_id} → series {series_id}")
         if repaired:
+            self._save_data()
+
+    def _backfill_plan_dialogue(self):
+        """Give plan-backed frames the dialogue their plan already holds.
+
+        Applying a plan used to drop it, so episodes made before that was fixed open the
+        dubbing workbench with an empty box. Re-applying the plan would fill it but also
+        archive and replace every frame, taking the generated videos with it — so the gap is
+        closed in place instead.
+
+        Only ever fills what is empty: an edited line is the creator's, not ours to replace.
+        """
+        repaired = 0
+        for script in self.scripts.values():
+            plan = getattr(script, "production_plan", None)
+            if not plan:
+                continue
+            segments = {segment.frame_id: segment for segment in plan.segments}
+            for frame in script.frames:
+                segment = segments.get(frame.id)
+                if segment is None or frame.dialogue or frame.dialogue_structured:
+                    continue
+                for field, value in plan_dialogue_fields(segment.shots).items():
+                    setattr(frame, field, value)
+                    repaired += 1
+        if repaired:
+            logger.info("Backfilled dialogue onto %d plan-backed frame field(s)", repaired)
             self._save_data()
 
     def create_project(self, title: str, text: str, skip_analysis: bool = False, workflow_mode: str = "i2v_legacy", series_id: Optional[str] = None) -> Script:
@@ -2359,7 +2414,8 @@ class ComicGenPipeline:
                     character_ids=character_ids, prop_ids=prop_ids, action_description=segment.purpose,
                     visual_description=prompt, assembled_prompt=prompt, prompt_mode="complete", duration=segment.duration,
                     workbench_tab_mode="direct_r2v", model_settings_overrides={"r2v_model": plan.settings.model},
-                    production_plan_id=plan.id, production_segment_id=segment.id)
+                    production_plan_id=plan.id, production_segment_id=segment.id,
+                    **plan_dialogue_fields(segment.shots))
                 frames.append(frame)
                 for shot_index, shot in enumerate(segment.shots):
                     context = f"本片段开场状态：{segment.start_state}" if shot_index == 0 else f"前一镜叙事：{segment.shots[shot_index - 1].description}"

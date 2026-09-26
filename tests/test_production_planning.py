@@ -687,3 +687,88 @@ def test_a_failed_generation_is_reported_through_the_stream(api_client, monkeypa
     assert "plan_failed" in body
     # Same rule as everywhere else: a user-facing failure names no vendor and no endpoint.
     assert "relay.example" not in body and "gpt-image-2" not in body
+
+
+def test_applying_a_plan_carries_its_dialogue_into_the_dubbing_workbench(api_client, monkeypatch):
+    """The plan holds every line already; applying it used to throw them away.
+
+    Reported from production on 斗破苍穹: the dubbing workbench opened with an empty text
+    box on all eight segments, so lines the planner had already lifted from the script — and
+    checked against it word for word — had to be typed again by hand.
+    """
+    project_id, content, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    applied = api_client.post(f'/projects/{project_id}/production-plan/apply',
+                              json={'expected_revision': draft['revision']})
+    assert applied.status_code == 200, applied.text
+    script = api_module.pipeline.scripts[project_id]
+
+    # The fixture puts one line, spoken by 陆青, in the second segment's first shot.
+    spoken = next(frame for frame, segment in zip(script.frames, script.production_plan.segments)
+                  if any(shot.dialogue for shot in segment.shots))
+    assert spoken.dialogue == '为何不答？'
+    assert spoken.speaker == '陆青'
+    assert spoken.dialogue_structured and spoken.dialogue_structured.line == '为何不答？'
+    # This is the text TTS reads verbatim, so the speaker's name must not be inside it.
+    from src.apps.comic_gen.audio import _effective_dialogue_text
+    assert _effective_dialogue_text(spoken) == '为何不答？'
+    assert '陆青' not in _effective_dialogue_text(spoken)
+
+    silent = next(frame for frame, segment in zip(script.frames, script.production_plan.segments)
+                  if not any(shot.dialogue for shot in segment.shots))
+    assert not silent.dialogue and silent.dialogue_structured is None
+
+
+def test_a_segment_with_two_speakers_keeps_the_lines_but_picks_no_voice(api_client, monkeypatch):
+    from src.apps.comic_gen.pipeline import plan_dialogue_fields
+    from src.apps.comic_gen.production_planning import PlanDialogue, PlannedShot
+
+    def shot(*pairs, mode='on_screen'):
+        return PlannedShot(id='shot', title='镜头', description='描述', camera='中景', duration=4,
+                           source_quote='原文',
+                           dialogue=[PlanDialogue(speaker=who, line=what, mode=mode) for who, what in pairs])
+
+    both = plan_dialogue_fields([shot(('萧薰儿', '萧炎哥哥。')), shot(('萧炎', '别这么叫。'))])
+    assert both['dialogue'] == '萧炎哥哥。\n别这么叫。'
+    # Naming one of two speakers would be wrong; an empty speaker leaves the choice open.
+    assert 'speaker' not in both and 'dialogue_structured' not in both
+
+    narrated = plan_dialogue_fields([shot(('旁白', '斗气大陆，没有魔法。'), mode='voiceover')])
+    assert narrated['dialogue_mode'] == 'voiceover'
+
+
+def test_an_episode_made_before_the_fix_gets_its_dialogue_without_losing_its_videos(api_client, monkeypatch):
+    """Re-applying the plan would fill the dialogue and destroy the takes along with it.
+
+    斗破苍穹 had eight applied segments with videos already generated and every dialogue
+    field empty. Apply archives and replaces frames, so the gap has to close in place.
+    """
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    api_client.post(f'/projects/{project_id}/production-plan/apply',
+                    json={'expected_revision': draft['revision']})
+    script = api_module.pipeline.scripts[project_id]
+    spoken = next(frame for frame, segment in zip(script.frames, script.production_plan.segments)
+                  if any(shot.dialogue for shot in segment.shots))
+
+    # Put the project back the way an episode made before the fix looks, with a take on it.
+    spoken.dialogue = None
+    spoken.dialogue_structured = None
+    spoken.speaker = None
+    spoken.video_url = 'video/existing-take.mp4'
+    edited = next(frame for frame in script.frames if frame.id != spoken.id)
+    edited.dialogue = '我改过的台词'
+    api_module.pipeline._save_data()
+
+    api_module.pipeline._backfill_plan_dialogue()
+
+    filled = next(frame for frame in api_module.pipeline.scripts[project_id].frames if frame.id == spoken.id)
+    assert filled.dialogue == '为何不答？' and filled.speaker == '陆青'
+    assert filled.video_url == 'video/existing-take.mp4', "the take has to survive the repair"
+    # An edited line belongs to the creator.
+    kept = next(frame for frame in api_module.pipeline.scripts[project_id].frames if frame.id == edited.id)
+    assert kept.dialogue == '我改过的台词'
+
+    # Idempotent: running it again changes nothing.
+    api_module.pipeline._backfill_plan_dialogue()
+    assert next(f for f in api_module.pipeline.scripts[project_id].frames if f.id == edited.id).dialogue == '我改过的台词'
