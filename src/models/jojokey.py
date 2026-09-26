@@ -80,6 +80,7 @@ _UPLOAD_LOCK = threading.Lock()
 UPLOAD_SHRINK_THRESHOLD_BYTES = 1024 * 1024
 UPLOAD_MAX_LONG_SIDE = 1600
 UPLOAD_JPEG_QUALITY = 3          # ffmpeg -q:v, 2 is near-lossless and 31 is worst
+UPLOAD_ATTEMPTS = 3
 
 
 class JojoKeyVideoModel(VideoGenModel):
@@ -388,7 +389,8 @@ class JojoKeyVideoModel(VideoGenModel):
                         data["group_id"] = group_id
                 headers = self._headers(idempotency_key=key)
                 del headers["Content-Type"]  # requests supplies the multipart boundary.
-                for attempt in range(2):
+                for attempt in range(UPLOAD_ATTEMPTS):
+                    last = attempt == UPLOAD_ATTEMPTS - 1
                     source.seek(0)
                     try:
                         response = requests.post(
@@ -398,9 +400,19 @@ class JojoKeyVideoModel(VideoGenModel):
                             files={"file": (filename, source, content_type)},
                             timeout=120,
                         )
+                        # A transient server error used to end the whole generation: one
+                        # flaky reference out of the nine a segment needs was enough, and
+                        # the creator paid for nothing. The request already carries an
+                        # idempotency key, which is precisely what makes replaying it safe.
+                        # 4xx is a real rejection (wrong type, too small) and is not retried.
+                        if (response.status_code >= 500 or response.status_code == 429) and not last:
+                            logger.warning("[JojoKey] media upload got HTTP %s; retrying with the same idempotency key",
+                                           response.status_code)
+                            time.sleep(2 * (attempt + 1))
+                            continue
                         break
                     except (RequestsConnectionError, Timeout) as error:
-                        if attempt == 1:
+                        if last:
                             raise
                         logger.warning(
                             "[JojoKey] media upload interrupted (%s); retrying with the same idempotency key",

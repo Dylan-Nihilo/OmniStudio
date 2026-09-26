@@ -209,14 +209,18 @@ def test_upload_failure_stops_video_submission_and_reuses_key_on_retry(monkeypat
         return _Response(503, {"error": "storage unavailable"})
 
     monkeypatch.setattr("src.models.jojokey.requests.post", failed_upload)
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _s: None)
     model = JojoKeyVideoModel({})
     for _ in range(2):
         with pytest.raises(RuntimeError, match="media upload failed with HTTP 503"):
             model.generate("ref", str(tmp_path / "out.mp4"), model="seedance-2.5-r2v",
                            generation_mode="r2v", ref_image_urls=["output/ref.png"])
-    assert len(calls) == 2
+    # A 5xx is replayed now — one flaky reference used to sink a whole segment — so each
+    # generate spends its attempts before giving up. What still matters is unchanged: the
+    # upload never succeeds, so no video is submitted, and every replay reuses the key.
+    assert len(calls) == 2 * jojokey_module.UPLOAD_ATTEMPTS
     assert all(call["url"].endswith("/video-cn/assets") for call in calls)
-    assert calls[0]["key"] == calls[1]["key"]
+    assert len({call["key"] for call in calls}) == 1
 
 
 def test_local_upload_retries_transient_read_timeout_with_same_idempotency_key(
@@ -978,3 +982,55 @@ def test_upload_falls_back_to_the_original_when_the_re_encode_cannot_run(monkeyp
     monkeypatch.setattr("src.models.jojokey.subprocess.run",
                         lambda *a, **k: (_ for _ in ()).throw(OSError("no ffmpeg")))
     assert JojoKeyVideoModel._shrunk_for_upload(source) is None
+
+
+def test_a_flaky_server_error_on_one_reference_does_not_end_the_generation(monkeypatch, tmp_path):
+    """A segment needs nine references; one 5xx used to sink all of it.
+
+    Seen in production while re-uploading a real segment: eight of nine went through and
+    the ninth came back a server error, which killed the whole submission. The same file
+    uploaded fine seconds later. The request carries an idempotency key, so replaying it is
+    safe — a 4xx is a real rejection and still is not retried.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    image = _image(tmp_path / "output", (640, 360))
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    monkeypatch.setattr("src.models.jojokey.time.sleep", lambda _s: None)
+
+    statuses = [503, 200]
+    keys = []
+
+    def upload(url, **kwargs):
+        keys.append(kwargs["headers"].get("Idempotency-Key"))
+        status = statuses.pop(0)
+        if status != 200:
+            return _Response(status_code=status, payload={"message": "upstream busy"})
+        return _Response(payload={"id": "cnasset_a", "source_url": "https://cdn.example.test/a.png",
+                                  "ready": True})
+
+    monkeypatch.setattr("src.models.jojokey.requests.post", upload)
+    model = JojoKeyVideoModel({})
+    assert model._resolved_urls([image], model_id="seedance-2.5-r2v", modality="image",
+                                line="cn") == ["https://cdn.example.test/a.png"]
+    assert len(keys) == 2 and keys[0] == keys[1], "the replay must reuse the idempotency key"
+
+
+def test_a_rejected_reference_is_not_retried(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output").mkdir()
+    image = _image(tmp_path / "output", (640, 360))
+    monkeypatch.setenv("JOJOKEY_API_KEY", "sk-test")
+    monkeypatch.setattr("src.models.jojokey.OSSImageUploader", lambda: SimpleNamespace(is_configured=False))
+    calls = []
+
+    def upload(url, **kwargs):
+        calls.append(url)
+        return _Response(status_code=400, payload={"message": "unsupported asset"})
+
+    monkeypatch.setattr("src.models.jojokey.requests.post", upload)
+    with pytest.raises(RuntimeError, match="400"):
+        JojoKeyVideoModel({})._resolved_urls([image], model_id="seedance-2.5-r2v",
+                                             modality="image", line="cn")
+    assert len(calls) == 1, "a rejection is not worth replaying"
