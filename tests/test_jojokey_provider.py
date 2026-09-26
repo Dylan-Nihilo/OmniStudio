@@ -12,6 +12,10 @@ from requests.exceptions import ConnectTimeout, ReadTimeout
 
 from src.apps.comic_gen.models import VideoTask
 from src.apps.comic_gen.pipeline import ComicGenPipeline
+import os
+import shutil
+
+from src.models import jojokey as jojokey_module
 from src.models.jojokey import JojoKeyVideoModel
 from src.utils.endpoints import get_provider_base_url
 from src.utils.model_catalog import load_generated_model_catalog
@@ -912,3 +916,65 @@ def test_concurrent_submissions_upload_one_at_a_time_and_share_the_cache(monkeyp
     assert max(overlap) == 1, f"uploads overlapped: {overlap}"
     # The same file is uploaded once; the rest are served from the digest cache.
     assert len(overlap) == 1, f"the shared reference was uploaded {len(overlap)} times"
+
+
+def _oversized_png(directory, size=(2048, 1152)):
+    """A PNG past the shrink threshold, written without Pillow so the test always runs."""
+    import random
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
+
+    width, height = size
+    rnd = random.Random(1)      # noise, so the file is genuinely large
+    rows = b"".join(b"\x00" + bytes(rnd.randrange(256) for _ in range(width * 3)) for _ in range(height))
+    payload = (b"\x89PNG\r\n\x1a\n"
+               + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(rows, 1)) + chunk(b"IEND", b""))
+    path = os.path.join(str(directory), "oversized.png")
+    with open(path, "wb") as handle:
+        handle.write(payload)
+    return path
+
+
+def test_a_reference_too_big_for_the_link_is_shrunk_before_it_is_uploaded(tmp_path):
+    """Measured from the production host: ~6s overhead then ~70 KB/s to the CN asset endpoint.
+
+    1 MB lands in 20s; 3.5 MB never finishes inside the 120-second read timeout — and every
+    reference the storyboard produces is a 2–4 MB PNG, which is why two segments in a row
+    failed with nothing but a read timeout to show for it.
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg provides the re-encode; it is a hard requirement in the image")
+    source = _oversized_png(tmp_path)
+    assert os.path.getsize(source) > jojokey_module.UPLOAD_SHRINK_THRESHOLD_BYTES
+
+    shrunk = JojoKeyVideoModel._shrunk_for_upload(source)
+    try:
+        assert shrunk, "an oversized reference has to be re-encoded"
+        assert os.path.getsize(shrunk) <= jojokey_module.UPLOAD_SHRINK_THRESHOLD_BYTES
+        width, height = JojoKeyVideoModel._image_size(shrunk)
+        assert max(width, height) <= jojokey_module.UPLOAD_MAX_LONG_SIDE
+        # Downscaling must not walk into the CN line's own limits.
+        assert min(width, height) >= jojokey_module.CN_IMAGE_MIN_SIDE
+        assert max(width, height) / min(width, height) <= jojokey_module.CN_IMAGE_MAX_ASPECT
+    finally:
+        if shrunk:
+            shutil.rmtree(os.path.dirname(shrunk), ignore_errors=True)
+
+
+def test_a_reference_small_enough_to_send_is_left_exactly_as_it_is(tmp_path):
+    source = _oversized_png(tmp_path, size=(320, 320))
+    assert os.path.getsize(source) <= jojokey_module.UPLOAD_SHRINK_THRESHOLD_BYTES
+    assert JojoKeyVideoModel._shrunk_for_upload(source) is None
+
+
+def test_upload_falls_back_to_the_original_when_the_re_encode_cannot_run(monkeypatch, tmp_path):
+    # A missing or broken ffmpeg must cost a slow upload, never the whole generation.
+    source = _oversized_png(tmp_path)
+    monkeypatch.setattr("src.models.jojokey.subprocess.run",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("no ffmpeg")))
+    assert JojoKeyVideoModel._shrunk_for_upload(source) is None

@@ -26,6 +26,9 @@ import hashlib
 import logging
 import mimetypes
 import os
+import shutil
+import subprocess
+import tempfile
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -73,6 +76,10 @@ class CnLineUnavailable(RuntimeError):
 
 # Reference-image uploads share one outbound link; see `_upload_local_media`.
 _UPLOAD_LOCK = threading.Lock()
+# Anything past this is re-encoded before upload; see `_shrunk_for_upload` for the numbers.
+UPLOAD_SHRINK_THRESHOLD_BYTES = 1024 * 1024
+UPLOAD_MAX_LONG_SIDE = 1600
+UPLOAD_JPEG_QUALITY = 3          # ffmpeg -q:v, 2 is near-lossless and 31 is worst
 
 
 class JojoKeyVideoModel(VideoGenModel):
@@ -283,6 +290,55 @@ class JojoKeyVideoModel(VideoGenModel):
                 f"参考图 {os.path.basename(path)} 为 {width}×{height}（{aspect:.2f}:1），"
                 f"长宽比超过 {CN_IMAGE_MAX_ASPECT}:1，Seedance 国内线会拒绝。请裁成更接近方形的比例。")
 
+    @staticmethod
+    def _shrunk_for_upload(path: str) -> Optional[str]:
+        """A smaller copy of a reference image, or None to send the original.
+
+        Measured against the provider's CN asset endpoint from the production host: ~6s of
+        fixed overhead, then roughly 70 KB/s. A 1 MB image lands in 20s; a 3.5 MB one never
+        finishes inside the 120-second read timeout, and every reference the storyboard
+        produces is a 2–4 MB PNG. That is the whole of the failure — the endpoint is fine,
+        the files are simply too big for the link.
+
+        Re-encoded with ffmpeg rather than Pillow, which this project deliberately does not
+        depend on (see `_image_size`); ffmpeg is already required and used in five other
+        modules. A real 4.08 MB reference came out 366 KB at 1600x900 and uploaded in 16s.
+        Falls back to the original whenever anything goes wrong: a slow upload is worth
+        attempting, a failed generation is not.
+        """
+        try:
+            if os.path.getsize(path) <= UPLOAD_SHRINK_THRESHOLD_BYTES:
+                return None
+            directory = tempfile.mkdtemp(prefix="omni-ref-")
+            target = os.path.join(directory, "reference.jpg")
+            # The second pass is for content that does not compress — the first settings are
+            # what a real storyboard frame needs, and stepping down only happens if it is
+            # somehow still too big to send.
+            for long_side, quality in ((UPLOAD_MAX_LONG_SIDE, UPLOAD_JPEG_QUALITY), (1280, 6)):
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-loglevel", "error", "-i", path,
+                     # Only ever downscales: `min(W,iw)` leaves a smaller image alone, and -2
+                     # keeps the other side even and the aspect ratio intact, so the CN line's
+                     # minimum-side and aspect checks still hold.
+                     "-vf", f"scale='min({long_side},iw)':-2",
+                     "-q:v", str(quality), target],
+                    capture_output=True, timeout=120, check=False)
+                if result.returncode != 0 or not os.path.exists(target) or not os.path.getsize(target):
+                    logger.warning("[JojoKey] could not shrink %s; uploading it as it is",
+                                   os.path.basename(path))
+                    shutil.rmtree(directory, ignore_errors=True)
+                    return None
+                if os.path.getsize(target) <= UPLOAD_SHRINK_THRESHOLD_BYTES:
+                    break
+            logger.info("[JojoKey] reference %s shrunk %d KB -> %d KB for upload",
+                        os.path.basename(path), os.path.getsize(path) // 1024,
+                        os.path.getsize(target) // 1024)
+            return target
+        except Exception as error:
+            logger.warning("[JojoKey] could not shrink %s (%s); uploading it as it is",
+                           os.path.basename(path), type(error).__name__)
+            return None
+
     def _upload_local_media(self, path: str, *, modality: str, line: str,
                             group_id: Optional[str]) -> str:
         # Serialized across the process. Six segments submitted together each pushed ~25 MB
@@ -293,7 +349,13 @@ class JojoKeyVideoModel(VideoGenModel):
         # uploaded their own copy before any cache entry existed. One at a time is slower to
         # start and finishes, which is the trade that matters here.
         with _UPLOAD_LOCK:
-            return self._upload_local_media_locked(path, modality=modality, line=line, group_id=group_id)
+            smaller = self._shrunk_for_upload(path) if modality == "image" else None
+            try:
+                return self._upload_local_media_locked(smaller or path, modality=modality,
+                                                       line=line, group_id=group_id)
+            finally:
+                if smaller:
+                    shutil.rmtree(os.path.dirname(smaller), ignore_errors=True)
 
     def _upload_local_media_locked(self, path: str, *, modality: str, line: str,
                                    group_id: Optional[str]) -> str:
