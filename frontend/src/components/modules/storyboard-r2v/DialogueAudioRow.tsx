@@ -8,12 +8,17 @@ import { Play, Pause, Mic, Film, Undo2, Crosshair, ChevronLeft, ChevronRight } f
 import { useTranslations } from "next-intl";
 import { api } from "@/lib/api";
 import { getAssetUrl } from "@/lib/utils";
+import type { DialogueLine } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 
 interface DialogueAudioRowProps {
     scriptId: string;
     frameId: string;
     dialogue?: string | null;
+    dialogueLines?: DialogueLine[];
+    /** Voice display names by voice id, so a line can show what it will be spoken in. */
+    voiceNames?: Record<string, string>;
+    onUpdateDialogueLines?: (lines: DialogueLine[]) => void | Promise<void>;
     actionDescription?: string | null;
     draftDialogue?: string;
     voiceId?: string;
@@ -89,7 +94,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
     return <DialogueWorkbench key={scope} {...props} scope={scope} />;
 }
 
-function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
+function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, voiceNames, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, snapshotSpeed = 1, snapshotPitch = 1, snapshotVolume = 50, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
     dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
@@ -99,6 +104,10 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
     const snapshotInstructions = savedInstructions ?? "";
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState(draftDialogue ?? dialogue);
+    // Per-speaker lines are the source of truth when the frame has them; only the words
+    // are editable here — the speaker and the offset come from the production plan.
+    const perLine = (dialogueLines?.length ?? 0) > 0;
+    const [lineDrafts, setLineDrafts] = useState<string[]>(() => (dialogueLines ?? []).map(line => line.line));
     const previousDialogue = useRef(dialogue);
     const request = useDialogueAudioRequests(state => state[scope]);
     const parsedInstructions = useMemo(() => {
@@ -124,7 +133,8 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
     const busy = !!batchPending || !!request?.operation || !!request?.recovering || generationStatus === "processing" || !!previewing;
     const generating = request?.operation === "generate" || request?.recovering || generationStatus === "processing" || previewing;
     const instructions = [emotion, freeText.trim()].filter(Boolean).join("; ");
-    const dirty = draft !== dialogue;
+    const linesDirty = perLine && lineDrafts.some((text, index) => text !== dialogueLines?.[index]?.line);
+    const dirty = perLine ? linesDirty : draft !== dialogue;
     const stale = !!audioUrl && (snapshotDialogue !== draft || snapshotVoiceId !== voiceId || snapshotInstructions !== instructions || snapshotSpeed !== voiceSpeed || snapshotPitch !== voicePitch || snapshotVolume !== voiceVolume);
     const sfxBusy = request?.operation === "apply" || request?.operation === "revert" || (request?.operation === "preview" && request?.recoveryKind === "sfx");
     const hasSfxContext = !!actionDescription?.trim() || !!videoUrl;
@@ -181,6 +191,10 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
         }
     }
     async function saveDialogue() {
+        if (perLine) {
+            await onUpdateDialogueLines?.((dialogueLines ?? []).map((line, index) => ({ ...line, line: lineDrafts[index] ?? line.line })));
+            return;
+        }
         await onUpdateDialogue?.(draft);
     }
     async function close() {
@@ -242,9 +256,29 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, draftDi
             <div className="space-y-5 text-sm">
                 <p className="text-text-secondary">{t("workbenchSubtitle")}</p>
                 <section className="space-y-3">
-                    <TextAreaField label={t("stepDialogueText")} value={draft} onChange={value => { setDraft(value); onDraftChange?.(value); }} placeholder={t("dialoguePlaceholder")} rows={3} isDisabled={busy} isReadOnly={!onUpdateDialogue} />
-                    {!voiceId && <p className="text-status-failed-fg">{t("needVoiceBindingHint")}</p>}
-                    {dirty && <Button variant="quiet" isPending={request?.operation === "save"} isDisabled={busy && request?.operation !== "save"} onPress={() => { void run("save", saveDialogue); }}>{t("saveDialogue")}</Button>}
+                    {perLine ? <>
+                        <h3 className="font-medium">{t("linesTitle")}</h3>
+                        {(dialogueLines ?? []).map((line, index) => (
+                            <div key={`${index}:${line.speaker}`} className="rounded-lg border border-glass-border p-3 space-y-1.5">
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-chrome-sm text-text-secondary">
+                                    <strong className="text-foreground">{line.speaker}</strong>
+                                    <span>{t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
+                                    {line.voice_id
+                                        ? <span>{t("lineVoice", { voice: voiceNames?.[line.voice_id] ?? line.voice_id })}</span>
+                                        : <span className="text-status-failed-fg">{t("lineNoVoice")}</span>}
+                                </div>
+                                <TextAreaField label={line.speaker} value={lineDrafts[index] ?? line.line} rows={2}
+                                    isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
+                                    onChange={value => setLineDrafts(current => current.map((text, i) => i === index ? value : text))} />
+                                {line.overruns_shot && <p role="alert" className="text-chrome-sm text-status-processing-fg">{t("lineOverruns")}</p>}
+                            </div>
+                        ))}
+                        {dirty && <Button variant="quiet" isPending={request?.operation === "save"} isDisabled={busy && request?.operation !== "save"} onPress={() => { void run("save", saveDialogue); }}>{t("saveLines")}</Button>}
+                    </> : <>
+                        <TextAreaField label={t("stepDialogueText")} value={draft} onChange={value => { setDraft(value); onDraftChange?.(value); }} placeholder={t("dialoguePlaceholder")} rows={3} isDisabled={busy} isReadOnly={!onUpdateDialogue} />
+                        {!voiceId && <p className="text-status-failed-fg">{t("needVoiceBindingHint")}</p>}
+                        {dirty && <Button variant="quiet" isPending={request?.operation === "save"} isDisabled={busy && request?.operation !== "save"} onPress={() => { void run("save", saveDialogue); }}>{t("saveDialogue")}</Button>}
+                    </>}
                 </section>
                 <section className="space-y-3 border-t border-glass-border pt-4">
                     <h3 className="font-medium">{t("stepEmotionGen")}</h3>

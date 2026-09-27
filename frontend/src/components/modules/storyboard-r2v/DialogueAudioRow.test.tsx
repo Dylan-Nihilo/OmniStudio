@@ -155,3 +155,56 @@ describe('Dialogue audio workbench', () => {
         } finally { view.unmount(); play.mockRestore(); pause.mockRestore(); }
     });
 });
+
+describe('per-speaker dialogue', () => {
+    const lines = [
+        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, voice_id: 'sage' },
+        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, voice_id: 'longyuan', overruns_shot: true },
+        { speaker: '旁白', line: '全场哗然。', start_seconds: 19, voice_id: null },
+    ];
+    const voiceNames = { sage: 'Eldric Sage · 沧明子', longyuan: '龙媛 (治愈女)' };
+
+    it('shows each line with its speaker, time and the voice it will be spoken in', () => {
+        // A segment is a conversation, and it used to be one text box read in one voice.
+        render(<DialogueAudioRow {...props} dialogueLines={lines} voiceNames={voiceNames}
+                                 onUpdateDialogueLines={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+
+        expect(within(dialog).getByText('linesTitle')).toBeVisible();
+        for (const line of lines) expect(within(dialog).getByText(line.speaker)).toBeVisible();
+        // The resolved voice is named, not printed as an opaque id.
+        expect(within(dialog).getAllByText('lineVoice')).toHaveLength(2);
+        // A speaker with nothing assigned is called out rather than silently borrowing one.
+        expect(within(dialog).getByText('lineNoVoice')).toBeVisible();
+        // An overlong line is flagged, never trimmed.
+        expect(within(dialog).getByRole('alert')).toHaveTextContent('lineOverruns');
+        // The single-blob editor is gone, so there is only one source of truth.
+        expect(within(dialog).queryByText('stepDialogueText')).not.toBeInTheDocument();
+    });
+
+    it('saves an edited line without touching its speaker or its placement', async () => {
+        const save = vi.fn().mockResolvedValue(undefined);
+        render(<DialogueAudioRow {...props} dialogueLines={lines} voiceNames={voiceNames}
+                                 onUpdateDialogueLines={save} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+
+        fireEvent.change(within(dialog).getByRole('textbox', { name: '萧媚' }), { target: { value: '斗之气：八段！' } });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'saveLines' }));
+        await waitFor(() => expect(save).toHaveBeenCalledOnce());
+        expect(save.mock.calls[0][0]).toEqual([
+            lines[0],
+            { ...lines[1], line: '斗之气：八段！' },
+            lines[2],
+        ]);
+    });
+
+    it('keeps the single text box for a frame that has no per-speaker lines', () => {
+        render(<DialogueAudioRow {...props} onUpdateDialogue={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('stepDialogueText')).toBeVisible();
+        expect(within(dialog).queryByText('linesTitle')).not.toBeInTheDocument();
+    });
+});

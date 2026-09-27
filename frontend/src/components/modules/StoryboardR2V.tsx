@@ -385,6 +385,12 @@ function StoryboardWorkbench() {
     const [genDialogOpen, setGenDialogOpen] = useState(false);
     const [previsDialogOpen, setPrevisDialogOpen] = useState(false);
     const [productionReviews, setProductionReviews] = useState<ProductionReview[]>([]);
+    // Voice ids resolve to the names the character pickers already show, so a per-line row
+    // can name the voice instead of printing an opaque id.
+    const voiceNamesById = useMemo(() => Object.fromEntries(
+        characters.filter(character => character.voice_id)
+            .map(character => [character.voice_id as string, character.voice_name || (character.voice_id as string)])
+    ), [characters]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
@@ -2119,6 +2125,18 @@ function StoryboardWorkbench() {
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
                                         dialogue={dialogueText}
+                                        dialogueLines={frame.dialogue_lines}
+                                        voiceNames={voiceNamesById}
+                                        onUpdateDialogueLines={async (lines) => {
+                                            if (!currentProject) return;
+                                            try {
+                                                await api.updateFrame(currentProject.id, frame.id, { dialogue_lines: lines });
+                                                const updated = await api.getProject(currentProject.id);
+                                                if (updated?.frames) updateProject(currentProject.id, { frames: updated.frames });
+                                            } catch (e) {
+                                                debugLog.error("Studio", "update dialogue lines failed", e);
+                                            }
+                                        }}
                                         actionDescription={frame.action_description}
                                         draftDialogue={restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line}
                                         voiceId={speaker?.voice_id}

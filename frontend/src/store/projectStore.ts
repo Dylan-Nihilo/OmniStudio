@@ -172,8 +172,22 @@ export interface Prop {
     source?: "episode" | "series";
 }
 
+/** One spoken line with the voice it belongs to and where it sits in the segment. */
+export interface DialogueLine {
+    speaker: string;
+    line: string;
+    mode?: 'on_screen' | 'voiceover';
+    shot_id?: string | null;
+    start_seconds?: number;
+    voice_id?: string | null;
+    audio_url?: string | null;
+    duration?: number | null;
+    overruns_shot?: boolean;
+}
+
 export interface StoryboardFrame {
     image_prompt?: string | null;
+    dialogue_lines?: DialogueLine[];
     t2i_image_urls?: string[];
     t2i_selected_index?: number;
     image_generation_status?: 'pending' | 'processing' | 'completed' | 'failed' | null;

@@ -1716,6 +1716,7 @@ export const api = {
         visual_description?: string;
         prompt_mode?: "structured" | "complete";
         dialogue_mode?: "on_screen" | "voiceover";
+        dialogue_lines?: import('@/store/projectStore').DialogueLine[];
         dialogue?: string;
         camera_angle?: string;
         scene_id?: string;
