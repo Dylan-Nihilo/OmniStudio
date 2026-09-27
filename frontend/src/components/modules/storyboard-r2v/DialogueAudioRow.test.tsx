@@ -172,7 +172,8 @@ describe('per-speaker dialogue', () => {
         const dialog = screen.getByRole('dialog');
 
         expect(within(dialog).getByText('linesTitle')).toBeVisible();
-        for (const line of lines) expect(within(dialog).getByText(line.speaker)).toBeVisible();
+        // Each speaker names its own box, once.
+        for (const line of lines) expect(within(dialog).getByRole('textbox', { name: line.speaker })).toBeVisible();
         // The resolved voice is named, not printed as an opaque id.
         expect(within(dialog).getAllByText('lineVoice')).toHaveLength(2);
         // A speaker with nothing assigned is called out rather than silently borrowing one.

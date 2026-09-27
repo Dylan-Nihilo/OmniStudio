@@ -260,16 +260,18 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                         <h3 className="font-medium">{t("linesTitle")}</h3>
                         {(dialogueLines ?? []).map((line, index) => (
                             <div key={`${index}:${line.speaker}`} className="rounded-lg border border-glass-border p-3 space-y-1.5">
+                                {/* The speaker is the field's own label, so it is not also
+                                    printed above it — one name per row, and the accessible
+                                    name of the box is the person saying the line. */}
+                                <TextAreaField label={line.speaker} value={lineDrafts[index] ?? line.line} rows={2}
+                                    isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
+                                    onChange={value => setLineDrafts(current => current.map((text, i) => i === index ? value : text))} />
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-chrome-sm text-text-secondary">
-                                    <strong className="text-foreground">{line.speaker}</strong>
                                     <span>{t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
                                     {line.voice_id
                                         ? <span>{t("lineVoice", { voice: voiceNames?.[line.voice_id] ?? line.voice_id })}</span>
                                         : <span className="text-status-failed-fg">{t("lineNoVoice")}</span>}
                                 </div>
-                                <TextAreaField label={line.speaker} value={lineDrafts[index] ?? line.line} rows={2}
-                                    isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
-                                    onChange={value => setLineDrafts(current => current.map((text, i) => i === index ? value : text))} />
                                 {line.overruns_shot && <p role="alert" className="text-chrome-sm text-status-processing-fg">{t("lineOverruns")}</p>}
                             </div>
                         ))}
