@@ -17,7 +17,7 @@ describe('Dialogue audio workbench', () => {
         const dub = { ...props, frameId: 'lip-sync', videoUrl: 'take.mp4', videoTaskId: 'take', allowLipSync: true,
             speakerName: 'Sue', onUploadSpeakerFace: upload, onPreviewDub: preview, onApplyDub: apply };
         const view = render(<DialogueAudioRow {...dub} />);
-        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
         const file = new File(['face'], 'sue.png', { type: 'image/png' });
         fireEvent.change(dialog.querySelector('input[type=file]')!, { target: { files: [file] } });
@@ -168,7 +168,7 @@ describe('per-speaker dialogue', () => {
         // A segment is a conversation, and it used to be one text box read in one voice.
         render(<DialogueAudioRow {...props} dialogueLines={lines} voiceNames={voiceNames}
                                  onUpdateDialogueLines={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
 
         expect(within(dialog).getByText('linesTitle')).toBeVisible();
@@ -187,7 +187,7 @@ describe('per-speaker dialogue', () => {
         const save = vi.fn().mockResolvedValue(undefined);
         render(<DialogueAudioRow {...props} dialogueLines={lines} voiceNames={voiceNames}
                                  onUpdateDialogueLines={save} />);
-        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
 
         fireEvent.change(within(dialog).getByRole('textbox', { name: '萧媚' }), { target: { value: '斗之气：八段！' } });
@@ -202,7 +202,7 @@ describe('per-speaker dialogue', () => {
 
     it('keeps the single text box for a frame that has no per-speaker lines', () => {
         render(<DialogueAudioRow {...props} onUpdateDialogue={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
         expect(within(dialog).getByText('stepDialogueText')).toBeVisible();
         expect(within(dialog).queryByText('linesTitle')).not.toBeInTheDocument();
