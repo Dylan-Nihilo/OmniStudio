@@ -56,6 +56,7 @@ from .pipeline import (
 from .aspect_ratio import effective_export_settings, resolve_master_aspect_ratio
 from .models import (
     ArtDirection,
+    DialogueLine,
     PromptConfig,
     ProviderBackend,
     ProviderRoutingConfig,
@@ -6669,6 +6670,7 @@ class UpdateFrameRequest(BaseModel):
     prompt_mode: Optional[Literal["structured", "complete"]] = None
     dialogue_mode: Optional[Literal["on_screen", "voiceover"]] = None
     dialogue: Optional[str] = None
+    dialogue_lines: Optional[List[DialogueLine]] = None
     camera_angle: Optional[str] = None
     scene_id: Optional[str] = None
     character_ids: Optional[List[str]] = None
@@ -6698,6 +6700,7 @@ def update_frame(script_id: str, request: UpdateFrameRequest, http_request: Requ
             visual_description=request.visual_description,
             prompt_mode=request.prompt_mode,
             dialogue_mode=request.dialogue_mode,
+            dialogue_lines=[line.model_dump() for line in request.dialogue_lines] if request.dialogue_lines is not None else None,
             dialogue=request.dialogue,
             camera_angle=request.camera_angle,
             scene_id=request.scene_id,

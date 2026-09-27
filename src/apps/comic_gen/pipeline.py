@@ -15,7 +15,7 @@ import copy
 from io import BytesIO
 import zipfile
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings, DialogueStructured
+from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings, DialogueStructured, DialogueLine
 from .asset_references import AssetReferenceError, resolve_asset_references, reference_instruction
 from .audio_config import resolve_video_audio_options
 from .llm import ScriptProcessor
@@ -527,6 +527,42 @@ class LibraryAssetInUseError(Exception):
         )
 
 
+def match_character(script: Script, name: Optional[str]) -> Optional[Character]:
+    """Find the character a speaker name refers to: exact first, then either-contains.
+
+    Lifted out of `_resolve_dialogue_speaker` unchanged so a per-line lookup matches
+    speakers by the same rules the single-speaker path always used.
+    """
+    if not name:
+        return None
+    key = name.strip().lower()
+    exact = next((c for c in script.characters if c.name.strip().lower() == key), None)
+    if exact:
+        return exact
+    return next((c for c in script.characters
+                 if key in c.name.strip().lower() or c.name.strip().lower() in key), None)
+
+
+def resolve_line_voice(script: Script, line: DialogueLine,
+                       series: Optional[Series] = None) -> Tuple[Optional[str], Optional[Character]]:
+    """The voice a line should be spoken in, and the character it belongs to.
+
+    An explicit `voice_id` on the line wins — that is the manual override. Otherwise the
+    speaker's own character supplies it, which is the whole point: the voices are already
+    assigned per character. A speaker who is not a character at all (narration, an
+    off-screen line) falls back to the episode's narration voice, then the series' one;
+    a standalone episode has no series, so the episode-level setting is what carries it.
+    """
+    character = match_character(script, line.speaker)
+    if line.voice_id:
+        return line.voice_id, character
+    if character and character.voice_id:
+        return character.voice_id, character
+    narration = getattr(script, "narration_voice_id", None) or (
+        getattr(series, "narration_voice_id", None) if series else None)
+    return narration, character
+
+
 def plan_dialogue_fields(shots) -> Dict[str, Any]:
     """The plan's dialogue, in the fields the dubbing workbench reads.
 
@@ -534,17 +570,33 @@ def plan_dialogue_fields(shots) -> Dict[str, Any]:
     for word — and applying the plan dropped all of it, so the workbench opened with an
     empty box and the text had to be typed again by hand.
 
-    The text goes to TTS verbatim (`audio._effective_dialogue_text`), so speaker names stay
-    out of it or they would be read aloud. A speaker is recorded only when the segment has
-    exactly one: naming one of several would be wrong, and an empty speaker leaves the voice
-    an open choice rather than a bad default.
+    Each line keeps its own speaker so it can be synthesised with that character's assigned
+    voice, and `start_seconds` places it at the shot it was written for: the segment video
+    runs the shots in order, so a line belongs where its shot plays, not back-to-back from
+    zero. Several lines in one shot follow each other inside that shot's window.
+
+    `dialogue` / `speaker` / `dialogue_structured` stay in step as the joined view, for the
+    single-voice path and for anything still reading them. The joined text goes to TTS
+    verbatim (`audio._effective_dialogue_text`), so speaker names stay out of it.
     """
-    lines = [line for shot in shots for line in (shot.dialogue or [])]
+    lines: list[DialogueLine] = []
+    offset = 0.0
+    for shot in shots:
+        spoken = list(shot.dialogue or [])
+        if spoken:
+            # Spread this shot's lines across its own window rather than stacking them all
+            # on its first frame.
+            step = (shot.duration or 0) / len(spoken)
+            for index, entry in enumerate(spoken):
+                lines.append(DialogueLine(speaker=entry.speaker, line=entry.line, mode=entry.mode,
+                                          shot_id=shot.id, start_seconds=round(offset + index * step, 3)))
+        offset += shot.duration or 0
     if not lines:
         return {}
     speakers = list(dict.fromkeys(line.speaker for line in lines))
     text = "\n".join(line.line for line in lines)
     fields: Dict[str, Any] = {
+        "dialogue_lines": lines,
         "dialogue": text,
         "dialogue_mode": "voiceover" if all(line.mode == "voiceover" for line in lines) else "on_screen",
     }
@@ -1099,9 +1151,20 @@ class ComicGenPipeline:
             segments = {segment.frame_id: segment for segment in plan.segments}
             for frame in script.frames:
                 segment = segments.get(frame.id)
-                if segment is None or frame.dialogue or frame.dialogue_structured:
+                if segment is None:
                     continue
-                for field, value in plan_dialogue_fields(segment.shots).items():
+                fields = plan_dialogue_fields(segment.shots)
+                if not fields:
+                    continue
+                if frame.dialogue_lines:
+                    continue                # already per-speaker
+                # Nothing at all, or exactly the joined text an earlier version of this wrote
+                # — either way it is ours to replace. Anything else is an edit the creator
+                # made, and that stays.
+                untouched = not (frame.dialogue or "").strip() or frame.dialogue == fields["dialogue"]
+                if not untouched:
+                    continue
+                for field, value in fields.items():
                     setattr(frame, field, value)
                     repaired += 1
         if repaired:
@@ -2884,10 +2947,23 @@ class ComicGenPipeline:
                 if kwargs[key] not in options:
                     raise ValueError(f"Invalid {key}")
                 setattr(frame, key, kwargs[key])
-        if kwargs.get('dialogue') is not None:
+        if kwargs.get('dialogue_lines') is not None:
+            # The per-speaker list is the source of truth when it exists; the legacy text
+            # is rewritten from it so anything still reading `dialogue` sees the same words.
+            # Offsets and speakers come from the plan and are not editable here — only the
+            # words and a deliberate per-line voice override are.
+            lines = [DialogueLine.model_validate(entry) for entry in kwargs['dialogue_lines']]
+            frame.dialogue_lines = lines
+            frame.dialogue = "\n".join(line.line for line in lines)
+            if frame.dialogue_structured:
+                frame.dialogue_structured.line = frame.dialogue
+        elif kwargs.get('dialogue') is not None:
             frame.dialogue = kwargs['dialogue']
             if frame.dialogue_structured:
                 frame.dialogue_structured.line = kwargs['dialogue']
+            # A hand-written blob replaces the per-speaker split rather than sitting beside
+            # it: two sources of truth for the same words is worse than losing the split.
+            frame.dialogue_lines = []
         if kwargs.get('camera_angle') is not None:
             frame.camera_angle = kwargs['camera_angle']
         if kwargs.get('scene_id') is not None:
@@ -4111,7 +4187,9 @@ class ComicGenPipeline:
         if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
             raise GenerationInProgressError("Dialogue audio is still being generated")
         resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
-        if not frame.audio_url or dialogue_audio_is_stale(frame, self._resolve_dialogue_speaker(resolved, frame)):
+        plans = (self._dialogue_line_plans(resolved, frame, self._series_for(script), None, 1.0, 1.0, 50, None)
+                 if getattr(frame, "dialogue_lines", None) else None)
+        if not frame.audio_url or dialogue_audio_is_stale(frame, self._resolve_dialogue_speaker(resolved, frame), plans):
             raise ValueError("Generate current dialogue audio before previewing or applying a dub")
 
     def preview_dub(self, script_id: str, frame_id: str, video_task_id: str, offset_ms: int = 0,
@@ -5712,6 +5790,44 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
+    def _series_for(self, script: Script) -> Optional[Series]:
+        """The series a script belongs to, if any — a standalone episode has none."""
+        series_id = getattr(script, "series_id", None)
+        return self.series_store.get(series_id) if series_id else None
+
+    def _dialogue_line_plans(self, resolved: Script, frame: StoryboardFrame,
+                             series: Optional[Series], workspace: Optional[str],
+                             speed: float, pitch: float, volume: int,
+                             instructions: Optional[str]) -> List[Dict[str, Any]]:
+        """What to synthesise for each line: its voice, its prosody and its room.
+
+        Prosody comes from the speaking character, because that is where it was set —
+        alongside the voice. A line with no character behind it (narration) has nothing of
+        its own, so it takes the values passed in from the workbench.
+
+        `window` is the room a line has before the next one speaks; it is only used to
+        report an overlong line, never to trim one.
+        """
+        lines = list(frame.dialogue_lines)
+        total = float(frame.duration or 0)
+        plans: List[Dict[str, Any]] = []
+        for index, line in enumerate(lines):
+            voice, character = resolve_line_voice(resolved, line, series)
+            following = lines[index + 1].start_seconds if index + 1 < len(lines) else total
+            custom = self.find_custom_voice(voice, workspace) if voice else None
+            plans.append({
+                "line": line,
+                "voice": voice,
+                "speed": getattr(character, "voice_speed", speed) if character else speed,
+                "pitch": getattr(character, "voice_pitch", pitch) if character else pitch,
+                "volume": getattr(character, "voice_volume", volume) if character else volume,
+                "instructions": instructions,
+                "model_override": custom.target_model if custom else None,
+                "family_override": custom.family if custom else None,
+                "window": max(0.0, (following or total) - line.start_seconds) or None,
+            })
+        return plans
+
     @staticmethod
     def _resolve_dialogue_speaker(script: Script, frame: StoryboardFrame) -> Optional[Character]:
         """Resolve the speaking character, preferring the explicit speaker name.
@@ -5724,21 +5840,9 @@ class ComicGenPipeline:
         speaker_name = frame.speaker or (
             frame.dialogue_structured.speaker if frame.dialogue_structured else None
         )
-        if speaker_name:
-            key = speaker_name.strip().lower()
-            exact = next(
-                (c for c in script.characters if c.name.strip().lower() == key),
-                None,
-            )
-            if exact:
-                return exact
-            fuzzy = next(
-                (c for c in script.characters
-                 if key in c.name.strip().lower() or c.name.strip().lower() in key),
-                None,
-            )
-            if fuzzy:
-                return fuzzy
+        matched = match_character(script, speaker_name)
+        if matched:
+            return matched
 
         if frame.character_ids:
             return next(
@@ -5757,7 +5861,16 @@ class ComicGenPipeline:
         
         for frame in script.frames:
             # Generate Dialogue
-            if frame.dialogue:
+            if getattr(frame, "dialogue_lines", None):
+                repository = getattr(self, "repository", None)
+                workspace = repository.workspace_for_script(script_id) if repository else None
+                self.audio_generator.generate_dialogue_lines(
+                    frame,
+                    self._dialogue_line_plans(script, frame, self._series_for(script), workspace,
+                                              1.0, 1.0, 50, None),
+                    total_duration=float(frame.duration or 0),
+                )
+            elif frame.dialogue:
                 speaker = self._resolve_dialogue_speaker(script, frame)
 
                 if speaker:
@@ -5893,9 +6006,21 @@ class ComicGenPipeline:
             if not _effective_dialogue_text(target).strip():
                 raise ValueError("The dialogue is empty")
             resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
-            speaker = self._resolve_dialogue_speaker(resolved, target)
-            if not speaker or not speaker.voice_id:
-                raise ValueError("Assign a voice to the speaking character before generating dialogue")
+            per_line = bool(getattr(target, "dialogue_lines", None))
+            speaker = None
+            if per_line:
+                # Checked before anything is claimed so an unassigned speaker is reported
+                # by name instead of failing halfway through a paid synthesis.
+                missing = [line.speaker for line in target.dialogue_lines
+                           if not resolve_line_voice(resolved, line, self._series_for(script))[0]]
+                if missing:
+                    raise ValueError(
+                        "这些说话人还没有音色：" + "、".join(dict.fromkeys(missing))
+                        + "。请在「角色」里给他们分配音色，或设置旁白音色。")
+            else:
+                speaker = self._resolve_dialogue_speaker(resolved, target)
+                if not speaker or not speaker.voice_id:
+                    raise ValueError("Assign a voice to the speaking character before generating dialogue")
             # ponytail: process-local exclusion; multiple workers need a database claim.
             if target.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
                 raise GenerationInProgressError("Dialogue audio is already being generated. Refresh its status before retrying.")
@@ -5910,16 +6035,27 @@ class ComicGenPipeline:
                 target.audio_generation_status, target.audio_generation_id, target.audio_error = previous
                 raise
             frame = target.model_copy(deep=True)
-            speaker = speaker.model_copy(deep=True)
+            if speaker is not None:
+                speaker = speaker.model_copy(deep=True)
+            series = self._series_for(script)
 
         try:
             repository = getattr(self, "repository", None)
-            custom = self.find_custom_voice(speaker.voice_id, repository.workspace_for_script(script_id) if repository else None)
-            self.audio_generator.generate_dialogue(
-                frame, speaker, speed, pitch, volume, instructions=instructions,
-                model_override=custom.target_model if custom else None,
-                family_override=custom.family if custom else None,
-            )
+            workspace = repository.workspace_for_script(script_id) if repository else None
+            if per_line:
+                self.audio_generator.generate_dialogue_lines(
+                    frame,
+                    self._dialogue_line_plans(resolved, frame, series, workspace,
+                                              speed, pitch, volume, instructions),
+                    total_duration=float(frame.duration or 0),
+                )
+            else:
+                custom = self.find_custom_voice(speaker.voice_id, workspace)
+                self.audio_generator.generate_dialogue(
+                    frame, speaker, speed, pitch, volume, instructions=instructions,
+                    model_override=custom.target_model if custom else None,
+                    family_override=custom.family if custom else None,
+                )
             if frame.audio_error or not frame.audio_url:
                 raise RuntimeError(frame.audio_error or "TTS did not produce audio")
             with self._save_lock:
@@ -5929,7 +6065,7 @@ class ComicGenPipeline:
                     raise LookupError("Frame not found")
                 if target.audio_generation_id != generation_id:
                     return current
-                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "dialogue_text_hash")
+                fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "dialogue_text_hash", "dialogue_lines")
                 previous_output = {name: getattr(target, name) for name in fields}
                 for name in fields:
                     setattr(target, name, getattr(frame, name))
@@ -6001,14 +6137,27 @@ class ComicGenPipeline:
                     resolved = current.model_copy(update={"characters": self.resolve_episode_assets(current)["characters"]})
                     speaker = self._resolve_dialogue_speaker(resolved, frame) if frame else None
                     probe = frame.model_copy(update={"dialogue_instructions": instructions[frame_id]}) if frame and frame_id in instructions else frame
+                    # A per-speaker frame records no single `speaker`, so its voices are
+                    # judged line by line instead; one line without a voice is enough to
+                    # hold the frame back, and it is named when the batch reports.
+                    per_line = bool(getattr(frame, "dialogue_lines", None)) if frame else False
+                    plans = (self._dialogue_line_plans(resolved, probe, self._series_for(current), None, 1.0, 1.0, 50,
+                                                       instructions.get(frame_id)) if per_line else None)
+                    has_voice = (all(plan["voice"] for plan in plans) if per_line
+                                 else bool(speaker and speaker.voice_id))
                     result = ("skipped" if not frame or not _effective_dialogue_text(frame).strip()
                         else "busy" if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING)
-                        else "no_voice" if not speaker or not speaker.voice_id
-                        else "skipped" if frame.audio_url and frame.dialogue_snapshot_text is not None and not dialogue_audio_is_stale(probe, speaker)
+                        else "no_voice" if not has_voice
+                        else "skipped" if frame.audio_url and frame.dialogue_snapshot_text is not None and not dialogue_audio_is_stale(probe, speaker, plans)
                         else None)
                 if result is None:
                     try:
-                        self.generate_dialogue_line(script_id, frame_id, speaker.voice_speed, speaker.voice_pitch, speaker.voice_volume, instructions=instructions.get(frame_id))
+                        self.generate_dialogue_line(
+                            script_id, frame_id,
+                            speaker.voice_speed if speaker else 1.0,
+                            speaker.voice_pitch if speaker else 1.0,
+                            speaker.voice_volume if speaker else 50,
+                            instructions=instructions.get(frame_id))
                         result = "generated"
                     except GenerationInProgressError:
                         result = "busy"

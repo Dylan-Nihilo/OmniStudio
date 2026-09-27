@@ -107,6 +107,27 @@ class Blocking(BaseModel):
     stage: Optional[List[StageSubject]] = Field(None, description="结构化站位数据")
     camera_relation: Optional[str] = Field(None, description="相机相对场景的空间关系")
 
+class DialogueLine(BaseModel):
+    """One spoken line, with the voice it belongs to and where it sits in the segment.
+
+    A segment is often a conversation — 「下一个，萧媚！」/「斗之气：七段！」 — but the frame
+    only ever held a single `dialogue` string and a single voice, so every speaker was read
+    aloud in the same one. Each line carries its own speaker so it can be synthesised with
+    that character's assigned voice, and `start_seconds` places it at the shot it was
+    written for rather than back-to-back from zero, which is what keeps a voice with the
+    mouth that is moving.
+    """
+    speaker: str = Field(..., description="说话人（与角色素材同名时用该角色的音色）")
+    line: str = Field(..., description="台词内容")
+    mode: Literal["on_screen", "voiceover"] = "on_screen"
+    shot_id: Optional[str] = Field(None, description="所属镜头")
+    start_seconds: float = Field(0.0, description="在本片段内的起始秒数")
+    voice_id: Optional[str] = Field(None, description="人工指定的音色；留空则按说话人解析")
+    audio_url: Optional[str] = Field(None, description="这一句合成出的音频")
+    duration: Optional[float] = Field(None, description="这一句音频的时长")
+    overruns_shot: bool = Field(False, description="这一句比所属镜头的时间窗口更长")
+
+
 class DialogueStructured(BaseModel):
     speaker: str = Field(..., description="说话人")
     line: str = Field(..., description="台词内容")
@@ -459,7 +480,11 @@ class StoryboardFrame(BaseModel):
     dialogue: Optional[str] = Field(None, description="Dialogue text content")
     speaker: Optional[str] = Field(None, description="Name of the speaker")
     dialogue_mode: Literal["on_screen", "voiceover"] = "on_screen"
-    
+    # Per-speaker dialogue. When this is populated it is the source of truth and the three
+    # legacy fields above are the joined view of it; an empty list means a frame that
+    # predates this and still takes a single voice.
+    dialogue_lines: List[DialogueLine] = Field(default_factory=list, description="逐句对白，按说话人分配音色")
+
     # === NEW: Visual Atoms (Storyboard Dramatization v2) ===
     visual_atmosphere: Optional[str] = Field(None, description="Environment atmosphere: lighting, mood, volumetric effects")
     character_acting: Optional[str] = Field(None, description="Character performance: expression, body language, micro-details")
@@ -746,6 +771,10 @@ class Script(BaseModel):
     # PR-3k · Assembly audio mix. bgm_url points at a preset library entry
     # (e.g. "presets/bgm/calm_warm.mp3") or a user-uploaded URL. mix_settings
     # holds per-track gain (0-100) used during ffmpeg mux in merge_videos.
+    # Voice for a line whose speaker is not one of the episode's characters — narration and
+    # off-screen lines. Resolved episode first, then series, the same way art_direction and
+    # model_settings are: a standalone episode has no series to fall back on.
+    narration_voice_id: Optional[str] = Field(None, description="旁白/画外音音色；匹配不到角色的说话人用它")
     bgm_url: Optional[str] = Field(None, description="Background music URL for the merged video")
     mix_settings: Dict[str, int] = Field(
         default_factory=lambda: {"dialogue": 100, "bgm": 35, "sfx": 60},
@@ -835,6 +864,11 @@ class Series(BaseModel):
     # Per Q16.1: series-level scope. Any character in this series can pick
     # from this pool via VoicePickerModal's 我的复刻 / 我的设计 tabs.
     custom_voices: List["CustomVoice"] = Field(default_factory=list, description="User-created custom voices (clones + designs)")
+    # Voice for a line whose speaker is not one of the episode's characters — narration and
+    # off-screen lines. Resolved episode first, then series, the same way art_direction and
+    # model_settings are: a standalone episode has no series to fall back on.
+    narration_voice_id: Optional[str] = Field(None, description="旁白/画外音音色；匹配不到角色的说话人用它")
+
 
     # R2V v2 Phase 6 — content source mode. Orthogonal to workflow_mode.
     # 'scripted'  = traditional flow (Script step parses entities first)

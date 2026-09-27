@@ -755,9 +755,11 @@ def test_an_episode_made_before_the_fix_gets_its_dialogue_without_losing_its_vid
     spoken.dialogue = None
     spoken.dialogue_structured = None
     spoken.speaker = None
+    spoken.dialogue_lines = []
     spoken.video_url = 'video/existing-take.mp4'
     edited = next(frame for frame in script.frames if frame.id != spoken.id)
     edited.dialogue = '我改过的台词'
+    edited.dialogue_lines = []
     api_module.pipeline._save_data()
 
     api_module.pipeline._backfill_plan_dialogue()
@@ -772,3 +774,108 @@ def test_an_episode_made_before_the_fix_gets_its_dialogue_without_losing_its_vid
     # Idempotent: running it again changes nothing.
     api_module.pipeline._backfill_plan_dialogue()
     assert next(f for f in api_module.pipeline.scripts[project_id].frames if f.id == edited.id).dialogue == '我改过的台词'
+
+
+def _voice(character, voice_id):
+    character.voice_id = voice_id
+    return character
+
+
+def test_each_line_is_spoken_by_its_own_character_at_its_own_shots_time(api_client, monkeypatch):
+    """A segment is a conversation and it used to be read start to finish in one voice.
+
+    The frame held a single `dialogue` string, a single `speaker` and a single voice id, so
+    斗破苍穹's 片段3 — 测验员 / 萧媚 / 族人 across three shots — came out as one narrator.
+    Voices are already assigned per character; each line now uses its own, placed at the
+    shot it was written for so it lands with the mouth that is moving.
+    """
+    from src.apps.comic_gen.pipeline import plan_dialogue_fields, resolve_line_voice
+
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    script = api_module.pipeline.scripts[project_id]
+    _voice(script.characters[0], 'voice-lu')       # 陆青
+    _voice(script.characters[1], 'voice-shen')     # 沈砚
+    api_module.pipeline._save_data()
+
+    from src.apps.comic_gen.production_planning import PlanDialogue, PlannedShot
+
+    def shot(shot_id, duration, *pairs):
+        return PlannedShot(id=shot_id, title='镜头', description='描述', camera='中景',
+                           duration=duration, source_quote='原文',
+                           dialogue=[PlanDialogue(speaker=who, line=what) for who, what in pairs])
+
+    # The shape of 片段3: one line, then three, then two — 9 / 10 / 8 seconds.
+    fields = plan_dialogue_fields([
+        shot('s1', 9, ('陆青', '第一句')),
+        shot('s2', 10, ('沈砚', '第二句'), ('陆青', '第三句'), ('沈砚', '第四句')),
+        shot('s3', 8, ('陆青', '第五句'), ('陆青', '第六句')),
+    ])
+    lines = fields['dialogue_lines']
+    assert [line.speaker for line in lines] == ['陆青', '沈砚', '陆青', '沈砚', '陆青', '陆青']
+    # Shot boundaries land exactly; lines inside a shot share its window.
+    assert [line.start_seconds for line in lines] == [0.0, 9.0, 12.333, 15.667, 19.0, 23.0]
+    assert [line.shot_id for line in lines] == ['s1', 's2', 's2', 's2', 's3', 's3']
+
+    resolved = script.model_copy(update={'characters': api_module.pipeline.resolve_episode_assets(script)['characters']})
+    voices = [resolve_line_voice(resolved, line)[0] for line in lines]
+    assert voices == ['voice-lu', 'voice-shen', 'voice-lu', 'voice-shen', 'voice-lu', 'voice-lu']
+
+
+def test_a_speaker_who_is_not_a_character_falls_back_to_the_narration_voice(api_client, monkeypatch):
+    from src.apps.comic_gen.models import DialogueLine
+    from src.apps.comic_gen.pipeline import resolve_line_voice
+
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    script = api_module.pipeline.scripts[project_id]
+    narration = DialogueLine(speaker='旁白', line='斗气大陆，没有魔法。', mode='voiceover')
+
+    # Nothing set anywhere: reported as having no voice rather than borrowing someone's.
+    assert resolve_line_voice(script, narration)[0] is None
+
+    script.narration_voice_id = 'voice-narrator'
+    assert resolve_line_voice(script, narration)[0] == 'voice-narrator'
+
+    # A line may still name its own voice, which wins over everything.
+    assert resolve_line_voice(script, narration.model_copy(update={'voice_id': 'voice-picked'}))[0] == 'voice-picked'
+
+
+def test_generating_a_multi_speaker_frame_names_the_speakers_without_a_voice(api_client, monkeypatch):
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    api_client.post(f'/projects/{project_id}/production-plan/apply',
+                    json={'expected_revision': draft['revision']})
+    script = api_module.pipeline.scripts[project_id]
+    spoken = next(frame for frame in script.frames if frame.dialogue_lines)
+    for character in script.characters:
+        character.voice_id = None
+    api_module.pipeline._save_data()
+
+    with pytest.raises(ValueError, match='陆青'):
+        api_module.pipeline.generate_dialogue_line(project_id, spoken.id, 1.0, 1.0, 50)
+
+
+def test_editing_one_line_keeps_the_split_but_a_hand_written_blob_replaces_it(api_client, monkeypatch):
+    """Two sources of truth for the same words would be worse than losing the split."""
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    api_client.post(f'/projects/{project_id}/production-plan/apply',
+                    json={'expected_revision': draft['revision']})
+    script = api_module.pipeline.scripts[project_id]
+    spoken = next(frame for frame in script.frames if frame.dialogue_lines)
+    lines = [line.model_dump() for line in spoken.dialogue_lines]
+    lines[0]['line'] = '改过的这一句'
+
+    updated = api_client.post(f'/projects/{project_id}/frames/update',
+                              json={'frame_id': spoken.id, 'dialogue_lines': lines})
+    assert updated.status_code == 200, updated.text
+    frame = next(f for f in api_module.pipeline.scripts[project_id].frames if f.id == spoken.id)
+    assert frame.dialogue_lines[0].line == '改过的这一句'
+    assert frame.dialogue_lines[0].speaker == spoken.dialogue_lines[0].speaker, "编辑台词不该改说话人"
+    # The joined view follows the lines.
+    assert frame.dialogue == '\n'.join(line.line for line in frame.dialogue_lines)
+
+    # Writing the blob directly drops the split rather than sitting beside it.
+    api_client.post(f'/projects/{project_id}/frames/update',
+                    json={'frame_id': spoken.id, 'dialogue': '我自己手写的一整段'})
+    frame = next(f for f in api_module.pipeline.scripts[project_id].frames if f.id == spoken.id)
+    assert frame.dialogue == '我自己手写的一整段' and frame.dialogue_lines == []

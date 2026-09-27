@@ -1,10 +1,12 @@
 import os
+import subprocess
 import time
 import hashlib
 import uuid
 from typing import Dict, Any, List, Optional
-from .models import StoryboardFrame, Character, GenerationStatus
+from .models import StoryboardFrame, Character, DialogueLine, GenerationStatus
 from ...utils import get_logger
+from ...utils.system_check import get_ffmpeg_path, get_ffprobe_path
 from ...audio.tts import TTSProcessor
 
 logger = get_logger(__name__)
@@ -57,10 +59,29 @@ def get_bgm_presets() -> List[Dict[str, Any]]:
 
 
 def _effective_dialogue_text(frame: StoryboardFrame) -> str:
-    """Prefer dialogue_structured.line, fall back to legacy frame.dialogue."""
+    """Prefer the per-speaker lines, then dialogue_structured.line, then legacy dialogue."""
+    lines = getattr(frame, "dialogue_lines", None)
+    if lines:
+        return "\n".join(line.line for line in lines)
     if frame.dialogue_structured and frame.dialogue_structured.line:
         return frame.dialogue_structured.line
     return frame.dialogue or ""
+
+
+def _compute_lines_hash(plans: List[Dict[str, Any]]) -> str:
+    """Snapshot of every line and the voice it is spoken in.
+
+    A frame is stale when any line's text, speaker, resolved voice, prosody or placement
+    changes — reassigning one character's voice has to invalidate the whole track, because
+    the track is assembled from all of them.
+    """
+    payload = "||".join(
+        f"{plan['line'].speaker}|{plan['line'].line}|{plan['line'].start_seconds:.3f}"
+        f"|{plan.get('voice') or ''}|{plan.get('instructions') or ''}"
+        f"|{float(plan.get('speed', 1.0)):.4f}|{float(plan.get('pitch', 1.0)):.4f}|{int(plan.get('volume', 50))}"
+        for plan in plans
+    )
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 
 def _effective_instructions(frame: StoryboardFrame) -> Optional[str]:
@@ -78,13 +99,25 @@ def _effective_instructions(frame: StoryboardFrame) -> Optional[str]:
     return None
 
 
-def dialogue_audio_is_stale(frame: StoryboardFrame, character: Optional[Character]) -> bool:
+def dialogue_audio_is_stale(frame: StoryboardFrame, character: Optional[Character],
+                            line_plans: Optional[List[Dict[str, Any]]] = None) -> bool:
     """True when frame.audio_url exists but its snapshot no longer matches
-    the current (dialogue|voice|instructions) state."""
+    the current (dialogue|voice|instructions) state.
+
+    For a per-speaker frame the whole track is assembled from every line, so any line's
+    text, placement or voice going out of date makes the track out of date — including a
+    character's voice being reassigned somewhere else entirely. `line_plans` carries the
+    freshly resolved voices; without them the per-line comparison cannot be made and the
+    frame is reported stale rather than quietly passed as current.
+    """
     if not frame.audio_url:
         return False
     if not frame.dialogue_text_hash:
         return True  # legacy frame without snapshot — treat as stale
+    if getattr(frame, "dialogue_lines", None):
+        if not line_plans:
+            return True
+        return _compute_lines_hash(line_plans) != frame.dialogue_text_hash
     voice_id = character.voice_id if character else frame.dialogue_voice_id
     text = _effective_dialogue_text(frame)
     instructions = _effective_instructions(frame)
@@ -97,6 +130,41 @@ def dialogue_audio_is_stale(frame: StoryboardFrame, character: Optional[Characte
         getattr(character, "voice_volume", getattr(frame, "dialogue_snapshot_volume", 50)) if character else getattr(frame, "dialogue_snapshot_volume", 50),
     )
     return current != frame.dialogue_text_hash
+
+def _audio_duration(path: str) -> Optional[float]:
+    try:
+        output = subprocess.check_output(
+            [get_ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path], text=True, timeout=30)
+        return round(float(output.strip()), 3)
+    except Exception:
+        return None
+
+
+def _assemble_dialogue_track(clips: List[tuple], output_path: str, total_duration: float) -> None:
+    """Lay the clips onto one track at their offsets.
+
+    `adelay` + `amix` is how dubbing already places audio against video in this repo (see
+    `pipeline._build_dub_filter`), so the same idiom is used here rather than a second one.
+    The track is pinned to the segment's length: a line cannot push the segment longer.
+    """
+    if not clips:
+        raise RuntimeError("没有可装配的对白片段")
+    command = [get_ffmpeg_path(), "-y", "-v", "error"]
+    for clip, _offset in clips:
+        command += ["-i", clip]
+    filters = []
+    for index, (_clip, offset) in enumerate(clips):
+        delay = max(0, int(round((offset or 0) * 1000)))
+        filters.append(f"[{index}:a]adelay={delay}|{delay}[a{index}]")
+    labels = "".join(f"[a{index}]" for index in range(len(clips)))
+    filters.append(f"{labels}amix=inputs={len(clips)}:duration=longest:dropout_transition=0,apad[out]")
+    command += ["-filter_complex", ";".join(filters), "-map", "[out]"]
+    if total_duration and total_duration > 0:
+        command += ["-t", str(total_duration)]
+    command += ["-ar", "48000", "-ac", "1", output_path]
+    subprocess.run(command, check=True, capture_output=True, timeout=180)
+
 
 class AudioGenerator:
     def __init__(self, config: Dict[str, Any] = None):
@@ -240,6 +308,79 @@ class AudioGenerator:
             frame.status = GenerationStatus.FAILED
             frame.audio_error = f"TTS generation failed: {str(e)}"
 
+        return frame
+
+    def generate_dialogue_lines(
+        self,
+        frame: StoryboardFrame,
+        plans: List[Dict[str, Any]],
+        total_duration: float,
+    ) -> StoryboardFrame:
+        """Synthesise each line in its own voice and lay them out over the segment.
+
+        A segment is usually a conversation, and it used to be read start to finish in one
+        voice because the frame held a single text and a single voice id. Each line is now
+        spoken by its own character and placed at `start_seconds` — the offset of the shot
+        it was written for — so the voice lands with the mouth that is moving.
+
+        The result is still one `frame.audio_url`, so dubbing preview, mixing, lip-sync and
+        export need no changes at all. Each clip is also kept on its line, which is what
+        makes regenerating a single line possible.
+        """
+        if not plans:
+            return frame
+        frame.status = GenerationStatus.PROCESSING
+        if not self.tts:
+            frame.status = GenerationStatus.FAILED
+            frame.audio_error = "TTS service not available. Check DASHSCOPE_API_KEY configuration."
+            return frame
+
+        folder = os.path.join(self.output_dir, "dialogue")
+        os.makedirs(folder, exist_ok=True)
+        written: List[str] = []
+        try:
+            for index, plan in enumerate(plans):
+                line: DialogueLine = plan["line"]
+                voice = plan.get("voice")
+                if not voice:
+                    raise RuntimeError(f"「{line.speaker}」没有可用音色")
+                clip = os.path.join(folder, f"{frame.id}_{index}_{uuid.uuid4().hex}.mp3")
+                self.tts.synthesize(
+                    line.line, clip, voice=voice,
+                    speech_rate=plan.get("speed", 1.0), pitch_rate=plan.get("pitch", 1.0),
+                    volume=plan.get("volume", 50), instructions=plan.get("instructions"),
+                    model_override=plan.get("model_override"),
+                    family_override=plan.get("family_override"),
+                )
+                if not os.path.isfile(clip) or not os.path.getsize(clip):
+                    raise RuntimeError(f"TTS did not produce audio for 「{line.speaker}」")
+                written.append(clip)
+                line.audio_url = os.path.relpath(clip, "output")
+                line.voice_id = voice
+                line.duration = _audio_duration(clip)
+                # Reported, never trimmed: shortening a line is a creative decision.
+                window = plan.get("window")
+                line.overruns_shot = bool(window and line.duration and line.duration > window + 0.05)
+
+            track = os.path.join(folder, f"{frame.id}_track_{uuid.uuid4().hex}.mp3")
+            _assemble_dialogue_track([(clip, plans[i]["line"].start_seconds) for i, clip in enumerate(written)],
+                                     track, total_duration)
+            written.append(track)
+            frame.audio_url = os.path.relpath(track, "output")
+            frame.audio_error = None
+            frame.status = GenerationStatus.COMPLETED
+            frame.dialogue_snapshot_text = _effective_dialogue_text(frame)
+            frame.dialogue_voice_id = plans[0].get("voice")
+            frame.dialogue_text_hash = _compute_lines_hash(plans)
+        except Exception as error:
+            for path in written:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            logger.error("Per-line dialogue generation failed for frame %s: %s", frame.id, error)
+            frame.status = GenerationStatus.FAILED
+            frame.audio_error = f"配音生成失败：{error}"
         return frame
 
     def _mock_generate_dialogue(self, frame: StoryboardFrame, character: Character, text: str, speed: float, pitch: float, volume: int) -> StoryboardFrame:
