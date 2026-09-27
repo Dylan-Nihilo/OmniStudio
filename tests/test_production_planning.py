@@ -879,3 +879,31 @@ def test_editing_one_line_keeps_the_split_but_a_hand_written_blob_replaces_it(ap
                     json={'frame_id': spoken.id, 'dialogue': '我自己手写的一整段'})
     frame = next(f for f in api_module.pipeline.scripts[project_id].frames if f.id == spoken.id)
     assert frame.dialogue == '我自己手写的一整段' and frame.dialogue_lines == []
+
+
+def test_editing_a_line_drops_the_clip_that_no_longer_says_it(api_client, monkeypatch):
+    """A clip belongs to the words it was made from.
+
+    Leaving it attached is what let the workbench call an out-of-date track ready.
+    """
+    project_id, _, _ = setup_plan(api_client, monkeypatch)
+    draft = generate(api_client, project_id)['production_plan_draft']
+    api_client.post(f'/projects/{project_id}/production-plan/apply',
+                    json={'expected_revision': draft['revision']})
+    script = api_module.pipeline.scripts[project_id]
+    spoken = next(frame for frame in script.frames if frame.dialogue_lines)
+    for line in spoken.dialogue_lines:
+        line.audio_url, line.duration, line.voice_id = 'audio/clip.mp3', 1.5, 'voice-lu'
+    api_module.pipeline._save_data()
+
+    lines = [line.model_dump() for line in spoken.dialogue_lines]
+    lines[0]['line'] = '改过的这一句'
+    api_client.post(f'/projects/{project_id}/frames/update',
+                    json={'frame_id': spoken.id, 'dialogue_lines': lines})
+
+    frame = next(f for f in api_module.pipeline.scripts[project_id].frames if f.id == spoken.id)
+    assert frame.dialogue_lines[0].audio_url is None, "改过词的那句不该还挂着旧音频"
+    assert frame.dialogue_lines[0].duration is None
+    # Untouched lines keep theirs, so only what changed needs regenerating.
+    for line in frame.dialogue_lines[1:]:
+        assert line.audio_url == 'audio/clip.mp3'

@@ -16,8 +16,10 @@ interface DialogueAudioRowProps {
     frameId: string;
     dialogue?: string | null;
     dialogueLines?: DialogueLine[];
-    /** Voice display names by voice id, so a line can show what it will be spoken in. */
-    voiceNames?: Record<string, string>;
+    /** The voice a speaker will be read in, resolved live from the characters. */
+    resolveSpeakerVoice?: (speaker: string) => { id: string; name: string } | undefined;
+    /** Segment length, so the position control works before the video reports its own. */
+    frameDurationSeconds?: number | null;
     onUpdateDialogueLines?: (lines: DialogueLine[]) => void | Promise<void>;
     actionDescription?: string | null;
     draftDialogue?: string;
@@ -94,7 +96,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
     return <DialogueWorkbench key={scope} {...props} scope={scope} />;
 }
 
-function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, voiceNames, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
+function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, resolveSpeakerVoice, frameDurationSeconds, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, snapshotSpeed = 1, snapshotPitch = 1, snapshotVolume = 50, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
     dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
@@ -107,6 +109,15 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     // Per-speaker lines are the source of truth when the frame has them; only the words
     // are editable here — the speaker and the offset come from the production plan.
     const perLine = (dialogueLines?.length ?? 0) > 0;
+    // The voice a line will be spoken in, resolved now. `line.voice_id` is only written
+    // when a clip is made, so reading it made every speaker look unassigned until after
+    // the first generation — which is what "还是标记没有音色" was.
+    const lineVoice = (line: DialogueLine) => {
+        const resolved = resolveSpeakerVoice?.(line.speaker);
+        if (line.voice_id) return { id: line.voice_id, name: resolved?.id === line.voice_id ? resolved.name : line.voice_id };
+        return resolved;
+    };
+    const speakerCount = new Set((dialogueLines ?? []).map(line => line.speaker)).size;
     const [lineDrafts, setLineDrafts] = useState<string[]>(() => (dialogueLines ?? []).map(line => line.line));
     const previousDialogue = useRef(dialogue);
     const request = useDialogueAudioRequests(state => state[scope]);
@@ -135,7 +146,21 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     const instructions = [emotion, freeText.trim()].filter(Boolean).join("; ");
     const linesDirty = perLine && lineDrafts.some((text, index) => text !== dialogueLines?.[index]?.line);
     const dirty = perLine ? linesDirty : draft !== dialogue;
-    const stale = !!audioUrl && (snapshotDialogue !== draft || snapshotVoiceId !== voiceId || snapshotInstructions !== instructions || snapshotSpeed !== voiceSpeed || snapshotPitch !== voicePitch || snapshotVolume !== voiceVolume);
+    // A per-speaker frame has no single voice to compare, so the frame-level snapshot check
+    // said "stale" for ever and left 预听 / 匹配口型 permanently disabled. What actually
+    // dates that track is a line with no clip (never made, or its words were edited) or a
+    // line whose voice has since been reassigned.
+    const stale = perLine
+        ? !!audioUrl && ((dialogueLines ?? []).some(line => !line.audio_url || lineVoice(line)?.id !== line.voice_id)
+            || snapshotInstructions !== instructions)
+        : !!audioUrl && (snapshotDialogue !== draft || snapshotVoiceId !== voiceId || snapshotInstructions !== instructions || snapshotSpeed !== voiceSpeed || snapshotPitch !== voicePitch || snapshotVolume !== voiceVolume);
+    // The offset controls only knew the length the video element reported, so they sat at 0
+    // and disabled until its metadata arrived — or for ever, if it never did. The segment's
+    // own length is known all along.
+    const timelineMs = duration || Math.round((frameDurationSeconds ?? 0) * 1000);
+    // One track, one face: lip-sync cannot be aimed at a segment where several people
+    // speak. Said plainly rather than asking for a face that could only be right for one.
+    const lipSyncBlocked = perLine && speakerCount > 1;
     const sfxBusy = request?.operation === "apply" || request?.operation === "revert" || (request?.operation === "preview" && request?.recoveryKind === "sfx");
     const hasSfxContext = !!actionDescription?.trim() || !!videoUrl;
     const error = request?.error || dubError || audioError;
@@ -268,8 +293,8 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                                     onChange={value => setLineDrafts(current => current.map((text, i) => i === index ? value : text))} />
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-chrome-sm text-text-secondary">
                                     <span>{t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
-                                    {line.voice_id
-                                        ? <span>{t("lineVoice", { voice: voiceNames?.[line.voice_id] ?? line.voice_id })}</span>
+                                    {lineVoice(line)
+                                        ? <span>{t("lineVoice", { voice: lineVoice(line)!.name })}</span>
                                         : <span className="text-status-failed-fg">{t("lineNoVoice")}</span>}
                                 </div>
                                 {line.overruns_shot && <p role="alert" className="text-chrome-sm text-status-processing-fg">{t("lineOverruns")}</p>}
@@ -284,13 +309,15 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                 </section>
                 <section className="space-y-3 border-t border-glass-border pt-4">
                     <h3 className="font-medium">{t("stepEmotionGen")}</h3>
+                    {speakerCount > 1 && <p className="text-xs text-text-secondary">{t("emotionAppliesToAll", { count: speakerCount })}</p>}
                     <div className="grid grid-cols-4 gap-2 sm:grid-cols-8" role="group" aria-label={t("stepEmotionGen")}>
                         {EMOTIONS.map(chip => <Button key={chip} className="min-w-0 px-2" variant={emotion === chip ? "secondary" : "quiet"} aria-pressed={emotion === chip} isDisabled={busy}
                             onPress={() => changeInstructions(emotion === chip ? "" : chip, freeText)}>{t(`emotion.${chip}`)}</Button>)}
                     </div>
                     <TextField label={t("deliveryInstructions")} value={freeText} onChange={value => changeInstructions(emotion, value.slice(0, 80))} placeholder={t("freeTextPlaceholder")} isDisabled={busy} />
                     <div className="flex flex-wrap gap-2">
-                        <Button variant={previewVideoUrl ? "secondary" : "primary"} isPending={request?.operation === "generate"} isDisabled={!voiceId || !draft.trim() || (busy && request?.operation !== "generate")}
+                        <Button variant={previewVideoUrl ? "secondary" : "primary"} isPending={request?.operation === "generate"}
+                            isDisabled={(perLine ? (dialogueLines ?? []).some(line => !lineVoice(line)) : !voiceId) || !draft.trim() || (busy && request?.operation !== "generate")}
                             onPress={() => { void generate(); }}><Mic size={16} aria-hidden="true" />{audioUrl ? t("regenerate") : t("generate")}</Button>
                         {audioUrl && <Button variant="secondary" isDisabled={busy} isPending={starting} onPress={() => { void toggleAudio(); }}>
                             {playing ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}{playing ? t("pause") : t("previewTts")}
@@ -326,29 +353,29 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                     {videoError && <div className="space-y-2"><p role="alert" className="text-status-failed-fg">{t("playFailed")}</p>
                         <Button variant="secondary" onPress={() => { setVideoError(false); setVideoLoading(true); videoRef.current?.load(); }}>{t("reloadVideo")}</Button></div>}
                     {(previewVideoUrl || dubbedVideoUrl) && <StatusBadge tone={previewVideoUrl ? "info" : "success"}>{t(previewVideoUrl ? "previewVersion" : "dubbedVersion")}</StatusBadge>}
-                    <Button variant="quiet" isDisabled={busy || !duration} onPress={() => { if (videoRef.current) setPosition(videoRef.current.currentTime * 1000); }}><Crosshair size={16} aria-hidden="true" />{t("markStartPoint")}</Button>
+                    <Button variant="quiet" isDisabled={busy || !timelineMs} onPress={() => { if (videoRef.current) setPosition(videoRef.current.currentTime * 1000); }}><Crosshair size={16} aria-hidden="true" />{t("markStartPoint")}</Button>
                     <p className="text-xs text-text-secondary">{t("markStartHint")}</p>
                     <div className="flex items-end gap-2">
-                        <IconButton variant="secondary" aria-label={t("earlier")} isDisabled={busy || !duration} onPress={() => setPosition(offset - 50)}><ChevronLeft size={16} /></IconButton>
-                        <TextField label={`${t("audioPosition")} (ms)`} value={String(offset)} onChange={value => setPosition(Number(value))} inputMode="numeric" isDisabled={busy || !duration} className="min-w-0 flex-1" />
-                        <IconButton variant="secondary" aria-label={t("later")} isDisabled={busy || !duration} onPress={() => setPosition(offset + 50)}><ChevronRight size={16} /></IconButton>
+                        <IconButton variant="secondary" aria-label={t("earlier")} isDisabled={busy || !timelineMs} onPress={() => setPosition(offset - 50)}><ChevronLeft size={16} /></IconButton>
+                        <TextField label={`${t("audioPosition")} (ms)`} value={String(offset)} onChange={value => setPosition(Number(value))} inputMode="numeric" isDisabled={busy || !timelineMs} className="min-w-0 flex-1" />
+                        <IconButton variant="secondary" aria-label={t("later")} isDisabled={busy || !timelineMs} onPress={() => setPosition(offset + 50)}><ChevronRight size={16} /></IconButton>
                     </div>
-                    <Slider value={offset} minValue={-10000} maxValue={10000} step={50} onChange={value => setPosition(typeof value === "number" ? value : value[0])} isDisabled={busy || !duration}>
+                    <Slider value={offset} minValue={-10000} maxValue={10000} step={50} onChange={value => setPosition(typeof value === "number" ? value : value[0])} isDisabled={busy || !timelineMs}>
                         <Label>{t("audioPosition")}</Label><Slider.Track><Slider.Fill /><Slider.Thumb /></Slider.Track>
                     </Slider>
                     <div className="flex flex-wrap gap-2">
                         <Button variant="secondary" isPending={request?.operation === "preview"} isDisabled={stale || (busy && request?.operation !== "preview")}
                             onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset); }); }}><Film size={16} aria-hidden="true" />{t("preview")}</Button>
-                        {allowLipSync && <Button variant="secondary" isDisabled={stale || busy || !duration}
+                        {allowLipSync && !lipSyncBlocked && <Button variant="secondary" isDisabled={stale || busy || !timelineMs}
                             onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset, true); }); }}>{t("matchLips")}</Button>}
                         {previewVideoUrl && onApplyDub && <Button variant="primary" isPending={request?.operation === "apply"} isDisabled={previewChanged || (busy && request?.operation !== "apply")}
                             onPress={() => { void run("apply", onApplyDub); }}>{t("applyOverride")}</Button>}
                         {dubbedVideoUrl && !previewVideoUrl && onRevertDub && <Button variant="secondary" isPending={request?.operation === "revert"} isDisabled={busy && request?.operation !== "revert"}
                             onPress={() => { void run("revert", onRevertDub); }}><Undo2 size={16} aria-hidden="true" />{t("undoOverride")}</Button>}
                     </div>
-                    {allowLipSync && onUploadSpeakerFace && <div className="flex items-center gap-3">
+                    {allowLipSync && !lipSyncBlocked && onUploadSpeakerFace && <div className="flex items-center gap-3">
                         {speakerFaceUrl && <img src={getAssetUrl(speakerFaceUrl)} alt={speakerName ?? ""} className="h-16 w-16 rounded-lg object-cover" />}
-                        <Button variant="quiet" isDisabled={busy} onPress={() => faceInputRef.current?.click()}>{t("speakerFace", { name: speakerName ?? "" })}</Button>
+                        <Button variant="quiet" isDisabled={busy} onPress={() => faceInputRef.current?.click()}>{t(speakerFaceUrl ? "speakerFaceReplace" : "speakerFace", { name: speakerName ?? "" })}</Button>
                         <input ref={faceInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" aria-label={t("speakerFace", { name: speakerName ?? "" })}
                             onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
                                 void run("save", async () => {
@@ -357,7 +384,8 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                                 });
                             }} />
                     </div>}
-                    {allowLipSync && <p className="text-xs text-text-secondary">{t("matchLipsHint")}</p>}
+                    {allowLipSync && !lipSyncBlocked && <p className="text-xs text-text-secondary">{t("matchLipsHint")}</p>}
+                    {lipSyncBlocked && <p className="text-xs text-text-secondary">{t("matchLipsMultiSpeaker", { count: speakerCount })}</p>}
                     {previewVideoUrl && <p className="text-xs text-text-secondary">{t(previewChanged ? "previewChanged" : "previewHintBody")}</p>}
                 </section>}
                 {busy && <LoadingState inline label={t(batchPending ? "batchRunning" : request?.recovering ? (request.recoveryKind === "dub" ? "checkingPreview" : "checking") : previewing ? "generatingPreview" : generating ? "state.generating" : "saving")} />}

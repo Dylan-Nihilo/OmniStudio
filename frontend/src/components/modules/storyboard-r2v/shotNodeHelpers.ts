@@ -263,10 +263,16 @@ export function videoTaskIdsForTab(
     return [];
 }
 
+/** Match the backend speaker rule: exact name first, then either-contains. */
+export function matchSpeakerByName<T extends { name: string }>(speaker: string | null | undefined, characters: T[]): T | undefined {
+    const name = (speaker || "").trim().toLowerCase();
+    if (!name) return undefined;
+    return characters.find(character => character.name.trim().toLowerCase() === name)
+        || characters.find(character => name.includes(character.name.trim().toLowerCase()) || character.name.trim().toLowerCase().includes(name));
+}
+
 /** Match the backend speaker rule for both the row and the batch summary. */
 export function resolveDialogueSpeaker<T extends { id: string; name: string }>(frame: { speaker?: string | null; dialogue_structured?: { speaker?: string | null } | null; character_ids?: string[] }, characters: T[]): T | undefined {
-    const name = (frame.speaker || frame.dialogue_structured?.speaker || "").trim().toLowerCase();
-    return (name ? characters.find(character => character.name.trim().toLowerCase() === name)
-        || characters.find(character => name.includes(character.name.trim().toLowerCase()) || character.name.trim().toLowerCase().includes(name)) : undefined)
+    return matchSpeakerByName(frame.speaker || frame.dialogue_structured?.speaker, characters)
         || characters.find(character => character.id === frame.character_ids?.[0]);
 }

@@ -37,6 +37,7 @@ import {
     removeT2IImage,
     getActiveT2IImageUrl,
     frameToShotNode,
+    matchSpeakerByName,
     resolveDialogueSpeaker,
 } from "./storyboard-r2v/shotNodeHelpers";
 import { overridePanelSectionState } from "./storyboard-r2v/shot-panel/usePanelSectionState";
@@ -385,12 +386,15 @@ function StoryboardWorkbench() {
     const [genDialogOpen, setGenDialogOpen] = useState(false);
     const [previsDialogOpen, setPrevisDialogOpen] = useState(false);
     const [productionReviews, setProductionReviews] = useState<ProductionReview[]>([]);
-    // Voice ids resolve to the names the character pickers already show, so a per-line row
-    // can name the voice instead of printing an opaque id.
-    const voiceNamesById = useMemo(() => Object.fromEntries(
-        characters.filter(character => character.voice_id)
-            .map(character => [character.voice_id as string, character.voice_name || (character.voice_id as string)])
-    ), [characters]);
+    // The voice a speaker will be read in, resolved from the characters by the same rule the
+    // backend uses. Resolved live rather than read off a line's stored voice, which only
+    // exists once a clip has been made.
+    const resolveSpeakerVoice = useCallback((speaker: string) => {
+        const character = matchSpeakerByName(speaker, characters);
+        return character?.voice_id
+            ? { id: character.voice_id, name: character.voice_name || character.voice_id }
+            : undefined;
+    }, [characters]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;
@@ -2126,7 +2130,8 @@ function StoryboardWorkbench() {
                                         frameId={frame.id}
                                         dialogue={dialogueText}
                                         dialogueLines={frame.dialogue_lines}
-                                        voiceNames={voiceNamesById}
+                                        resolveSpeakerVoice={resolveSpeakerVoice}
+                                        frameDurationSeconds={frame.duration}
                                         onUpdateDialogueLines={async (lines) => {
                                             if (!currentProject) return;
                                             try {

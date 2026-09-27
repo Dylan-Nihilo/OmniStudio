@@ -2953,6 +2953,14 @@ class ComicGenPipeline:
             # Offsets and speakers come from the plan and are not editable here — only the
             # words and a deliberate per-line voice override are.
             lines = [DialogueLine.model_validate(entry) for entry in kwargs['dialogue_lines']]
+            # A clip belongs to the words it was made from. Dropping it when the words change
+            # is what lets the workbench tell "needs regenerating" from "ready" honestly,
+            # instead of leaving a stale clip attached to a line that no longer says that.
+            previous = {index: line for index, line in enumerate(frame.dialogue_lines)}
+            for index, line in enumerate(lines):
+                was = previous.get(index)
+                if was is not None and was.line != line.line:
+                    line.audio_url, line.duration, line.overruns_shot = None, None, False
             frame.dialogue_lines = lines
             frame.dialogue = "\n".join(line.line for line in lines)
             if frame.dialogue_structured:

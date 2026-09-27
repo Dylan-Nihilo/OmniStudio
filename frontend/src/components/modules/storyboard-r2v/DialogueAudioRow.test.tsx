@@ -157,16 +157,22 @@ describe('Dialogue audio workbench', () => {
 });
 
 describe('per-speaker dialogue', () => {
+    // Nothing synthesised yet, which is the state a freshly planned segment is in — the
+    // voice has to come from the characters, not from a clip that does not exist.
     const lines = [
-        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, voice_id: 'sage' },
-        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, voice_id: 'longyuan', overruns_shot: true },
-        { speaker: '旁白', line: '全场哗然。', start_seconds: 19, voice_id: null },
+        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0 },
+        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, overruns_shot: true },
+        { speaker: '旁白', line: '全场哗然。', start_seconds: 19 },
     ];
-    const voiceNames = { sage: 'Eldric Sage · 沧明子', longyuan: '龙媛 (治愈女)' };
+    const assigned: Record<string, { id: string; name: string }> = {
+        中年测验员: { id: 'sage', name: 'Eldric Sage · 沧明子' },
+        萧媚: { id: 'longyuan', name: '龙媛 (治愈女)' },
+    };
+    const resolveSpeakerVoice = (speaker: string) => assigned[speaker];
 
     it('shows each line with its speaker, time and the voice it will be spoken in', () => {
         // A segment is a conversation, and it used to be one text box read in one voice.
-        render(<DialogueAudioRow {...props} dialogueLines={lines} voiceNames={voiceNames}
+        render(<DialogueAudioRow {...props} dialogueLines={lines} resolveSpeakerVoice={resolveSpeakerVoice}
                                  onUpdateDialogueLines={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
@@ -186,7 +192,7 @@ describe('per-speaker dialogue', () => {
 
     it('saves an edited line without touching its speaker or its placement', async () => {
         const save = vi.fn().mockResolvedValue(undefined);
-        render(<DialogueAudioRow {...props} dialogueLines={lines} voiceNames={voiceNames}
+        render(<DialogueAudioRow {...props} dialogueLines={lines} resolveSpeakerVoice={resolveSpeakerVoice}
                                  onUpdateDialogueLines={save} />);
         fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
@@ -207,5 +213,76 @@ describe('per-speaker dialogue', () => {
         const dialog = screen.getByRole('dialog');
         expect(within(dialog).getByText('stepDialogueText')).toBeVisible();
         expect(within(dialog).queryByText('linesTitle')).not.toBeInTheDocument();
+    });
+});
+
+describe('per-speaker workbench, reported from production', () => {
+    const lines = [
+        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, audio_url: 'a.mp3', voice_id: 'sage' },
+        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, audio_url: 'b.mp3', voice_id: 'longyuan' },
+    ];
+    const assigned: Record<string, { id: string; name: string }> = {
+        中年测验员: { id: 'sage', name: 'Eldric Sage · 沧明子' },
+        萧媚: { id: 'longyuan', name: '龙媛 (治愈女)' },
+    };
+    const resolve = (speaker: string) => assigned[speaker];
+    const dub = { ...props, dialogueLines: lines, resolveSpeakerVoice: resolve, frameDurationSeconds: 27,
+        videoUrl: 'take.mp4', videoTaskId: 'take', onPreviewDub: vi.fn(), allowLipSync: true,
+        speakerName: '萧炎', onUploadSpeakerFace: vi.fn(),
+        snapshotInstructions: 'happy; whisper' };
+
+    it('names every assigned voice instead of claiming the speaker has none', () => {
+        // The row read `line.voice_id`, which is only written when a clip is made, so a
+        // freshly planned segment showed "没有音色" for everyone who did have one.
+        render(<DialogueAudioRow {...props} dialogueLines={lines.map(({ voice_id, ...rest }) => rest)}
+                                 resolveSpeakerVoice={resolve} onUpdateDialogueLines={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getAllByText('lineVoice')).toHaveLength(2);
+        expect(within(dialog).queryByText('lineNoVoice')).not.toBeInTheDocument();
+    });
+
+    it('does not report a freshly generated per-speaker track as out of date', () => {
+        // The frame-level snapshot check compared one voice id against another and could
+        // never match here, so 预听 and 匹配口型 stayed disabled for ever.
+        render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).queryByText('staleHint')).not.toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: 'preview' })).toBeEnabled();
+    });
+
+    it('reports it as out of date once a voice is reassigned', () => {
+        const reassigned = (speaker: string) => speaker === '萧媚'
+            ? { id: 'longhua', name: '龙华' } : assigned[speaker];
+        render(<DialogueAudioRow {...dub} resolveSpeakerVoice={reassigned} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        expect(within(screen.getByRole('dialog')).getByText('staleHint')).toBeVisible();
+    });
+
+    it('lets the audio be positioned from the segment length before the video reports one', () => {
+        // The offset controls only knew the length the video element gave them, so they sat
+        // at 0 and disabled — the "音频长度为 0" report.
+        render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByRole('textbox', { name: /audioPosition/ })).toBeEnabled();
+        expect(within(dialog).getByRole('button', { name: 'markStartPoint' })).toBeEnabled();
+    });
+
+    it('says why lip-sync cannot be aimed at a segment with several speakers', () => {
+        render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('matchLipsMultiSpeaker')).toBeVisible();
+        expect(within(dialog).queryByRole('button', { name: 'matchLips' })).not.toBeInTheDocument();
+        // And it stops asking for a face that could only ever be right for one of them.
+        expect(within(dialog).queryByRole('button', { name: /speakerFace/ })).not.toBeInTheDocument();
+    });
+
+    it('states that the emotion covers every speaker in the segment', () => {
+        render(<DialogueAudioRow {...dub} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        expect(within(screen.getByRole('dialog')).getByText('emotionAppliesToAll')).toBeVisible();
     });
 });
