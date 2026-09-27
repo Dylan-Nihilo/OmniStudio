@@ -122,7 +122,7 @@ class DialogueLine(BaseModel):
     mode: Literal["on_screen", "voiceover"] = "on_screen"
     shot_id: Optional[str] = Field(None, description="所属镜头")
     start_seconds: float = Field(0.0, description="在本片段内的起始秒数")
-    voice_id: Optional[str] = Field(None, description="人工指定的音色；留空则按说话人解析")
+    voice_id: Optional[str] = Field(None, description="这一句现有音频是用哪个音色合成的；留空表示还没合成")
     audio_url: Optional[str] = Field(None, description="这一句合成出的音频")
     duration: Optional[float] = Field(None, description="这一句音频的时长")
     overruns_shot: bool = Field(False, description="这一句比所属镜头的时间窗口更长")

@@ -109,14 +109,14 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     // Per-speaker lines are the source of truth when the frame has them; only the words
     // are editable here — the speaker and the offset come from the production plan.
     const perLine = (dialogueLines?.length ?? 0) > 0;
-    // The voice a line will be spoken in, resolved now. `line.voice_id` is only written
-    // when a clip is made, so reading it made every speaker look unassigned until after
-    // the first generation — which is what "还是标记没有音色" was.
-    const lineVoice = (line: DialogueLine) => {
-        const resolved = resolveSpeakerVoice?.(line.speaker);
-        if (line.voice_id) return { id: line.voice_id, name: resolved?.id === line.voice_id ? resolved.name : line.voice_id };
-        return resolved;
-    };
+    // The voice a line will be spoken in *now*, resolved from the characters. Kept strictly
+    // apart from `line.voice_id`, which records the voice its existing clip was made with:
+    // reading the record for display made every speaker look unassigned until the first
+    // generation, and comparing the record against itself could never notice a voice being
+    // reassigned. A speaker who no longer matches any character keeps its recorded id so
+    // the row still says something.
+    const lineVoice = (line: DialogueLine) => resolveSpeakerVoice?.(line.speaker)
+        ?? (line.voice_id ? { id: line.voice_id, name: line.voice_id } : undefined);
     const speakerCount = new Set((dialogueLines ?? []).map(line => line.speaker)).size;
     const [lineDrafts, setLineDrafts] = useState<string[]>(() => (dialogueLines ?? []).map(line => line.line));
     const previousDialogue = useRef(dialogue);
