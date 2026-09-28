@@ -6,9 +6,9 @@ import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw, Scissors, Trash2 } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
+import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
-import { apiStreamRequest } from "@/lib/apiClient";
 import { getAssetUrl, extractErrorDetail } from "@/lib/utils";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import SidePanelHeader from "@/components/shared/SidePanelHeader";
@@ -166,7 +166,6 @@ export default function VideoAssembly() {
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
     const [isMerging, setIsMerging] = useState(false);
     const [mergeError, setMergeError] = useState<string | null>(null);
-    const [isDownloading, setIsDownloading] = useState(false);
     const [exportSettings, setExportSettings] = useState<ExportSettings>(() =>
         normalizeExportSettings((currentProject as any)?.export_settings)
     );
@@ -397,29 +396,20 @@ export default function VideoAssembly() {
         }
     };
 
-    const handleDownload = async () => {
+    const handleDownload = () => {
         if (!currentProject?.merged_video_url) return;
-        setIsDownloading(true);
-        try {
-            const url = getAssetUrl(currentProject.merged_video_url);
-            const response = await (url.startsWith("/") ? apiStreamRequest(url) : fetch(url));
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = blobUrl;
-            a.download = `${currentProject.title || "merged"}_${currentProject.id}.mp4`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-        } catch (error) {
-            console.error("Failed to download video:", error);
-            toast.error(ta("downloadFailed"), {
-                projectId: currentProject.id,
-                projectTitle: currentProject.title,
-            });
-        } finally {
-            setIsDownloading(false);
-        }
+        // Handed to the browser's own download manager rather than pulled into a blob
+        // first. A finished episode is tens of megabytes — this one is 40 MB — and reading
+        // all of it into memory before writing anything means a single dropped connection
+        // loses the lot with nothing to resume and only "下载失败，请重试" to show for it.
+        // The file is same-origin and auth is cookie-based, so a plain link is authorised.
+        const a = document.createElement("a");
+        a.href = getAssetUrl(currentProject.merged_video_url);
+        a.download = `${currentProject.title || "merged"}_${currentProject.id}.mp4`;
+        a.rel = "noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
     };
 
     const selectedFrame = useMemo(() => {
@@ -606,7 +596,6 @@ export default function VideoAssembly() {
                         <ExportPhase
                             mergedVideoUrl={currentProject?.merged_video_url ?? null}
                             isMerging={isMerging}
-                            isDownloading={isDownloading}
                             mergeError={mergeError}
                             mergeFailure={(currentProject as any)?.merge_failure as MergeFailure | null | undefined}
                             framesReady={framesReady}
@@ -879,7 +868,6 @@ function MixPhase({
 export function ExportPhase({
     mergedVideoUrl,
     isMerging,
-    isDownloading,
     mergeError,
     mergeFailure,
     framesReady,
@@ -900,7 +888,6 @@ export function ExportPhase({
 }: {
     mergedVideoUrl: string | null;
     isMerging: boolean;
-    isDownloading: boolean;
     mergeError: string | null;
     mergeFailure?: MergeFailure | null;
     framesReady: number;
@@ -1239,7 +1226,7 @@ export function ExportPhase({
                     >
                         <div className="grid md:grid-cols-2 gap-0">
                             <div className="aspect-video bg-black" style={{ aspectRatio: getAspectRatioCssValue(masterAspectRatio) }}>
-                                <video src={getAssetUrl(mergedVideoUrl)} className="w-full h-full object-contain" controls autoPlay />
+                                <PreviewVideo src={mergedVideoUrl} alt={ta("exportTitle")} className="w-full h-full object-contain" hoverPlay={false} noLightbox />
                             </div>
                             <div className="p-5 flex flex-col justify-center gap-3">
                                 <div>
@@ -1251,11 +1238,10 @@ export function ExportPhase({
                                 </div>
                                 <button
                                     onClick={onDownload}
-                                    disabled={isDownloading}
                                     className="self-start inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-glass border border-glass-border text-foreground hover:bg-hover-bg transition-colors text-[0.8125rem] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Download size={14} />
-                                    {isDownloading ? ta("downloading") : ta("downloadMP4")}
+                                    {ta("downloadMP4")}
                                 </button>
                             </div>
                         </div>

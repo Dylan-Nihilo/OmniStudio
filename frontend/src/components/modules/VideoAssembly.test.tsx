@@ -27,7 +27,7 @@ it('extracts actionable merge errors without relying on a browser alert', () => 
 
 it('saves numeric export values and clears optional resolution and fps through the component picker', async () => {
   const save = vi.fn().mockResolvedValue(undefined);
-  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError={null} framesReady={0} framesTotal={0}
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} mergeError={null} framesReady={0} framesTotal={0}
     exportSettings={{ resolution: '1920x1080', fps: 30, crf: 20, preset: 'medium', audio_bitrate: '192k', subtitles: 'none' }} precheckReport={null} mergeProgress={null} mergeVerification={null}
     onSaveSettings={save} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()} />);
   for (const [label, option] of [['resolution', '—'], ['fps', '25'], ['crf', '23'], ['preset', 'slow'], ['audioBitrate', '256k'], ['subtitles', 'soft']]) {
@@ -44,7 +44,7 @@ it('saves numeric export values and clears optional resolution and fps through t
 
 it('offers an explicit retry action after a merge failure', () => {
   const onMerge = vi.fn();
-  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError="ffmpeg failed" framesReady={1} framesTotal={1}
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} mergeError="ffmpeg failed" framesReady={1} framesTotal={1}
     exportSettings={{}} precheckReport={null} mergeProgress={null} mergeVerification={null}
     onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={onMerge} onDownload={vi.fn()} onDismissError={vi.fn()} />);
 
@@ -53,7 +53,7 @@ it('offers an explicit retry action after a merge failure', () => {
 });
 
 it('offers only portrait export resolutions for a portrait master canvas', () => {
-  render(<ExportPhase masterAspectRatio="9:16" mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError={null} framesReady={0} framesTotal={0}
+  render(<ExportPhase masterAspectRatio="9:16" mergedVideoUrl={null} isMerging={false} mergeError={null} framesReady={0} framesTotal={0}
     exportSettings={{ resolution: '1920x1080' }} precheckReport={null} mergeProgress={null} mergeVerification={null}
     onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()} />);
 
@@ -66,7 +66,7 @@ it('offers only portrait export resolutions for a portrait master canvas', () =>
 it('opens a flagged shot and keeps review retryable after a save error', async () => {
   const inspect = vi.fn();
   const review = vi.fn().mockRejectedValueOnce(new Error('Review was not saved')).mockResolvedValue(undefined);
-  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError={null} framesReady={1} framesTotal={1}
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} mergeError={null} framesReady={1} framesTotal={1}
     exportSettings={{}} precheckReport={{ ok: false, total_frames: 1, frames_with_video: 1,
       content_issues: [{ frame_id: 'shot', video_id: 'take', blocking: true, reviewable: true, reason: 'Reference changed' }] }} mergeProgress={null} mergeVerification={null}
     onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()}
@@ -81,7 +81,7 @@ it('opens a flagged shot and keeps review retryable after a save error', async (
 });
 
 it('shows retained intermediate export context after a failed merge', () => {
-  render(<ExportPhase mergedVideoUrl={null} isMerging={false} isDownloading={false} mergeError="ffmpeg failed" mergeFailure={{ stage: 'transcoding', intermediate_dir: 'tmp/export-1' }} framesReady={1} framesTotal={1}
+  render(<ExportPhase mergedVideoUrl={null} isMerging={false} mergeError="ffmpeg failed" mergeFailure={{ stage: 'transcoding', intermediate_dir: 'tmp/export-1' }} framesReady={1} framesTotal={1}
     exportSettings={{}} precheckReport={null} mergeProgress={null} mergeVerification={null}
     onSaveSettings={vi.fn()} onRunPrecheck={vi.fn()} onMerge={vi.fn()} onDownload={vi.fn()} onDismissError={vi.fn()} />);
 
