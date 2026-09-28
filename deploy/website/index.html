@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#181b20">
+  <meta name="description" content="OmniStudio 漫剧创作平台。从剧本、美术风格、角色与分镜，到动态镜头、声音和成片，让想象逐帧发生。">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="OmniStudio — 让想象逐帧发生">
+  <meta property="og:description" content="从第一句灵感，到完整的漫剧作品。探索风格、编排镜头，让好戏真正上演。">
+  <title>OmniStudio — 让想象逐帧发生</title>
+  <link rel="icon" href="assets/web/omni-studio-logo-efad87b42b0e.webp" type="image/webp">
+  <link rel="preload" href="assets/fonts/scene-sans.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=performance-3">
+  <script src="main.js?v=performance-3" defer></script>
+  <noscript><style>
+    html,body{height:auto;overflow:auto}body[data-intro=playing] .chapters{height:auto;overflow:visible}
+    .opening-film,.footer,.opening-tools,.skip-intro,.nav-marker{display:none!important}
+    .scene{background-position:center;background-size:cover;background-repeat:no-repeat}
+    .scene-opening{background-image:linear-gradient(90deg,#090d1599,transparent),url('assets/web/hero-f0-52533938ff63.webp')}
+    .scene-style{background-image:linear-gradient(90deg,#090d1599,transparent),url('assets/web/style-f1-5548-f968ab2eec5f.webp')}
+    .scene-storyboard{background-image:url('assets/web/storyboard-open-world-24b31914d872.webp')}
+    .scene-motion{background-image:linear-gradient(25deg,#090d15cc,transparent),url('assets/web/motion-70ac8db1-end-f554345496be.webp')}
+    .scene-create{background-image:linear-gradient(#090d1533,#090d1588),url('assets/web/create-70b55e5c-end-3b4cae3fa14d.webp')}
+    .scene-copy,h1,.title-line>span,.opening-actions,.final-action{opacity:1!important;transform:none!important;translate:none!important;transition:none!important}
+  </style></noscript>
+</head>
+<body data-ink="light" data-intro="playing" data-media="start">
+  <a class="skip-content" href="#opening">跳至内容</a>
+  <div class="opening-film" aria-hidden="true">
+    <div class="opening-still"></div>
+    <video class="opening-video" data-src="/assets/web/hero-xianxia-h264-2cf8722dee88.mp4" data-av1="/assets/web/hero-xianxia-av1-d8c9816f3256.mp4" poster="assets/web/hero-start-458c426201e1.webp" muted playsinline preload="auto" tabindex="-1"></video>
+    <video class="idle-video" data-src="/assets/web/hero-idle-h264-519972190a3d.mp4" data-av1="/assets/web/hero-idle-av1-234aace742d9.mp4" muted playsinline loop preload="auto" tabindex="-1"></video>
+    <div class="scroll-film style-film">
+      <video class="scroll-video style-video" data-src="/assets/web/style-transition-5548-h264-6d73e95e30eb.mp4" data-av1="/assets/web/style-transition-5548-av1-a27ea977a7e3.mp4" muted playsinline preload="auto" tabindex="-1"></video>
+    </div>
+    <div class="scroll-film storyboard-film" style="--poster:url('assets/web/storyboard-scene-cbf5c33a4dab.webp')">
+      <video class="scroll-video" data-src="/assets/web/storyboard-0304db6e-h264-d0ecd1be3c4c.mp4" data-av1="/assets/web/storyboard-0304db6e-av1-4f67d7b79f3b.mp4" data-end="4.04" muted playsinline preload="auto" tabindex="-1"></video>
+    </div>
+    <div class="scroll-film motion-film" data-enter-at="1.92" data-blend=".08" data-hold-until="2.14" style="--poster:url('assets/web/motion-70ac8db1-end-f554345496be.webp');--hold-poster:url('assets/web/storyboard-open-world-24b31914d872.webp')">
+      <video class="scroll-video" data-src="/assets/web/motion-70ac8db1-h264-3a255be52be9.mp4" data-av1="/assets/web/motion-70ac8db1-av1-fe393f904dd2.mp4" data-start=".5" muted playsinline preload="auto" tabindex="-1"></video>
+    </div>
+    <div class="scroll-film create-film" style="--poster:url('assets/web/create-70b55e5c-end-3b4cae3fa14d.webp')">
+      <video class="scroll-video" data-src="/assets/web/create-70b55e5c-h264-4e7ce9d73757.mp4" data-av1="/assets/web/create-70b55e5c-av1-7d6ff0ae466f.mp4" muted playsinline preload="auto" tabindex="-1"></video>
+    </div>
+    <div class="opening-shade"></div>
+  </div>
+  <header class="header">
+    <a class="brand" href="#opening" aria-label="OmniStudio 首页"><img src="assets/web/omni-studio-logo-efad87b42b0e.webp" alt="OmniStudio" width="1012" height="615"></a>
+    <nav class="chapter-nav" aria-label="章节导航">
+      <a href="#opening" aria-current="location"><span>开场</span></a>
+      <a href="#style"><span>风格</span></a>
+      <a href="#storyboard"><span>分镜</span></a>
+      <a href="#motion"><span>镜头</span></a>
+      <a href="#create"><span>成片</span></a>
+      <i class="nav-marker" aria-hidden="true"></i>
+    </nav>
+    <div class="header-actions">
+      <button class="skip-intro" type="button" hidden>跳过开场 <span aria-hidden="true">↘</span></button>
+      <a class="create-link" href="/app/">开始创作 <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+
+  <main class="chapters" tabindex="0" aria-label="OmniStudio 创作流程">
+    <section class="scene scene-opening" id="opening" data-ink="light" aria-labelledby="opening-title">
+      <div class="scene-copy">
+        <h1 id="opening-title">
+          <span class="title-line title-lead"><span>从剧本到漫剧</span></span>
+          <span class="title-line"><span>让想象</span></span>
+          <span class="title-line title-finish"><span>逐帧发生<span class="punctuation">。</span></span></span>
+        </h1>
+        <div class="opening-actions">
+          <a class="opening-action" href="/app/">开始创作 <span aria-hidden="true">↗</span></a>
+          <a class="explore-action" href="#style">探索创作流程 <span aria-hidden="true">↓</span></a>
+        </div>
+      </div>
+    </section>
+    <section class="scene scene-style" id="style" data-ink="light" aria-labelledby="style-title">
+      <div class="scene-copy">
+        <h2 id="style-title"><span class="title-line title-lead"><span>故事无界</span></span><span class="title-line title-finish"><span>风格由你<span class="punctuation">。</span></span></span></h2>
+      </div>
+    </section>
+    <section class="scene scene-storyboard" id="storyboard" data-ink="light" aria-labelledby="storyboard-title">
+      <div class="scene-copy">
+        <h2 id="storyboard-title"><span class="title-line title-lead"><span>从一段剧情</span></span><span class="title-line title-finish"><span>到每个镜头<span class="punctuation">。</span></span></span></h2>
+      </div>
+    </section>
+    <section class="scene scene-motion" id="motion" data-ink="light" aria-labelledby="motion-title">
+      <div class="scene-copy">
+        <h2 id="motion-title"><span class="title-line title-lead"><span>让好戏</span></span><span class="title-line title-finish"><span>真正上演<span class="punctuation">。</span></span></span></h2>
+      </div>
+    </section>
+    <section class="scene scene-create" id="create" data-ink="light" aria-labelledby="create-title">
+      <div class="scene-copy">
+        <h2 id="create-title"><span class="title-line title-lead"><span>下一部作品</span></span><span class="title-line title-finish"><span>由你开场<span class="punctuation">。</span></span></span></h2>
+        <a class="final-action" href="/app/">开始创作 <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="chapter-status sr-only" role="status" aria-live="polite">开场</p>
+    <div class="opening-tools" role="group" aria-label="开场播放控制">
+      <button class="replay-intro" type="button" aria-label="重播开场" title="重播开场" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 .5 6M4 4v6h6"/></svg></button>
+      <button class="toggle-idle" type="button" aria-label="暂停动态" title="暂停动态" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path class="pause-icon" d="M8 6v12M16 6v12"/><path class="play-icon" d="m9 5 10 7-10 7Z"/></svg></button>
+    </div>
+    <a class="site-credit" href="https://github.com/Dylan-Nihilo/OmniStudio" target="_blank" rel="noopener noreferrer" aria-label="OmniStudio GitHub">© 2026 OmniStudio</a>
+    <div class="chapter-controls">
+      <button class="previous-chapter" type="button" aria-label="上一章" disabled><span aria-hidden="true">↑</span></button>
+      <button class="next-chapter" type="button"><span class="next-label sr-only">探索风格</span><span class="next-arrow" aria-hidden="true">↓</span></button>
+    </div>
+  </footer>
+</body>
+</html>
