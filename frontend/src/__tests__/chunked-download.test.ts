@@ -20,12 +20,12 @@ function ranged(body: Uint8Array) {
         const header = new Headers(init.headers).get('Range') ?? '';
         const match = /bytes=(\d+)-(\d*)/.exec(header);
         if (!match) {
-            return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Length': String(body.length) } }));
+            return Promise.resolve(new Response(new Blob([body]), { status: 200, headers: { 'Content-Length': String(body.length) } }));
         }
         const start = Number(match[1]);
         const end = match[2] ? Number(match[2]) : body.length - 1;
         const slice = body.slice(start, end + 1);
-        return Promise.resolve(new Response(slice, {
+        return Promise.resolve(new Response(new Blob([slice]), {
             status: 206,
             headers: { 'Content-Range': `bytes ${start}-${end}/${body.length}`, 'Content-Length': String(slice.length) },
         }));
