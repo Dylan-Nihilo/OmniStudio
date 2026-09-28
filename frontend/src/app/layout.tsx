@@ -1,6 +1,10 @@
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import TauriDragBar from "@/components/layout/TauriDragBar";
+import { canonicalRedirectScript, normalizeCanonicalUrl } from "@/lib/canonicalRedirect";
+
+// Set only for hosted builds (see deploy/production.conf); unset leaves every host alone.
+const canonicalUrl = normalizeCanonicalUrl(process.env.NEXT_PUBLIC_CANONICAL_URL);
 
 export default function RootLayout({
   children,
@@ -13,6 +17,9 @@ export default function RootLayout({
         <title>Omni Studio | 漫象工坊</title>
         <meta name="description" content="AI-native motion comic creation platform by Wanxiang Silicon Core Technology" />
         <link rel="icon" type="image/png" href="/omni-studio-logo.png" />
+        {canonicalUrl ? (
+          <script dangerouslySetInnerHTML={{ __html: canonicalRedirectScript(canonicalUrl) }} />
+        ) : null}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var P=["v3-paper","atelier-dark","bridge-dark","brand-dark","atelier-light","brand-light"];var d=JSON.parse(localStorage.getItem("omni_studio-settings")||"{}");var s=d.state||{};var t=s.theme;var m=s.themeMode;if(m==="system"){var dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;t=dark?s.darkTheme:s.lightTheme;}document.documentElement.className=(P.indexOf(t)>=0?t:"v3-paper")+" omni-ui";}catch(e){document.documentElement.className="v3-paper omni-ui";}})();`,
