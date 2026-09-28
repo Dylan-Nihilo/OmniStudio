@@ -17,6 +17,9 @@ ENV NODE_ENV=production
 ENV DOCKER_BUILD=true
 ARG NEXT_PUBLIC_AUTH_COOKIE_PREFIX=omni_studio
 ENV NEXT_PUBLIC_AUTH_COOKIE_PREFIX=$NEXT_PUBLIC_AUTH_COOKIE_PREFIX
+# Hosted builds pass the public address (deploy/production.conf); empty serves every host as-is.
+ARG NEXT_PUBLIC_CANONICAL_URL=
+ENV NEXT_PUBLIC_CANONICAL_URL=$NEXT_PUBLIC_CANONICAL_URL
 RUN npm run build
 
 # Stage 2: Serve with nginx

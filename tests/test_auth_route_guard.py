@@ -307,6 +307,30 @@ def test_legacy_lumenx_auth_environment_remains_upgrade_compatible(tmp_path):
     assert settings.cookie_secure is True
 
 
+def test_public_url_is_always_an_allowed_origin(tmp_path):
+    def origins(**extra):
+        return AuthSettings.from_env(
+            environ={"OMNI_STUDIO_AUTH_SIGNING_SECRET": "s" * 32, **extra},
+            config_path=tmp_path / "config.json",
+        ).allowed_origins
+
+    # The host's .env allowlist may lose the public address; the tracked URL restores it.
+    assert origins(
+        LUMENX_AUTH_ALLOWED_ORIGINS="http://203.0.113.7:3000",
+        OMNI_STUDIO_PUBLIC_URL="https://Studio.Example.com/app/",
+    ) == ("http://203.0.113.7:3000", "https://studio.example.com")
+    assert origins(
+        OMNI_STUDIO_AUTH_ALLOWED_ORIGINS="https://studio.example.com",
+        OMNI_STUDIO_PUBLIC_URL="https://studio.example.com:443/app/",
+    ) == ("https://studio.example.com",)
+    assert origins(OMNI_STUDIO_PUBLIC_URL="http://studio.example:8080/")[-1] == (
+        "http://studio.example:8080"
+    )
+    assert origins(OMNI_STUDIO_PUBLIC_URL="") == ("http://localhost:3008", "http://127.0.0.1:3008")
+    with pytest.raises(ValueError, match="OMNI_STUDIO_PUBLIC_URL"):
+        origins(OMNI_STUDIO_PUBLIC_URL="studio.example.com/app/")
+
+
 def test_test_auth_bypass_can_inject_identity_only_in_test_environment(tmp_path):
     from src.apps.comic_gen.api import app as full_app
 

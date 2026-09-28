@@ -77,7 +77,17 @@ jobs:
             ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "IFS= read -r HEROUI_KEY && export HEROUI_KEY && cd /opt/omnistudio/app && bash scripts/deploy_production.sh '$DEPLOY_SHA'"
 
+      - name: Publish landing page and gateway
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /opt/omnistudio/app && bash scripts/deploy_public_site.sh '$DEPLOY_SHA'"
+
       - name: Verify public routes
         run: |
-          curl --fail --silent --show-error --max-time 15 "http://$DEPLOY_HOST:3000/" > /dev/null
-          curl --fail --silent --show-error --max-time 15 "http://$DEPLOY_HOST:3000/health" > /dev/null
+          set -a
+          source deploy/production.conf
+          set +a
+          curl --fail --silent --show-error --max-time 15 "$OMNI_STUDIO_PUBLIC_URL" > /dev/null
+          curl --fail --silent --show-error --max-time 15 "${OMNI_STUDIO_PUBLIC_URL%/app/}/health" > /dev/null
+          landing="$(curl --fail --silent --show-error --max-time 15 "${OMNI_STUDIO_PUBLIC_URL%/app/}/")"
+          grep -q 'href="/app/"' <<<"$landing"

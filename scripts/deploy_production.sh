@@ -22,7 +22,7 @@ rollback() {
     cp "$PREVIOUS_COMPOSE" "$APP_DIR/docker-compose.yml"
     docker image tag omnistudio-rollback-backend:previous app-backend:latest
     docker image tag omnistudio-rollback-frontend:previous app-frontend:latest
-    docker compose up -d --no-build --wait --wait-timeout 180 || \
+    "${compose[@]}" up -d --no-build --wait --wait-timeout 180 || \
       echo "Automatic rollback failed; manual recovery is required" >&2
   fi
 
@@ -31,6 +31,11 @@ rollback() {
 trap rollback ERR
 
 cd "$APP_DIR"
+
+# Naming --env-file replaces compose's implicit .env, so both are listed. deploy/production.conf
+# carries the public address into the frontend build and the backend; keeping it tracked is
+# what stops a redeploy from dropping the domain.
+compose=(docker compose --env-file .env --env-file deploy/production.conf)
 
 # Every deploy builds images here and nothing ever reclaimed what that leaves behind, so
 # the host filled up over a few weeks: 25 GiB of build cache and 91 dangling images against
@@ -52,8 +57,9 @@ if (( available_kb < 2097152 )); then
 fi
 
 test -s .env
+test -s deploy/production.conf
 test -s "$PREVIOUS_COMPOSE"
-docker compose config --quiet
+"${compose[@]}" config --quiet
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 database_url="$(grep -E '^OMNI_STUDIO_DATABASE_URL=' .env | cut -d= -f2- || true)"
@@ -61,7 +67,7 @@ if [[ "$database_url" == mysql* ]]; then
   # Hosted MySQL: consistent dump from the compose service before touching images.
   mysql_root_password="$(grep -E '^MYSQL_ROOT_PASSWORD=' .env | cut -d= -f2-)"
   backup="$BACKUP_DIR/omnistudio.$stamp.sql.gz"
-  docker compose exec -T mysql mysqldump --single-transaction --routines --triggers \
+  "${compose[@]}" exec -T mysql mysqldump --single-transaction --routines --triggers \
     -uroot -p"$mysql_root_password" omnistudio | gzip > "$backup"
   test -s "$backup"
   gzip -t "$backup"
@@ -80,10 +86,10 @@ fi
 
 docker image tag app-backend:latest omnistudio-rollback-backend:previous
 docker image tag app-frontend:latest omnistudio-rollback-frontend:previous
-docker compose build
+"${compose[@]}" build
 
 activation_started=1
-docker compose up -d --no-build --wait --wait-timeout 180
+"${compose[@]}" up -d --no-build --wait --wait-timeout 180
 curl --fail --silent --show-error --max-time 10 http://127.0.0.1:17177/health \
   | grep -Eq '"storage":\{"dialect":"(sqlite|mysql)","ok":true' \
   || { echo "backend storage check failed" >&2; exit 1; }

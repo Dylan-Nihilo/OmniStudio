@@ -1,0 +1,42 @@
+# Source: deploy/gateway/studio.caddy in the OmniStudio repository, host name from
+# deploy/production.conf. Every production deploy renders it into the host gateway (container
+# kaizo-setup-downloads, /opt/kaizo/downloads/Caddyfile), so edits made on the host are replaced.
+#
+# Landing page at /, Studio application at /app/ (hash-routed, API stays at root). The
+# gateway owns :443 only — :80 belongs to another container — so certificates use TLS-ALPN.
+__STUDIO_HOST__ {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			disable_http_challenge
+		}
+	}
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=2592000"
+
+	redir /app /app/ 308
+	handle_path /app/* {
+		reverse_proxy 47.236.165.75:3000 {
+			flush_interval -1
+		}
+	}
+	# Landing owns /assets/* except the application's /assets/styles and /assets/templates.
+	@landing {
+		path / /index.html /main.js /styles.css /assets/*
+		not path /assets/styles/* /assets/templates/*
+	}
+	handle @landing {
+		reverse_proxy https://47.236.165.75:39527
+	}
+	handle {
+		reverse_proxy 47.236.165.75:3000 {
+			flush_interval -1
+		}
+	}
+}
+
+# Former landing domain (Cloudflare origin cert) forwards to the Studio host.
+omnistudiox.cn, www.omnistudiox.cn {
+	tls /config/omnistudiox/origin-cert.pem /config/omnistudiox/origin-key.pem
+	redir https://__STUDIO_HOST__{uri} 301
+}
