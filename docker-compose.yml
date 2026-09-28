@@ -36,6 +36,8 @@ services:
       - .env
     environment:
       - NO_PROXY=*.aliyuncs.com,localhost,127.0.0.1
+      # Hosted deploys load deploy/production.conf (scripts/deploy_production.sh); local runs leave it empty.
+      - OMNI_STUDIO_PUBLIC_URL=${OMNI_STUDIO_PUBLIC_URL:-}
     volumes:
       - ./output:/app/output
       - ./.env:/app/.env
@@ -53,6 +55,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_CANONICAL_URL: ${OMNI_STUDIO_PUBLIC_URL:-}
       secrets:
         - heroui_key
     container_name: omni-studio-frontend
