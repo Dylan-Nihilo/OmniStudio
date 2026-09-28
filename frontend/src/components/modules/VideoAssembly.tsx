@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, Film, AlertTriangle, Layout, Clock, FileText, Download, Music, Sliders, Package, HardDrive, Settings2, ShieldCheck, X, RotateCcw, Scissors, Trash2 } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import PreviewVideo from "@/components/shared/preview/PreviewVideo";
+import { downloadInChunks } from "@/lib/chunkedDownload";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
 import { getAssetUrl, extractErrorDetail } from "@/lib/utils";
@@ -173,6 +174,8 @@ export default function VideoAssembly() {
     const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(
         ((currentProject as any)?.merge_progress as MergeProgress | null | undefined) ?? null
     );
+    // Fraction of the finished cut that has been fetched, or null when not downloading.
+    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
     const [mergeVerification, setMergeVerification] = useState<MergeVerification | null>(
         ((currentProject as any)?.merge_verification as MergeVerification | null | undefined) ?? null
     );
@@ -396,20 +399,35 @@ export default function VideoAssembly() {
         }
     };
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
         if (!currentProject?.merged_video_url) return;
-        // Handed to the browser's own download manager rather than pulled into a blob
-        // first. A finished episode is tens of megabytes — this one is 40 MB — and reading
-        // all of it into memory before writing anything means a single dropped connection
-        // loses the lot with nothing to resume and only "下载失败，请重试" to show for it.
-        // The file is same-origin and auth is cookie-based, so a plain link is authorised.
-        const a = document.createElement("a");
-        a.href = getAssetUrl(currentProject.merged_video_url);
-        a.download = `${currentProject.title || "merged"}_${currentProject.id}.mp4`;
-        a.rel = "noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        // Fetched a range at a time rather than in one long response. The server answered
+        // with the whole 40 MB every time and the connection died after 77–141 KB, so a
+        // single response never completed and there was nothing to resume — only
+        // "下载失败，请重试". Short bursts this link does manage, and a dropped range costs
+        // one retry instead of the entire download.
+        setDownloadProgress(0);
+        try {
+            const blob = await downloadInChunks(getAssetUrl(currentProject.merged_video_url), {
+                onProgress: (received, total) => setDownloadProgress(received / total),
+            });
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = blobUrl;
+            a.download = `${currentProject.title || "merged"}_${currentProject.id}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+        } catch (error) {
+            console.error("Failed to download video:", error);
+            toast.error(extractErrorDetail(error, ta("downloadFailed")), {
+                projectId: currentProject.id,
+                projectTitle: currentProject.title,
+            });
+        } finally {
+            setDownloadProgress(null);
+        }
     };
 
     const selectedFrame = useMemo(() => {
@@ -595,6 +613,7 @@ export default function VideoAssembly() {
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-6">
                         <ExportPhase
                             mergedVideoUrl={currentProject?.merged_video_url ?? null}
+                            downloadProgress={downloadProgress}
                             isMerging={isMerging}
                             mergeError={mergeError}
                             mergeFailure={(currentProject as any)?.merge_failure as MergeFailure | null | undefined}
@@ -867,6 +886,7 @@ function MixPhase({
 
 export function ExportPhase({
     mergedVideoUrl,
+    downloadProgress,
     isMerging,
     mergeError,
     mergeFailure,
@@ -887,6 +907,7 @@ export function ExportPhase({
     onDismissError,
 }: {
     mergedVideoUrl: string | null;
+    downloadProgress?: number | null;
     isMerging: boolean;
     mergeError: string | null;
     mergeFailure?: MergeFailure | null;
@@ -1241,7 +1262,8 @@ export function ExportPhase({
                                     className="self-start inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-glass border border-glass-border text-foreground hover:bg-hover-bg transition-colors text-[0.8125rem] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Download size={14} />
-                                    {ta("downloadMP4")}
+                                    {downloadProgress == null ? ta("downloadMP4")
+                                        : ta("downloadingPercent", { percent: Math.round(downloadProgress * 100) })}
                                 </button>
                             </div>
                         </div>
