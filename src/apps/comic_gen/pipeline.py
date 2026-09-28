@@ -4955,9 +4955,26 @@ class ComicGenPipeline:
                 normalized_path = os.path.join(normalization_dir, f"segment_{index + 1:03d}.mp4")
                 command = [ffmpeg_path, "-y", "-ss", str(trim_start), "-i", source_path]
                 audio_input = "0:a:0"
+                audio_filters = ["aresample=48000"]
                 if probe.returncode != 0:
-                    command.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
-                    audio_input = "1:a:0"
+                    # A post-dubbed shot has no audio of its own — the take came back silent
+                    # and the dialogue lives on the frame. This used to substitute digital
+                    # silence and never look at it, so an episode that had been dubbed
+                    # exported as a silent film: eight shots, 214 seconds, a 2.6 kbps AAC
+                    # track of nothing. The mix downstream has a dialogue gain, so carrying
+                    # the dialogue here is what it was always waiting for.
+                    dub_path = self._resolve_media_path(getattr(frame, "audio_url", None) or "", suffix=".mp3")
+                    if dub_path and os.path.isfile(dub_path):
+                        command.extend(["-i", dub_path])
+                        audio_input = "1:a:0"
+                        # The shot's own offset, less whatever was trimmed off its head, so
+                        # a line still lands where it was placed against the picture.
+                        delay = max(0, int(round((getattr(frame, "dub_offset_ms", 0) or 0) - trim_start * 1000)))
+                        if delay:
+                            audio_filters.append(f"adelay={delay}|{delay}")
+                    else:
+                        command.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
+                        audio_input = "1:a:0"
                 video_filters = [f"fps={export_settings['fps'] or 30}"]
                 if export_settings["resolution"]:
                     width, height = export_settings["resolution"].split("x")
@@ -4968,7 +4985,7 @@ class ComicGenPipeline:
                 command.extend([
                     "-map", "0:v:0", "-map", audio_input,
                     "-vf", ",".join(video_filters),
-                    "-af", f"aresample=48000,apad,atrim=duration={duration},asetpts=PTS-STARTPTS",
+                    "-af", ",".join([*audio_filters, "apad", f"atrim=duration={duration}", "asetpts=PTS-STARTPTS"]),
                     "-r", str(export_settings['fps'] or 30), "-fps_mode", "cfr",
                     "-ac", "2", "-c:v", "libx264", "-crf", str(export_settings["crf"]),
                     "-preset", export_settings["preset"], "-c:a", "aac",
