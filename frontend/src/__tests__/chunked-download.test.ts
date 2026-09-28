@@ -15,37 +15,48 @@ import { downloadInChunks, probeSize } from '@/lib/chunkedDownload';
 
 const TOTAL = 5 * 1024 * 1024 + 7;          // not a whole number of chunks
 
-function ranged(body: Uint8Array) {
+/** Serves `buffer` the way `/files` does: whole on a plain GET, a slice on a Range. */
+function ranged(buffer: ArrayBuffer) {
     return (url: string, init: RequestInit = {}) => {
         const header = new Headers(init.headers).get('Range') ?? '';
         const match = /bytes=(\d+)-(\d*)/.exec(header);
         if (!match) {
-            return Promise.resolve(new Response(new Blob([body]), { status: 200, headers: { 'Content-Length': String(body.length) } }));
+            return Promise.resolve(new Response(buffer, {
+                status: 200, headers: { 'Content-Length': String(buffer.byteLength) },
+            }));
         }
         const start = Number(match[1]);
-        const end = match[2] ? Number(match[2]) : body.length - 1;
-        const slice = body.slice(start, end + 1);
-        return Promise.resolve(new Response(new Blob([slice]), {
+        const end = match[2] ? Number(match[2]) : buffer.byteLength - 1;
+        const slice = buffer.slice(start, end + 1);
+        return Promise.resolve(new Response(slice, {
             status: 206,
-            headers: { 'Content-Range': `bytes ${start}-${end}/${body.length}`, 'Content-Length': String(slice.length) },
+            headers: {
+                'Content-Range': `bytes ${start}-${end}/${buffer.byteLength}`,
+                'Content-Length': String(slice.byteLength),
+            },
         }));
     };
+}
+
+/** A buffer whose byte at each position encodes that position, so order is checkable. */
+function patterned(size: number): ArrayBuffer {
+    const buffer = new ArrayBuffer(size);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < size; i += 1) view[i] = i % 251;
+    return buffer;
 }
 
 beforeEach(() => { stream.request.mockReset(); });
 
 it('reads the total size without pulling the body', async () => {
-    const body = new Uint8Array(TOTAL);
-    stream.request.mockImplementation(ranged(body));
+    stream.request.mockImplementation(ranged(new ArrayBuffer(TOTAL)));
     expect(await probeSize('/files/video/x.mp4')).toBe(TOTAL);
     // One byte asked for, one byte transferred.
     expect(new Headers(stream.request.mock.calls[0][1].headers).get('Range')).toBe('bytes=0-0');
 });
 
 it('assembles the whole file from ranges, in order', async () => {
-    const body = new Uint8Array(TOTAL);
-    for (let i = 0; i < TOTAL; i += 1) body[i] = i % 251;   // position-dependent, so order shows
-    stream.request.mockImplementation(ranged(body));
+    stream.request.mockImplementation(ranged(patterned(TOTAL)));
     const seen: number[] = [];
 
     const blob = await downloadInChunks('/files/video/x.mp4', { onProgress: (r, t) => seen.push(r / t) });
@@ -63,8 +74,7 @@ it('assembles the whole file from ranges, in order', async () => {
 });
 
 it('retries only the range that dropped, not the whole download', async () => {
-    const body = new Uint8Array(TOTAL);
-    const serve = ranged(body);
+    const serve = ranged(new ArrayBuffer(TOTAL));
     let failures = 0;
     stream.request.mockImplementation((url: string, init: RequestInit = {}) => {
         const header = new Headers(init.headers).get('Range') ?? '';
@@ -82,8 +92,7 @@ it('retries only the range that dropped, not the whole download', async () => {
 });
 
 it('says how far it got when a range will not come down at all', async () => {
-    const body = new Uint8Array(TOTAL);
-    const serve = ranged(body);
+    const serve = ranged(new ArrayBuffer(TOTAL));
     stream.request.mockImplementation((url: string, init: RequestInit = {}) => {
         const header = new Headers(init.headers).get('Range') ?? '';
         if (header.startsWith('bytes=2097152-')) return Promise.reject(new TypeError('network error'));
