@@ -6,7 +6,7 @@ import { useEditLeaseStore } from '@/store/editLeaseStore';
 const { post, patch, remove, auth } = vi.hoisted(() => ({ post: vi.fn(), patch: vi.fn(), remove: vi.fn(),
   auth: { user: { id: 'user-1' }, activeWorkspace: { role: 'owner' } },
 }));
-vi.mock('@/lib/apiClient', () => ({ API_URL: '/api-proxy', CLIENT_INSTANCE_KEY: 'lease-test', apiClient: { post, patch, delete: remove } }));
+vi.mock('@/lib/apiClient', () => ({ API_URL: '/api-proxy', CLIENT_INSTANCE_KEY: 'lease-test', EDIT_LEASE_EVENT: 'omni:edit-lease-held', apiClient: { post, patch, delete: remove } }));
 vi.mock('@/store/authStore', () => ({ useAuthStore: (select: (state: typeof auth) => unknown) => select(auth) }));
 vi.mock('@/store/projectStore', () => ({ useProjectStore: { getState: () => ({ currentProject: { id: 'episode-1', _revision: 'loaded-version' } }) } }));
 vi.mock('@omnistudio/ui', () => ({ Button: ({ children, onPress }: { children: React.ReactNode; onPress: () => void }) => <button onClick={onPress}>{children}</button> }));

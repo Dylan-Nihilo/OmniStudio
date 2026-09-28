@@ -358,6 +358,11 @@ export const apiStreamRequest = async (url: string, init: RequestInit = {}): Pro
   return response;
 };
 
+/** Broadcast when a request is refused because the edit lease is held elsewhere. */
+export const EDIT_LEASE_EVENT = "omni:edit-lease-held";
+export const EDIT_LEASE_HELD_MESSAGE =
+  "这一集正在被另一个编辑会话占用，当前只读。如果那是你自己的另一个窗口，可在页面顶部点「在本窗口继续编辑」后重试。";
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -366,6 +371,17 @@ apiClient.interceptors.response.use(
 
     if (status === 428) {
       await redirectToSetup();
+      return Promise.reject(error);
+    }
+
+    // 423 means the episode's edit lease is held elsewhere. Every caller shows `e.message`,
+    // so without this a blocked export read "Request failed with status code 423" and gave
+    // no hint that a second window was holding the episode. The event lets the lease guard
+    // put its banner up at once instead of waiting for its next poll; an event rather than
+    // an import because the lease store imports this module.
+    if (status === 423) {
+      error.message = EDIT_LEASE_HELD_MESSAGE;
+      if (typeof window !== "undefined") window.dispatchEvent(new Event(EDIT_LEASE_EVENT));
       return Promise.reject(error);
     }
 

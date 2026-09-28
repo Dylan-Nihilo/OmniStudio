@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Loader2, Lock } from "lucide-react";
 import { Button } from "@omnistudio/ui";
+import { EDIT_LEASE_EVENT } from "@/lib/apiClient";
 import { useEditLeaseStore } from "@/store/editLeaseStore";
 import { useAuthStore } from "@/store/authStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -55,11 +56,15 @@ export default function EpisodeEditLeaseGuard({
     const timer = window.setInterval(recheck, 20_000);
     window.addEventListener("focus", recheck);
     window.addEventListener("online", recheck);
+    // A request refused with 423 is the earliest proof the lease moved; without this the
+    // banner waited up to 20 seconds while the user stared at a failed export.
+    window.addEventListener(EDIT_LEASE_EVENT, recheck);
     document.addEventListener("visibilitychange", visible);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", recheck);
       window.removeEventListener("online", recheck);
+      window.removeEventListener(EDIT_LEASE_EVENT, recheck);
       document.removeEventListener("visibilitychange", visible);
     };
   }, [check, viewer]);
