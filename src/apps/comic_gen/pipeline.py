@@ -4769,6 +4769,33 @@ class ComicGenPipeline:
                 setattr(current, field, getattr(script, field, None))
             self._save_data()
 
+    def begin_merge(self, script_id: str) -> None:
+        """Mark an export as started before it is queued.
+
+        The endpoint hands the work to a background task and returns at once, so the first
+        poll must already see a running export — otherwise the view reads an idle project
+        and stops watching the very export it just began. Clears the previous run's result
+        so a finished file from last time cannot be mistaken for this one's.
+        """
+        script = self.scripts.get(script_id)
+        if script is None:
+            raise LookupError("Script not found")
+        script.merged_video_url = None
+        script.merge_verification = None
+        script.merge_failure = None
+        self._set_merge_progress(script, "preparing", "准备导出", 0.01)
+
+    def fail_merge(self, script_id: str, message: str) -> None:
+        """Record an export failure that happened outside `merge_videos`' own handling."""
+        script = self.scripts.get(script_id)
+        if script is None:
+            return
+        if (script.merge_progress or {}).get("stage") in ("done", "failed"):
+            return
+        script.merge_failure = {"stage": (script.merge_progress or {}).get("stage", "failed"),
+                                "message": message, "failed_at": time.time()}
+        self._set_merge_progress(script, "failed", message, 0)
+
     def merge_videos(self, script_id: str) -> Script:
         """Step 5b: Merge selected videos into a single file."""
         _validate_safe_id(script_id, "script_id")

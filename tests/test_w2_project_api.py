@@ -2266,10 +2266,26 @@ def test_new_export_request_can_run_after_a_failed_attempt(api_client, endpoint,
 
     with patch.object(api_module.pipeline, "precheck_merge", return_value={"ok": True}), patch.object(api_module.pipeline, "merge_videos", side_effect=merge):
         first = api_client.post(f"/projects/{project['id']}/{endpoint}", json=body)
+        failed = api_module.pipeline.scripts[project["id"]].merge_progress or {}
         second = api_client.post(f"/projects/{project['id']}/{endpoint}", json=body)
-    assert first.status_code == 500
+
+    if endpoint == "merge":
+        # `/merge` queues the work and returns: an eight-shot episode takes about five
+        # minutes, longer than the client's own timeout, so holding the connection reported
+        # a finished export as a failure. The outcome is read off `merge_progress`, which
+        # the assembly view already polls.
+        assert first.status_code == 200, first.text
+        assert failed.get("stage") == "failed", failed
+        assert "FFmpeg failed" in (failed.get("message") or "")
+    else:
+        # `/export` answers with the finished file's URL, so it still runs inline and a
+        # failure is still an error status. It has no caller in the app.
+        assert first.status_code == 500
+
+    # What this test has always been about: a failure does not wedge the next attempt.
     assert second.status_code == 200, second.text
     assert len(attempts) == 2
+    assert api_module.pipeline.scripts[project["id"]].merged_video_url == "video/retried.mp4"
 
 
 def test_export_settings_keeps_the_web_subtitle_choice(api_client):

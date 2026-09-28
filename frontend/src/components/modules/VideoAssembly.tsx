@@ -369,14 +369,12 @@ export default function VideoAssembly() {
         try {
             const updatedProject = await api.mergeVideos(currentProject.id);
             if (scope !== mergeScope.current) return;
+            // The call only queues the export now, so this response is a receipt, not a
+            // result. Polling is what reports done or failed — clearing the running state
+            // here would have the view declare victory the moment the work started.
             updateProject(currentProject.id, updatedProject);
             setMergeProgress((updatedProject?.merge_progress as MergeProgress | null | undefined) ?? null);
-            setMergeVerification((updatedProject?.merge_verification as MergeVerification | null | undefined) ?? null);
             setMergeError(null);
-            stopMergePolling();
-            mergeRunning.current = false;
-            setIsMerging(false);
-            // Success - error will be null, merged video will show below
         } catch (error: any) {
             if (scope !== mergeScope.current || !mergeRunning.current) return;
             console.error("Failed to merge videos:", error);
@@ -384,7 +382,12 @@ export default function VideoAssembly() {
             // Extract detailed error message from backend
             const errorDetail = getAssemblyError(error, "Unknown error occurred during video merge");
 
-            const uncertain = !error?.response || error?.code === 'ECONNABORTED';
+            // A gateway that gave up on a long export says nothing about the export: it may
+            // well have finished. Treated as unknown so polling continues rather than
+            // reporting a failure for work that is still running — the user saw both a 502
+            // and a client timeout for an export that had in fact succeeded.
+            const gateway = [502, 503, 504].includes(error?.response?.status);
+            const uncertain = !error?.response || error?.code === 'ECONNABORTED' || gateway;
             setMergeError(uncertain ? ta("mergeUncertain") : errorDetail);
             if (!uncertain) {
                 stopMergePolling();

@@ -650,6 +650,33 @@ def _start_production_item(item_id: str) -> None:
         logger.exception("production JobItem %s failed in background", item_id)
 
 
+def _run_export(script_id: str, item_id: Optional[str]) -> None:
+    """Run an export in the background and make sure a failure is always visible.
+
+    `merge_videos` records its own failures, but anything raised before it gets that far —
+    or inside the job dispatcher — would otherwise leave `merge_progress` on "preparing"
+    for ever, and the assembly view polls that field to know when to stop waiting.
+    """
+    from .contracts import sanitize_error_text
+
+    try:
+        if item_id is None:
+            pipeline.merge_videos(script_id)
+        else:
+            # The adapter records a provider failure on the JobItem and returns it rather
+            # than raising, so the status is what has to be checked — otherwise a failed
+            # export leaves `merge_progress` on "preparing" and the view polls for ever.
+            result = _production_adapter().start(item_id)
+            if getattr(result, "status", None) == "failed":
+                raise RuntimeError(getattr(result, "error_message", None) or "export failed")
+    except Exception as error:
+        logger.exception("export failed for %s", script_id)
+        try:
+            pipeline.fail_merge(script_id, sanitize_error_text(str(error)))
+        except Exception:
+            logger.exception("could not record the export failure for %s", script_id)
+
+
 def _start_production_or_raise(item_id: str):
     """Run a synchronous adapter item without turning provider failure into 200."""
     result = _production_adapter().start(item_id)
@@ -7061,8 +7088,16 @@ def precheck_merge(script_id: str):
 
 
 @app.post("/projects/{script_id}/merge", response_model=Script)
-def merge_videos(script_id: str):
-    """Merge all selected frame videos into final output"""
+def merge_videos(script_id: str, background_tasks: BackgroundTasks):
+    """Start merging the selected takes into the final cut.
+
+    Returns as soon as the work is queued rather than holding the connection for it. An
+    eight-shot episode takes around five minutes to merge, which is longer than the client's
+    own timeout and longer than some proxies will wait — so an export that succeeded was
+    reported to the creator as a failure, twice. Progress and failure both live on
+    `merge_progress`, which the assembly view already polls, and the four other long
+    operations in this file are dispatched exactly this way.
+    """
     import traceback
     try:
         precheck = pipeline.precheck_merge(script_id)
@@ -7088,10 +7123,13 @@ def merge_videos(script_id: str):
             {"project_id": script_id, "export": True},
             f"export:{script_id}:{uuid.uuid4()}",
         )
-        merged_script = pipeline.merge_videos(script_id) if job_item is None else (
-            _start_production_or_raise(job_item.id) and pipeline.get_script(script_id)
-        )
-        return signed_response(merged_script)
+        # Marked as started before returning so the first poll sees a running export rather
+        # than an idle project, which is what tells the view to keep watching.
+        script = pipeline.get_script(script_id)
+        pipeline.begin_merge(script_id)
+        background_tasks.add_task(_context_call(
+            _run_export, script_id, job_item.id if job_item is not None else None))
+        return signed_response(pipeline.get_script(script_id) or script)
     except HTTPException:
         raise
     except ValueError as e:
