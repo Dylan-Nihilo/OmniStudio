@@ -66,6 +66,9 @@ vi.mock("@/lib/api", () => ({
         selectVideo,
         unpinVideo,
         autoSelectLatestVideo,
+        // Read on mount to know which voices act on a delivery instruction; this suite
+        // does not exercise dubbing direction, so an empty catalogue is enough.
+        getVoices: () => Promise.resolve([]),
     },
     crudApi: { createFrame, deleteFrame, reorderFrames, copyFrame },
 }));
