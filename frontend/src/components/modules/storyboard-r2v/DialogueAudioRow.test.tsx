@@ -200,10 +200,12 @@ describe('per-speaker dialogue', () => {
         fireEvent.change(within(dialog).getByRole('textbox', { name: '萧媚' }), { target: { value: '斗之气：八段！' } });
         fireEvent.click(within(dialog).getByRole('button', { name: 'saveLines' }));
         await waitFor(() => expect(save).toHaveBeenCalledOnce());
+        // Saving normalises each line's own direction; none of these has one, so they are
+        // written as null and fall through to the segment's setting.
         expect(save.mock.calls[0][0]).toEqual([
-            lines[0],
-            { ...lines[1], line: '斗之气：八段！' },
-            lines[2],
+            { ...lines[0], instructions: null },
+            { ...lines[1], line: '斗之气：八段！', instructions: null },
+            { ...lines[2], instructions: null },
         ]);
     });
 
@@ -323,20 +325,31 @@ describe('per-line direction', () => {
         ]);
     });
 
+    const ignored = (node: HTMLElement) => node.textContent?.includes('lineVoiceIgnoresDirection');
+
     it('says the direction will not take and refuses to generate it', () => {
         // Two thirds of the catalogue has no instruction parameter, so the emotion was
         // accepted, discarded, and the line came back flat with nothing saying why.
         const undirectable = (speaker: string) => ({ ...directable(speaker), carriesDirection: false });
-        render(<DialogueAudioRow {...props} dialogueLines={lines} resolveSpeakerVoice={undirectable}
-                                 onUpdateDialogueLines={vi.fn()} />);
+        render(<DialogueAudioRow {...props} snapshotInstructions="" dialogueLines={lines}
+                                 resolveSpeakerVoice={undirectable} onUpdateDialogueLines={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         const dialog = screen.getByRole('dialog');
 
-        // Named against the line that has a direction, and only that one.
-        const alerts = within(dialog).getAllByRole('alert');
-        expect(alerts.filter(node => node.textContent?.includes('lineVoiceIgnoresDirection'))).toHaveLength(1);
+        // Named against the line that has a direction to lose, and only that one — with no
+        // segment setting, the undirected line has nothing to be discarded.
+        expect(within(dialog).getAllByRole('alert').filter(ignored)).toHaveLength(1);
         // Not paid for and then thrown away.
         expect(within(dialog).getByRole('button', { name: /generate/ })).toBeDisabled();
+    });
+
+    it('warns on every line once a segment-wide emotion is the one being discarded', () => {
+        const undirectable = (speaker: string) => ({ ...directable(speaker), carriesDirection: false });
+        render(<DialogueAudioRow {...props} snapshotInstructions="情绪：平稳" dialogueLines={lines}
+                                 resolveSpeakerVoice={undirectable} onUpdateDialogueLines={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        // Both lines are read with a direction now, and neither voice can act on it.
+        expect(within(screen.getByRole('dialog')).getAllByRole('alert').filter(ignored)).toHaveLength(2);
     });
 
     it('stays quiet while the voice catalogue is unknown', () => {
