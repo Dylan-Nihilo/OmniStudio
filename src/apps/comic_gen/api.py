@@ -7076,6 +7076,12 @@ def merge_videos(script_id: str):
             if precheck.get("disk", {}).get("sufficient") is False:
                 reasons.append("insufficient disk space")
             detail = "; ".join(dict.fromkeys(reasons)) or "export precheck failed"
+            # Shots awaiting review have a button for exactly this, and the reason text alone
+            # never said so — a refused export read as a dead end.
+            awaiting = [item for item in (precheck.get("content_issues") or []) if item.get("reviewable")]
+            if awaiting:
+                detail += (f"。有 {len(awaiting)} 个镜头需要复核：请在上方「检查」结果里逐个查看，"
+                           "确认画面可用后点「保留此版本」，然后重新导出。")
             raise HTTPException(status_code=400, detail=f"Export precheck failed: {detail}")
         job_item = _create_production_item(
             "export", script_id, None,

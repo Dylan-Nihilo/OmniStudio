@@ -237,6 +237,10 @@ class VideoTask(BaseModel):
     error: Optional[str] = Field(None, description="Failure reason, if any (set by pipeline / cancel / orphan recovery)")
     retry_of_task_id: Optional[str] = Field(None, description="Failed task whose saved inputs were retried")
     input_fingerprint: Optional[str] = None
+    # The same inputs minus everything that only reaches the dubbing. Compared instead of
+    # `input_fingerprint` for a take whose model is not audio-driven, so assigning voices or
+    # dubbing after the fact cannot invalidate a picture that did not change.
+    visual_input_fingerprint: Optional[str] = None
     video_url: Optional[str] = None
     duration: int = Field(5, description="Video duration in seconds (model-specific range)")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")

@@ -708,6 +708,7 @@ class ComicGenPipeline:
         self.library_store: GlobalAssetLibrary = self._load_library_data()
         self._repair_series_bindings()
         self._backfill_plan_dialogue()
+        self._backfill_visual_fingerprints()
 
         # Extraction preview cache: {project_id: (timestamp, Script)}
         self._extraction_cache: Dict[str, tuple] = {}
@@ -1169,6 +1170,42 @@ class ComicGenPipeline:
                     repaired += 1
         if repaired:
             logger.info("Backfilled dialogue onto %d plan-backed frame field(s)", repaired)
+            self._save_data()
+
+    def _backfill_visual_fingerprints(self):
+        """Give existing takes a picture-only fingerprint, but only when it is provable.
+
+        A take recorded before the split has no picture-only fingerprint, so the precheck
+        would still compare the full one and still refuse an episode whose voices were
+        assigned after its videos were made. It is safe to record one exactly when the
+        picture demonstrably has not changed: recompute the *full* fingerprint with the
+        audio-side inputs blanked, and if that equals what the task recorded, then only
+        audio-side inputs can have moved since. Anything else is left alone and still needs
+        a human to keep it — this cannot wave through a shot whose picture really did change.
+        """
+        repaired = 0
+        for script in self.scripts.values():
+            frames = {frame.id: frame for frame in script.frames}
+            blanked_characters = [character.model_copy(update={
+                "voice_id": None, "voice_speed": 1.0, "voice_pitch": 1.0, "voice_volume": 50,
+            }) for character in script.characters]
+            probe_script = script.model_copy(update={"characters": blanked_characters})
+            for task in script.video_tasks:
+                if getattr(task, "visual_input_fingerprint", None) or not task.input_fingerprint:
+                    continue
+                frame = frames.get(getattr(task, "frame_id", None))
+                if frame is None or getattr(task, "audio_mode", None) == "driven":
+                    continue
+                silent = frame.model_copy(update={
+                    "dialogue": None, "dialogue_structured": None, "dialogue_lines": [],
+                    "dialogue_instructions": None, "audio_url": None,
+                })
+                if self._shot_input_fingerprint(probe_script, silent) != task.input_fingerprint:
+                    continue                # the picture may have changed; leave it for review
+                task.visual_input_fingerprint = self._shot_input_fingerprint(script, frame, audio_inputs=False)
+                repaired += 1
+        if repaired:
+            logger.info("Recorded a picture-only fingerprint for %d existing take(s)", repaired)
             self._save_data()
 
     def create_project(self, title: str, text: str, skip_analysis: bool = False, workflow_mode: str = "i2v_legacy", series_id: Optional[str] = None) -> Script:
@@ -3433,16 +3470,32 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def _shot_input_fingerprint(self, script: Script, frame: StoryboardFrame, submitted_refs: Optional[List[str]] = None) -> str:
+    def _shot_input_fingerprint(self, script: Script, frame: StoryboardFrame, submitted_refs: Optional[List[str]] = None,
+                                *, audio_inputs: bool = True) -> str:
+        """What this shot was generated from.
+
+        `audio_inputs=False` leaves out everything that only reaches the *dubbing*, never a
+        video model that is not audio-driven: the characters' voice settings, the shot's
+        dialogue audio, and — for a production-plan frame — the dialogue text, which is
+        already inside `visual_description` (see `production_planning.segment_prompt`) and
+        so would otherwise be counted twice.
+
+        Without that split, assigning voices or dubbing *after* generating the videos moved
+        every fingerprint and the export precheck refused to merge takes whose picture had
+        not changed at all. Observed on 斗破苍穹: all eight takes matched again once the
+        voice settings and dialogue fields were blanked.
+        """
         from .revision import compute_dependency_fingerprint
-        fields = ("visual_description", "action_description", "prompt_mode", "character_ids", "scene_id", "prop_ids",
+        fields = ["visual_description", "action_description", "prompt_mode", "character_ids", "scene_id", "prop_ids",
                   "duration", "dialogue", "dialogue_structured", "dialogue_mode", "camera_movement_structured",
-                  "shot_size", "camera_angle", "lighting", "dialogue_instructions")
+                  "shot_size", "camera_angle", "lighting", "dialogue_instructions"]
+        if not audio_inputs and getattr(frame, "production_plan_id", None):
+            fields = [field for field in fields if not field.startswith("dialogue")]
         params = {field: getattr(frame, field, None) for field in fields}
         urls = getattr(frame, "t2i_image_urls", [])
         index = getattr(frame, "t2i_selected_index", 0)
         refs = {"first_frame": urls[index] if urls and 0 <= index < len(urls) else getattr(frame, "rendered_image_url", None)}
-        if getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
+        if audio_inputs and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
             refs["audio"] = getattr(frame, "audio_url", None)
         ids = set(getattr(frame, "character_ids", []) + getattr(frame, "prop_ids", []))
         ids.add(getattr(frame, "scene_id", None))
@@ -3468,7 +3521,7 @@ class ComicGenPipeline:
                             getattr(getattr(asset, field, None), "image_variants", getattr(getattr(asset, field, None), "variants", [])))}
                         image = next((url for url in submitted_refs if url in historical), image)
                     refs[asset.id] = image
-                    if kind == "characters" and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
+                    if audio_inputs and kind == "characters" and getattr(frame, "dialogue_mode", "on_screen") == "on_screen":
                         params[asset.id] = [getattr(asset, key, None) for key in ("voice_id", "voice_speed", "voice_pitch", "voice_volume")]
         if getattr(frame, "omni_reference_settings", None) is not None:
             params["omni_reference_settings"] = frame.omni_reference_settings.model_dump()
@@ -3656,6 +3709,7 @@ class ComicGenPipeline:
             id=task_id,
             project_id=script_id,
             input_fingerprint=self._shot_input_fingerprint(script, frame, reference_image_urls) if frame else None,
+            visual_input_fingerprint=self._shot_input_fingerprint(script, frame, reference_image_urls, audio_inputs=False) if frame else None,
             frame_id=frame_id,
             image_url=snapshot_url,
             last_frame_url=last_frame_snapshot,
@@ -4536,8 +4590,18 @@ class ComicGenPipeline:
             from .revision import compute_revision
             fingerprint = self._shot_input_fingerprint(script, frame)
             reviewed = getattr(frame, "reviewed_video_fingerprint", None) == compute_revision([task.id, fingerprint])
-            source_fingerprint = getattr(task, "input_fingerprint", None)
             audio_review = getattr(task, "model", None) == "minimax/minimax-h3" and getattr(task, "audio_mode", None) == "driven"
+            # Audio only reaches the model when the take is audio-driven; otherwise the
+            # dubbing is a separate track laid on afterwards and cannot have changed this
+            # picture. Comparing the picture-only fingerprint there is what stops "assign
+            # voices, dub, export" — the intended order — from refusing its own output.
+            audio_driven = getattr(task, "audio_mode", None) == "driven"
+            visual_recorded = getattr(task, "visual_input_fingerprint", None)
+            if not audio_driven and visual_recorded:
+                source_fingerprint = visual_recorded
+                fingerprint = self._shot_input_fingerprint(script, frame, audio_inputs=False)
+            else:
+                source_fingerprint = getattr(task, "input_fingerprint", None)
             if not reviewed and (source_fingerprint != fingerprint or audio_review):
                 report["content_issues"].append({
                     "frame_id": frame.id, "video_id": task.id, "reviewable": True,
