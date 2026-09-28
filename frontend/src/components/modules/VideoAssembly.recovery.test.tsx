@@ -33,7 +33,9 @@ it('keeps watching a queued export instead of declaring it finished', async () =
     mocks.get.mockResolvedValue({ ...project, merge_progress: { stage: 'done', progress: 1, message: '导出完成' }, merged_video_url: '/video/queued.mp4' });
     renderWithIntl(<VideoAssembly />);
 
+    // 「导出」 switches to the export phase; 「合并并继续」 is the button that starts it.
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    fireEvent.click(screen.getByRole('button', { name: '合并并继续' }));
     await waitFor(() => expect(mocks.merge).toHaveBeenCalledWith('queued'));
     // Still running right after the receipt comes back.
     expect(screen.getByText(/导出进度/)).toBeVisible();
@@ -55,6 +57,7 @@ it('does not call a long export failed when a gateway gives up on it', async () 
     renderWithIntl(<VideoAssembly />);
 
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    fireEvent.click(screen.getByRole('button', { name: '合并并继续' }));
     await waitFor(() => expect(mocks.merge).toHaveBeenCalled());
     // Polling carries on and finds the finished file.
     await waitFor(() => expect(useProjectStore.getState().currentProject?.merged_video_url).toBe('/video/gateway.mp4'), { timeout: 4000 });
