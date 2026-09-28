@@ -25,7 +25,9 @@ it('keeps watching a queued export instead of declaring it finished', async () =
     // minutes, far longer than the client's own timeout, which is how a finished export
     // came to be reported as a failure. Treating the response as the result would make the
     // view announce success the moment the work started.
-    const project = { id: 'queued', title: 'Queued', frames: [], video_tasks: [] } as unknown as Project;
+    const project = { id: 'queued', title: 'Queued',
+        frames: [{ id: 'shot', selected_video_id: 'take' }],
+        video_tasks: [{ id: 'take', status: 'completed', video_url: '/video/take.mp4' }] } as unknown as Project;
     useProjectStore.setState({ currentProject: project, projects: [project] });
     mocks.merge.mockResolvedValue({ ...project, merge_progress: { stage: 'preparing', progress: 0.01, message: '准备导出' } });
     mocks.get.mockResolvedValue({ ...project, merge_progress: { stage: 'done', progress: 1, message: '导出完成' }, merged_video_url: '/video/queued.mp4' });
@@ -43,7 +45,9 @@ it('keeps watching a queued export instead of declaring it finished', async () =
 it('does not call a long export failed when a gateway gives up on it', async () => {
     // The export that prompted this had already produced its file when the browser was
     // handed a 502; reporting that as a failure hides a finished result.
-    const project = { id: 'gateway', title: 'Gateway', frames: [], video_tasks: [] } as unknown as Project;
+    const project = { id: 'gateway', title: 'Gateway',
+        frames: [{ id: 'shot', selected_video_id: 'take' }],
+        video_tasks: [{ id: 'take', status: 'completed', video_url: '/video/take.mp4' }] } as unknown as Project;
     useProjectStore.setState({ currentProject: project, projects: [project] });
     mocks.merge.mockRejectedValue(Object.assign(new Error('Request failed with status code 502'),
         { isAxiosError: true, response: { status: 502, data: {} } }));
