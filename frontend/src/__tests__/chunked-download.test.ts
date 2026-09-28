@@ -102,3 +102,35 @@ it('says how far it got when a range will not come down at all', async () => {
     await expect(downloadInChunks('/files/video/x.mp4', { chunkBytes: 2 * 1024 * 1024, attemptsPerChunk: 2 }))
         .rejects.toThrow(/已完成 \d+%/);
 });
+
+it('finds a size the link will carry when every response is capped', async () => {
+    // The reported link cut every response at exactly 77,268 bytes no matter how much was
+    // asked for — a fixed cap, not a flaky connection. Retrying 2 MB could never succeed;
+    // the size has to come down until it fits underneath.
+    const CAP = 77_268;
+    const buffer = patterned(TOTAL);
+    const serve = ranged(buffer);
+    const asked: number[] = [];
+    stream.request.mockImplementation(async (url: string, init: RequestInit = {}) => {
+        const response = await serve(url, init);
+        const header = new Headers(init.headers).get('Range') ?? '';
+        const match = /bytes=(\d+)-(\d+)/.exec(header);
+        if (!match) return response;
+        const wanted = Number(match[2]) - Number(match[1]) + 1;
+        asked.push(wanted);
+        if (wanted <= CAP) return response;
+        // Truncated exactly the way the link does it.
+        const body = (await response.arrayBuffer()).slice(0, CAP);
+        return new Response(body, { status: 206, headers: response.headers });
+    });
+
+    const blob = await downloadInChunks('/files/video/x.mp4', { onProgress: () => {} });
+
+    expect(blob.size).toBe(TOTAL);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    for (const at of [0, CAP, CAP + 1, TOTAL - 1]) {
+        expect([at, bytes[at]]).toEqual([at, at % 251]);
+    }
+    // It backed off until the request fitted under the cap, and stayed there.
+    expect(Math.max(...asked.slice(-5))).toBeLessThanOrEqual(CAP);
+});

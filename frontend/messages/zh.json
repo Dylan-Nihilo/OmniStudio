@@ -1658,6 +1658,7 @@
     "mergedVideoDesc": "所有选定片段已拼接完成。您现在可以继续添加配音和音效。",
     "downloadMP4": "下载 MP4",
     "downloadingPercent": "下载中 {percent}%",
+    "downloadShot": "下载本段",
     "downloading": "下载中...",
     "downloadFailed": "下载失败，请重试。",
     "mergeFailedAlert": "视频合并失败",

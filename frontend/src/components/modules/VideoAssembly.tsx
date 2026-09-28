@@ -174,8 +174,8 @@ export default function VideoAssembly() {
     const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(
         ((currentProject as any)?.merge_progress as MergeProgress | null | undefined) ?? null
     );
-    // Fraction of the finished cut that has been fetched, or null when not downloading.
-    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+    // Which video is being fetched and how far along, or null when nothing is.
+    const [downloading, setDownloading] = useState<{ key: string; progress: number } | null>(null);
     const [mergeVerification, setMergeVerification] = useState<MergeVerification | null>(
         ((currentProject as any)?.merge_verification as MergeVerification | null | undefined) ?? null
     );
@@ -399,22 +399,16 @@ export default function VideoAssembly() {
         }
     };
 
-    const handleDownload = async () => {
-        if (!currentProject?.merged_video_url) return;
-        // Fetched a range at a time rather than in one long response. The server answered
-        // with the whole 40 MB every time and the connection died after 77–141 KB, so a
-        // single response never completed and there was nothing to resume — only
-        // "下载失败，请重试". Short bursts this link does manage, and a dropped range costs
-        // one retry instead of the entire download.
-        setDownloadProgress(0);
+    const saveVideo = async (mediaUrl: string, filename: string, key: string) => {
+        setDownloading({ key, progress: 0 });
         try {
-            const blob = await downloadInChunks(getAssetUrl(currentProject.merged_video_url), {
-                onProgress: (received, total) => setDownloadProgress(received / total),
+            const blob = await downloadInChunks(getAssetUrl(mediaUrl), {
+                onProgress: (received, total) => setDownloading({ key, progress: received / total }),
             });
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = blobUrl;
-            a.download = `${currentProject.title || "merged"}_${currentProject.id}.mp4`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -422,12 +416,28 @@ export default function VideoAssembly() {
         } catch (error) {
             console.error("Failed to download video:", error);
             toast.error(extractErrorDetail(error, ta("downloadFailed")), {
-                projectId: currentProject.id,
-                projectTitle: currentProject.title,
+                projectId: currentProject?.id,
+                projectTitle: currentProject?.title,
             });
         } finally {
-            setDownloadProgress(null);
+            setDownloading(null);
         }
+    };
+
+    /** A single shot, which is short enough to be worth having on its own. */
+    const handleDownloadShot = async (frameId: string, mediaUrl: string, number: number) => {
+        await saveVideo(mediaUrl, `${currentProject?.title || "shot"}_${number}.mp4`, frameId);
+    };
+
+    const handleDownload = async () => {
+        if (!currentProject?.merged_video_url) return;
+        // Fetched a range at a time rather than in one long response. The server answered
+        // with the whole 40 MB every time and the connection died after 77–141 KB, so a
+        // single response never completed and there was nothing to resume — only
+        // "下载失败，请重试". Short bursts this link does manage, and a dropped range costs
+        // one retry instead of the entire download.
+        await saveVideo(currentProject.merged_video_url,
+                       `${currentProject.title || "merged"}_${currentProject.id}.mp4`, "merged");
     };
 
     const selectedFrame = useMemo(() => {
@@ -565,6 +575,15 @@ export default function VideoAssembly() {
                                                 <Button variant="secondary" onPress={() => void handleSaveTrim(frame, selectedVideo)}>{ta("saveTrim")}</Button>
                                                 <Button variant="quiet" aria-label={ta("splitSegment")} onPress={() => void handleSplit(frame, selectedVideo)}><Scissors size={14} />{ta("splitSegment")}</Button>
                                                 <Button variant="quiet" aria-label={ta("deleteSegment")} onPress={() => void handleDeleteSegment(frame.id)}><Trash2 size={14} /></Button>
+                                                {/* Each shot on its own: shorter to fetch than the whole cut and useful
+                                                    to hand off individually. */}
+                                                <Button variant="quiet" isDisabled={!!downloading}
+                                                    onPress={() => void handleDownloadShot(frame.id, selectedVideo.video_url!, index + 1)}>
+                                                    <Download size={14} />
+                                                    {downloading && downloading.key === frame.id
+                                                        ? ta("downloadingPercent", { percent: Math.round(downloading.progress * 100) })
+                                                        : ta("downloadShot")}
+                                                </Button>
                                             </div>}
                                             {index < framesTotal - 1 && <div className="max-w-xs" onClick={event => event.stopPropagation()}>
                                                 <SelectField label={ta("nextTransition")} value={frame.transition_hint || "硬切"}
@@ -613,7 +632,7 @@ export default function VideoAssembly() {
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-6">
                         <ExportPhase
                             mergedVideoUrl={currentProject?.merged_video_url ?? null}
-                            downloadProgress={downloadProgress}
+                            downloadProgress={downloading?.key === "merged" ? downloading.progress : null}
                             isMerging={isMerging}
                             mergeError={mergeError}
                             mergeFailure={(currentProject as any)?.merge_failure as MergeFailure | null | undefined}

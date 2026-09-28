@@ -14,6 +14,8 @@ import { apiStreamRequest } from "@/lib/apiClient";
  * this possible.
  */
 export const DEFAULT_CHUNK_BYTES = 2 * 1024 * 1024;
+/** Floor for the adaptive size; below this the request overhead dominates. */
+export const MIN_CHUNK_BYTES = 32 * 1024;
 
 export interface ChunkedDownloadOptions {
     chunkBytes?: number;
@@ -43,7 +45,7 @@ export async function probeSize(url: string, signal?: AbortSignal): Promise<numb
 
 export async function downloadInChunks(
     url: string,
-    { chunkBytes = DEFAULT_CHUNK_BYTES, attemptsPerChunk = 4, onProgress, signal }: ChunkedDownloadOptions = {},
+    { chunkBytes = DEFAULT_CHUNK_BYTES, attemptsPerChunk = 3, onProgress, signal }: ChunkedDownloadOptions = {},
 ): Promise<Blob> {
     const total = await probeSize(url, signal);
     if (!total) {
@@ -55,29 +57,37 @@ export async function downloadInChunks(
 
     const pieces: Blob[] = [];
     let received = 0;
-    for (let start = 0; start < total; start += chunkBytes) {
-        const end = Math.min(start + chunkBytes, total) - 1;
-        let lastError: unknown;
-        for (let attempt = 0; attempt < attemptsPerChunk; attempt += 1) {
+    // Shrinks when a range will not come down and stays shrunk. The link this was reported
+    // from cuts every response at exactly 77,268 bytes whatever is asked for — a fixed cap,
+    // not a flaky connection — so no amount of retrying at 2 MB would ever have worked, but
+    // anything under the cap goes through. Starting large keeps a healthy link fast.
+    let size = Math.max(MIN_CHUNK_BYTES, chunkBytes);
+    while (received < total) {
+        const end = Math.min(received + size, total) - 1;
+        let piece: Blob | null = null;
+        for (let attempt = 0; attempt < attemptsPerChunk && !piece; attempt += 1) {
             if (signal?.aborted) throw new Error("下载已取消");
             try {
-                const piece = await fetchRange(url, start, end, signal);
-                pieces.push(piece);
-                received += piece.size;
-                onProgress?.(received, total);
-                lastError = undefined;
-                break;
-            } catch (error) {
-                lastError = error;
-                // A dropped range is the normal case here, not an exception; back off a
-                // little so a momentary outage is not hammered.
-                await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+                const fetched = await fetchRange(url, received, end, signal);
+                // A short read is the cap showing itself; treat it as a failure so the
+                // size comes down, rather than stitching a file full of holes.
+                if (fetched.size === end - received + 1) piece = fetched;
+            } catch {
+                // Falls through to the backoff and the halving below.
             }
+            if (!piece) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
         }
-        if (lastError) {
+        if (!piece) {
+            if (size > MIN_CHUNK_BYTES) {
+                size = Math.max(MIN_CHUNK_BYTES, Math.floor(size / 4));
+                continue;                       // same offset, smaller bite
+            }
             const done = Math.round((received / total) * 100);
             throw new Error(`下载中断（已完成 ${done}%），请重试`);
         }
+        pieces.push(piece);
+        received += piece.size;
+        onProgress?.(received, total);
     }
     return new Blob(pieces, { type: "video/mp4" });
 }

@@ -1658,6 +1658,7 @@
     "mergedVideoDesc": "All selected clips have been stitched together. You can now proceed to add voiceovers and sound effects.",
     "downloadMP4": "Download MP4",
     "downloadingPercent": "Downloading {percent}%",
+    "downloadShot": "Download shot",
     "downloading": "Downloading...",
     "downloadFailed": "Failed to download video. Please try again.",
     "mergeFailedAlert": "Failed to merge videos",
