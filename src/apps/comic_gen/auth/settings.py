@@ -9,6 +9,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -101,6 +102,11 @@ class AuthSettings:
             origins = ("http://localhost:3008", "http://127.0.0.1:3008")
         if "*" in origins:
             raise ValueError("OMNI_STUDIO_AUTH_ALLOWED_ORIGINS must not contain '*'")
+        # The public address is tracked in deploy/production.conf, so the hosted site keeps
+        # working even if the host's .env allowlist is rewritten without it.
+        public_origin = _public_origin(env.get("OMNI_STUDIO_PUBLIC_URL", ""))
+        if public_origin and public_origin not in origins:
+            origins = (*origins, public_origin)
         return cls(
             signing_secret=secret,
             setup_token=setup_token,
@@ -215,6 +221,27 @@ def _count_users(engine: Engine) -> int:
 
 def _csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _public_origin(value: str) -> str | None:
+    """Reduce a public URL to the exact Origin header browsers send for it."""
+    raw = value.strip()
+    if not raw:
+        return None
+    parts = urlsplit(raw)
+    scheme = parts.scheme.lower()
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ValueError(f"OMNI_STUDIO_PUBLIC_URL has an invalid port: {raw}") from exc
+    if scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError(f"OMNI_STUDIO_PUBLIC_URL must be an absolute http(s) URL: {raw}")
+    host = parts.hostname.lower()
+    if ":" in host:
+        host = f"[{host}]"
+    if port is not None and port != {"http": 80, "https": 443}[scheme]:
+        host = f"{host}:{port}"
+    return f"{scheme}://{host}"
 
 
 def _auth_env(
