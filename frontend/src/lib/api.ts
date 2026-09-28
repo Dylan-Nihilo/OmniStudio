@@ -18,7 +18,7 @@ export interface DialogueAudioBatch {
     status: "pending" | "processing" | "completed" | "failed";
     frame_ids: string[];
     instructions: Record<string, string>;
-    results: Record<string, "generated" | "skipped" | "failed" | "no_voice" | "busy">;
+    results: Record<string, "generated" | "skipped" | "failed" | "no_voice" | "direction_ignored" | "busy">;
     error?: string | null;
 }
 

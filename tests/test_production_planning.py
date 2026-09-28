@@ -737,6 +737,28 @@ def test_a_segment_with_two_speakers_keeps_the_lines_but_picks_no_voice(api_clie
     assert narrated['dialogue_mode'] == 'voiceover'
 
 
+def test_the_plans_direction_reaches_the_line_it_was_written_for(api_client, monkeypatch):
+    """The plan is where the scene is understood, so it is where the delivery is decided.
+
+    Left to the workbench it was one emotion for a whole segment, typed by hand, which for
+    a conversation is barely better than none: 「耶！」 and 「唉…」 want opposite readings.
+    """
+    from src.apps.comic_gen.pipeline import plan_dialogue_fields
+    from src.apps.comic_gen.production_planning import PlanDialogue, PlannedShot
+
+    fields = plan_dialogue_fields([PlannedShot(
+        id='shot', title='镜头', description='描述', camera='中景', duration=6, source_quote='原文',
+        dialogue=[
+            PlanDialogue(speaker='萧媚', line='耶！', delivery='情绪：欢呼；演绎：短促明亮，带笑'),
+            PlanDialogue(speaker='萧炎', line='唉…'),
+        ])])
+
+    assert fields['dialogue_lines'][0].instructions == '情绪：欢呼；演绎：短促明亮，带笑'
+    # An undirected line holds nothing rather than an empty string, so it falls back to
+    # the segment's setting instead of overriding it with blankness.
+    assert fields['dialogue_lines'][1].instructions is None
+
+
 def test_an_episode_made_before_the_fix_gets_its_dialogue_without_losing_its_videos(api_client, monkeypatch):
     """Re-applying the plan would fill the dialogue and destroy the takes along with it.
 

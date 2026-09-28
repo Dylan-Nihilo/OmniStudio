@@ -604,7 +604,7 @@ def _dispatch_production_item(item):
                 if getattr(frame, "audio_url", None)
             ]
             batch = getattr(script, "dialogue_audio_batch", None)
-            if not urls and batch and all(result in {"skipped", "failed", "no_voice", "busy"} for result in batch.results.values()):
+            if not urls and batch and all(result in {"skipped", "failed", "no_voice", "direction_ignored", "busy"} for result in batch.results.values()):
                 return []
             if not urls:
                 raise RuntimeError("dialogue audio generation did not produce media")
@@ -6583,7 +6583,7 @@ def generate_dialogue_audio_batch(script_id: str, request: Optional[DialogueAudi
             raise HTTPException(status_code=404, detail="Script not found")
         payload = _project_payload(script)
         results = (script.dialogue_audio_batch.results.values() if script.dialogue_audio_batch else ())
-        payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "busy")}
+        payload["_batch_stats"] = {key: sum(result == key for result in results) for key in ("generated", "skipped", "failed", "no_voice", "direction_ignored", "busy")}
         if job_item is not None:
             payload["_job_item_id"] = job_item.id
         return signed_response(payload)

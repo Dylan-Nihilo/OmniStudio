@@ -22,15 +22,15 @@ def test_unknown_voice_keeps_configured_default():
 
 def test_designed_v2_does_not_inherit_v3_instruction_support():
     tts=TTSProcessor(api_key='test-key',model='cosyvoice-v3-flash')
-    assert not tts._voice_supports_instruction('cosyvoice-v2-custom-example')
-    assert tts._voice_supports_instruction('cosyvoice-v3.5-plus-vd-example')
+    assert not tts.voice_supports_instruction('cosyvoice-v2-custom-example')
+    assert tts.voice_supports_instruction('cosyvoice-v3.5-plus-vd-example')
 
 
 @pytest.mark.parametrize('voice', ['longanyang', 'longanhuan'])
 def test_cosyvoice_v3_system_voices_reject_instruction_field(voice):
     """The provider currently returns engine 428 when these voices receive it."""
     tts = TTSProcessor(api_key='test-key', model='cosyvoice-v3-flash')
-    assert not tts._voice_supports_instruction(voice)
+    assert not tts.voice_supports_instruction(voice)
 
 
 def test_model_prefix_requires_delimiter():

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import DialogueAudioRow from './DialogueAudioRow';
 
@@ -284,5 +284,98 @@ describe('per-speaker workbench, reported from production', () => {
         render(<DialogueAudioRow {...dub} />);
         fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
         expect(within(screen.getByRole('dialog')).getByText('emotionAppliesToAll')).toBeVisible();
+    });
+});
+
+describe('per-line direction', () => {
+    // One emotion for a whole segment reads as flat as one voice did: a segment is a
+    // conversation, and 「耶！」 wants the opposite of 「唉…」 three shots later.
+    const lines = [
+        { speaker: '萧媚', line: '耶！', start_seconds: 0, instructions: '情绪：欢呼' },
+        { speaker: '萧炎', line: '唉…', start_seconds: 12 },
+    ];
+    const directable = (speaker: string) => ({
+        id: speaker === '萧媚' ? 'Cherry' : 'Moon', name: speaker, carriesDirection: true,
+    });
+
+    it('edits and saves each line’s own direction, clearing back to the segment’s', async () => {
+        const save = vi.fn().mockResolvedValue(undefined);
+        render(<DialogueAudioRow {...props} dialogueLines={lines} resolveSpeakerVoice={directable}
+                                 onUpdateDialogueLines={save} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+
+        const fields = within(dialog).getAllByRole('textbox', { name: 'lineDirection' });
+        expect(fields).toHaveLength(2);
+        expect(fields[0]).toHaveValue('情绪：欢呼');
+        // The line that wrote nothing shows the segment's setting as its placeholder
+        // rather than pretending to have one of its own.
+        expect(fields[1]).toHaveValue('');
+
+        fireEvent.change(fields[1], { target: { value: '情绪：惋惜；演绎：只一声轻叹' } });
+        fireEvent.change(fields[0], { target: { value: '   ' } });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'saveLines' }));
+
+        await waitFor(() => expect(save).toHaveBeenCalledOnce());
+        expect(save.mock.calls[0][0]).toEqual([
+            { ...lines[0], instructions: null },
+            { ...lines[1], instructions: '情绪：惋惜；演绎：只一声轻叹' },
+        ]);
+    });
+
+    it('says the direction will not take and refuses to generate it', () => {
+        // Two thirds of the catalogue has no instruction parameter, so the emotion was
+        // accepted, discarded, and the line came back flat with nothing saying why.
+        const undirectable = (speaker: string) => ({ ...directable(speaker), carriesDirection: false });
+        render(<DialogueAudioRow {...props} dialogueLines={lines} resolveSpeakerVoice={undirectable}
+                                 onUpdateDialogueLines={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+
+        // Named against the line that has a direction, and only that one.
+        const alerts = within(dialog).getAllByRole('alert');
+        expect(alerts.filter(node => node.textContent?.includes('lineVoiceIgnoresDirection'))).toHaveLength(1);
+        // Not paid for and then thrown away.
+        expect(within(dialog).getByRole('button', { name: /generate/ })).toBeDisabled();
+    });
+
+    it('stays quiet while the voice catalogue is unknown', () => {
+        // A catalogue that failed to load must not put a warning on every line.
+        const unknown = (speaker: string) => ({ id: 'x', name: speaker });
+        render(<DialogueAudioRow {...props} dialogueLines={lines} resolveSpeakerVoice={unknown}
+                                 onUpdateDialogueLines={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).queryByText('lineVoiceIgnoresDirection')).not.toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: /generate/ })).toBeEnabled();
+    });
+
+    it('reports a track as out of date once a line’s direction is rewritten', () => {
+        const generated = [
+            { ...lines[0], audio_url: 'a.mp3', voice_id: 'Cherry', instructions_used: '情绪：欢呼' },
+            { ...lines[1], audio_url: 'b.mp3', voice_id: 'Moon', instructions_used: '' },
+        ];
+        const fresh = { ...props, dialogueLines: generated, resolveSpeakerVoice: directable,
+            audioUrl: 'track.mp3', snapshotInstructions: '' };
+        render(<DialogueAudioRow {...fresh} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        expect(within(screen.getByRole('dialog')).queryByText('staleHint')).not.toBeInTheDocument();
+        cleanup();
+
+        const rewritten = [{ ...generated[0], instructions: '情绪：自嘲' }, generated[1]];
+        render(<DialogueAudioRow {...fresh} dialogueLines={rewritten} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        expect(within(screen.getByRole('dialog')).getByText('staleHint')).toBeVisible();
+    });
+
+    it('does not date a clip that never recorded what it was read with', () => {
+        // Every episode made before the direction was tracked would otherwise read as
+        // permanently stale — and with an undirectable voice, regeneration is refused.
+        const legacy = [{ ...lines[0], audio_url: 'a.mp3', voice_id: 'Cherry' },
+                        { ...lines[1], audio_url: 'b.mp3', voice_id: 'Moon' }];
+        render(<DialogueAudioRow {...props} dialogueLines={legacy} resolveSpeakerVoice={directable}
+                                 audioUrl="track.mp3" snapshotInstructions="" />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
+        expect(within(screen.getByRole('dialog')).queryByText('staleHint')).not.toBeInTheDocument();
     });
 });

@@ -183,6 +183,11 @@ export interface DialogueLine {
     audio_url?: string | null;
     duration?: number | null;
     overruns_shot?: boolean;
+    /** This line's own emotion and delivery; empty falls back to the segment's. */
+    instructions?: string | null;
+    speed?: number | null;
+    /** What the existing clip was read with, so rewriting the direction reads as stale. */
+    instructions_used?: string | null;
 }
 
 export interface StoryboardFrame {

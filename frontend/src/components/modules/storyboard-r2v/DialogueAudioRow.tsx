@@ -17,7 +17,7 @@ interface DialogueAudioRowProps {
     dialogue?: string | null;
     dialogueLines?: DialogueLine[];
     /** The voice a speaker will be read in, resolved live from the characters. */
-    resolveSpeakerVoice?: (speaker: string) => { id: string; name: string } | undefined;
+    resolveSpeakerVoice?: (speaker: string) => { id: string; name: string; carriesDirection?: boolean } | undefined;
     /** Segment length, so the position control works before the video reports its own. */
     frameDurationSeconds?: number | null;
     onUpdateDialogueLines?: (lines: DialogueLine[]) => void | Promise<void>;
@@ -119,6 +119,9 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
         ?? (line.voice_id ? { id: line.voice_id, name: line.voice_id } : undefined);
     const speakerCount = new Set((dialogueLines ?? []).map(line => line.speaker)).size;
     const [lineDrafts, setLineDrafts] = useState<string[]>(() => (dialogueLines ?? []).map(line => line.line));
+    // Each line's own emotion and delivery, edited alongside its words. A segment is a
+    // conversation, and one emotion spread over all of it reads as flat as one voice did.
+    const [directionDrafts, setDirectionDrafts] = useState<string[]>(() => (dialogueLines ?? []).map(line => line.instructions ?? ""));
     const previousDialogue = useRef(dialogue);
     const request = useDialogueAudioRequests(state => state[scope]);
     const parsedInstructions = useMemo(() => {
@@ -144,14 +147,24 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     const busy = !!batchPending || !!request?.operation || !!request?.recovering || generationStatus === "processing" || !!previewing;
     const generating = request?.operation === "generate" || request?.recovering || generationStatus === "processing" || previewing;
     const instructions = [emotion, freeText.trim()].filter(Boolean).join("; ");
-    const linesDirty = perLine && lineDrafts.some((text, index) => text !== dialogueLines?.[index]?.line);
+    const linesDirty = perLine && (lineDrafts.some((text, index) => text !== dialogueLines?.[index]?.line)
+        || directionDrafts.some((text, index) => text.trim() !== (dialogueLines?.[index]?.instructions ?? "")));
+    // What a line will actually be read with: its own direction, or the segment's when it
+    // has none. Compared against what its existing clip was read with, so rewriting either
+    // one shows as out of date instead of silently keeping the old reading.
+    const lineDirection = (line: DialogueLine) => line.instructions?.trim() || instructions || "";
     const dirty = perLine ? linesDirty : draft !== dialogue;
     // A per-speaker frame has no single voice to compare, so the frame-level snapshot check
     // said "stale" for ever and left 预听 / 匹配口型 permanently disabled. What actually
     // dates that track is a line with no clip (never made, or its words were edited) or a
     // line whose voice has since been reassigned.
     const stale = perLine
-        ? !!audioUrl && ((dialogueLines ?? []).some(line => !line.audio_url || lineVoice(line)?.id !== line.voice_id)
+        ? !!audioUrl && ((dialogueLines ?? []).some(line => !line.audio_url || lineVoice(line)?.id !== line.voice_id
+            // Per-line direction counts only once the clip has recorded what it was read
+            // with. A clip made before that was tracked says nothing about its direction,
+            // and calling it stale on that basis would strand every existing episode whose
+            // voice cannot be directed — permanently out of date with regeneration refused.
+            || (line.instructions_used != null && lineDirection(line) !== line.instructions_used))
             || snapshotInstructions !== instructions)
         : !!audioUrl && (snapshotDialogue !== draft || snapshotVoiceId !== voiceId || snapshotInstructions !== instructions || snapshotSpeed !== voiceSpeed || snapshotPitch !== voicePitch || snapshotVolume !== voiceVolume);
     // The offset controls only knew the length the video element reported, so they sat at 0
@@ -217,7 +230,13 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     }
     async function saveDialogue() {
         if (perLine) {
-            await onUpdateDialogueLines?.((dialogueLines ?? []).map((line, index) => ({ ...line, line: lineDrafts[index] ?? line.line })));
+            await onUpdateDialogueLines?.((dialogueLines ?? []).map((line, index) => ({
+                ...line,
+                line: lineDrafts[index] ?? line.line,
+                // Cleared back to null rather than "", so the line falls through to the
+                // segment's direction instead of overriding it with blankness.
+                instructions: directionDrafts[index]?.trim() || null,
+            })));
             return;
         }
         await onUpdateDialogue?.(draft);
@@ -291,12 +310,23 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                                 <TextAreaField label={line.speaker} value={lineDrafts[index] ?? line.line} rows={2}
                                     isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
                                     onChange={value => setLineDrafts(current => current.map((text, i) => i === index ? value : text))} />
+                                <TextField label={t("lineDirection")} value={directionDrafts[index] ?? ""}
+                                    placeholder={instructions || t("lineDirectionPlaceholder")}
+                                    isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
+                                    onChange={value => setDirectionDrafts(current => current.map((text, i) => i === index ? value.slice(0, 200) : text))} />
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-chrome-sm text-text-secondary">
                                     <span>{t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
                                     {lineVoice(line)
                                         ? <span>{t("lineVoice", { voice: lineVoice(line)!.name })}</span>
                                         : <span className="text-status-failed-fg">{t("lineNoVoice")}</span>}
                                 </div>
+                                {/* The direction is written but this voice has no way to act
+                                    on it, so say so here — the fix is the character's voice,
+                                    not anything on this line. */}
+                                {lineVoice(line)?.carriesDirection === false && !!lineDirection(line) &&
+                                    <p role="alert" className="text-chrome-sm text-status-failed-fg">
+                                        {t("lineVoiceIgnoresDirection", { speaker: line.speaker })}
+                                    </p>}
                                 {line.overruns_shot && <p role="alert" className="text-chrome-sm text-status-processing-fg">{t("lineOverruns")}</p>}
                             </div>
                         ))}
@@ -317,7 +347,11 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                     <TextField label={t("deliveryInstructions")} value={freeText} onChange={value => changeInstructions(emotion, value.slice(0, 80))} placeholder={t("freeTextPlaceholder")} isDisabled={busy} />
                     <div className="flex flex-wrap gap-2">
                         <Button variant={previewVideoUrl ? "secondary" : "primary"} isPending={request?.operation === "generate"}
-                            isDisabled={(perLine ? (dialogueLines ?? []).some(line => !lineVoice(line)) : !voiceId) || !draft.trim() || (busy && request?.operation !== "generate")}
+                            isDisabled={(perLine ? (dialogueLines ?? []).some(line => !lineVoice(line)
+                                // Refused by the server too; blocked here so the direction
+                                // is not paid for and then discarded.
+                                || (lineVoice(line)?.carriesDirection === false && !!lineDirection(line))) : !voiceId)
+                                || !draft.trim() || (busy && request?.operation !== "generate")}
                             onPress={() => { void generate(); }}><Mic size={16} aria-hidden="true" />{audioUrl ? t("regenerate") : t("generate")}</Button>
                         {audioUrl && <Button variant="secondary" isDisabled={busy} isPending={starting} onPress={() => { void toggleAudio(); }}>
                             {playing ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}{playing ? t("pause") : t("previewTts")}

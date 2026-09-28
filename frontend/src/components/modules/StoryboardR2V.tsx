@@ -386,15 +386,39 @@ function StoryboardWorkbench() {
     const [genDialogOpen, setGenDialogOpen] = useState(false);
     const [previsDialogOpen, setPrevisDialogOpen] = useState(false);
     const [productionReviews, setProductionReviews] = useState<ProductionReview[]>([]);
+    // Which voices act on a delivery instruction and which discard it. Two thirds of the
+    // catalogue is a model with no such parameter, so an emotion written against one of
+    // those was accepted and then thrown away, and the line came back read flat with
+    // nothing saying why. Read from the catalogue rather than stored on the character,
+    // which would go stale as voices are added.
+    const [directableVoices, setDirectableVoices] = useState<Set<string> | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        void api.getVoices()
+            .then(voices => {
+                if (!cancelled) {
+                    setDirectableVoices(new Set(voices.filter(voice => voice.supports_instruction).map(voice => voice.id)));
+                }
+            })
+            // A catalogue that will not load must not put a warning on every line.
+            .catch(() => { if (!cancelled) setDirectableVoices(null); });
+        return () => { cancelled = true; };
+    }, []);
     // The voice a speaker will be read in, resolved from the characters by the same rule the
     // backend uses. Resolved live rather than read off a line's stored voice, which only
     // exists once a clip has been made.
     const resolveSpeakerVoice = useCallback((speaker: string) => {
         const character = matchSpeakerByName(speaker, characters);
         return character?.voice_id
-            ? { id: character.voice_id, name: character.voice_name || character.voice_id }
+            ? {
+                id: character.voice_id,
+                name: character.voice_name || character.voice_id,
+                // Undefined while the catalogue is unknown, so the row stays quiet rather
+                // than claiming a capable voice cannot be directed.
+                carriesDirection: directableVoices ? directableVoices.has(character.voice_id) : undefined,
+            }
             : undefined;
-    }, [characters]);
+    }, [characters, directableVoices]);
     const batchScope = JSON.stringify([firstFrameContext.userId, firstFrameContext.workspaceId, currentProject?.id]);
     const storyboardRequest = storyboardRequests[batchScope];
     const storyboardJob = currentProject?.storyboard_generation;

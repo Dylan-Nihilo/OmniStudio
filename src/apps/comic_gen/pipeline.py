@@ -563,6 +563,29 @@ def resolve_line_voice(script: Script, line: DialogueLine,
     return narration, character
 
 
+def unheard_direction(plans: List[Dict[str, Any]]) -> List[str]:
+    """Speakers whose written direction the voice they are assigned cannot act on.
+
+    Two thirds of the catalogue is cosyvoice-v2, whose API has no instruction parameter.
+    Writing an emotion against one of those voices used to succeed, log `instr=no` and
+    produce the same flat reading as no direction at all, so a whole episode could be
+    dubbed "with emotion" and come back without any.
+    """
+    return list(dict.fromkeys(
+        plan["line"].speaker for plan in plans
+        if plan.get("instructions") and not plan.get("carries_direction")
+    ))
+
+
+def _refuse_unheard_direction(plans: List[Dict[str, Any]]) -> None:
+    """Stop before paying for a synthesis whose direction would be discarded."""
+    speakers = unheard_direction(plans)
+    if speakers:
+        raise ValueError(
+            "这些说话人的音色不支持情绪演绎，写好的情绪不会生效：" + "、".join(speakers)
+            + "。请在「角色」里给他们换一个标有「支持情绪」的音色，或清空这几句的情绪设定。")
+
+
 def plan_dialogue_fields(shots) -> Dict[str, Any]:
     """The plan's dialogue, in the fields the dubbing workbench reads.
 
@@ -589,7 +612,8 @@ def plan_dialogue_fields(shots) -> Dict[str, Any]:
             step = (shot.duration or 0) / len(spoken)
             for index, entry in enumerate(spoken):
                 lines.append(DialogueLine(speaker=entry.speaker, line=entry.line, mode=entry.mode,
-                                          shot_id=shot.id, start_seconds=round(offset + index * step, 3)))
+                                          shot_id=shot.id, start_seconds=round(offset + index * step, 3),
+                                          instructions=getattr(entry, "delivery", "") or None))
         offset += shot.duration or 0
     if not lines:
         return {}
@@ -5921,8 +5945,16 @@ class ComicGenPipeline:
         alongside the voice. A line with no character behind it (narration) has nothing of
         its own, so it takes the values passed in from the workbench.
 
+        Direction and pace come from the line itself when it has them, because a segment is
+        a conversation and one emotion across all of it reads as flat as one voice did.
+        The workbench's setting stays as the fallback for lines that carry nothing.
+
         `window` is the room a line has before the next one speaks; it is only used to
         report an overlong line, never to trim one.
+
+        `carries_direction` says whether the direction will actually reach the model. Most
+        of the catalogue is cosyvoice-v2, which has no such parameter, so an emotion set
+        against one of those voices used to be accepted and then dropped without a word.
         """
         lines = list(frame.dialogue_lines)
         total = float(frame.duration or 0)
@@ -5931,16 +5963,21 @@ class ComicGenPipeline:
             voice, character = resolve_line_voice(resolved, line, series)
             following = lines[index + 1].start_seconds if index + 1 < len(lines) else total
             custom = self.find_custom_voice(voice, workspace) if voice else None
+            model_override = custom.target_model if custom else None
+            direction = getattr(line, "instructions", None) or instructions
+            character_speed = getattr(character, "voice_speed", speed) if character else speed
             plans.append({
                 "line": line,
                 "voice": voice,
-                "speed": getattr(character, "voice_speed", speed) if character else speed,
+                "speed": getattr(line, "speed", None) or character_speed,
                 "pitch": getattr(character, "voice_pitch", pitch) if character else pitch,
                 "volume": getattr(character, "voice_volume", volume) if character else volume,
-                "instructions": instructions,
-                "model_override": custom.target_model if custom else None,
+                "instructions": direction,
+                "model_override": model_override,
                 "family_override": custom.family if custom else None,
                 "window": max(0.0, (following or total) - line.start_seconds) or None,
+                "carries_direction": self.audio_generator.voice_carries_direction(voice, model_override)
+                if voice else False,
             })
         return plans
 
@@ -6111,6 +6148,11 @@ class ComicGenPipeline:
         custom voices (clone/design) we resolve the target_model/family
         override here so generation reuses the registered voice model.
         """
+        # Resolved before the lock because the direction check below needs it to know
+        # which model a custom voice is bound to, and that decides whether the voice can
+        # act on an emotion at all.
+        repository = getattr(self, "repository", None)
+        workspace = repository.workspace_for_script(script_id) if repository else None
         with self._save_lock:
             script = self.scripts.get(script_id)
             if not script:
@@ -6133,6 +6175,9 @@ class ComicGenPipeline:
                     raise ValueError(
                         "这些说话人还没有音色：" + "、".join(dict.fromkeys(missing))
                         + "。请在「角色」里给他们分配音色，或设置旁白音色。")
+                _refuse_unheard_direction(self._dialogue_line_plans(
+                    resolved, target, self._series_for(script), workspace,
+                    speed, pitch, volume, instructions))
             else:
                 speaker = self._resolve_dialogue_speaker(resolved, target)
                 if not speaker or not speaker.voice_id:
@@ -6156,8 +6201,6 @@ class ComicGenPipeline:
             series = self._series_for(script)
 
         try:
-            repository = getattr(self, "repository", None)
-            workspace = repository.workspace_for_script(script_id) if repository else None
             if per_line:
                 self.audio_generator.generate_dialogue_lines(
                     frame,
@@ -6264,6 +6307,10 @@ class ComicGenPipeline:
                     result = ("skipped" if not frame or not _effective_dialogue_text(frame).strip()
                         else "busy" if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING)
                         else "no_voice" if not has_voice
+                        # Reported in its own right rather than as a bare failure: the
+                        # emotion is written, the voice simply cannot act on it, and the
+                        # fix is to change the voice.
+                        else "direction_ignored" if per_line and unheard_direction(plans)
                         else "skipped" if frame.audio_url and frame.dialogue_snapshot_text is not None and not dialogue_audio_is_stale(probe, speaker, plans)
                         else None)
                 if result is None:

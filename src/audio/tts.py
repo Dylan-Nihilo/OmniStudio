@@ -247,7 +247,7 @@ class TTSProcessor:
         }
         # Pass instructions only if voice supports it (v3-flash / v3.5-*).
         # SDK will reject unknown kwargs, so gate explicitly.
-        if instructions and self._voice_supports_instruction(voice):
+        if instructions and self.voice_supports_instruction(voice):
             synth_kwargs['instruction'] = instructions
         if model.startswith('qwen-audio-'):
             from dashscope.audio.tts_v2 import AudioFormat
@@ -314,7 +314,7 @@ class TTSProcessor:
         # Otherwise resolve from registry, then switch to instruct variant
         # when instructions supplied (per doc).
         model = model_override or self._resolve_model_for_voice(voice)
-        if instructions and self._voice_supports_instruction(voice):
+        if instructions and self.voice_supports_instruction(voice):
             if 'instruct' not in model:
                 model = 'qwen3-tts-instruct-flash'
 
@@ -402,14 +402,25 @@ class TTSProcessor:
         meta = self._voice_meta(voice_id)
         return meta.get('family', 'cosyvoice')
 
-    def _voice_supports_instruction(self, voice_id: str) -> bool:
-        """Whether this voice's model accepts the `instructions` parameter."""
+    def voice_supports_instruction(self, voice_id: str, model_override: Optional[str] = None) -> bool:
+        """Whether an `instructions` string will reach the model or be thrown away.
+
+        54 of the 82 catalogue voices are cosyvoice-v2, which has no such parameter. An
+        emotion set against one of those was accepted by the workbench, logged as
+        `instr=no` and silently dropped, so the line came back read flat. Callers need to
+        be able to say that before synthesising rather than leave the user wondering why
+        the direction had no effect, which is why this is public.
+
+        `model_override` is the model a custom voice (clone or design) is bound to; it is
+        not in the catalogue, so its own model decides.
+        """
         meta = self._voice_meta(voice_id)
         if 'supports_instruction' in meta:
             return bool(meta['supports_instruction'])
-        # Heuristic for legacy CosyVoice entries: v3-flash / v3.5-* support it.
-        model = self._resolve_model_for_voice(voice_id)
-        return any(tag in model for tag in ('v3.5-', 'v3-flash'))
+        # Heuristic for legacy CosyVoice entries: v3-flash / v3.5-* support it, as does
+        # anything on an instruct model.
+        model = model_override or self._resolve_model_for_voice(voice_id)
+        return any(tag in model for tag in ('v3.5-', 'v3-flash', 'instruct'))
 
     @staticmethod
     def list_voices():

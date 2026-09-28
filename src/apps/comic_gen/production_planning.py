@@ -30,6 +30,12 @@ class PlanDialogue(BaseModel):
     speaker: str = Field(min_length=1, max_length=100)
     line: str = Field(min_length=1, max_length=2000)
     mode: Literal["on_screen", "voiceover"] = "on_screen"
+    # Written here rather than left to the dubbing workbench because the plan is where the
+    # scene is understood. Read flat, a line lands as text; one emotion applied to a whole
+    # segment is barely better, since a segment is a conversation and 「耶！」 three shots
+    # before 「唉…」 wants the opposite reading. Empty means undirected.
+    delivery: str = Field(default="", max_length=200,
+                          description="这一句的情绪与演绎，例如「情绪：自嘲；演绎：压低声音，句尾下沉」")
 
 
 class PlannedShot(BaseModel):
@@ -311,8 +317,9 @@ def propose_plan(script, assets: dict, settings: PlanSettings,
 每段只用给定场景ID和素材名称，reference_names包含场景及出镜人物/道具；需要持物且提供了持物版时优先引用持物版，避免重复的人物参考。
 continuity_rules明确同场人物站位、屏幕朝向、持物左右手及物体状态。start_state/end_state写清可见的状态，connection说明与上一段的衔接；不要把改变场景当成同场续接。
 每个镜头的description明确构图、人物与环境的相对位置、表演及动作，camera说明景别/机位/运镜。source_quote必须逐字摘录该镜对应的原剧本片段；dialogue逐字保留所有应有台词和说话人，mode为on_screen或voiceover。
+每句台词必须写delivery，格式「情绪：…；演绎：…」，按这一句在戏里的处境单独判断，不要整段套同一种情绪；同一说话人前后情绪变化要写出来。例如自嘲的一句写「情绪：自嘲、苦涩；演绎：压低声音，句尾下沉」，欢呼的一句写「情绪：欢呼；演绎：短促明亮，带笑」。
 已有镜头仅为参考。修改开头后必须同步避免后续重复动作。方案只供审核，不宣称已生成图片或视频。
-只输出JSON：{"summary":"时长、切分理由及安排","continuity_rules":"整场一致性约定","segments":[{"title":"片段标题","scene_id":"已有场景ID","purpose":"本段叙事作用与切点理由","start_state":"开场状态","end_state":"结尾状态","connection":"承接上一段","reference_names":["素材名称"],"shots":[{"title":"镜头标题","description":"画面与动作","camera":"景别与运镜","duration":5,"source_quote":"原文依据","dialogue":[{"speaker":"姓名","line":"原文台词","mode":"on_screen"}]}]}]}。"""
+只输出JSON：{"summary":"时长、切分理由及安排","continuity_rules":"整场一致性约定","segments":[{"title":"片段标题","scene_id":"已有场景ID","purpose":"本段叙事作用与切点理由","start_state":"开场状态","end_state":"结尾状态","connection":"承接上一段","reference_names":["素材名称"],"shots":[{"title":"镜头标题","description":"画面与动作","camera":"景别与运镜","duration":5,"source_quote":"原文依据","dialogue":[{"speaker":"姓名","line":"原文台词","mode":"on_screen","delivery":"情绪：…；演绎：…"}]}]}]}。"""
     result = _complete(system, {
         "script": script.original_text, "title": script.title,
         "settings": settings.model_dump(), "allowed_segment_durations": durations,

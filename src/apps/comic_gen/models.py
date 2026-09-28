@@ -116,6 +116,11 @@ class DialogueLine(BaseModel):
     that character's assigned voice, and `start_seconds` places it at the shot it was
     written for rather than back-to-back from zero, which is what keeps a voice with the
     mouth that is moving.
+
+    Delivery is per line for the same reason. One emotion for a whole segment reads as
+    flat as one voice did: 「耶！」 and 「唉…」 sit three shots apart and want opposite
+    readings, so each line carries its own direction and its own pace, falling back to the
+    segment's setting when it has none of its own.
     """
     speaker: str = Field(..., description="说话人（与角色素材同名时用该角色的音色）")
     line: str = Field(..., description="台词内容")
@@ -126,6 +131,18 @@ class DialogueLine(BaseModel):
     audio_url: Optional[str] = Field(None, description="这一句合成出的音频")
     duration: Optional[float] = Field(None, description="这一句音频的时长")
     overruns_shot: bool = Field(False, description="这一句比所属镜头的时间窗口更长")
+    instructions: Optional[str] = Field(
+        None,
+        description="这一句的情绪与演绎；留空则沿用整段的设定",
+    )
+    speed: Optional[float] = Field(
+        None,
+        description="这一句的语速；留空则沿用角色的设定",
+    )
+    instructions_used: Optional[str] = Field(
+        None,
+        description="这一句现有音频是按哪段情绪演绎合成的；与 instructions 不一致说明要重新生成",
+    )
 
 
 class DialogueStructured(BaseModel):
@@ -691,7 +708,7 @@ class DialogueAudioBatch(BaseModel):
     status: GenerationStatus = GenerationStatus.PROCESSING
     frame_ids: List[str]
     instructions: Dict[str, str] = Field(default_factory=dict)
-    results: Dict[str, Literal["generated", "skipped", "failed", "no_voice", "busy"]] = Field(default_factory=dict)
+    results: Dict[str, Literal["generated", "skipped", "failed", "no_voice", "direction_ignored", "busy"]] = Field(default_factory=dict)
     error: Optional[str] = None
 
 

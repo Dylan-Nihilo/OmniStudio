@@ -179,6 +179,18 @@ class AudioGenerator:
             logger.warning(f"Failed to initialize TTS Processor: {e}. Using mock mode.")
             self.tts = None
 
+    def voice_carries_direction(self, voice_id: Optional[str], model_override: Optional[str] = None) -> bool:
+        """Whether a delivery instruction given to this voice will be acted on.
+
+        Two thirds of the catalogue is cosyvoice-v2, whose API has no such parameter, so
+        the direction was accepted by the workbench and then thrown away — the line came
+        back read flat and nothing said why. Without TTS configured nothing is
+        synthesisable at all, so there is no capability to report.
+        """
+        if not voice_id or not self.tts:
+            return False
+        return self.tts.voice_supports_instruction(voice_id, model_override)
+
     def get_available_voices(self) -> List[Dict[str, Any]]:
         """Returns a list of available voices with full registry metadata.
 
@@ -357,6 +369,10 @@ class AudioGenerator:
                 written.append(clip)
                 line.audio_url = os.path.relpath(clip, "output")
                 line.voice_id = voice
+                # What this clip was actually read with, so rewriting the direction shows
+                # as out of date. Recorded rather than compared against the line's own
+                # current setting, which could never notice its own edit.
+                line.instructions_used = plan.get("instructions") or None
                 line.duration = _audio_duration(clip)
                 # Reported, never trimmed: shortening a line is a creative decision.
                 window = plan.get("window")

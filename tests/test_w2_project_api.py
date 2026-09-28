@@ -862,7 +862,7 @@ def test_dialogue_batch_recovers_partial_results_and_resolves_inherited_voices(a
         api_module.pipeline.audio_generator = AudioGenerator()
         response = api_client.post(route + "/dialogue_audio/batch", json={"instructions": {ids[0]: "whisper", ids[1]: "whisper"}})
         assert response.status_code == 200, response.text
-        assert response.json()["_batch_stats"] == {"generated": 1, "skipped": 0, "failed": 1, "no_voice": 1, "busy": 0}
+        assert response.json()["_batch_stats"] == {"generated": 1, "skipped": 0, "failed": 1, "no_voice": 1, "direction_ignored": 0, "busy": 0}
         api_module.pipeline.scripts = api_module.pipeline.repository.load_scripts()
         restored = api_client.get(route).json()
         assert restored["dialogue_audio_batch"]["results"] == {ids[0]: "generated", ids[1]: "failed", ids[2]: "no_voice"}
@@ -871,7 +871,7 @@ def test_dialogue_batch_recovers_partial_results_and_resolves_inherited_voices(a
         fail_second = False
         retry = api_client.post(route + "/dialogue_audio/batch", json={"instructions": {ids[1]: "whisper"}})
     assert retry.status_code == 200, retry.text
-    assert retry.json()["_batch_stats"] == {"generated": 1, "skipped": 1, "failed": 0, "no_voice": 1, "busy": 0}
+    assert retry.json()["_batch_stats"] == {"generated": 1, "skipped": 1, "failed": 0, "no_voice": 1, "direction_ignored": 0, "busy": 0}
     assert calls == ["First dialogue", "Second dialogue", "Second dialogue"]
     assert api_client.get(route).json()["frames"][0]["audio_url"] == first_url
 
