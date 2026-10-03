@@ -31,16 +31,18 @@ def test_silent_disables_wan_native_audio():
 
 def test_post_disables_provider_audio_and_native_enables_it():
     post = resolve_video_audio_options(
-        model="kling-v2.6-i2v",
+        model="kling-v3-i2v",
         audio_mode="post",
         audio_url=None,
         legacy_generate_audio=False,
+        backend="vendor",
     )
     native = resolve_video_audio_options(
-        model="kling-v2.6-i2v",
+        model="kling-v3-i2v",
         audio_mode="native",
         audio_url=None,
         legacy_generate_audio=False,
+        backend="vendor",
     )
     assert post["sound"] == "off"
     assert native["sound"] == "on"
@@ -64,3 +66,11 @@ def test_provider_rejects_unsupported_driven_mode():
             audio_url="https://example.test/dialogue.wav",
             legacy_generate_audio=False,
         )
+
+
+@pytest.mark.parametrize("model,mode", [("unknown-video", "native"), ("wan2.2-i2v-plus", "native"),
+                                       ("wan2.2-i2v-plus", "driven")])
+def test_explicit_modes_require_model_level_capabilities(model, mode):
+    with pytest.raises(ValueError, match="does not support"):
+        resolve_video_audio_options(model=model, audio_mode=mode,
+                                    audio_url="https://example.test/a.wav" if mode == "driven" else None)

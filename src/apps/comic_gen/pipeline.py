@@ -15,9 +15,9 @@ import copy
 from io import BytesIO
 import zipfile
 from urllib.parse import quote
-from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings, DialogueStructured, DialogueLine
+from .models import AudioMode, AudioPolicy, Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings, DialogueStructured, DialogueLine
 from .asset_references import AssetReferenceError, resolve_asset_references, reference_instruction
-from .audio_config import resolve_video_audio_options
+from .audio_config import dialogue_frame_for_policy, effective_audio_policy, resolve_video_audio_options
 from .audio_render import resolve_shot_audio_render_spec
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
@@ -78,6 +78,11 @@ def _resolve_explicit_video_take(script: Any, frame: Any) -> Tuple[Optional[Any]
     # A dubbed clip is an explicit transformation of the selected take, so it
     # is safe to use only after the source take has passed the checks above.
     dubbed_url = getattr(frame, "dubbed_video_url", None)
+    recorded = getattr(task, "audio_mode", None)
+    policy = getattr(frame, "audio_policy_override", None) or (getattr(script, "audio_policy", None) if recorded is not None else None)
+    mode = getattr(policy, "mode", recorded)
+    if mode in ("native", "driven", "silent") and not (mode == "native" and getattr(frame, "dubbed_audio_policy", None) and frame.dubbed_audio_policy.mode == "native"):
+        dubbed_url = None
     if dubbed_url and getattr(frame, "dubbed_video_task_id", None) != selected_id:
         return task, None, "Dubbed audio belongs to a different take; preview and apply it to the selected video"
     return task, dubbed_url or task.video_url, ""
@@ -1249,6 +1254,7 @@ class ComicGenPipeline:
             script = self.script_processor.parse_novel(title, text)
 
         script.workflow_mode = workflow_mode
+        script.audio_policy = AudioPolicy()
         self.scripts[script.id] = script
         self._save_data()
 
@@ -2998,6 +3004,9 @@ class ComicGenPipeline:
         if kwargs.get("omni_reference_settings") is not None:
             from .omni_reference import OmniReferenceSettings
             frame.omni_reference_settings = OmniReferenceSettings.model_validate(kwargs["omni_reference_settings"])
+            frame.audio_policy_override = AudioPolicy(mode=frame.omni_reference_settings.audio_mode,
+                audio_url=frame.omni_reference_settings.audios[0].url if frame.omni_reference_settings.audios else None,
+                original_audio=effective_audio_policy(script, frame).original_audio)
         if kwargs.get('image_prompt') is not None:
             frame.image_prompt = kwargs['image_prompt']
         if kwargs.get('action_description') is not None:
@@ -3496,7 +3505,7 @@ class ComicGenPipeline:
         return script
 
     def _shot_input_fingerprint(self, script: Script, frame: StoryboardFrame, submitted_refs: Optional[List[str]] = None,
-                                *, audio_inputs: bool = True) -> str:
+                                *, audio_inputs: bool = True, native_inputs: bool = False) -> str:
         """What this shot was generated from.
 
         `audio_inputs=False` leaves out everything that only reaches the *dubbing*, never a
@@ -3514,7 +3523,7 @@ class ComicGenPipeline:
         fields = ["visual_description", "action_description", "prompt_mode", "character_ids", "scene_id", "prop_ids",
                   "duration", "dialogue", "dialogue_structured", "dialogue_mode", "camera_movement_structured",
                   "shot_size", "camera_angle", "lighting", "dialogue_instructions"]
-        if not audio_inputs and getattr(frame, "production_plan_id", None):
+        if not audio_inputs and not native_inputs and getattr(frame, "production_plan_id", None):
             fields = [field for field in fields if not field.startswith("dialogue")]
         params = {field: getattr(frame, field, None) for field in fields}
         urls = getattr(frame, "t2i_image_urls", [])
@@ -3552,6 +3561,17 @@ class ComicGenPipeline:
             params["omni_reference_settings"] = frame.omni_reference_settings.model_dump()
         return compute_dependency_fingerprint("shot-video", refs, params)
 
+    def update_audio_policy(self, script_id, policy, frame_id=None):
+        with self._save_lock:
+            script = self.scripts.get(script_id)
+            if not script:
+                raise LookupError("Project not found")
+            target = next((f for f in script.frames if f.id == frame_id), None) if frame_id else script
+            if target is None:
+                raise LookupError("Frame not found")
+            self._save_fields(target, **{"audio_policy_override" if frame_id else "audio_policy": policy})
+            return script
+
     def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.7-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None, reference_image_urls: list = None, ratio: str = None, watermark: Optional[bool] = None, mode: str = None, sound: str = None, cfg_scale: float = None, vidu_audio: bool = None, movement_amplitude: str = None, workbench_tab: Optional[str] = None, audio_mode: Optional[str] = None, last_frame_url: Optional[str] = None) -> Tuple[Script, str]:
         """Creates a new video generation task."""
         script = self.get_script(script_id)
@@ -3562,6 +3582,10 @@ class ComicGenPipeline:
             raise ValueError(f"Frame not found: {frame_id}")
 
         frame = next((frame for frame in script.frames if frame.id == frame_id), None)
+        policy = effective_audio_policy(script, frame)
+        if audio_mode is None and not (audio_url or generate_audio or sound == "on" or vidu_audio):
+            audio_mode = policy.mode.value
+            audio_url = policy.audio_url if audio_mode == "driven" else None
         if frame and getattr(frame, "production_plan_id", None):
             from .production_planning import reviewed_video_inputs
             if generation_mode != "r2v":
@@ -3576,7 +3600,7 @@ class ComicGenPipeline:
                     raise ValueError("已保存全能参考，请使用 Seedance 2.5 全能参考，或先清空这些参考设置")
             else:
                 reference_video_urls = [item.url for item in settings.videos]
-                audio_mode = settings.audio_mode
+                audio_mode = policy.mode.value if frame.audio_policy_override or script.audio_policy else settings.audio_mode
                 reference_audio_urls = [item.url for item in settings.audios] if audio_mode == "driven" else []
                 audio_url = reference_audio_urls[0] if reference_audio_urls else None
                 if audio_mode == "driven" and not reference_audio_urls:
@@ -3597,6 +3621,7 @@ class ComicGenPipeline:
             legacy_generate_audio=generate_audio,
             legacy_sound=sound,
             legacy_vidu_audio=vidu_audio,
+            backend=self._resolve_video_backend(model),
         )
         if last_frame_url and (
             model != "minimax/minimax-h3" or generation_mode != "i2v" or not image_url
@@ -3735,6 +3760,8 @@ class ComicGenPipeline:
             project_id=script_id,
             input_fingerprint=self._shot_input_fingerprint(script, frame, reference_image_urls) if frame else None,
             visual_input_fingerprint=self._shot_input_fingerprint(script, frame, reference_image_urls, audio_inputs=False) if frame else None,
+            native_audio_input_fingerprint=self._shot_input_fingerprint(script, frame, reference_image_urls, audio_inputs=False, native_inputs=True) if frame and audio_options['mode'] == 'native' else None,
+            audio_backend=self._resolve_video_backend(model),
             frame_id=frame_id,
             image_url=snapshot_url,
             last_frame_url=last_frame_snapshot,
@@ -3745,7 +3772,7 @@ class ComicGenPipeline:
             resolution=resolution,
             generate_audio=audio_options["audio"],
             audio_url=audio_options["audio_url"],
-            audio_mode=audio_mode,
+            audio_mode=audio_options["mode"],
             prompt_extend=prompt_extend,
             negative_prompt=negative_prompt,
             model=model,
@@ -4271,6 +4298,7 @@ class ComicGenPipeline:
 
     def _validate_dub_audio(self, script: Script, frame: StoryboardFrame) -> None:
         from .audio import dialogue_audio_is_stale
+        frame = dialogue_frame_for_policy(script, frame)
         if frame.audio_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
             raise GenerationInProgressError("Dialogue audio is still being generated")
         resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
@@ -4294,6 +4322,9 @@ class ComicGenPipeline:
                 raise ValueError("Select a completed video belonging to this shot")
             face_reference_url = None
             if lip_sync:
+                projected = dialogue_frame_for_policy(script, frame)
+                if projected.dialogue_mode == "voiceover" or any(line.mode == "voiceover" for line in projected.dialogue_lines):
+                    raise ValueError("画外旁白不适用口型同步")
                 resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
                 speaker = self._resolve_dialogue_speaker(resolved, frame)
                 face_reference_url = speaker.headshot_image_url if speaker else None
@@ -4309,7 +4340,9 @@ class ComicGenPipeline:
             generation_id = generation_id or str(uuid.uuid4())
             self._save_fields(frame, dub_generation_status=GenerationStatus.PROCESSING, dub_generation_id=generation_id,
                 dub_provider_task_id=frame.dub_provider_task_id if claimed else None, dub_error=None)
-            source = frame.model_copy(deep=True)
+            source = dialogue_frame_for_policy(script, frame)
+            if script.audio_policy or frame.audio_policy_override:
+                source.audio_policy_override = effective_audio_policy(script, frame).model_copy(deep=True)
             video_url = task.video_url
         try:
             def remember_provider(task_id):
@@ -4327,11 +4360,12 @@ class ComicGenPipeline:
                 if not target:
                     raise LookupError("Frame not found")
                 task = next((task for task in current.video_tasks if task.id == video_task_id), None)
-                if target.dub_generation_id != generation_id or target.audio_url != source.audio_url or not task or task.frame_id != frame_id or task.status != "completed" or task.video_url != video_url:
+                if target.dub_generation_id != generation_id or target.audio_url != source.audio_url or not task or task.frame_id != frame_id or task.status != "completed" or task.video_url != video_url or (source.audio_policy_override and effective_audio_policy(current, target) != source.audio_policy_override):
                     raise ValueError("The source media changed. Generate a new dub preview")
                 self._save_fields(target, preview_video_url=preview_url, preview_audio_url=source.audio_url,
                     preview_video_task_id=video_task_id, preview_source_video_url=video_url, preview_offset_ms=offset_ms,
                     preview_lip_sync=lip_sync,
+                    preview_audio_policy=source.audio_policy_override,
                     bg_audio_url=source.bg_audio_url, bg_audio_source_video=source.bg_audio_source_video,
                     dub_generation_status=GenerationStatus.COMPLETED, dub_error=None)
                 return current
@@ -4416,8 +4450,21 @@ class ComicGenPipeline:
         output_path = _safe_resolve_path(os.path.join("output", "video"), output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        # Ensure background audio is cached (Demucs runs only on first call or video change)
-        bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_url)
+        original_audio = ("keep" if frame.audio_policy_override and frame.audio_policy_override.mode == "native"
+            else frame.audio_policy_override.original_audio if frame.audio_policy_override else "remove_vocals")
+        bg_audio_path = None
+        if original_audio == "remove_vocals":
+            bg_audio_path = self._ensure_bg_audio_cached(frame, video_path, video_url)
+            if not bg_audio_path and frame.audio_policy_override:
+                probe = subprocess.run([get_ffprobe_path(), "-v", "error", "-select_streams", "a",
+                    "-show_entries", "stream=index", "-of", "json", video_path],
+                    check=True, capture_output=True, text=True, timeout=30)
+                if json.loads(probe.stdout).get('streams'):
+                    raise ValueError("原声人声分离失败，请重试或改为移除原声")
+        elif original_audio == "keep":
+            if any(line.mode != "voiceover" for line in frame.dialogue_lines) or (not frame.dialogue_lines and frame.dialogue_mode != "voiceover"):
+                raise ValueError("保留原声仅用于画外旁白；替换对白请移除原声或分离人声")
+            bg_audio_path = video_path
 
         video_input_args = ["-i", video_path]
         if offset_ms < 0:
@@ -4445,6 +4492,11 @@ class ComicGenPipeline:
         except Exception:
             video_duration = 600.0
         total_seconds = video_duration + abs(offset_ms) / 1000.0 + 0.5
+        if frame.audio_policy_override:
+            _, voice_end = _dialogue_audio_bounds(frame.audio_url)
+            total_seconds = video_duration + max(0, -offset_ms) / 1000.0
+            if voice_end + max(0, offset_ms) / 1000.0 > total_seconds + 0.04:
+                raise ValueError("配音超出视频时长，请调整配音位置、语速或使用更长的视频")
 
         import tempfile
         work_dir = tempfile.mkdtemp(prefix="dub_mix_")
@@ -4533,12 +4585,15 @@ class ComicGenPipeline:
                 raise GenerationInProgressError("Wait for the dub preview to finish")
             self._validate_dub_audio(script, frame)
             task = next((task for task in script.video_tasks if task.id == frame.preview_video_task_id), None)
+            if frame.preview_audio_policy and frame.preview_audio_policy != effective_audio_policy(script, frame):
+                raise ValueError("声音策略已改变，请重新预览配音")
             if not frame.preview_video_url or not task or task.frame_id != frame_id or task.status != "completed" or frame.selected_video_id not in (None, task.id) or frame.preview_audio_url != frame.audio_url or frame.preview_source_video_url != task.video_url:
                 raise ValueError("The preview no longer matches the selected audio and video. Generate a new preview")
             if not os.path.isfile(_safe_resolve_path("output", frame.preview_video_url)):
                 raise ValueError("The preview file is missing. Generate a new preview")
             # ponytail: retain replaced files; cleanup needs reference-aware media GC.
             self._save_fields(frame, dubbed_video_url=frame.preview_video_url, dubbed_video_task_id=task.id,
+                dubbed_audio_policy=frame.preview_audio_policy, dubbed_audio_url=frame.preview_audio_url,
                 dub_lip_sync=frame.preview_lip_sync, preview_lip_sync=False,
                 dub_offset_ms=frame.preview_offset_ms or 0, preview_video_url=None, preview_audio_url=None,
                 preview_video_task_id=None, preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
@@ -4554,6 +4609,7 @@ class ComicGenPipeline:
             if frame.dub_generation_status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
                 raise GenerationInProgressError("Wait for the dub preview to finish")
             self._save_fields(frame, dubbed_video_url=None, dubbed_video_task_id=None, dub_offset_ms=0,
+                dubbed_audio_policy=None, dubbed_audio_url=None, preview_audio_policy=None,
                 dub_lip_sync=False, preview_lip_sync=False,
                 preview_video_url=None, preview_audio_url=None, preview_video_task_id=None,
                 preview_source_video_url=None, preview_offset_ms=None, dub_error=None)
@@ -4612,9 +4668,12 @@ class ComicGenPipeline:
                 )
                 continue
 
+            audio_spec = None
             try:
-                resolve_shot_audio_render_spec(frame, task)
-            except ValueError as exc:
+                audio_spec = resolve_shot_audio_render_spec(frame, task, getattr(script, "audio_policy", None))
+                if audio_spec.source == "applied" and getattr(frame, "dubbed_audio_policy", None):
+                    self._validate_dub_audio(script, frame)
+            except (ValueError, GenerationInProgressError) as exc:
                 report["content_issues"].append({"frame_id": frame.id, "blocking": True, "reason": str(exc)})
 
             from .revision import compute_revision
@@ -4627,7 +4686,11 @@ class ComicGenPipeline:
             # voices, dub, export" — the intended order — from refusing its own output.
             audio_driven = getattr(task, "audio_mode", None) == "driven"
             visual_recorded = getattr(task, "visual_input_fingerprint", None)
-            if not audio_driven and visual_recorded:
+            native_recorded = getattr(task, "native_audio_input_fingerprint", None)
+            if getattr(task, "audio_mode", None) == "native" and native_recorded:
+                source_fingerprint = native_recorded
+                fingerprint = self._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True)
+            elif not audio_driven and visual_recorded:
                 source_fingerprint = visual_recorded
                 fingerprint = self._shot_input_fingerprint(script, frame, audio_inputs=False)
             else:
@@ -4639,7 +4702,7 @@ class ComicGenPipeline:
                     "blocking": bool(source_fingerprint) or audio_review,
                     "reason": "此视频使用了参考音频，请逐镜试听并核对口型、说话起止和台词完整性后再确认。" if audio_review and source_fingerprint == fingerprint else "画面、参考图或对白已变化，请重新生成或复核后保留此版本。" if source_fingerprint else "旧视频缺少输入版本记录，请复核参考图、光线、道具状态和对白口型。",
                 })
-            if getattr(frame, "dubbed_video_url", None):
+            if audio_spec and audio_spec.source == "applied":
                 try:
                     self._validate_dub_audio(script, frame)
                 except (ValueError, GenerationInProgressError):
@@ -4912,7 +4975,9 @@ class ComicGenPipeline:
             logger.info(f"[MERGE] Processing frame {i+1}/{len(script.frames)}: {frame.id}")
             task, selected_url, selection_error = _resolve_explicit_video_take(script, frame)
             if selected_url:
-                resolve_shot_audio_render_spec(frame, task)
+                audio_spec = resolve_shot_audio_render_spec(frame, task, getattr(script, "audio_policy", None))
+                if audio_spec.source == 'applied' and getattr(frame, 'dubbed_audio_policy', None):
+                    self._validate_dub_audio(script, frame)
                 logger.debug(f"[MERGE]   -> Explicit take: {selected_url}")
                 video_paths.append(selected_url)
                 selected_frames.append(frame)
@@ -4977,7 +5042,7 @@ class ComicGenPipeline:
             for index, source_path in enumerate(abs_video_paths):
                 frame = selected_frames[index]
                 task = next(task for task in script.video_tasks if task.id == frame.selected_video_id)
-                audio_spec = resolve_shot_audio_render_spec(frame, task)
+                audio_spec = resolve_shot_audio_render_spec(frame, task, getattr(script, "audio_policy", None))
                 trim_start = float(getattr(frame, "in_point", None) or 0)
                 duration = _clip_duration_seconds(frame)
                 probe = subprocess.run(
@@ -5358,9 +5423,13 @@ class ComicGenPipeline:
 
         SFX inputs are delayed to the cumulative start time of their frame so
         the same effect remains aligned after the selected takes are merged.
-        Missing optional files are skipped; a configured track must never make
-        an otherwise valid export fail.
+        Explicitly selected tracks must exist; silent shots suppress all overlays.
         """
+        def shot_is_silent(frame):
+            task = next((item for item in getattr(script, 'video_tasks', []) if item.id == frame.selected_video_id), None)
+            return task and resolve_shot_audio_render_spec(frame, task, getattr(script, "audio_policy", None)).mode == "silent"
+        if frames and all(shot_is_silent(frame) for frame in frames):
+            return None
         bgm_rel = (script.bgm_url or "").strip()
         bgm_abs = None
         if bgm_rel:
@@ -5368,7 +5437,7 @@ class ComicGenPipeline:
             if os.path.exists(candidate):
                 bgm_abs = candidate
             else:
-                logger.info(f"[MERGE/BGM] preset file missing — {candidate}; skipping BGM")
+                raise ValueError("已选择的背景音乐文件缺失，请重新选择")
 
         mix = script.mix_settings or {"dialogue": 100, "bgm": 35, "sfx": 60}
         dial = max(0, min(100, int(mix.get("dialogue", 100)))) / 100.0
@@ -5376,14 +5445,18 @@ class ComicGenPipeline:
         sfx_lvl = max(0, min(100, int(mix.get("sfx", 60)))) / 100.0
 
         sfx_inputs: List[tuple[str, float, str, float, float]] = []
+        silent_windows = []
         for frame, elapsed, trim_start, duration in _export_timeline(frames or []):
+            if shot_is_silent(frame):
+                silent_windows.append((elapsed, elapsed + duration))
+                continue
             sfx_rel = (getattr(frame, "sfx_url", None) or "").strip()
             if sfx_rel:
                 sfx_abs = _safe_resolve_path("output", sfx_rel)
                 if os.path.exists(sfx_abs):
                     sfx_inputs.append((sfx_abs, elapsed, getattr(frame, "id", "unknown"), trim_start, duration))
                 else:
-                    logger.info(f"[MERGE/SFX] file missing — {sfx_abs}; skipping frame {frame.id}")
+                    raise ValueError(f"镜头 {frame.id} 已选择的音效文件缺失，请重新选择")
 
         if bgm_abs is None and not sfx_inputs:
             return None
@@ -5398,7 +5471,8 @@ class ComicGenPipeline:
         if bgm_abs is not None:
             input_args.extend(["-stream_loop", "-1", "-i", bgm_abs])
             filter_parts.append(
-                f"[1:a]volume={bgm_lvl:.3f},aloop=loop=-1:size=2e9[abgm]"
+                f"[1:a]volume={bgm_lvl:.3f},aloop=loop=-1:size=2e9" +
+                ''.join(f",volume=0:enable='between(t,{start:.6f},{end:.6f})'" for start, end in silent_windows) + "[abgm]"
             )
             mix_labels.append("[abgm]")
             input_count += 1
@@ -5440,10 +5514,10 @@ class ComicGenPipeline:
         except subprocess.CalledProcessError as e:
             stderr_msg = e.stderr.decode() if e.stderr else ""
             logger.warning(f"[MERGE/BGM] ffmpeg failed: {stderr_msg[:400]}")
-            return None
+            raise RuntimeError("所选背景音乐或音效混合失败，请检查素材后重试") from e
         if not os.path.exists(mixed_path):
             logger.warning(f"[MERGE/BGM] mixed output not found: {mixed_path}")
-            return None
+            raise RuntimeError("声音混合未产生输出文件")
         return mixed_path
 
     def _extract_ffmpeg_error_message(self, stderr: str, video_paths: List[str]) -> str:
@@ -5628,6 +5702,8 @@ class ComicGenPipeline:
             output_path = os.path.join("output", "video", output_filename)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
+            if task.audio_backend and task.audio_backend != self._resolve_video_backend(task.model):
+                raise ValueError("视频生成后端已改变，请重新创建任务以确认声音能力")
             audio_options = resolve_video_audio_options(
                 model=task.model,
                 audio_mode=getattr(task.audio_mode, "value", task.audio_mode),
@@ -5635,6 +5711,7 @@ class ComicGenPipeline:
                 legacy_generate_audio=task.generate_audio,
                 legacy_sound=task.sound,
                 legacy_vidu_audio=task.vidu_audio,
+                backend=self._resolve_video_backend(task.model),
             )
             final_audio_url = audio_options["audio_url"]
             final_generate_audio = audio_options["audio"]
@@ -6019,8 +6096,15 @@ class ComicGenPipeline:
         logger.info(f"Generating audio for script {script.id}")
         
         for frame in script.frames:
+            policy_mode = effective_audio_policy(script, frame).mode
+            if policy_mode == "silent":
+                continue
+            if policy_mode == "native":
+                from .audio import _effective_dialogue_text
+                if _effective_dialogue_text(dialogue_frame_for_policy(script, frame)).strip():
+                    self.generate_dialogue_line(script_id, frame.id)
             # Generate Dialogue
-            if getattr(frame, "dialogue_lines", None):
+            elif getattr(frame, "dialogue_lines", None):
                 repository = getattr(self, "repository", None)
                 workspace = repository.workspace_for_script(script_id) if repository else None
                 self.audio_generator.generate_dialogue_lines(
@@ -6170,22 +6254,25 @@ class ComicGenPipeline:
             if not _effective_dialogue_text(target).strip():
                 raise ValueError("The dialogue is empty")
             resolved = script.model_copy(update={"characters": self.resolve_episode_assets(script)["characters"]})
-            per_line = bool(getattr(target, "dialogue_lines", None))
+            projected = dialogue_frame_for_policy(script, target)
+            if not _effective_dialogue_text(projected).strip():
+                raise ValueError("当前声音方式没有需要生成的后期对白或旁白")
+            per_line = bool(getattr(projected, "dialogue_lines", None))
             speaker = None
             if per_line:
                 # Checked before anything is claimed so an unassigned speaker is reported
                 # by name instead of failing halfway through a paid synthesis.
-                missing = [line.speaker for line in target.dialogue_lines
+                missing = [line.speaker for line in projected.dialogue_lines
                            if not resolve_line_voice(resolved, line, self._series_for(script))[0]]
                 if missing:
                     raise ValueError(
                         "这些说话人还没有音色：" + "、".join(dict.fromkeys(missing))
                         + "。请在「角色」里给他们分配音色，或设置旁白音色。")
                 _refuse_unheard_direction(self._dialogue_line_plans(
-                    resolved, target, self._series_for(script), workspace,
+                    resolved, projected, self._series_for(script), workspace,
                     speed, pitch, volume, instructions))
             else:
-                speaker = self._resolve_dialogue_speaker(resolved, target)
+                speaker = self._resolve_dialogue_speaker(resolved, projected)
                 if not speaker or not speaker.voice_id:
                     raise ValueError("Assign a voice to the speaking character before generating dialogue")
             # ponytail: process-local exclusion; multiple workers need a database claim.
@@ -6201,7 +6288,11 @@ class ComicGenPipeline:
             except Exception:
                 target.audio_generation_status, target.audio_generation_id, target.audio_error = previous
                 raise
-            frame = target.model_copy(deep=True)
+            frame = dialogue_frame_for_policy(script, target)
+            source_policy = effective_audio_policy(script, target).model_copy(deep=True)
+            source_text = _effective_dialogue_text(frame)
+            spoken_indexes = [index for index, line in enumerate(target.dialogue_lines)
+                if effective_audio_policy(script, target).mode != "native" or line.mode == "voiceover"]
             if speaker is not None:
                 speaker = speaker.model_copy(deep=True)
             series = self._series_for(script)
@@ -6230,10 +6321,21 @@ class ComicGenPipeline:
                     raise LookupError("Frame not found")
                 if target.audio_generation_id != generation_id:
                     return current
+                if effective_audio_policy(current, target) != source_policy:
+                    raise ValueError("声音方式已改变，请重新生成配音")
+                text_unchanged = _effective_dialogue_text(dialogue_frame_for_policy(current, target)) == source_text
                 fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "dialogue_text_hash", "dialogue_lines")
                 previous_output = {name: getattr(target, name) for name in fields}
                 for name in fields:
-                    setattr(target, name, getattr(frame, name))
+                    if name == "dialogue_lines" and not text_unchanged:
+                        continue
+                    if name == "dialogue_lines" and source_policy.mode == "native":
+                        lines = list(target.dialogue_lines)
+                        for index, generated in zip(spoken_indexes, frame.dialogue_lines):
+                            lines[index] = generated
+                        target.dialogue_lines = lines
+                    else:
+                        setattr(target, name, getattr(frame, name))
                 target.audio_generation_status = GenerationStatus.COMPLETED
                 try:
                     self._save_data()
@@ -6266,7 +6368,8 @@ class ComicGenPipeline:
             # ponytail: process-local exclusion; multiple workers need a database claim.
             if previous and previous.status in (GenerationStatus.PENDING, GenerationStatus.PROCESSING):
                 raise GenerationInProgressError("Dialogue batch is already running. Refresh its status before retrying")
-            batch = DialogueAudioBatch(id=str(uuid.uuid4()), frame_ids=[frame.id for frame in script.frames if _effective_dialogue_text(frame).strip()], instructions=dict(instructions))
+            batch = DialogueAudioBatch(id=str(uuid.uuid4()), frame_ids=[frame.id for frame in script.frames
+                if _effective_dialogue_text(dialogue_frame_for_policy(script, frame)).strip()], instructions=dict(instructions))
             script.dialogue_audio_batch = batch
             try:
                 self._save_data()
@@ -6299,6 +6402,7 @@ class ComicGenPipeline:
                     if not current:
                         raise LookupError("Script not found")
                     frame = next((frame for frame in current.frames if frame.id == frame_id), None)
+                    frame = dialogue_frame_for_policy(current, frame) if frame else None
                     resolved = current.model_copy(update={"characters": self.resolve_episode_assets(current)["characters"]})
                     speaker = self._resolve_dialogue_speaker(resolved, frame) if frame else None
                     probe = frame.model_copy(update={"dialogue_instructions": instructions[frame_id]}) if frame and frame_id in instructions else frame

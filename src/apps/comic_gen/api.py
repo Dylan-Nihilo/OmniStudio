@@ -65,6 +65,7 @@ from .models import (
     StoryboardFrame,
     VideoTask,
     AudioMode,
+    AudioPolicy,
     ModelSettings,
     GenerationStatus,
 )
@@ -5943,6 +5944,33 @@ def update_shot_model_settings(script_id: str, frame_id: str, request: UpdateMod
     except ValueError as exc:
         status = 404 if "not found" in str(exc).lower() or "script" in str(exc).lower() or "frame" in str(exc).lower() else 422
         raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+class UpdateShotAudioPolicyRequest(BaseModel):
+    policy: Optional[AudioPolicy] = None
+
+
+@app.put("/projects/{script_id}/audio_policy", response_model=Script)
+def update_audio_policy(script_id: str, policy: AudioPolicy):
+    try:
+        return signed_response(pipeline.update_audio_policy(script_id, policy))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/projects/{script_id}/frames/{frame_id}/audio_policy", response_model=Script)
+def update_shot_audio_policy(script_id: str, frame_id: str, request: UpdateShotAudioPolicyRequest):
+    try:
+        return signed_response(pipeline.update_audio_policy(script_id, request.policy, frame_id))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/config/video-audio-capabilities")
+def get_video_audio_capabilities():
+    from .audio_config import video_audio_capabilities
+    from ...utils.model_catalog import get_catalog_accessor
+    return {model: video_audio_capabilities(model) for model in get_catalog_accessor().all_legacy_model_ids()}
 
 
 class UpdatePromptConfigRequest(BaseModel):

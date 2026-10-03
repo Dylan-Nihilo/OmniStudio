@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.apps.comic_gen import api as api_module
-from src.apps.comic_gen.models import AudioMode, StoryboardFrame, VideoTask
+from src.apps.comic_gen.models import AudioMode, AudioPolicy, StoryboardFrame, VideoTask
 from tests.test_w2_project_api import api_client, _create_project  # noqa: F401
 
 requires_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None,
@@ -78,8 +78,21 @@ def test_legacy_dubbing_does_not_depend_on_container_audio_stream(api_client):
 def test_native_take_never_uses_unapplied_tts(api_client):
     project_id = _episode(api_client, with_dub=True)
     api_module.pipeline.scripts[project_id].video_tasks[0].audio_mode = AudioMode.NATIVE
+    api_module.pipeline.scripts[project_id].audio_policy = AudioPolicy(mode="native")
     merged = api_module.pipeline.merge_videos(project_id)
     assert _max_volume(os.path.join("output", merged.merged_video_url)) <= -80
+
+
+@requires_ffmpeg
+def test_silent_policy_also_mutes_selected_bgm(api_client):
+    project_id = _episode(api_client, with_dub=False)
+    script = api_module.pipeline.scripts[project_id]
+    script.video_tasks[0].audio_mode = AudioMode.SILENT
+    script.audio_policy = AudioPolicy(mode='silent')
+    _tone('output/audio/bgm.wav')
+    script.bgm_url = 'audio/bgm.wav'
+    merged = api_module.pipeline.merge_videos(project_id)
+    assert _max_volume(os.path.join('output', merged.merged_video_url)) <= -80
 
 
 @requires_ffmpeg

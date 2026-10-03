@@ -962,6 +962,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "kling"
         }
       },
@@ -1024,10 +1030,28 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_input_kind": "reference",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": false,
           "dialect": "minimax_a",
           "gateway": "jojokey",
           "line": "overseas",
           "overseas_model": "minimax-A"
+        },
+        "moma": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true
         }
       },
       "status": "active",
@@ -1497,6 +1521,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro-fast",
@@ -1563,6 +1593,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-mini",
@@ -1629,6 +1665,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro",
@@ -1695,6 +1737,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-2.5",
@@ -1942,6 +1990,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "vidu"
         }
       },
@@ -2013,6 +2067,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "vidu"
         }
       },
@@ -2365,7 +2425,18 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "runtime": {},
+      "runtime": {
+        "dashscope": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true
+        }
+      },
       "status": "deprecated",
       "supported_backends": [
         "dashscope"
@@ -2481,7 +2552,18 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "runtime": {},
+      "runtime": {
+        "dashscope": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true
+        }
+      },
       "status": "deprecated",
       "supported_backends": [
         "dashscope"
@@ -2659,6 +2741,12 @@
       ],
       "runtime": {
         "dashscope": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "dashscope"
         }
       },
@@ -7921,6 +8009,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "kling"
         }
       },
@@ -8036,6 +8130,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "kling"
         }
       },
@@ -8145,10 +8245,28 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_input_kind": "reference",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": false,
           "dialect": "minimax_a",
           "gateway": "jojokey",
           "line": "overseas",
           "overseas_model": "minimax-A"
+        },
+        "moma": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true
         }
       },
       "status": "active",
@@ -8955,6 +9073,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro-fast",
@@ -9050,6 +9174,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro-fast",
@@ -9140,6 +9270,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro-fast",
@@ -9235,6 +9371,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-mini",
@@ -9330,6 +9472,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-mini",
@@ -9420,6 +9568,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-mini",
@@ -9516,6 +9670,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro",
@@ -9614,6 +9774,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro",
@@ -9707,6 +9873,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-pro",
@@ -9806,6 +9978,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-2.5",
@@ -9913,6 +10091,14 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_input_kind": "reference",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-2.5",
@@ -10007,6 +10193,12 @@
       ],
       "runtime": {
         "jojokey": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "jojokey",
           "line": "cn",
           "overseas_model": "video-2.5",
@@ -10334,6 +10526,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "vidu"
         }
       },
@@ -10440,6 +10638,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "vidu"
         }
       },
@@ -10554,6 +10758,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "vidu"
         }
       },
@@ -10658,6 +10868,12 @@
           "gateway": "dashscope"
         },
         "vendor": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "vidu"
         }
       },
@@ -11086,7 +11302,18 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "runtime": {},
+      "runtime": {
+        "dashscope": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true
+        }
+      },
       "status": "deprecated",
       "supported_backends": [
         "dashscope"
@@ -11228,7 +11455,18 @@
         "wan2.6-",
         "wan2.7-"
       ],
-      "runtime": {},
+      "runtime": {
+        "dashscope": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true
+        }
+      },
       "status": "deprecated",
       "supported_backends": [
         "dashscope"
@@ -11438,6 +11676,14 @@
       ],
       "runtime": {
         "dashscope": {
+          "audio_input_kind": "timing",
+          "audio_modes": [
+            "post",
+            "silent",
+            "native",
+            "driven"
+          ],
+          "can_disable_native": true,
           "gateway": "dashscope"
         }
       },
@@ -11508,6 +11754,12 @@
       ],
       "runtime": {
         "dashscope": {
+          "audio_modes": [
+            "post",
+            "silent",
+            "native"
+          ],
+          "can_disable_native": true,
           "gateway": "dashscope"
         }
       },
