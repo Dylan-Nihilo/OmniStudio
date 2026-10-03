@@ -3003,10 +3003,13 @@ class ComicGenPipeline:
         # Update only provided fields
         if kwargs.get("omni_reference_settings") is not None:
             from .omni_reference import OmniReferenceSettings
+            previous_policy = effective_audio_policy(script, frame)
             frame.omni_reference_settings = OmniReferenceSettings.model_validate(kwargs["omni_reference_settings"])
-            frame.audio_policy_override = AudioPolicy(mode=frame.omni_reference_settings.audio_mode,
-                audio_url=frame.omni_reference_settings.audios[0].url if frame.omni_reference_settings.audios else None,
-                original_audio=effective_audio_policy(script, frame).original_audio)
+            next_mode = frame.omni_reference_settings.audio_mode
+            next_audio = frame.omni_reference_settings.audios[0].url if frame.omni_reference_settings.audios else None
+            if next_mode != previous_policy.mode or next_mode == 'driven' and next_audio != previous_policy.audio_url:
+                frame.audio_policy_override = AudioPolicy(mode=next_mode, audio_url=next_audio,
+                    original_audio=previous_policy.original_audio)
         if kwargs.get('image_prompt') is not None:
             frame.image_prompt = kwargs['image_prompt']
         if kwargs.get('action_description') is not None:
@@ -3526,6 +3529,10 @@ class ComicGenPipeline:
         if not audio_inputs and not native_inputs and getattr(frame, "production_plan_id", None):
             fields = [field for field in fields if not field.startswith("dialogue")]
         params = {field: getattr(frame, field, None) for field in fields}
+        if native_inputs:
+            params['dialogue_lines'] = [line.model_dump(include={
+                'speaker', 'line', 'mode', 'shot_id', 'start_seconds', 'instructions', 'speed'
+            }) for line in frame.dialogue_lines if line.mode == 'on_screen']
         urls = getattr(frame, "t2i_image_urls", [])
         index = getattr(frame, "t2i_selected_index", 0)
         refs = {"first_frame": urls[index] if urls and 0 <= index < len(urls) else getattr(frame, "rendered_image_url", None)}
@@ -3560,6 +3567,16 @@ class ComicGenPipeline:
         if getattr(frame, "omni_reference_settings", None) is not None:
             params["omni_reference_settings"] = frame.omni_reference_settings.model_dump()
         return compute_dependency_fingerprint("shot-video", refs, params)
+
+    def _video_input_comparison(self, script, frame, task):
+        mode = getattr(task, 'audio_mode', None)
+        native = getattr(task, 'native_audio_input_fingerprint', None)
+        visual = getattr(task, 'visual_input_fingerprint', None)
+        if mode == 'native' and native:
+            return native, self._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True)
+        if mode != 'driven' and visual:
+            return visual, self._shot_input_fingerprint(script, frame, audio_inputs=False)
+        return getattr(task, 'input_fingerprint', None), self._shot_input_fingerprint(script, frame)
 
     def update_audio_policy(self, script_id, policy, frame_id=None):
         with self._save_lock:
@@ -3596,7 +3613,7 @@ class ComicGenPipeline:
             from .omni_reference import supports_omni_reference
             settings = frame.omni_reference_settings
             if not supports_omni_reference(model) or generation_mode != "r2v":
-                if settings.videos or settings.audios or settings.audio_mode != "post":
+                if settings.videos or (settings.audios and policy.mode == 'driven'):
                     raise ValueError("已保存全能参考，请使用 Seedance 2.5 全能参考，或先清空这些参考设置")
             else:
                 reference_video_urls = [item.url for item in settings.videos]
@@ -3605,7 +3622,9 @@ class ComicGenPipeline:
                 audio_url = reference_audio_urls[0] if reference_audio_urls else None
                 if audio_mode == "driven" and not reference_audio_urls:
                     raise ValueError("请添加声音参考，或改用生成原声/后期配音")
-                prompt = settings.video_prompt(prompt)
+                prompt_settings = settings.model_copy(update={"audio_mode": audio_mode,
+                    "audios": settings.audios if audio_mode == 'driven' else []})
+                prompt = prompt_settings.video_prompt(prompt)
         # Post-production keeps the first frame locked. Audio-driven H3 uses
         # reference mode instead; changing that choice silently breaks continuity.
         if audio_mode == "driven" and not audio_url and frame:
@@ -4028,7 +4047,8 @@ class ComicGenPipeline:
 
             if confirm_review:
                 from .revision import compute_revision
-                current_review = compute_revision([frame.selected_video_id, self._shot_input_fingerprint(script, frame)])
+                _, fingerprint = self._video_input_comparison(script, frame, video)
+                current_review = compute_revision([frame.selected_video_id, fingerprint])
                 if review_fingerprint != current_review or frame.selected_video_id != video_id:
                     raise ValueError("镜头或素材在复核期间发生变化，请重新检查。")
 
@@ -4677,24 +4697,9 @@ class ComicGenPipeline:
                 report["content_issues"].append({"frame_id": frame.id, "blocking": True, "reason": str(exc)})
 
             from .revision import compute_revision
-            fingerprint = self._shot_input_fingerprint(script, frame)
+            source_fingerprint, fingerprint = self._video_input_comparison(script, frame, task)
             reviewed = getattr(frame, "reviewed_video_fingerprint", None) == compute_revision([task.id, fingerprint])
             audio_review = getattr(task, "model", None) == "minimax/minimax-h3" and getattr(task, "audio_mode", None) == "driven"
-            # Audio only reaches the model when the take is audio-driven; otherwise the
-            # dubbing is a separate track laid on afterwards and cannot have changed this
-            # picture. Comparing the picture-only fingerprint there is what stops "assign
-            # voices, dub, export" — the intended order — from refusing its own output.
-            audio_driven = getattr(task, "audio_mode", None) == "driven"
-            visual_recorded = getattr(task, "visual_input_fingerprint", None)
-            native_recorded = getattr(task, "native_audio_input_fingerprint", None)
-            if getattr(task, "audio_mode", None) == "native" and native_recorded:
-                source_fingerprint = native_recorded
-                fingerprint = self._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True)
-            elif not audio_driven and visual_recorded:
-                source_fingerprint = visual_recorded
-                fingerprint = self._shot_input_fingerprint(script, frame, audio_inputs=False)
-            else:
-                source_fingerprint = getattr(task, "input_fingerprint", None)
             if not reviewed and (source_fingerprint != fingerprint or audio_review):
                 report["content_issues"].append({
                     "frame_id": frame.id, "video_id": task.id, "reviewable": True,

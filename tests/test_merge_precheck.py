@@ -126,7 +126,8 @@ def test_precheck_merge_all_inputs_are_valid(monkeypatch, pipeline):
     assert report["errors"] == []
 
 
-def test_changed_reference_requires_review_and_another_change_invalidates_review(monkeypatch, pipeline):
+@pytest.mark.parametrize('audio_mode', [None, 'native', 'post'])
+def test_changed_reference_requires_review_and_another_change_invalidates_review(monkeypatch, pipeline, audio_mode):
     from threading import RLock
     from src.apps.comic_gen.models import Script, StoryboardFrame, VideoTask, Scene, ImageAsset, ImageVariant
     _install_common_mocks(monkeypatch)
@@ -140,6 +141,13 @@ def test_changed_reference_requires_review_and_another_change_invalidates_review
     pipeline._save_data = lambda: None
     pipeline.resolve_episode_assets = lambda _: {"characters": [], "scenes": [scene], "props": []}
     task.input_fingerprint = pipeline._shot_input_fingerprint(script, frame)
+    task.audio_mode = audio_mode
+    if audio_mode == 'native':
+        task.native_audio_input_fingerprint = pipeline._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True)
+    elif audio_mode == 'post':
+        task.visual_input_fingerprint = pipeline._shot_input_fingerprint(script, frame, audio_inputs=False)
+    if audio_mode is not None:
+        frame.audio_url = 'audio/generated-later.wav'
     assert pipeline.precheck_merge(script.id)["ok"]
     scene.image_asset.selected_id = "v2"
     assert not pipeline.precheck_merge(script.id)["ok"]

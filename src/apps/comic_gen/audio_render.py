@@ -20,6 +20,8 @@ def resolve_shot_audio_render_spec(frame: Any, task: Any, policy: Any = None) ->
     mode = getattr(intent.mode, "value", intent.mode) if intent else recorded
     if mode == "silent":
         return ShotAudioRenderSpec(mode, "silent")
+    if mode in {"native", "driven"} and recorded != mode:
+        raise ValueError("当前候选未按所选声音方式生成，请重新生成视频")
     snapshot = getattr(frame, "dubbed_audio_policy", None)
     if getattr(frame, "dubbed_video_url", None) and (mode not in {"native", "driven"} or (mode == "native" and snapshot and snapshot.mode == "native")):
         if getattr(frame, "dubbed_video_task_id", None) != task.id:
@@ -28,8 +30,6 @@ def resolve_shot_audio_render_spec(frame: Any, task: Any, policy: Any = None) ->
             raise ValueError("配音或声音策略已改变，请重新预览并应用配音")
         return ShotAudioRenderSpec(mode, "applied")
     if mode in {"native", "driven"}:
-        if recorded != mode:
-            raise ValueError("当前候选未按所选声音方式生成，请重新生成视频")
         return ShotAudioRenderSpec(mode, "source")
     if mode == "post":
         if getattr(frame, "dialogue_lines", None) or (getattr(frame, "dialogue", None) or "").strip():

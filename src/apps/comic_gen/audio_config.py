@@ -28,8 +28,11 @@ def video_audio_capabilities(model: str, backend: Optional[str] = None) -> Dict[
 
 def effective_audio_policy(script, frame=None):
     from .models import AudioPolicy
-    return (getattr(frame, "audio_policy_override", None)
-            or getattr(script, "audio_policy", None) or AudioPolicy())
+    policy = getattr(frame, "audio_policy_override", None) or getattr(script, "audio_policy", None)
+    if policy:
+        return policy
+    legacy = getattr(frame, "omni_reference_settings", None)
+    return AudioPolicy(mode=legacy.audio_mode, audio_url=legacy.audios[0].url if legacy.audios else None) if legacy else AudioPolicy()
 
 
 def dialogue_frame_for_policy(script, frame):

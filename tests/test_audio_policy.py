@@ -67,6 +67,31 @@ def test_native_candidate_cannot_be_relabelled_as_audio_driven():
         resolve_shot_audio_render_spec(frame, task, AudioPolicy(mode="driven"))
 
 
+def test_native_narration_cannot_hide_a_post_generated_candidate():
+    import pytest
+    policy = AudioPolicy(mode='native')
+    frame = StoryboardFrame(id='a', scene_id='s', audio_url='audio/narration.wav',
+        dubbed_video_url='video/dub.mp4', dubbed_video_task_id='t',
+        dubbed_audio_url='audio/narration.wav', dubbed_audio_policy=policy)
+    task = VideoTask(id='t', project_id='p', image_url='', prompt='', audio_mode='post')
+    with pytest.raises(ValueError, match='重新生成'):
+        resolve_shot_audio_render_spec(frame, task, policy)
+
+
+def test_native_version_tracks_words_but_not_generated_voice_artifacts(api_client):
+    from src.apps.comic_gen.models import DialogueLine
+    project = _create_project(api_client, 'Native version')
+    pipeline = api_module.pipeline
+    script = pipeline.scripts[project['id']]
+    frame = StoryboardFrame(id='f', scene_id='', dialogue_lines=[DialogueLine(speaker='Actor', line='first')])
+    fingerprint = pipeline._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True)
+    frame.dialogue_lines[0].voice_id = 'voice'
+    frame.dialogue_lines[0].audio_url = 'audio/new.wav'
+    assert pipeline._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True) == fingerprint
+    frame.dialogue_lines[0].line = 'changed'
+    assert pipeline._shot_input_fingerprint(script, frame, audio_inputs=False, native_inputs=True) != fingerprint
+
+
 def test_native_speech_projection_keeps_only_independent_voiceover():
     from src.apps.comic_gen.models import Script, DialogueLine
     frame = StoryboardFrame(id='f', scene_id='s', dialogue_lines=[
@@ -77,3 +102,30 @@ def test_native_speech_projection_keeps_only_independent_voiceover():
     assert [line.line for line in projected.dialogue_lines] == ['independent words']
     assert len(frame.dialogue_lines) == 2
     assert projected.dialogue_lines[0].start_seconds == 1
+
+
+def test_native_tts_never_regenerates_the_models_on_screen_words(api_client, monkeypatch):
+    from src.apps.comic_gen.models import DialogueLine
+    from src.apps.comic_gen.audio import _compute_lines_hash
+    project = _create_project(api_client, 'Independent narration')
+    pipeline = api_module.pipeline
+    script = pipeline.scripts[project['id']]
+    script.audio_policy = AudioPolicy(mode='native')
+    script.narration_voice_id = 'narrator-voice'
+    script.frames = [StoryboardFrame(id='f', scene_id='', duration=2, dialogue_lines=[
+        DialogueLine(speaker='Actor', line='model speech'),
+        DialogueLine(speaker='Narrator', line='narration', mode='voiceover')])]
+    spoken = []
+    def generate(frame, plans, total_duration):
+        spoken.extend(plan['line'].line for plan in plans)
+        for plan in plans:
+            plan['line'].voice_id = plan['voice']
+        frame.audio_url = 'audio/narration.wav'
+        frame.dialogue_text_hash = _compute_lines_hash(plans)
+        frame.dialogue_snapshot_text = 'narration'
+    monkeypatch.setattr(pipeline.audio_generator, 'generate_dialogue_lines', generate)
+    pipeline.generate_dialogue_line(script.id, 'f')
+    assert spoken == ['narration']
+    assert script.frames[0].dialogue_lines[0].voice_id is None
+    assert script.frames[0].dialogue_lines[1].voice_id == 'narrator-voice'
+    pipeline._validate_dub_audio(script, script.frames[0])
