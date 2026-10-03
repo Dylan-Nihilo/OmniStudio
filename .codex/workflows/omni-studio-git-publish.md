@@ -15,6 +15,7 @@ Use this workflow when working in this repository and the user asks to publish w
 - Commit messages must follow Conventional Commits.
 - Use the locally configured git author (already set up in this repo; do NOT modify git config).
 - Open GitHub PRs with the currently authenticated maintainer account that has repository access. Never hardcode or automatically switch to a specific collaborator account.
+- After commit, push, PR, review, merge, or deployment operations, summarize status, verification results, and next steps in Simplified Chinese. Commands, commit messages, PR titles, and native CI status may remain in English.
 
 Repository-specific constraints:
 
