@@ -24,6 +24,14 @@ requires_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None,
 
 
 @requires_ffmpeg
+def test_assembled_track_preserves_speech_past_the_shot_end(tmp_path):
+    source = _tone(tmp_path / "long.wav", 2)
+    output = str(tmp_path / "track.wav")
+    _assemble_dialogue_track([(source, 0.5)], output, 1)
+    assert _audio_duration(output) >= 2.49
+
+
+@requires_ffmpeg
 def test_lines_are_laid_out_at_their_offsets_and_cannot_stretch_the_segment(tmp_path):
     """Back-to-back playback would put a voice over the wrong shot.
 

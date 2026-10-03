@@ -56,7 +56,9 @@ def test_dubbing_and_dialogue_do_not_invalidate_a_plan_take(api_client):
     frame.dialogue = "为何不答？"
     frame.dialogue_instructions = "情绪：质问"
     api_module.pipeline._save_data()
-    assert not _issues(project_id)
+    issues = _issues(project_id)
+    assert not any(issue.get("reviewable") for issue in issues), "后期对白不能使画面过期"
+    assert any("配音" in issue["reason"] for issue in issues), "未应用的配音需要确认"
 
 
 def test_a_real_picture_change_still_blocks_the_export(api_client):

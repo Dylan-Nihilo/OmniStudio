@@ -18,6 +18,7 @@ from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame, Series, PromptConfig, ArtDirection, GlobalAssetLibrary, DialogueAudioBatch, StoryboardGeneration, ModelSettings, DialogueStructured, DialogueLine
 from .asset_references import AssetReferenceError, resolve_asset_references, reference_instruction
 from .audio_config import resolve_video_audio_options
+from .audio_render import resolve_shot_audio_render_spec
 from .llm import ScriptProcessor
 from .assets import AssetGenerator
 from .aspect_ratio import effective_export_settings, resolve_master_aspect_ratio, resolve_video_task_aspect_ratio
@@ -4611,6 +4612,11 @@ class ComicGenPipeline:
                 )
                 continue
 
+            try:
+                resolve_shot_audio_render_spec(frame, task)
+            except ValueError as exc:
+                report["content_issues"].append({"frame_id": frame.id, "blocking": True, "reason": str(exc)})
+
             from .revision import compute_revision
             fingerprint = self._shot_input_fingerprint(script, frame)
             reviewed = getattr(frame, "reviewed_video_fingerprint", None) == compute_revision([task.id, fingerprint])
@@ -4904,8 +4910,9 @@ class ComicGenPipeline:
         selection_errors = []
         for i, frame in enumerate(script.frames):
             logger.info(f"[MERGE] Processing frame {i+1}/{len(script.frames)}: {frame.id}")
-            _, selected_url, selection_error = _resolve_explicit_video_take(script, frame)
+            task, selected_url, selection_error = _resolve_explicit_video_take(script, frame)
             if selected_url:
+                resolve_shot_audio_render_spec(frame, task)
                 logger.debug(f"[MERGE]   -> Explicit take: {selected_url}")
                 video_paths.append(selected_url)
                 selected_frames.append(frame)
@@ -4969,6 +4976,8 @@ class ComicGenPipeline:
         try:
             for index, source_path in enumerate(abs_video_paths):
                 frame = selected_frames[index]
+                task = next(task for task in script.video_tasks if task.id == frame.selected_video_id)
+                audio_spec = resolve_shot_audio_render_spec(frame, task)
                 trim_start = float(getattr(frame, "in_point", None) or 0)
                 duration = _clip_duration_seconds(frame)
                 probe = subprocess.run(
@@ -4980,25 +4989,22 @@ class ComicGenPipeline:
                 command = [ffmpeg_path, "-y", "-ss", str(trim_start), "-i", source_path]
                 audio_input = "0:a:0"
                 audio_filters = ["aresample=48000"]
-                if probe.returncode != 0:
-                    # A post-dubbed shot has no audio of its own — the take came back silent
-                    # and the dialogue lives on the frame. This used to substitute digital
-                    # silence and never look at it, so an episode that had been dubbed
-                    # exported as a silent film: eight shots, 214 seconds, a 2.6 kbps AAC
-                    # track of nothing. The mix downstream has a dialogue gain, so carrying
-                    # the dialogue here is what it was always waiting for.
-                    dub_path = self._resolve_media_path(getattr(frame, "audio_url", None) or "", suffix=".mp3")
-                    if dub_path and os.path.isfile(dub_path):
-                        command.extend(["-i", dub_path])
-                        audio_input = "1:a:0"
-                        # The shot's own offset, less whatever was trimmed off its head, so
-                        # a line still lands where it was placed against the picture.
-                        delay = max(0, int(round((getattr(frame, "dub_offset_ms", 0) or 0) - trim_start * 1000)))
-                        if delay:
-                            audio_filters.append(f"adelay={delay}|{delay}")
-                    else:
-                        command.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
-                        audio_input = "1:a:0"
+                if audio_spec.source == "dialogue":
+                    dub_path = self._resolve_media_path(audio_spec.dialogue_url, suffix=".mp3")
+                    if not dub_path or not os.path.isfile(dub_path):
+                        raise ValueError(f"镜头 {frame.id} 的配音文件缺失")
+                    _, speech_end = _dialogue_audio_bounds(audio_spec.dialogue_url)
+                    if speech_end + audio_spec.offset_ms / 1000 - trim_start > duration + 0.05:
+                        raise ValueError(f"镜头 {frame.id} 会截断配音，请调整镜头时长或配音")
+                    audio_trim = max(0, trim_start - audio_spec.offset_ms / 1000)
+                    command.extend(["-ss", str(audio_trim), "-i", dub_path])
+                    audio_input = "1:a:0"
+                    delay = max(0, int(round(audio_spec.offset_ms - trim_start * 1000)))
+                    if delay:
+                        audio_filters.append(f"adelay={delay}|{delay}")
+                elif audio_spec.source == "silent" or probe.returncode != 0:
+                    command.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"])
+                    audio_input = "1:a:0"
                 video_filters = [f"fps={export_settings['fps'] or 30}"]
                 if export_settings["resolution"]:
                     width, height = export_settings["resolution"].split("x")

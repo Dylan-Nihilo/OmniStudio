@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.apps.comic_gen import api as api_module
-from src.apps.comic_gen.models import StoryboardFrame, VideoTask
+from src.apps.comic_gen.models import AudioMode, StoryboardFrame, VideoTask
 from tests.test_w2_project_api import api_client, _create_project  # noqa: F401
 
 requires_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None,
@@ -55,6 +55,41 @@ def _episode(client, *, with_dub):
                                     prompt="p", status="completed", video_url="video/shot.mp4")]
     api_module.pipeline._save_data()
     return project["id"]
+
+
+def _add_silent_audio(path):
+    replacement = str(path) + ".audio.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(path), "-f", "lavfi",
+                    "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v", "-map", "1:a",
+                    "-c:v", "copy", "-c:a", "aac", "-t", "2", replacement],
+                   check=True, capture_output=True, timeout=60)
+    os.replace(replacement, path)
+
+
+@requires_ffmpeg
+def test_legacy_dubbing_does_not_depend_on_container_audio_stream(api_client):
+    project_id = _episode(api_client, with_dub=True)
+    _add_silent_audio("output/video/shot.mp4")
+    merged = api_module.pipeline.merge_videos(project_id)
+    assert _max_volume(os.path.join("output", merged.merged_video_url)) > -50
+
+
+@requires_ffmpeg
+def test_native_take_never_uses_unapplied_tts(api_client):
+    project_id = _episode(api_client, with_dub=True)
+    api_module.pipeline.scripts[project_id].video_tasks[0].audio_mode = AudioMode.NATIVE
+    merged = api_module.pipeline.merge_videos(project_id)
+    assert _max_volume(os.path.join("output", merged.merged_video_url)) <= -80
+
+
+@requires_ffmpeg
+def test_post_dialogue_requires_an_applied_version(api_client):
+    project_id = _episode(api_client, with_dub=True)
+    script = api_module.pipeline.scripts[project_id]
+    script.video_tasks[0].audio_mode = AudioMode.POST
+    script.frames[0].dialogue = "This voice has not been applied"
+    with pytest.raises(ValueError, match="配音"):
+        api_module.pipeline.merge_videos(project_id)
 
 
 @requires_ffmpeg
