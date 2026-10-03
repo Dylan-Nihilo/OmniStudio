@@ -3,7 +3,8 @@
 import { useMemo, useState, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings2, List, RefreshCw, ChevronDown, ChevronUp, Mic, Music, VolumeX, Wand2 } from "lucide-react";
+import { Settings2, List, RefreshCw, ChevronDown, ChevronUp, Upload, Wand2 } from "lucide-react";
+import { Button } from '@omnistudio/ui';
 import VideoQueue from "./VideoQueue";
 import { VideoTask, api } from "@/lib/api";
 import { VideoParams, GRID_COLS_CLASS } from "@/store/projectStore";
@@ -18,6 +19,9 @@ import GroupedModelGrid from "@/components/common/GroupedModelGrid";
 import CreditCost from "@/components/billing/CreditCost";
 import { usePricingTable } from "@/store/billingStore";
 import { unitLabels, withCreditLabel } from "@/lib/modelCost";
+import AudioModeSelector from '@/components/shared/AudioModeSelector';
+import { useVideoAudioCapabilities } from '@/components/shared/useVideoAudioCapabilities';
+import { UNKNOWN_AUDIO_CAPABILITIES } from '@/lib/audioPolicy';
 
 interface VideoSidebarProps {
     tasks: VideoTask[];
@@ -27,6 +31,8 @@ interface VideoSidebarProps {
 }
 
 export default function VideoSidebar({ tasks, onRemix, params, setParams }: VideoSidebarProps) {
+    const audioCapabilities = useVideoAudioCapabilities();
+    const tAudio = useTranslations('audioWorkflow');
     const tm = useTranslations("motion");
     const tBilling = useTranslations("billing");
     const pricing = usePricingTable();
@@ -81,7 +87,6 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
             newParams.negativePrompt = "";
             newParams.shotType = "single";
             newParams.generateAudio = false;
-            newParams.audioUrl = "";
             // Kling defaults
             newParams.mode = np.mode?.default ?? "std";
             newParams.sound = false;
@@ -100,8 +105,7 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
         setIsUploadingAudio(true);
         try {
             const res = await api.uploadFile(file);
-            updateParam("audioUrl", res.url);
-            setAudioMode("custom");
+            setParams({ ...params, audioUrl: res.url, audioMode: 'driven' });
         } catch (error) {
             console.error("Audio upload failed:", error);
         } finally {
@@ -111,22 +115,6 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
         }
     };
 
-    // Audio Mode Logic
-    const audioMode = params.audioUrl ? "custom" : params.generateAudio ? "ai" : "mute";
-    const setAudioMode = (mode: "mute" | "ai" | "custom") => {
-        if (mode === "mute") {
-            setParams({ ...params, generateAudio: false, audioUrl: "" });
-        } else if (mode === "ai") {
-            setParams({ ...params, generateAudio: true, audioUrl: "" });
-        } else {
-            // Custom / Sound Driven
-            setParams({ ...params, generateAudio: false });
-            // Trigger upload if no URL exists
-            if (!params.audioUrl && audioInputRef.current) {
-                audioInputRef.current.click();
-            }
-        }
-    };
 
     return (
         <div className="h-full flex flex-col bg-surface backdrop-blur-sm border-l border-border-subtle">
@@ -446,99 +434,10 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
                                     </div>
                                 )}
 
-                                {/* Wan Audio Settings (三模式) - only when model supports it */}
-                                {modelParams.audio && (
-                                    <div>
-                                        <label className="block text-xs text-text-secondary mb-2">
-                                            {tm("audioSettings")}
-                                        </label>
-                                        <div className="grid grid-cols-3 gap-2 mb-2">
-                                            <button
-                                                onClick={() => setAudioMode("mute")}
-                                                className={`py-1.5 text-xs rounded-lg border flex items-center justify-center gap-1 transition-all ${audioMode === "mute"
-                                                    ? "bg-purple-500/20 border-purple-500 text-purple-500"
-                                                    : "bg-glass border-transparent text-text-secondary hover:bg-hover-bg"
-                                                    }`}
-                                            >
-                                                <VolumeX size={12} /> Mute
-                                            </button>
-                                            <button
-                                                onClick={() => setAudioMode("ai")}
-                                                className={`py-1.5 text-xs rounded-lg border flex items-center justify-center gap-1 transition-all ${audioMode === "ai"
-                                                    ? "bg-purple-500/20 border-purple-500 text-purple-500"
-                                                    : "bg-glass border-transparent text-text-secondary hover:bg-hover-bg"
-                                                    }`}
-                                            >
-                                                <Mic size={12} /> AI Sound
-                                            </button>
-                                            <button
-                                                onClick={() => setAudioMode("custom")}
-                                                className={`py-1.5 text-xs rounded-lg border flex items-center justify-center gap-1 transition-all ${audioMode === "custom"
-                                                    ? "bg-purple-500/20 border-purple-500 text-purple-500"
-                                                    : "bg-glass border-transparent text-text-secondary hover:bg-hover-bg"
-                                                    }`}
-                                            >
-                                                <Music size={12} /> Sound Driven
-                                            </button>
-                                        </div>
-                                        {audioMode === "custom" && (
-                                            <div className="relative">
-                                                <input
-                                                    type="text"
-                                                    value={params.audioUrl || ""}
-                                                    readOnly
-                                                    placeholder={isUploadingAudio ? "Uploading..." : "Click to upload audio"}
-                                                    onClick={() => audioInputRef.current?.click()}
-                                                    className="w-full bg-glass border border-glass-border rounded-lg py-1.5 px-2 text-xs text-foreground focus:border-purple-500 focus:outline-none cursor-pointer"
-                                                />
-                                                {params.audioUrl && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            updateParam("audioUrl", "");
-                                                            setAudioMode("mute");
-                                                        }}
-                                                        className="absolute right-2 top-1.5 text-text-muted hover:text-foreground"
-                                                    >
-                                                        <VolumeX size={12} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Kling: Sound on/off */}
-                                {modelParams.sound && (
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs text-text-secondary flex items-center gap-2">
-                                            <Mic size={12} />
-                                            {tm("soundAI")}
-                                        </label>
-                                        <button
-                                            onClick={() => updateParam("sound", !params.sound)}
-                                            className={`w-10 h-5 rounded-full relative transition-colors ${params.sound ? "bg-purple-500" : "bg-hover-bg"}`}
-                                        >
-                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${params.sound ? "left-6" : "left-1"}`} />
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Vidu: Audio on/off */}
-                                {modelParams.viduAudio && (
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs text-text-secondary flex items-center gap-2">
-                                            <Mic size={12} />
-                                            {tm("audioOutput")}
-                                        </label>
-                                        <button
-                                            onClick={() => updateParam("viduAudio", !params.viduAudio)}
-                                            className={`w-10 h-5 rounded-full relative transition-colors ${params.viduAudio ? "bg-purple-500" : "bg-hover-bg"}`}
-                                        >
-                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${params.viduAudio ? "left-6" : "left-1"}`} />
-                                        </button>
-                                    </div>
-                                )}
+                                <AudioModeSelector policy={{ mode: params.audioMode ?? 'post', audio_url: params.audioUrl, original_audio: params.originalAudio ?? 'drop' }}
+                                    capabilities={audioCapabilities[params.model] ?? UNKNOWN_AUDIO_CAPABILITIES}
+                                    onChange={policy => setParams({ ...params, audioMode: policy.mode, audioUrl: policy.audio_url ?? '', originalAudio: policy.original_audio })} />
+                                {params.audioMode === 'driven' && <Button variant="quiet" isPending={isUploadingAudio} onPress={() => audioInputRef.current?.click()}><Upload size={14} />{tAudio('uploadAudio')}</Button>}
 
                                 {/* Negative Prompt - only when model supports it */}
                                 {modelParams.negativePrompt && (

@@ -15,6 +15,9 @@ import {
 import { Dialog, Button } from "@omnistudio/ui";
 import ConfirmDialog from "@/components/shared/ConfirmDialog";
 import GroupedModelGrid from "@/components/common/GroupedModelGrid";
+import AudioModeSelector from '@/components/shared/AudioModeSelector';
+import { useVideoAudioCapabilities } from '@/components/shared/useVideoAudioCapabilities';
+import { UNKNOWN_AUDIO_CAPABILITIES } from '@/lib/audioPolicy';
 
 export interface VideoConfig {
     /** Active I2V model id (used by t2i_i2v shots). */
@@ -30,6 +33,7 @@ export interface VideoConfig {
     /** Unified audio intent. `post` keeps provider output silent for later mixing. */
     audioMode?: "silent" | "native" | "driven" | "post";
     audioUrl?: string;
+    originalAudio?: 'drop' | 'remove_vocals' | 'keep';
     // Kling
     mode?: string;
     cfgScale?: number;
@@ -101,6 +105,7 @@ function getProviderAccent(modelId: string): string {
 }
 
 export default function VideoConfigModal({ isOpen, onClose, config, onConfigChange, variant = "i2v" }: VideoConfigModalProps) {
+    const audioCapabilities = useVideoAudioCapabilities();
     const [draft, setDraft] = useState<VideoConfig>(config);
     const t = useTranslations("storyboardR2V");
     const tm = useTranslations("motion");
@@ -210,6 +215,9 @@ export default function VideoConfigModal({ isOpen, onClose, config, onConfigChan
                                 />
                             </motion.section>
 
+                            <AudioModeSelector policy={{ mode: draft.audioMode ?? 'post', audio_url: draft.audioUrl, original_audio: draft.originalAudio ?? 'drop' }}
+                                capabilities={audioCapabilities[activeModelId] ?? UNKNOWN_AUDIO_CAPABILITIES}
+                                onChange={policy => setDraft(previous => ({ ...previous, audioMode: policy.mode, audioUrl: policy.audio_url ?? undefined, originalAudio: policy.original_audio }))} />
                             {/* Duration */}
                             <motion.section
                                 custom={1}

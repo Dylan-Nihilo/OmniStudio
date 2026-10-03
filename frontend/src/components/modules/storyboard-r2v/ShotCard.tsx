@@ -34,11 +34,13 @@ import styles from "./ShotCard.module.css";
 import { findCharacterReference, resolveStoryboardReferenceTags, removeStoryboardReference } from '@/lib/assetReferences';
 import { selectedVariantUrl } from "@/lib/characterImage";
 import type { OmniReferenceSettings } from '@/lib/omniReferences';
+import type { AudioPolicy } from '@/lib/audioPolicy';
 import { detectPromptAspectRatioConflict, getAspectRatioCssValue } from '@/lib/aspectRatio';
 
 export interface ShotNode {
     id: string;
     omniReferences?: OmniReferenceSettings;
+    audioPolicyOverride?: AudioPolicy | null;
     prompt: string;
     imagePrompt?: string;
     promptMode?: "structured" | "complete";

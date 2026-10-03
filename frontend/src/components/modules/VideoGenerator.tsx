@@ -3,12 +3,13 @@
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { Video } from "lucide-react";
-import { useProjectStore } from "@/store/projectStore";
+import { useProjectStore, type VideoParams } from "@/store/projectStore";
 import VideoCreator from "./VideoCreator";
 import VideoSidebar from "./VideoSidebar";
 import { api, VideoTask } from "@/lib/api";
 import { resolveModelId } from "@/lib/modelCatalog";
 import StepHeader from "@/components/shared/StepHeader";
+import type { AudioMode } from '@/lib/audioPolicy';
 
 export default function VideoGenerator() {
     const tStep = useTranslations("stepHeader");
@@ -27,11 +28,12 @@ export default function VideoGenerator() {
     );
 
     // Generation Params (Lifted State)
-    const [params, setParams] = useState({
+    const [params, setParams] = useState<VideoParams>({
         resolution: "720p",
         duration: 5,
         seed: undefined as number | undefined,
-        generateAudio: true,  // Default to AI Sound enabled
+        generateAudio: false,
+        audioMode: 'post' as AudioMode,
         audioUrl: "",
         promptExtend: true,
         negativePrompt: "",
@@ -115,6 +117,7 @@ export default function VideoGenerator() {
             seed: task.seed,
             resolution: task.resolution || "720p",
             generateAudio: task.generate_audio,
+            audioMode: task.audio_mode ?? (task.audio_url ? 'driven' : task.generate_audio ? 'native' : 'post'),
             audioUrl: task.audio_url || "",
             promptExtend: task.prompt_extend ?? true,
             negativePrompt: task.negative_prompt || "",

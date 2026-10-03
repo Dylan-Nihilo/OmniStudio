@@ -10,6 +10,7 @@ import PreviewVideo from "@/components/shared/preview/PreviewVideo";
 import { downloadInChunks } from "@/lib/chunkedDownload";
 import { toast } from "@/store/toastStore";
 import { api, type BgmPreset } from "@/lib/api";
+import { appliedDubVideoUrl } from '@/lib/audioPolicy';
 import { getAssetUrl, extractErrorDetail } from "@/lib/utils";
 import StepPageHeader, { StepPill } from "@/components/shared/StepPageHeader";
 import SidePanelHeader from "@/components/shared/SidePanelHeader";
@@ -515,9 +516,7 @@ export default function VideoAssembly() {
                                         {selectedVideo ? (
                                             <video
                                                 src={getAssetUrl(
-                                                    frame.dubbed_video_task_id === selectedVideo.id && frame.dubbed_video_url
-                                                        ? frame.dubbed_video_url
-                                                        : selectedVideo.video_url
+                                                    appliedDubVideoUrl(frame, currentProject.audio_policy, selectedVideo.id) || selectedVideo.video_url
                                                 )}
                                                 className="w-full h-full object-contain"
                                                 muted
@@ -686,9 +685,7 @@ export default function VideoAssembly() {
                                                 <div className="aspect-video relative bg-black" style={{ aspectRatio: getAspectRatioCssValue(currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9") }}>
                                                     <video
                                                         src={getAssetUrl(
-                                                            selectedFrame?.dubbed_video_task_id === video.id && selectedFrame?.dubbed_video_url
-                                                                ? selectedFrame.dubbed_video_url
-                                                                : video.video_url
+                                                            appliedDubVideoUrl(selectedFrame, currentProject?.audio_policy, video.id) || video.video_url
                                                         )}
                                                         className="w-full h-full object-contain"
                                                         controls

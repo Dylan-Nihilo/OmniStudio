@@ -20,6 +20,8 @@ import { getMaxReferenceImages, getR2vRouteModelId, isR2vImageBased, VIDEO_I2V_M
 import ShotCard, { type ShotNode } from "./storyboard-r2v/ShotCard";
 import { buildAssembledPrompt } from "./storyboard-r2v/buildAssembledPrompt";
 import DialogueAudioRow, { useDialogueAudioRequests } from "./storyboard-r2v/DialogueAudioRow";
+import { useVideoAudioCapabilities } from '@/components/shared/useVideoAudioCapabilities';
+import { audioPoliciesEqual, shotAudioPolicy, UNKNOWN_AUDIO_CAPABILITIES, type AudioPolicy } from '@/lib/audioPolicy';
 import ProductionPlanDialog from "./production-plan/ProductionPlanDialog";
 import ProductionPrevisDialog from "./production-plan/ProductionPrevisDialog";
 import PreviewImage from "@/components/shared/preview/PreviewImage";
@@ -56,8 +58,8 @@ import DirectorPlanEditor from "@/components/modules/DirectorPlan/DirectorPlanEd
 // Reload recovery uses the frame's persisted image state; live requests stay in this tab.
 const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; operation: "generate" | "upload"; error?: string; recovering?: boolean; previousGenerationId?: string }>>>(() => ({}));
 const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
-const audioFields = ["audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "sfx_url", "preview_sfx_url", "sfx_fingerprint", "preview_sfx_fingerprint"] as const;
-const dubFields = ["preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
+const audioFields = ["dialogue_lines", "audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "sfx_url", "preview_sfx_url", "sfx_fingerprint", "preview_sfx_fingerprint"] as const;
+const dubFields = ["preview_audio_policy", "dubbed_audio_policy", "dubbed_audio_url", "preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
 // Live submissions outlive the page; persisted jobs provide full-reload recovery.
@@ -76,6 +78,9 @@ export default function StoryboardR2V() {
 
 function StoryboardWorkbench() {
     const [referenceUploads, setReferenceUploads] = useState<Set<string>>(() => new Set());
+    const audioCapabilities = useVideoAudioCapabilities();
+    const [savingAudio, setSavingAudio] = useState(false);
+    const tAudio = useTranslations('audioWorkflow');
     const currentProject = useProjectStore((state) => state.currentProject);
     const updateProject = useProjectStore((state) => state.updateProject);
     const t = useTranslations("storyboardR2V");
@@ -112,7 +117,7 @@ function StoryboardWorkbench() {
     const [shots, setShots] = useState<ShotNode[]>(() => {
         if (currentProject?.frames && currentProject.frames.length > 0) {
             const videoTasks: any[] = (currentProject as any).video_tasks ?? [];
-            return [...currentProject.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks))), ...draftSave.localShots()];
+            return [...currentProject.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, videoTasks, 'direct_r2v', currentProject.audio_policy))), ...draftSave.localShots()];
         }
         if (draftSave.localShots().length) return draftSave.localShots();
         return [migrateShotNode({ id: `shot_${Date.now()}`, prompt: "", tabMode: "direct_r2v" })];
@@ -140,8 +145,6 @@ function StoryboardWorkbench() {
         const ls = typeof window !== 'undefined' ? window.localStorage : null;
         const savedI2v = ls?.getItem('storyboard-r2v-model') ?? null;
         const savedR2v = ls?.getItem('storyboard-r2v-r2v-model') ?? null;
-        const savedAudioMode = ls?.getItem('storyboard-r2v-audio-mode') ?? null;
-        const savedAudioUrl = ls?.getItem('storyboard-r2v-audio-url') ?? null;
         const projectI2v = currentProject?.model_settings?.i2v_model;
 
         // I2V — defensive: a cached localStorage model id may have been
@@ -187,10 +190,8 @@ function StoryboardWorkbench() {
             model: i2vModelId,
             r2vModel: r2vModelId,
             duration: defaultDuration,
-            audioMode: savedAudioMode === "silent" || savedAudioMode === "native" || savedAudioMode === "driven" || savedAudioMode === "post"
-                ? savedAudioMode
-                : DEFAULT_VIDEO_CONFIG.audioMode,
-            audioUrl: savedAudioUrl || undefined,
+            audioMode: currentProject?.audio_policy?.mode ?? 'post',
+            audioUrl: currentProject?.audio_policy?.audio_url ?? undefined,
         };
     });
 
@@ -292,7 +293,7 @@ function StoryboardWorkbench() {
                 return [id, id === shot.id ? shot : { ...shot, id }];
             }));
             const next = currentProject.frames.map(frame => existing.get(frame.id)
-                ?? restoreDraft(frameToShotNode(frame, currentProject.video_tasks ?? [], currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v")));
+                ?? restoreDraft(frameToShotNode(frame, currentProject.video_tasks ?? [], currentProject.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v", currentProject.audio_policy)));
             const localIds = new Set(localShots().map(shot => shot.id));
             previous.forEach((shot, index) => {
                 if (resolveId(shot.id) === shot.id && (localIds.has(shot.id)
@@ -471,7 +472,7 @@ function StoryboardWorkbench() {
             && current.frames.every((frame, index) => frame.id === fresh.frames[index].id)) return current.frames;
         if (current.frames !== before || hasPendingDrafts()) return null;
         const defaultMode = current.default_generation_mode === "i2v" ? "t2i_i2v" : "direct_r2v";
-        shotsRef.current = fresh.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, fresh.video_tasks ?? [], defaultMode)));
+        shotsRef.current = fresh.frames.map((frame: any) => restoreDraft(frameToShotNode(frame, fresh.video_tasks ?? [], defaultMode, fresh.audio_policy)));
         setShots(shotsRef.current);
         setSelectedFrameId(fresh.frames[0].id);
         return fresh.frames as any[];
@@ -481,7 +482,10 @@ function StoryboardWorkbench() {
         const frames = currentProject?.frames ?? [];
         let dialogueReady = 0, dialogueMissing = 0;
         for (const frame of frames) {
-            const text = restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line ?? frame.dialogue_structured?.line ?? frame.dialogue ?? "";
+            const mode = shotAudioPolicy(currentProject?.audio_policy, frame.audio_policy_override, frame.omni_reference_settings).mode;
+            if (mode === 'silent') continue;
+            const lines = mode === 'native' ? frame.dialogue_lines?.filter((line: any) => line.mode === 'voiceover') : frame.dialogue_lines;
+            const text = lines?.length ? lines.map((line: any) => line.line).join('\n') : mode === 'native' && frame.dialogue_mode !== 'voiceover' ? '' : restoreDraft(frameToShotNode(frame, [])).dialogueStructured?.line ?? frame.dialogue_structured?.line ?? frame.dialogue ?? "";
             if (!text.trim()) continue;
             const speaker = resolveDialogueSpeaker(frame, characters);
             if (!speaker?.voice_id) { dialogueMissing++; continue; }
@@ -489,7 +493,7 @@ function StoryboardWorkbench() {
             if (!frame.audio_url || frame.dialogue_snapshot_text !== text || frame.dialogue_voice_id !== speaker.voice_id || (frame.dialogue_instructions ?? "") !== instructions) dialogueReady++;
         }
         return { frameCount: frames.length, dialogueReady, dialogueMissing };
-    }, [currentProject?.frames, characters, batchInstructions, dialogueRequests, restoreDraft]);
+    }, [currentProject?.frames, currentProject?.audio_policy, characters, batchInstructions, dialogueRequests, restoreDraft]);
 
     const handleBatchDialogue = useCallback(async () => {
         const projectId = currentProject?.id;
@@ -585,7 +589,7 @@ function StoryboardWorkbench() {
             const frame = project.frames.find(frame => frame.id === shot.id);
             if (!frame) return shot;
             displayedRefinements.current[shot.id] = version;
-            return restoreDraft({ ...shot, ...frameToShotNode(frame, project.video_tasks ?? [], shot.tabMode) });
+            return restoreDraft({ ...shot, ...frameToShotNode(frame, project.video_tasks ?? [], shot.tabMode, project.audio_policy) });
         });
         setShots(next);
     }, [refinedVersion, restoreDraft]);
@@ -715,9 +719,15 @@ function StoryboardWorkbench() {
 
     // Structured field updates — local immediate + debounce 3s auto-save
     const handleOmniChange = useCallback((shotId: string, value: OmniReferenceSettings) => {
-        setShots(previous => previous.map(shot => shot.id === shotId ? { ...shot, omniReferences: value } : shot));
+        setShots(previous => previous.map(shot => {
+            if (shot.id !== shotId) return shot;
+            const policy = shotAudioPolicy(currentProject?.audio_policy, shot.audioPolicyOverride, shot.omniReferences);
+            const changed = value.audio_mode !== policy.mode || (policy.mode === 'driven' && value.audios[0]?.url !== policy.audio_url);
+            return { ...shot, omniReferences: value, audioPolicyOverride: changed
+                ? { ...policy, mode: value.audio_mode, audio_url: value.audios[0]?.url } : shot.audioPolicyOverride };
+        }));
         queueDraft(shotId, 'fields', { omni_reference_settings: value }, 600);
-    }, [queueDraft]);
+    }, [queueDraft, currentProject?.audio_policy]);
 
     const handleUpdateField = useCallback((index: number, field: string, value: string | number | null) => {
         if (field === "duration" && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) return;
@@ -868,6 +878,7 @@ function StoryboardWorkbench() {
     const generateVideo = useCallback(async (index: number) => {
         const shot = shots[index];
         if (!currentProject || !shot.prompt.trim() || referenceUploads.has(shot.id)) return;
+        const audioPolicy = shotAudioPolicy(currentProject.audio_policy, shot.audioPolicyOverride, shot.omniReferences);
         warnPromptAspectConflict(shot.prompt);
 
         const promptText = buildAssembledPrompt(shot);
@@ -903,7 +914,7 @@ function StoryboardWorkbench() {
                     undefined, // seed
                     videoConfig.resolution,
                     false, // generateAudio
-                    videoConfig.audioUrl ?? "", // audioUrl
+                    audioPolicy.audio_url ?? "", // audioUrl
                     videoConfig.promptExtend,
                     videoConfig.negativePrompt,
                     1, // batchSize
@@ -918,7 +929,7 @@ function StoryboardWorkbench() {
                     undefined, // ratio
                     undefined, // workbenchTab
                     undefined, // watermark
-                    videoConfig.audioMode,
+                    audioPolicy.mode,
                 );
                 const task = Array.isArray(tasks) ? tasks[0] : tasks;
 
@@ -980,7 +991,7 @@ function StoryboardWorkbench() {
                     undefined, // seed
                     videoConfig.resolution,
                     false, // generateAudio
-                    videoConfig.audioUrl ?? "", // audioUrl
+                    audioPolicy.audio_url ?? "", // audioUrl
                     videoConfig.promptExtend,
                     videoConfig.negativePrompt,
                     1, // batchSize
@@ -1001,7 +1012,7 @@ function StoryboardWorkbench() {
                     undefined, // ratio
                     undefined, // workbenchTab
                     undefined, // watermark
-                    videoConfig.audioMode,
+                    audioPolicy.mode,
                 );
                 const task = Array.isArray(tasks) ? tasks[0] : tasks;
 
@@ -1035,6 +1046,7 @@ function StoryboardWorkbench() {
     ) => {
         const shot = shots[index];
         if (!currentProject || !shot?.prompt.trim() || referenceUploads.has(shot.id)) return;
+        const audioPolicy = shotAudioPolicy(currentProject.audio_policy, shot.audioPolicyOverride, shot.omniReferences);
         warnPromptAspectConflict(shot.prompt);
         const promptText = buildAssembledPrompt(shot);
         const tabMode = shot.tabMode;
@@ -1048,7 +1060,7 @@ function StoryboardWorkbench() {
         if (tabMode === "direct_r2v") {
             const refs = parseAssetTags(shot.prompt);
             if (refs.length === 0 && !(supportsOmniReferences(params?.model ?? videoConfig.r2vModel)
-                && ((shot.omniReferences?.videos.length ?? 0) > 0 || (shot.omniReferences?.audio_mode === 'driven' && shot.omniReferences.audios.length > 0)))) {
+                && ((shot.omniReferences?.videos.length ?? 0) > 0 || (audioPolicy.mode === 'driven' && (shot.omniReferences?.audios.length ?? 0) > 0)))) {
                 const hasTags = hasAssetTags(shot.prompt);
                 let errMsg: string;
                 if (hasTags) {
@@ -1125,7 +1137,7 @@ function StoryboardWorkbench() {
                         params?.seed,
                         params?.resolution ?? videoConfig.resolution,
                         false,
-                        params?.audioUrl ?? videoConfig.audioUrl ?? "",
+                        params?.audioUrl ?? audioPolicy.audio_url ?? "",
                         params?.promptExtend ?? videoConfig.promptExtend,
                         params?.negativePrompt ?? videoConfig.negativePrompt,
                         1,
@@ -1140,7 +1152,7 @@ function StoryboardWorkbench() {
                         params?.ratio,
                         tabMode,
                         params?.watermark,
-                        params?.audioMode ?? videoConfig.audioMode,
+                        params?.audioMode ?? audioPolicy.mode,
                     );
                     const task = Array.isArray(tasks) ? tasks[0] : tasks;
                     return task?.id ?? null;
@@ -1161,7 +1173,7 @@ function StoryboardWorkbench() {
                     params?.seed,
                     params?.resolution ?? videoConfig.resolution,
                     false,
-                    params?.audioUrl ?? videoConfig.audioUrl ?? "",
+                    params?.audioUrl ?? audioPolicy.audio_url ?? "",
                     params?.promptExtend ?? videoConfig.promptExtend,
                     params?.negativePrompt ?? videoConfig.negativePrompt,
                     1,
@@ -1179,7 +1191,7 @@ function StoryboardWorkbench() {
                     undefined,
                     tabMode,
                     params?.watermark,
-                    params?.audioMode ?? videoConfig.audioMode,
+                    params?.audioMode ?? audioPolicy.mode,
                 );
                 const task = Array.isArray(tasks) ? tasks[0] : tasks;
                 return task?.id ?? null;
@@ -1540,7 +1552,7 @@ function StoryboardWorkbench() {
             const next = previous.map(shot => {
                 const frame = currentProject?.frames.find(frame => frame.id === shot.id);
                 if (!frame) return shot;
-                const videoUrl = frameToShotNode(frame, []).videoUrl ?? shot.videoUrl;
+                const videoUrl = frameToShotNode(frame, [], shot.tabMode, currentProject?.audio_policy).videoUrl ?? shot.videoUrl;
                 const isVideoPinned = Boolean(frame.is_video_pinned);
                 if (videoUrl === shot.videoUrl && isVideoPinned === !!shot.isVideoPinned) return shot;
                 changed = true;
@@ -1548,7 +1560,7 @@ function StoryboardWorkbench() {
             });
             return changed ? next : previous;
         });
-    }, [currentProject?.frames]);
+    }, [currentProject?.frames, currentProject?.audio_policy]);
 
     useEffect(() => {
         setShots(previous => {
@@ -1666,6 +1678,30 @@ function StoryboardWorkbench() {
         })();
     }, [currentProject?.id, isCurrentProject, materializeShot, resolveId, t, updateProject]);
 
+    const persistAudioPolicy = useCallback(async (shot: ShotNode, policy: AudioPolicy | null, projectDefault = false) => {
+        const projectId = currentProject?.id;
+        const index = shotsRef.current.findIndex(item => item.id === shot.id);
+        if (!projectId || index < 0 || savingAudio) return;
+        setSavingAudio(true);
+        try {
+            const frameId = await materializeShot(shot, index);
+            if (!await flushDrafts()) throw new Error(t('saveFailed'));
+            if (!isCurrentProject()) return;
+            const result = await api.updateAudioPolicy(projectId, policy, projectDefault ? undefined : frameId);
+            if (!isCurrentProject()) return;
+            const current = useProjectStore.getState().currentProject!;
+            const confirmed = result.frames?.find((frame: any) => frame.id === frameId)?.audio_policy_override ?? null;
+            updateProject(projectId, projectDefault ? { audio_policy: result.audio_policy } : {
+                frames: current.frames.map(frame => frame.id === frameId ? { ...frame, audio_policy_override: confirmed } : frame),
+            });
+            if (!projectDefault) setShots(previous => previous.map(item => item.id === frameId || item.id === shot.id
+                ? { ...item, audioPolicyOverride: confirmed } : item));
+            toast.success(tAudio('saved'));
+        } catch (error) {
+            if (isCurrentProject()) toast.error(tAudio('saveFailed'), { body: error instanceof Error ? error.message : undefined });
+        } finally { setSavingAudio(false); }
+    }, [currentProject?.id, savingAudio, materializeShot, flushDrafts, isCurrentProject, updateProject, t, tAudio]);
+
     // Build a ParamsState from inherited videoConfig + per-shot overrides.
     // Single source of truth strategy:
     //  - Per-shot overrides (shotCounts, shotSeeds) for params whose
@@ -1682,6 +1718,7 @@ function StoryboardWorkbench() {
         const model = (isR2v ? VIDEO_R2V_MODELS : VIDEO_I2V_MODELS).find(candidate => candidate.id === modelId);
         const resolutions = model?.params.resolution;
         const masterAspectRatio = currentProject?.model_settings?.storyboard_aspect_ratio ?? "16:9";
+        const audioPolicy = shotAudioPolicy(currentProject?.audio_policy, shot.audioPolicyOverride, shot.omniReferences);
         return {
             model: modelId,
             duration: shot.duration ?? videoConfig.duration,
@@ -1696,8 +1733,9 @@ function StoryboardWorkbench() {
             // that omit a ratio.
             ratio: model?.params.ratio?.options.includes(masterAspectRatio) ? masterAspectRatio : undefined,
             negativePrompt: videoConfig.negativePrompt,
-            audioMode: shot.omniReferences?.audio_mode ?? videoConfig.audioMode,
-            audioUrl: shot.omniReferences ? shot.omniReferences.audios[0]?.url : videoConfig.audioUrl,
+            audioMode: audioPolicy.mode,
+            audioUrl: audioPolicy.audio_url ?? (audioPolicy.mode === 'driven' ? shot.omniReferences?.audios[0]?.url : undefined),
+            originalAudio: audioPolicy.original_audio,
             promptExtend: videoConfig.promptExtend,
             cfgScale: videoConfig.cfgScale,
             mode: videoConfig.mode,
@@ -1706,7 +1744,7 @@ function StoryboardWorkbench() {
             viduAudio: videoConfig.viduAudio,
             watermark: videoConfig.watermark,
         };
-    }, [currentProject?.model_settings?.storyboard_aspect_ratio, videoConfig, shotCounts, shotSeeds]);
+    }, [currentProject?.model_settings?.storyboard_aspect_ratio, currentProject?.audio_policy, videoConfig, shotCounts, shotSeeds]);
 
     // ParamsSection.onChange handler: per-shot overrides (model, count, seed)
     // go into their dedicated maps; everything else writes back to
@@ -1715,6 +1753,10 @@ function StoryboardWorkbench() {
     // localStorage as a recovery cache only. Model selection is a durable
     // sparse Shot override and can be reset to the inherited parent value.
     const handleShotParamsChange = useCallback((shot: ShotNode, next: ParamsState) => {
+        const policy = shotAudioPolicy(currentProject?.audio_policy, shot.audioPolicyOverride, shot.omniReferences);
+        if (next.audioMode !== policy.mode || (next.audioUrl ?? '') !== (policy.audio_url ?? shot.omniReferences?.audios[0]?.url ?? '') || next.originalAudio !== policy.original_audio) {
+            void persistAudioPolicy(shot, { mode: next.audioMode ?? 'post', audio_url: next.audioUrl, original_audio: next.originalAudio ?? 'drop' });
+        }
         if ((shotCounts[shot.id] ?? 1) !== next.count) {
             persistWorkbench(shot.id, { workbench_generate_count: next.count });
         }
@@ -1745,15 +1787,12 @@ function StoryboardWorkbench() {
             ? String(shot.modelSettingsOverrides[modelField])
             : inheritedModel;
         if (next.model !== currentModel) persistShotModel(shot, modelField, next.model);
-        const ls = typeof window !== "undefined" ? window.localStorage : null;
         setVideoConfig(prev => {
             const updated: VideoConfig = {
                 ...prev,
                 duration: next.duration,
                 resolution: next.resolution ?? prev.resolution,
                 negativePrompt: next.negativePrompt ?? prev.negativePrompt,
-                audioMode: shot.omniReferences ? prev.audioMode : next.audioMode ?? prev.audioMode ?? "post",
-                audioUrl: shot.omniReferences ? prev.audioUrl : next.audioUrl ?? prev.audioUrl,
                 promptExtend: next.promptExtend ?? prev.promptExtend,
                 cfgScale: next.cfgScale ?? prev.cfgScale,
                 mode: next.mode ?? prev.mode,
@@ -1764,12 +1803,9 @@ function StoryboardWorkbench() {
                 // it") so swapping to a non-watermark-supporting model clears it.
                 watermark: next.watermark,
             };
-            if (updated.audioMode) ls?.setItem("storyboard-r2v-audio-mode", updated.audioMode);
-            if (updated.audioUrl) ls?.setItem("storyboard-r2v-audio-url", updated.audioUrl);
-            else ls?.removeItem("storyboard-r2v-audio-url");
             return updated;
         });
-    }, [persistWorkbench, persistShotModel, shotCounts, shots, videoConfig, handleUpdateField]);
+    }, [persistWorkbench, persistShotModel, persistAudioPolicy, currentProject?.audio_policy, shotCounts, shots, videoConfig, handleUpdateField]);
 
     const annotationRequests = useRef(new Map<string, Promise<void>>());
     const annotateCandidate = useCallback((task: VideoTask, payload: Parameters<typeof api.annotateVideoTask>[2]): Promise<void> => {
@@ -1936,7 +1972,7 @@ function StoryboardWorkbench() {
         if (!currentProject || !isCurrentProject()) return;
         updateProject(currentProject.id, patch);
         if (replaceFrames && patch.frames) {
-            setShots(patch.frames.map(frame => frameToShotNode(frame, patch.video_tasks ?? currentProject.video_tasks ?? [])));
+            setShots(patch.frames.map(frame => frameToShotNode(frame, patch.video_tasks ?? currentProject.video_tasks ?? [], 'direct_r2v', patch.audio_policy ?? currentProject.audio_policy)));
             setSelectedFrameId(patch.frames[0]?.id ?? null);
         }
     }, [currentProject?.id, isCurrentProject, updateProject, setSelectedFrameId]);
@@ -2034,8 +2070,8 @@ function StoryboardWorkbench() {
                     const paramsState = paramsStateForShot(shot);
                     const isI2vTab = shot.tabMode === "t2i_i2v";
                     const omniSupported = !isI2vTab && supportsOmniReferences(paramsState.model);
-                    const omni = shot.omniReferences ?? { videos: [], audios: [], audio_mode: paramsState.audioMode ?? 'post' };
-                    const hasOmni = !!shot.omniReferences && (omni.videos.length > 0 || omni.audios.length > 0 || omni.audio_mode !== 'post');
+                    const omni = { ...(shot.omniReferences ?? { videos: [], audios: [] }), audio_mode: paramsState.audioMode ?? 'post' };
+                    const hasOmni = !!shot.omniReferences && (omni.videos.length > 0 || (omni.audio_mode === 'driven' && omni.audios.length > 0));
                     const modelList = isI2vTab ? VIDEO_I2V_MODELS : VIDEO_R2V_MODELS;
                     const shotModelField: ShotModelField = isI2vTab ? "i2v_model" : "r2v_model";
                     const hasModelOverride = Object.prototype.hasOwnProperty.call(shot.modelSettingsOverrides ?? {}, shotModelField);
@@ -2095,6 +2131,8 @@ function StoryboardWorkbench() {
                             } · ${paramsState.duration}s`}
                             canGenerate={
                                 !referenceUploads.has(shot.id)
+                                && !savingAudio
+                                && (audioCapabilities[paramsState.model] ?? UNKNOWN_AUDIO_CAPABILITIES).modes.includes(paramsState.audioMode ?? 'post')
                                 && !(hasOmni && !omniSupported)
                                 && !(omniSupported && omni.audio_mode === 'driven' && !omni.audios.length)
                                 &&
@@ -2141,25 +2179,35 @@ function StoryboardWorkbench() {
                             const hasVideoTask = !!(frame.selected_video_id || (currentProject as any)?.video_tasks?.find((t: any) => t.frame_id === frame.id && t.status === "completed"));
                             // Show row when dialogue exists, or when video exists (dub available)
                             if (!dialogueText?.trim() && !hasVideoTask) return null;
+                            if (paramsState.audioMode === 'silent') return null;
+                            const native = paramsState.audioMode === 'native';
+                            const lines = native ? frame.dialogue_lines?.filter((line: any) => line.mode === 'voiceover') : frame.dialogue_lines;
+                            const hasNarration = !!lines?.length || !frame.dialogue_lines?.length && frame.dialogue_mode === 'voiceover';
+                            const replace = <Button variant="quiet" isDisabled={savingAudio}
+                                onPress={() => { void persistAudioPolicy(shot, { mode: 'post', original_audio: 'drop' }); }}>{tAudio('replaceDialogue')}</Button>;
+                            if (native && !hasNarration) return replace;
                             const speaker = resolveDialogueSpeaker(frame, characters);
                             return (
                                 <div className="mx-5 mb-4">
-                                    <SelectField label={t("dialogueModeLabel")} value={frame.dialogue_mode ?? "on_screen"}
+                                    {native && replace}
+                                    {!native && <SelectField label={t("dialogueModeLabel")} value={frame.dialogue_mode ?? "on_screen"}
                                         onChange={value => queueDraft(frame.id, "fields", { dialogue_mode: String(value) as "on_screen" | "voiceover" }, 300)}
-                                        options={[{ id: "on_screen", label: t("dialogueModeOnScreen") }, { id: "voiceover", label: t("dialogueModeVoiceover") }]} />
+                                        options={[{ id: "on_screen", label: t("dialogueModeOnScreen") }, { id: "voiceover", label: t("dialogueModeVoiceover") }]} />}
                                     {(videoConfig.model === "minimax/minimax-h3" || videoConfig.r2vModel === "minimax/minimax-h3") && dialogueText?.trim() && frame.dialogue_mode !== "voiceover" &&
                                         <p className="my-2 text-xs text-text-secondary">{t("h3DialogueReferenceHint")}</p>}
                                     <DialogueAudioRow key={frame.id}
                                         scriptId={currentProject!.id}
                                         frameId={frame.id}
-                                        dialogue={dialogueText}
-                                        dialogueLines={frame.dialogue_lines}
+                                        dialogue={native && lines?.length ? lines.map((line: any) => line.line).join('\n') : dialogueText}
+                                        dialogueLines={lines}
                                         resolveSpeakerVoice={resolveSpeakerVoice}
                                         frameDurationSeconds={frame.duration}
                                         onUpdateDialogueLines={async (lines) => {
                                             if (!currentProject) return;
                                             try {
-                                                await api.updateFrame(currentProject.id, frame.id, { dialogue_lines: lines });
+                                                let nextLine = 0;
+                                                const allLines = native ? frame.dialogue_lines.map((line: any) => line.mode === 'voiceover' ? lines[nextLine++] : line) : lines;
+                                                await api.updateFrame(currentProject.id, frame.id, { dialogue_lines: allLines });
                                                 const updated = await api.getProject(currentProject.id);
                                                 if (updated?.frames) updateProject(currentProject.id, { frames: updated.frames });
                                             } catch (e) {
@@ -2208,6 +2256,7 @@ function StoryboardWorkbench() {
                                                 (t: any) => t.frame_id === frame.id && t.status === "completed"
                                             )?.id}
                                         previewVideoUrl={frame.preview_video_url}
+                                        previewPolicyStale={!!frame.preview_audio_policy && !audioPoliciesEqual(frame.preview_audio_policy, shotAudioPolicy(currentProject?.audio_policy, shot.audioPolicyOverride, shot.omniReferences))}
                                         previewAudioUrl={frame.preview_audio_url}
                                         previewVideoTaskId={frame.preview_video_task_id}
                                         previewSourceVideoUrl={frame.preview_source_video_url}
@@ -2218,7 +2267,7 @@ function StoryboardWorkbench() {
                                         dubbedVideoTaskId={frame.dubbed_video_task_id}
                                         dubbedVideoUrl={frame.dubbed_video_url}
                                         dubOffsetMs={frame.dub_offset_ms ?? 0}
-                                        allowLipSync={frame.dialogue_mode !== "voiceover"}
+                                        allowLipSync={!native && frame.dialogue_mode !== "voiceover" && !(lines ?? []).some((line: any) => line.mode === 'voiceover')}
                                         speakerName={speaker?.name}
                                         speakerFaceUrl={speaker?.headshot_image_url}
                                         onUploadSpeakerFace={speaker ? async file => {
@@ -2232,7 +2281,7 @@ function StoryboardWorkbench() {
                                                     headshot_image_url: uploaded.headshot_image_url, headshot_asset: uploaded.headshot_asset, head_shot: uploaded.head_shot } : character) });
                                             }
                                         } : undefined}
-                                        onPreviewDub={async (videoTaskId: string, offsetMs: number, lipSync = false) => {
+                                        onPreviewDub={paramsState.audioMode === 'driven' ? undefined : async (videoTaskId: string, offsetMs: number, lipSync = false) => {
                                             const result = await api.previewDub(currentProject!.id, frame.id, videoTaskId, offsetMs, lipSync);
                                             mergeAudioResult(frame.id, result, dubFields);
                                         }}
@@ -2261,7 +2310,7 @@ function StoryboardWorkbench() {
                             );
                         })()}
                             configuration={<>{(omniSupported || hasOmni) && <OmniReferenceSection key={shot.id}
-                                value={omni} supported={omniSupported} readOnly={planReadOnly}
+                                value={omni} supported={omniSupported} readOnly={planReadOnly || savingAudio} hideAudioSelector
                                 imageCount={parseAssetTags(shot.prompt).length + (plannedSegment?.shots.length ?? 0)}
                                 onChange={value => handleOmniChange(shot.id, value)}
                                 onPendingChange={pending => setReferenceUploads(previous => {
@@ -2312,7 +2361,12 @@ function StoryboardWorkbench() {
                                 candidates in direct_r2v mode. */}
                             <div className={isI2vTab ? "border-t border-glass-border" : ""}>
                                 <ParamsSection key={shot.id}
-                                    hideAudioControls={omniSupported}
+                                    audioCapabilities={audioCapabilities}
+                                    audioSaving={savingAudio}
+                                    hasAudioOverride={!!shot.audioPolicyOverride}
+                                    onResetAudio={() => { void persistAudioPolicy(shot, null); }}
+                                    onSetAudioDefault={() => { void persistAudioPolicy(shot, shotAudioPolicy(currentProject?.audio_policy, shot.audioPolicyOverride, shot.omniReferences), true); }}
+                                    externalAudioInput={omniSupported}
                                     shotId={shot.id}
                                     modelList={modelList}
                                     onEditPlannedTiming={plannedSegment ? () => setGenDialogOpen(true) : undefined}
