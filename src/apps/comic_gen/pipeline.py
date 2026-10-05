@@ -4510,14 +4510,15 @@ class ComicGenPipeline:
             if probe_result.returncode != 0:
                 raise RuntimeError("ffprobe failed")
             video_duration = float(probe_result.stdout.strip())
-        except Exception:
-            video_duration = 600.0
-        total_seconds = video_duration + abs(offset_ms) / 1000.0 + 0.5
-        if frame.audio_policy_override:
-            _, voice_end = _dialogue_audio_bounds(frame.audio_url)
-            total_seconds = video_duration + max(0, -offset_ms) / 1000.0
-            if voice_end + max(0, offset_ms) / 1000.0 > total_seconds + 0.04:
-                raise ValueError("配音超出视频时长，请调整配音位置、语速或使用更长的视频")
+        except Exception as exc:
+            raise RuntimeError("无法读取视频时长，不能验证配音完整性") from exc
+        if not math.isfinite(video_duration) or video_duration <= 0:
+            raise ValueError("视频时长无效，不能验证配音完整性")
+        _, voice_end = _dialogue_audio_bounds(frame.audio_url)
+        total_seconds = video_duration + max(0, -offset_ms) / 1000.0
+        required_seconds = voice_end + max(0, offset_ms) / 1000.0
+        if required_seconds > total_seconds + 0.04:
+            raise ValueError(f"配音需要 {required_seconds:.2f} 秒，视频只有 {total_seconds:.2f} 秒；请调整语速、对白或使用更长的视频")
 
         import tempfile
         work_dir = tempfile.mkdtemp(prefix="dub_mix_")
@@ -4612,6 +4613,13 @@ class ComicGenPipeline:
                 raise ValueError("The preview no longer matches the selected audio and video. Generate a new preview")
             if not os.path.isfile(_safe_resolve_path("output", frame.preview_video_url)):
                 raise ValueError("The preview file is missing. Generate a new preview")
+            preview_path = _safe_resolve_path("output", frame.preview_video_url)
+            preview_duration = float(subprocess.check_output([get_ffprobe_path(), "-v", "error",
+                "-show_entries", "format=duration", "-of", "csv=p=0", preview_path], text=True, timeout=30).strip())
+            _, speech_end = _dialogue_audio_bounds(frame.audio_url)
+            required_seconds = speech_end + max(0, frame.preview_offset_ms or 0) / 1000
+            if not math.isfinite(preview_duration) or preview_duration <= 0 or required_seconds > preview_duration + 0.05:
+                raise ValueError(f"预览会截断配音（需要 {required_seconds:.2f} 秒），请调整后重新预览")
             # ponytail: retain replaced files; cleanup needs reference-aware media GC.
             self._save_fields(frame, dubbed_video_url=frame.preview_video_url, dubbed_video_task_id=task.id,
                 dubbed_audio_policy=frame.preview_audio_policy, dubbed_audio_url=frame.preview_audio_url,

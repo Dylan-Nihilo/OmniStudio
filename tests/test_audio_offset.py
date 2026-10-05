@@ -93,6 +93,7 @@ def test_preview_dub_builds_expected_ffmpeg_filter(monkeypatch, offset_ms, has_b
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
     monkeypatch.setattr(pipeline_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline_module, "_dialogue_audio_bounds", lambda *args: (0, 2))
 
     result = pipeline.preview_dub(
         "script-1", "frame-1", "video-1", offset_ms=offset_ms

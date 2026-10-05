@@ -109,7 +109,13 @@ def test_assembler_refuses_overlapping_speech_instead_of_mixing_it(tmp_path):
 
 
 @requires_ffmpeg
-def test_calibration_preserves_gaps_and_reports_cascading_overrun(tmp_path, monkeypatch):
+@pytest.mark.parametrize("lengths,expected_starts,second_overrun,min_duration", [
+    ([2, 0.5, 2], [0, 2, 4], False, 6),
+    ([4, 0.5, 1], [0, 4, 4.5], True, 5.5),
+])
+def test_calibration_preserves_gaps_and_reports_cascading_overrun(
+    tmp_path, monkeypatch, lengths, expected_starts, second_overrun, min_duration,
+):
     monkeypatch.chdir(tmp_path)
     frame = StoryboardFrame(id="cascade", scene_id="scene", duration=5, dialogue_lines=[
         DialogueLine(speaker="A", line="first", start_seconds=0),
@@ -117,7 +123,7 @@ def test_calibration_preserves_gaps_and_reports_cascading_overrun(tmp_path, monk
         DialogueLine(speaker="C", line="third", start_seconds=4),
     ])
     generator = AudioGenerator({"output_dir": "output/audio"})
-    lengths = iter([2, 0.5, 2])
+    lengths = iter(lengths)
 
     class Tts:
         def synthesize(self, text, path, **kwargs):
@@ -129,11 +135,10 @@ def test_calibration_preserves_gaps_and_reports_cascading_overrun(tmp_path, monk
     generator.generate_dialogue_lines(frame, plans, total_duration=5)
     assert frame.status == GenerationStatus.COMPLETED, frame.audio_error
     starts = [line.scheduled_start_seconds for line in frame.dialogue_lines]
-    assert starts[0] == 0
-    assert starts[1] == pytest.approx(2, abs=0.06)
-    assert starts[2] == 4
+    assert starts == pytest.approx(expected_starts, abs=0.06)
+    assert frame.dialogue_lines[1].overruns_shot is second_overrun
     assert frame.dialogue_lines[2].overruns_shot
-    assert _audio_duration(os.path.join("output", frame.audio_url)) >= 6
+    assert _audio_duration(os.path.join("output", frame.audio_url)) >= min_duration
 
 
 def test_legacy_mixed_track_requires_regeneration():
