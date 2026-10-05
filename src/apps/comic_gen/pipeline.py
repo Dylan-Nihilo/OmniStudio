@@ -3035,6 +3035,7 @@ class ComicGenPipeline:
                 was = previous.get(index)
                 if was is not None and was.line != line.line:
                     line.audio_url, line.duration, line.overruns_shot = None, None, False
+                    line.scheduled_start_seconds = None
             frame.dialogue_lines = lines
             frame.dialogue = "\n".join(line.line for line in lines)
             if frame.dialogue_structured:
