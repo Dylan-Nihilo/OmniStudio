@@ -411,6 +411,17 @@ def _clip_duration_seconds(frame: Any) -> float:
     return duration
 
 
+def _validate_dub_duration(frame: StoryboardFrame, media_duration: float, offset_ms: int) -> None:
+    if not math.isfinite(media_duration) or media_duration <= 0:
+        raise ValueError("视频时长无效，不能验证配音完整性")
+    _, speech_end = _dialogue_audio_bounds(frame.audio_url)
+    trim_start = frame.in_point or 0
+    available_end = min(media_duration, trim_start + _clip_duration_seconds(frame))
+    required_end = speech_end + max(0, offset_ms) / 1000
+    if required_end > available_end + 0.05:
+        raise ValueError(f"配音需要 {required_end - trim_start:.2f} 秒，视频可用 {max(0, available_end - trim_start):.2f} 秒；请调整对白、语速或镜头时长后重新预览")
+
+
 def _transition_overlap(previous: Any, elapsed: float, next_duration: float) -> float:
     if _transition_filter_name(getattr(previous, "transition_hint", None)) is None:
         return 0.0
@@ -4514,11 +4525,8 @@ class ComicGenPipeline:
             raise RuntimeError("无法读取视频时长，不能验证配音完整性") from exc
         if not math.isfinite(video_duration) or video_duration <= 0:
             raise ValueError("视频时长无效，不能验证配音完整性")
-        _, voice_end = _dialogue_audio_bounds(frame.audio_url)
         total_seconds = video_duration + max(0, -offset_ms) / 1000.0
-        required_seconds = voice_end + max(0, offset_ms) / 1000.0
-        if required_seconds > total_seconds + 0.04:
-            raise ValueError(f"配音需要 {required_seconds:.2f} 秒，视频只有 {total_seconds:.2f} 秒；请调整语速、对白或使用更长的视频")
+        _validate_dub_duration(frame, total_seconds, offset_ms)
 
         import tempfile
         work_dir = tempfile.mkdtemp(prefix="dub_mix_")
@@ -4616,10 +4624,7 @@ class ComicGenPipeline:
             preview_path = _safe_resolve_path("output", frame.preview_video_url)
             preview_duration = float(subprocess.check_output([get_ffprobe_path(), "-v", "error",
                 "-show_entries", "format=duration", "-of", "csv=p=0", preview_path], text=True, timeout=30).strip())
-            _, speech_end = _dialogue_audio_bounds(frame.audio_url)
-            required_seconds = speech_end + max(0, frame.preview_offset_ms or 0) / 1000
-            if not math.isfinite(preview_duration) or preview_duration <= 0 or required_seconds > preview_duration + 0.05:
-                raise ValueError(f"预览会截断配音（需要 {required_seconds:.2f} 秒），请调整后重新预览")
+            _validate_dub_duration(frame, preview_duration, frame.preview_offset_ms or 0)
             # ponytail: retain replaced files; cleanup needs reference-aware media GC.
             self._save_fields(frame, dubbed_video_url=frame.preview_video_url, dubbed_video_task_id=task.id,
                 dubbed_audio_policy=frame.preview_audio_policy, dubbed_audio_url=frame.preview_audio_url,

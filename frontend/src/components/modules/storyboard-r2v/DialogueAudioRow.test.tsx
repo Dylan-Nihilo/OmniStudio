@@ -39,6 +39,21 @@ describe('Dialogue audio workbench', () => {
         expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
     });
 
+    it('does not count a negative preview offset twice after metadata loads', () => {
+        render(<DialogueAudioRow {...props} frameId="negative-duration" dialogueLines={[
+            { speaker: 'Sue', line: props.dialogue, start_seconds: 0, scheduled_start_seconds: 0,
+                duration: 7, voice_id: 'voice', audio_url: 'line.mp3' },
+        ]} resolveSpeakerVoice={() => ({ id: 'voice', name: 'Sue' })} frameDurationSeconds={10}
+            videoUrl="take.mp4" videoTaskId="take" onPreviewDub={vi.fn()}
+            previewVideoUrl="preview.mp4" previewVideoTaskId="take" previewOffsetMs={-1000} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const video = screen.getByRole('dialog').querySelector('video')!;
+        Object.defineProperty(video, 'duration', { value: 6 });
+        fireEvent.loadedMetadata(video);
+        expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
+        expect(screen.getByText('audioTooLong')).toBeVisible();
+    });
+
     it('uploads the speaker reference and requests lip sync without applying the preview', async () => {
         const preview = vi.fn().mockResolvedValue(undefined), upload = vi.fn().mockResolvedValue(undefined), apply = vi.fn();
         const dub = { ...props, frameId: 'lip-sync', videoUrl: 'take.mp4', videoTaskId: 'take', allowLipSync: true,

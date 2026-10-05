@@ -20,6 +20,8 @@ interface DialogueAudioRowProps {
     resolveSpeakerVoice?: (speaker: string) => { id: string; name: string; carriesDirection?: boolean } | undefined;
     /** Segment length, so the position control works before the video reports its own. */
     frameDurationSeconds?: number | null;
+    inPointSeconds?: number | null;
+    outPointSeconds?: number | null;
     onUpdateDialogueLines?: (lines: DialogueLine[]) => void | Promise<void>;
     actionDescription?: string | null;
     draftDialogue?: string;
@@ -97,7 +99,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
     return <DialogueWorkbench key={scope} {...props} scope={scope} />;
 }
 
-function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, resolveSpeakerVoice, frameDurationSeconds, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
+function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, resolveSpeakerVoice, frameDurationSeconds, inPointSeconds, outPointSeconds, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, snapshotSpeed = 1, snapshotPitch = 1, snapshotVolume = 50, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, previewPolicyStale, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
     dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
@@ -172,12 +174,17 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     // The offset controls only knew the length the video element reported, so they sat at 0
     // and disabled until its metadata arrived — or for ever, if it never did. The segment's
     // own length is known all along.
-    const timelineMs = duration || Math.round((frameDurationSeconds ?? 0) * 1000);
+    const displayedOffset = previewVideoTaskId === videoTaskId && previewVideoUrl ? previewOffsetMs ?? 0
+        : dubbedVideoTaskId === videoTaskId && dubbedVideoUrl ? dubOffsetMs : 0;
+    const timelineMs = duration ? Math.max(0, duration - Math.max(0, -displayedOffset)) : Math.round((frameDurationSeconds ?? 0) * 1000);
     const speechEnd = perLine ? Math.max(0, ...(dialogueLines ?? []).map(line =>
         (line.scheduled_start_seconds ?? line.start_seconds ?? 0) + (line.duration ?? 0))) : 0;
-    const requiredMs = Math.round(speechEnd * 1000) + Math.max(0, offset);
+    const trimStartMs = Math.round((inPointSeconds ?? 0) * 1000);
+    const clipEndMs = outPointSeconds != null ? outPointSeconds * 1000
+        : frameDurationSeconds ? trimStartMs + frameDurationSeconds * 1000 : Infinity;
+    const requiredMs = Math.round(speechEnd * 1000) + Math.max(0, offset) - trimStartMs;
     // Negative offsets delay the video, as in the backend preview renderer.
-    const availableMs = timelineMs + Math.max(0, -offset);
+    const availableMs = Math.max(0, Math.min(timelineMs + Math.max(0, -offset), clipEndMs) - trimStartMs);
     const audioTooLong = !stale && timelineMs > 0 && requiredMs > availableMs + 50;
     // One track, one face: lip-sync cannot be aimed at a segment where several people
     // speak. Said plainly rather than asking for a face that could only be right for one.

@@ -2202,6 +2202,8 @@ function StoryboardWorkbench() {
                                         dialogueLines={lines}
                                         resolveSpeakerVoice={resolveSpeakerVoice}
                                         frameDurationSeconds={frame.duration}
+                                        inPointSeconds={frame.in_point}
+                                        outPointSeconds={frame.out_point}
                                         onUpdateDialogueLines={async (lines) => {
                                             if (!currentProject) return;
                                             try {

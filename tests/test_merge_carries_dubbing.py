@@ -67,11 +67,13 @@ def _add_silent_audio(path):
 
 
 @requires_ffmpeg
-def test_legacy_preview_rejects_truncated_speech(api_client):
+@pytest.mark.parametrize("speech_duration,frame_duration", [(4, 2), (1.5, 1)])
+def test_legacy_preview_rejects_truncated_speech(api_client, speech_duration, frame_duration):
     project_id = _episode(api_client, with_dub=True)
     frame = api_module.pipeline.scripts[project_id].frames[0]
-    _tone("output/audio/line.mp3", seconds=4)
-    with pytest.raises(ValueError, match="配音.*4"):
+    frame.duration = frame_duration
+    _tone("output/audio/line.mp3", seconds=speech_duration)
+    with pytest.raises(ValueError, match="配音"):
         api_module.pipeline._render_dub_preview(frame, "video/shot.mp4", 0)
 
 
