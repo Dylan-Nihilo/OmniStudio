@@ -48,6 +48,13 @@ models:
         line: overseas
         overseas_model: minimax-A
         dialect: minimax_a
+        audio_modes: [post, silent, native, driven]
+        audio_input_kind: reference
+        can_disable_native: false
+      moma:
+        audio_modes: [post, silent, native, driven]
+        audio_input_kind: timing
+        can_disable_native: true
     docs:
       context_hub_doc_ids:
         - jojokey/minimax-a-api

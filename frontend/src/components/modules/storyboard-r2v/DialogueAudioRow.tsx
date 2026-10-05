@@ -51,6 +51,7 @@ interface DialogueAudioRowProps {
     videoUrl?: string;
     videoTaskId?: string;
     previewVideoUrl?: string;
+    previewPolicyStale?: boolean;
     previewAudioUrl?: string;
     previewVideoTaskId?: string;
     previewSourceVideoUrl?: string;
@@ -98,7 +99,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
 
 function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, resolveSpeakerVoice, frameDurationSeconds, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, snapshotSpeed = 1, snapshotPitch = 1, snapshotVolume = 50, onAudioUpdated, onUpdateDialogue, onDraftChange,
-    videoUrl, videoTaskId, previewVideoUrl, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
+    videoUrl, videoTaskId, previewVideoUrl, previewPolicyStale, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
     dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
 }: DialogueAudioRowProps & { scope: string }) {
     const t = useTranslations("dialogueAudio");
@@ -179,7 +180,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     const error = request?.error || dubError || audioError;
     const displayVideo = (previewVideoTaskId === videoTaskId && previewVideoUrl) || (dubbedVideoTaskId === videoTaskId && dubbedVideoUrl) || videoUrl;
     const canDub = !!(audioUrl && videoUrl && videoTaskId && onPreviewDub);
-    const previewChanged = offset !== previewOffsetMs || stale || mediaIdentity(previewAudioUrl) !== mediaIdentity(audioUrl) || previewVideoTaskId !== videoTaskId || mediaIdentity(previewSourceVideoUrl) !== mediaIdentity(videoUrl);
+    const previewChanged = !!previewPolicyStale || offset !== previewOffsetMs || stale || mediaIdentity(previewAudioUrl) !== mediaIdentity(audioUrl) || previewVideoTaskId !== videoTaskId || mediaIdentity(previewSourceVideoUrl) !== mediaIdentity(videoUrl);
     const status = generating ? "generating" : error ? "error" : stale ? "stale" : audioUrl ? "ready" : "empty";
     const changeInstructions = (nextEmotion: string, nextText: string) => {
         setEmotion(nextEmotion); setFreeText(nextText);

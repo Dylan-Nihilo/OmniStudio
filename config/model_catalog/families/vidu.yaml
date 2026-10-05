@@ -42,6 +42,8 @@ models:
         gateway: dashscope
       vendor:
         gateway: vidu
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     docs:
       context_hub_doc_ids:
         - aliyun/bailian-vidu-proxy
@@ -124,6 +126,8 @@ models:
         gateway: dashscope
       vendor:
         gateway: vidu
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     docs:
       context_hub_doc_ids:
         - aliyun/bailian-vidu-proxy

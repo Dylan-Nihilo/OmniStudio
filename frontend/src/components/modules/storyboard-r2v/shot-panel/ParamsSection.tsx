@@ -27,6 +27,8 @@ import { usePricingTable } from "@/store/billingStore";
 import { creditLabel, unitLabels } from "@/lib/modelCost";
 import { usePanelSectionState } from "./usePanelSectionState";
 import SectionShell from "./SectionShell";
+import AudioModeSelector from '@/components/shared/AudioModeSelector';
+import { UNKNOWN_AUDIO_CAPABILITIES, type AudioPolicy, type VideoAudioCapabilities } from '@/lib/audioPolicy';
 // PR-3c · Loader2/Sparkles/WorkflowActionButton removed with the Generate
 // CTA — generation lives in ShotCard's inline row now.
 
@@ -43,6 +45,7 @@ export interface ParamsState {
     negativePrompt?: string;
     audioMode?: "silent" | "native" | "driven" | "post";
     audioUrl?: string;
+    originalAudio?: AudioPolicy['original_audio'];
     seed?: number;
     promptExtend?: boolean;
     cfgScale?: number;
@@ -81,6 +84,12 @@ interface ParamsSectionProps {
     onResetModel?: () => void;
     onEditPlannedTiming?: () => void;
     hideAudioControls?: boolean;
+    audioCapabilities?: Record<string, VideoAudioCapabilities>;
+    audioSaving?: boolean;
+    hasAudioOverride?: boolean;
+    onResetAudio?: () => void;
+    onSetAudioDefault?: () => void;
+    externalAudioInput?: boolean;
 }
 
 // COUNT_OPTIONS removed in PR-3c — count selector relocated to ShotCard's
@@ -97,6 +106,7 @@ export default function ParamsSection({
     hasModelOverride = false,
     modelOverrideSaving = false,
     onResetModel, onEditPlannedTiming, hideAudioControls = false,
+    audioCapabilities = {}, audioSaving, hasAudioOverride, onResetAudio, onSetAudioDefault, externalAudioInput,
 }: ParamsSectionProps) {
     const t = useTranslations("storyboardR2V");
     const [open, setOpen] = usePanelSectionState(shotId, "params", true);
@@ -163,8 +173,6 @@ export default function ParamsSection({
         !!modelParams.cfgScale ||
         !!modelParams.mode ||
         !!modelParams.movementAmplitude ||
-        !!modelParams.sound ||
-        !!modelParams.viduAudio ||
         !!modelParams.shotType ||
         !!modelParams.watermark;
 
@@ -183,7 +191,9 @@ export default function ParamsSection({
             <div className="space-y-3">
                 <div className="flex min-w-0 items-end gap-2">
                     <div className="min-w-0 flex-1">
-                        <SelectField label={t("modelSelection")} value={params.model} onChange={key => handleModelChange(String(key))} isDisabled={modelOverrideSaving} options={modelList.map(model => ({ id: model.id, label: model.name, description: creditLabel(pricing, model.id, unitLabels(tBilling)) ?? undefined }))} />
+                        <SelectField label={t("modelSelection")} value={params.model} onChange={key => handleModelChange(String(key))} isDisabled={modelOverrideSaving}
+                            disabledKeys={modelList.filter(model => !(audioCapabilities[model.id] ?? UNKNOWN_AUDIO_CAPABILITIES).modes.includes(params.audioMode ?? 'post')).map(model => model.id)}
+                            options={modelList.map(model => ({ id: model.id, label: model.name, description: creditLabel(pricing, model.id, unitLabels(tBilling)) ?? undefined }))} />
                     </div>
                     {hasModelOverride && onResetModel ? (
                         <button
@@ -246,28 +256,10 @@ export default function ParamsSection({
                     </ParamRow>
                 ) : null}
 
-                {!hideAudioControls && <SelectField
-                        label={t("audioModeLabel")}
-                        value={params.audioMode ?? "post"}
-                        onChange={(value) => set("audioMode", String(value) as ParamsState["audioMode"])}
-                        options={[
-                            { id: "post", label: t("audioModePost") },
-                            { id: "native", label: t("audioModeNative") },
-                            { id: "driven", label: t("audioModeDriven") },
-                            { id: "silent", label: t("audioModeSilent") },
-                        ]}
-                    />}
-                {!hideAudioControls && params.audioMode === "driven" ? (
-                    <ParamRow label={t("audioDriverUrlLabel")}>
-                        <input
-                            type="url"
-                            value={params.audioUrl ?? ""}
-                            onChange={(event) => set("audioUrl", event.target.value)}
-                            placeholder={t("audioDriverUrlPlaceholder")}
-                            className="w-full rounded-lg border border-glass-border bg-surface-inset px-2.5 py-1.5 font-sans text-body-sm text-foreground placeholder:text-text-muted outline-none transition-colors duration-fast ease-out-quart focus:border-primary/55 focus-visible:ring-2 focus-visible:ring-primary/45"
-                        />
-                    </ParamRow>
-                ) : null}
+                {!hideAudioControls && <AudioModeSelector policy={{ mode: params.audioMode ?? 'post', audio_url: params.audioUrl, original_audio: params.originalAudio ?? 'drop' }}
+                    capabilities={audioCapabilities[params.model] ?? UNKNOWN_AUDIO_CAPABILITIES} disabled={audioSaving}
+                    hasOverride={hasAudioOverride} onReset={onResetAudio} onSetDefault={onSetAudioDefault} externalAudioInput={externalAudioInput}
+                    onChange={policy => onChange({ ...params, audioMode: policy.mode, audioUrl: policy.audio_url ?? undefined, originalAudio: policy.original_audio })} />}
 
                 {/* Advanced fold — slight indent (pl-4) to read as a sub-group
                     of Params, no border/box (keeps it clean). Candidates below
@@ -388,22 +380,6 @@ export default function ParamsSection({
                                             options={modelParams.movementAmplitude.options}
                                             value={params.movementAmplitude ?? modelParams.movementAmplitude.default}
                                             onChange={(v) => set("movementAmplitude", v)}
-                                        />
-                                    </ParamRow>
-                                ) : null}
-                                {modelParams.sound ? (
-                                    <ParamRow label="Sound">
-                                        <ToggleControl
-                                            value={!!params.sound}
-                                            onChange={(v) => set("sound", v)}
-                                        />
-                                    </ParamRow>
-                                ) : null}
-                                {modelParams.viduAudio ? (
-                                    <ParamRow label="Vidu audio">
-                                        <ToggleControl
-                                            value={!!params.viduAudio}
-                                            onChange={(v) => set("viduAudio", v)}
                                         />
                                     </ParamRow>
                                 ) : null}

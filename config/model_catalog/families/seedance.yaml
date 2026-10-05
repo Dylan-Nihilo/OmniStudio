@@ -50,6 +50,8 @@ models:
         line: cn
         upstream_model: video-cn-2.0-mini
         overseas_model: video-mini
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     modes:
       t2v:
         legacy_id: seedance-2.0-mini-t2v
@@ -119,6 +121,8 @@ models:
         line: cn
         upstream_model: video-cn-2.0-fast
         overseas_model: video-pro-fast
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     modes:
       t2v:
         legacy_id: seedance-2.0-fast-t2v
@@ -176,6 +180,8 @@ models:
         line: cn
         upstream_model: video-cn-2.0-pro
         overseas_model: video-pro
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     modes:
       t2v:
         legacy_id: seedance-2.0-t2v
@@ -245,6 +251,8 @@ models:
         line: cn
         upstream_model: video-cn-2.5
         overseas_model: video-2.5
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     modes:
       t2v:
         legacy_id: seedance-2.5-t2v
@@ -289,6 +297,10 @@ models:
             reference_type: image
       r2v:
         legacy_id: seedance-2.5-r2v
+        runtime:
+          jojokey:
+            audio_modes: [post, silent, native, driven]
+            audio_input_kind: reference
         display_name: Seedance 2.5 R2V
         description: Reference-to-video with multi-image input
         capabilities: [r2v]

@@ -1,4 +1,5 @@
 import type { PlanSettings, ProductionPlan, PlanOverview, ProductionReview } from '@/lib/productionPlan';
+import type { AudioPolicy, VideoAudioCapabilities } from './audioPolicy';
 import type { AssetReferenceInput, AssetReferencePurpose, HoldingPosition } from '@/lib/assetReferences';
 import { apiClient, apiStreamRequest, API_URL, AUTH_API_URL } from "@/lib/apiClient";
 import { DEFAULT_I2V_MODEL_ID } from "@/lib/modelCatalog";
@@ -958,6 +959,11 @@ export async function* eventStream(
 }
 
 export const api = {
+    getVideoAudioCapabilities: async (): Promise<Record<string, VideoAudioCapabilities>> =>
+        (await apiClient.get(`${API_URL}/config/video-audio-capabilities`)).data,
+    updateAudioPolicy: async (projectId: string, policy: AudioPolicy | null, frameId?: string) =>
+        (await apiClient.put(`${API_URL}/projects/${projectId}${frameId ? `/frames/${frameId}` : ''}/audio_policy`,
+            frameId ? { policy } : policy)).data,
     listTasks: async (filters: UnifiedTaskFilters = {}): Promise<UnifiedTaskPage> => {
         const res = await apiClient.get<UnifiedTaskPage>(`${API_URL}/tasks`, { params: filters });
         return res.data;

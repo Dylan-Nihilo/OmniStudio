@@ -189,9 +189,15 @@ models:
     runtime:
       dashscope:
         gateway: dashscope
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     modes:
       i2v:
         legacy_id: wan2.6-i2v
+        runtime:
+          dashscope:
+            audio_modes: [post, silent, native, driven]
+            audio_input_kind: timing
         display_name: Wan 2.6 I2V / R2V
         description: Legacy model, supports R2V (deprecated — replaced by 2.7)
         status: deprecated
@@ -230,6 +236,11 @@ models:
             max: 3
             reference_type: video
   - id: wan2.6-i2v-flash
+    runtime:
+      dashscope:
+        audio_modes: [post, silent, native, driven]
+        audio_input_kind: timing
+        can_disable_native: true
     display_name: Wan 2.6 I2V Flash
     description: Fast generation (deprecated — replaced by 2.7)
     status: deprecated
@@ -315,6 +326,11 @@ models:
       reference_images:
         max: 3
   - id: wan2.5-i2v-preview
+    runtime:
+      dashscope:
+        audio_modes: [post, silent, native, driven]
+        audio_input_kind: timing
+        can_disable_native: true
     display_name: Wan 2.5 I2V Preview
     description: Legacy I2V option
     status: deprecated

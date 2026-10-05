@@ -8,6 +8,7 @@
  * + history bookkeeping independently of the UI layer.
  */
 import { T2I_HISTORY_LIMIT, type ShotNode } from "./ShotCard";
+import { appliedDubVideoUrl, type AudioPolicy } from '@/lib/audioPolicy';
 
 /** Bring a shot from disk (localStorage draft) into the v2 shape.
  *  Idempotent — calling on an already-v2 shot returns identity. */
@@ -195,6 +196,7 @@ export function frameToShotNode(
     frame: any,
     videoTasks: any[],
     defaultTabMode: "t2i_i2v" | "direct_r2v" = "direct_r2v",
+    projectAudioPolicy?: AudioPolicy | null,
 ): ShotNode {
     const frameTasks = (videoTasks ?? []).filter((t: any) => t.frame_id === frame.id);
     const inFlightTask = frameTasks.find((t: any) =>
@@ -205,8 +207,7 @@ export function frameToShotNode(
     );
 
     let videoStatus: "pending" | "processing" | "completed" | "failed" | undefined;
-    const dubbedMatchesSelection = !frame.selected_video_id || frame.dubbed_video_task_id === frame.selected_video_id;
-    let videoUrl: string | undefined = (dubbedMatchesSelection ? frame.dubbed_video_url : undefined) || frame.video_url || undefined;
+    let videoUrl: string | undefined = appliedDubVideoUrl(frame, projectAudioPolicy) || frame.video_url || undefined;
     let videoTaskId: string | undefined;
 
     if (inFlightTask) {
@@ -227,6 +228,7 @@ export function frameToShotNode(
         tabMode: (frame.workbench_tab_mode as "t2i_i2v" | "direct_r2v" | undefined) ?? defaultTabMode,
         modelSettingsOverrides: frame.model_settings_overrides ?? {},
         omniReferences: frame.omni_reference_settings ?? undefined,
+        audioPolicyOverride: frame.audio_policy_override ?? undefined,
         videoUrl,
         videoStatus,
         videoTaskId,

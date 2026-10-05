@@ -1,4 +1,5 @@
 import type { ProductionPlan, PlanningJob } from '@/lib/productionPlan';
+import type { AudioPolicy } from '@/lib/audioPolicy';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { api, type DialogueAudioBatch, type StoryboardGeneration } from '@/lib/api';
@@ -191,6 +192,7 @@ export interface DialogueLine {
 }
 
 export interface StoryboardFrame {
+    audio_policy_override?: AudioPolicy | null;
     image_prompt?: string | null;
     dialogue_lines?: DialogueLine[];
     t2i_image_urls?: string[];
@@ -262,6 +264,8 @@ export const ASPECT_RATIOS = [
 ];
 
 export interface VideoParams {
+    audioMode?: AudioPolicy['mode'];
+    originalAudio?: AudioPolicy['original_audio'];
     resolution: string;
     duration: number;
     seed: number | undefined;
@@ -322,6 +326,7 @@ export interface Series {
 }
 
 export interface Project {
+    audio_policy?: AudioPolicy | null;
     id: string;
     _revision?: string;
     title: string;

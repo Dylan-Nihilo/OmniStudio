@@ -10,6 +10,7 @@ import { useDialogueAudioRequests } from "@/components/modules/storyboard-r2v/Di
 import { useProjectStore } from "@/store/projectStore";
 import { useAuthStore } from "@/store/authStore";
 import type { VideoTask } from "@/lib/api";
+import type { AudioPolicy } from '@/lib/audioPolicy';
 import { DEFAULT_MODEL_SETTINGS } from "@/lib/modelCatalog";
 
 const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFrame, getProject, generateDialogueAudioBatch, analyzeToStoryboard, refineBatchFrames, getTaskStatus, toastError, deleteFrame, reorderFrames, copyFrame, updateFrame, updateFrameWorkbench, updateShotModelSettings, refineSingleFrame, reviewProductionPlan, cancelVideoTask, annotateVideoTask, selectVideo, unpinVideo, autoSelectLatestVideo, candidateError } = vi.hoisted(() => ({
@@ -39,6 +40,7 @@ const { createFrame, createVideoTask, retryVideoTask, renderFrame, uploadT2IFram
     autoSelectLatestVideo: vi.fn(),
     candidateError: vi.fn(),
 }));
+const { updateAudioPolicy } = vi.hoisted(() => ({ updateAudioPolicy: vi.fn() }));
 
 vi.mock("next-intl", () => ({
     useTranslations: () => (key: string) => key,
@@ -69,6 +71,8 @@ vi.mock("@/lib/api", () => ({
         // Read on mount to know which voices act on a delivery instruction; this suite
         // does not exercise dubbing direction, so an empty catalogue is enough.
         getVoices: () => Promise.resolve([]),
+        getVideoAudioCapabilities: () => Promise.resolve({}),
+        updateAudioPolicy,
     },
     crudApi: { createFrame, deleteFrame, reorderFrames, copyFrame },
 }));
@@ -146,13 +150,19 @@ vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", async importOrig
 }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
 vi.mock("@/components/modules/storyboard-r2v/shot-panel/ParamsSection", () => ({
-    default: ({ params, onChange, hasModelOverride, onResetModel }: {
-        params: { model: string };
+    default: ({ params, onChange, hasModelOverride, onResetModel, onResetAudio, onSetAudioDefault }: {
+        params: { model: string; audioMode?: string };
         onChange: (next: Record<string, unknown>) => void;
         hasModelOverride?: boolean;
         onResetModel?: () => void;
+        onResetAudio?: () => void;
+        onSetAudioDefault?: () => void;
     }) => <>
         <output aria-label="shot model">{params.model}</output>
+        <output aria-label="shot audio">{params.audioMode}</output>
+        <button onClick={() => onChange({ ...params, audioMode: 'native' })}>set native audio</button>
+        <button onClick={onResetAudio}>reset audio</button>
+        <button onClick={onSetAudioDefault}>set audio default</button>
         <button onClick={() => onChange({ ...params, model: "minimax/minimax-h3" })}>set shot model</button>
         <button onClick={() => onChange({ ...params, model: "wan2.6-i2v" })}>set i2v shot model</button>
         {hasModelOverride ? <button onClick={onResetModel}>reset shot model</button> : null}
@@ -189,6 +199,34 @@ async function retryRefinementFromNotice() {
 }
 
 describe("StoryboardR2V synthetic frame generation", () => {
+    it('saves a shot override independently and restores project inheritance after reentry', async () => {
+        const project = { ...useProjectStore.getState().currentProject!, audio_policy: { mode: 'post', original_audio: 'drop' },
+            frames: [{ id: 'first', action_description: 'First shot' }, { id: 'second', action_description: 'Second shot' }] };
+        useProjectStore.setState({ currentProject: project as never, selectedFrameId: 'first' });
+        updateAudioPolicy.mockImplementation(async (_id: string, policy: AudioPolicy | null, frameId?: string) => {
+            const current = useProjectStore.getState().currentProject!;
+            return frameId ? { ...current, frames: current.frames.map(frame => frame.id === frameId ? { ...frame, audio_policy_override: policy } : frame) }
+                : { ...current, audio_policy: policy };
+        });
+        const first = render(<StoryboardR2V />);
+        let reopened: ReturnType<typeof render> | undefined;
+        try {
+            await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'set native audio' })); });
+            await waitFor(() => expect(updateAudioPolicy).toHaveBeenCalledWith('project-1', expect.objectContaining({ mode: 'native' }), 'first'));
+            expect(useProjectStore.getState().currentProject!.audio_policy?.mode).toBe('post');
+            fireEvent.click(screen.getAllByRole('button', { name: 'selectShot' }).find(node => node.textContent?.includes('Second shot'))!);
+            expect(screen.getByLabelText('shot audio')).toHaveTextContent('post');
+            first.unmount();
+            useProjectStore.setState({ selectedFrameId: 'first' });
+            reopened = render(<StoryboardR2V />);
+            expect(screen.getByLabelText('shot audio')).toHaveTextContent('native');
+            await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'set audio default' })); });
+            await waitFor(() => expect(useProjectStore.getState().currentProject!.audio_policy?.mode).toBe('native'));
+            await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'reset audio' })); });
+            await waitFor(() => expect(useProjectStore.getState().currentProject!.frames[0].audio_policy_override).toBeNull());
+            expect(screen.getByLabelText('shot audio')).toHaveTextContent('native');
+        } finally { first.unmount(); reopened?.unmount(); }
+    });
     it("does not repeat a pending copy when switching to the legacy storyboard", async () => {
         const frames = [{ id: "first", action_description: "First shot" }, { id: "second", action_description: "Second shot" }];
         const project = { ...useProjectStore.getState().currentProject!, frames };

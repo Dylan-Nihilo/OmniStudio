@@ -40,6 +40,7 @@ interface VideoCreatorProps {
 
 export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, params, onParamsChange }: VideoCreatorProps) {
     const tc = useTranslations("creator");
+    const tAudio = useTranslations('audioWorkflow');
     const currentProject = useProjectStore((state) => state.currentProject);
     const updateProject = useProjectStore((state) => state.updateProject);
 
@@ -314,6 +315,11 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
 
         setIsSubmitting(true);
         try {
+            const actualAudioModel = generationMode === 'r2v' ? getR2vRouteModelId(params.model) : params.model;
+            const capabilities = await api.getVideoAudioCapabilities();
+            if (!capabilities?.[actualAudioModel]?.modes.includes(params.audioMode ?? 'post')) {
+                throw new Error(tAudio('unsupported'));
+            }
             // Add motion description to prompt
             const motionDesc = getMotionDescription();
             const finalPrompt = motionDesc ? `${prompt}, ${motionDesc}` : prompt;
@@ -357,6 +363,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                         seed: params.seed,
                         resolution: params.resolution,
                         generate_audio: params.generateAudio,
+                        audio_mode: params.audioMode ?? 'post',
                         audio_url: params.audioUrl,
                         prompt_extend: params.promptExtend,
                         negative_prompt: params.negativePrompt,
@@ -420,6 +427,8 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                     ? castSlots.filter(s => s.url).map(s => s.url)
                     : [];
 
+                if (frameId) await api.updateAudioPolicy(currentProject.id, { mode: params.audioMode ?? 'post',
+                    audio_url: params.audioUrl || null, original_audio: params.originalAudio ?? 'drop' }, frameId);
                 await api.createVideoTask(
                     currentProject.id,
                     finalImageUrl, // Can be empty string
@@ -446,7 +455,8 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                     params.movementAmplitude,
                     // HappyHorse params
                     referenceImages,  // Reference images for HappyHorse R2V
-                    undefined  // ratio (use default)
+                    undefined, // ratio (use default)
+                    undefined, undefined, params.audioMode ?? 'post'
                 );
             }
 

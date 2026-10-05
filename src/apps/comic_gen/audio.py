@@ -146,7 +146,7 @@ def _assemble_dialogue_track(clips: List[tuple], output_path: str, total_duratio
 
     `adelay` + `amix` is how dubbing already places audio against video in this repo (see
     `pipeline._build_dub_filter`), so the same idiom is used here rather than a second one.
-    The track is pinned to the segment's length: a line cannot push the segment longer.
+    Pad to the segment window, but retain speech that exceeds it for alignment review.
     """
     if not clips:
         raise RuntimeError("没有可装配的对白片段")
@@ -160,8 +160,13 @@ def _assemble_dialogue_track(clips: List[tuple], output_path: str, total_duratio
     labels = "".join(f"[a{index}]" for index in range(len(clips)))
     filters.append(f"{labels}amix=inputs={len(clips)}:duration=longest:dropout_transition=0,apad[out]")
     command += ["-filter_complex", ";".join(filters), "-map", "[out]"]
-    if total_duration and total_duration > 0:
-        command += ["-t", str(total_duration)]
+    clip_ends = []
+    for clip, offset in clips:
+        duration = _audio_duration(clip)
+        if duration is None:
+            raise ValueError("无法读取对白时长，不能安全装配配音")
+        clip_ends.append(max(0, offset or 0) + duration)
+    command += ["-t", str(max(total_duration or 0, *clip_ends))]
     command += ["-ar", "48000", "-ac", "1", output_path]
     subprocess.run(command, check=True, capture_output=True, timeout=180)
 

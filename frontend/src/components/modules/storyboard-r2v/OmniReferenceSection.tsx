@@ -11,11 +11,12 @@ interface Props {
     value: OmniReferenceSettings;
     supported: boolean;
     readOnly?: boolean;
+    hideAudioSelector?: boolean;
     imageCount: number;
     onChange: (value: OmniReferenceSettings) => void;
     onPendingChange: (pending: boolean) => void;
 }
-export default function OmniReferenceSection({ value, supported, readOnly, imageCount, onChange, onPendingChange }: Props) {
+export default function OmniReferenceSection({ value, supported, readOnly, hideAudioSelector, imageCount, onChange, onPendingChange }: Props) {
     const t = useTranslations('omniReference');
     const limits = omniReferenceLimits();
     const [videoUrl, setVideoUrl] = useState('');
@@ -31,7 +32,7 @@ export default function OmniReferenceSection({ value, supported, readOnly, image
         if (!publicMediaUrl(url)) { setError(t('httpsRequired')); return; }
         if (value[kind].some(item => item.url === url)) { setError(t('duplicate')); return; }
         if (value[kind].length >= limits[kind]) { setError(t('limit', { count: limits[kind] })); return; }
-        onChange({ ...value, [kind]: [...value[kind], { url, purpose: '' }], ...(kind === 'audios' ? { audio_mode: 'driven' } : {}) });
+        onChange({ ...value, [kind]: [...value[kind], { url, purpose: '' }], ...(kind === 'audios' && !hideAudioSelector ? { audio_mode: 'driven' } : {}) });
         setError(''); if (kind === 'videos') setVideoUrl(''); else setAudioUrl('');
     }
     async function upload(file?: File) {
@@ -47,16 +48,16 @@ export default function OmniReferenceSection({ value, supported, readOnly, image
     }
     function remove(kind: 'videos' | 'audios', index: number) {
         const items = value[kind].filter((_, i) => i !== index);
-        onChange({ ...value, [kind]: items, ...(kind === 'audios' && !items.length && value.audio_mode === 'driven' ? { audio_mode: 'post' } : {}) });
+        onChange({ ...value, [kind]: items, ...(kind === 'audios' && !items.length && value.audio_mode === 'driven' && !hideAudioSelector ? { audio_mode: 'post' } : {}) });
     }
     return <section className={styles.root} aria-label={t('title')}>
         <header><h3>{t('title')}</h3><span>{t('imageCount', { count: imageCount })}</span></header>
         <p className={styles.hint}>{t('intro')}</p>
         {!supported ? <><p role="alert">{t('unsupported')}</p><Button variant="quiet" isDisabled={readOnly} onPress={() => onChange({ videos: [], audios: [], audio_mode: 'post' })}>{t('clear')}</Button></> :
         <fieldset disabled={readOnly || busy} className={styles.fields}>
-            <SelectField label={t('sound')} value={value.audio_mode} isDisabled={readOnly || busy}
+            {!hideAudioSelector && <SelectField label={t('sound')} value={value.audio_mode} isDisabled={readOnly || busy}
                 onChange={key => onChange({ ...value, audio_mode: String(key) as OmniReferenceSettings['audio_mode'] })}
-                options={(['native', 'driven', 'post', 'silent'] as const).map(id => ({ id, label: t(id) }))} />
+                options={(['native', 'driven', 'post', 'silent'] as const).map(id => ({ id, label: t(id) }))} />}
             {value.audio_mode === 'silent' && <p className={styles.hint}>{t('silentHint')}</p>}
             {error && <p role="alert" className={styles.error}>{error}</p>}
             {(['videos', 'audios'] as const).map(kind => <div key={kind} className={styles.group}>

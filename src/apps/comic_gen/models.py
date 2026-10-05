@@ -44,6 +44,12 @@ class AudioMode(str, Enum):
     POST = "post"
 
 
+class AudioPolicy(BaseModel):
+    mode: AudioMode = AudioMode.POST
+    audio_url: Optional[str] = None
+    original_audio: Literal["drop", "remove_vocals", "keep"] = "drop"
+
+
 # === Storyboard Schema v2: Enums ===
 
 class ShotSizeEnum(str, Enum):
@@ -258,6 +264,8 @@ class VideoTask(BaseModel):
     # `input_fingerprint` for a take whose model is not audio-driven, so assigning voices or
     # dubbing after the fact cannot invalidate a picture that did not change.
     visual_input_fingerprint: Optional[str] = None
+    native_audio_input_fingerprint: Optional[str] = None
+    audio_backend: Optional[str] = None
     video_url: Optional[str] = None
     duration: int = Field(5, description="Video duration in seconds (model-specific range)")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
@@ -487,6 +495,7 @@ class Prop(MasterImageCompatibility):
 class StoryboardFrame(BaseModel):
     id: str = Field(..., description="Unique identifier for the frame")
     omni_reference_settings: Optional[OmniReferenceSettings] = None
+    audio_policy_override: Optional[AudioPolicy] = None
     scene_id: str = Field(..., description="Reference to the Scene ID")
     character_ids: List[str] = Field(default_factory=list, description="List of Character IDs present in the frame")
     prop_ids: List[str] = Field(default_factory=list, description="List of Prop IDs present in the frame")
@@ -578,6 +587,9 @@ class StoryboardFrame(BaseModel):
     bg_audio_source_video: Optional[str] = Field(None, description="Video URL that bg_audio_url was separated from (cache key)")
     preview_video_url: Optional[str] = Field(None, description="Current preview dubbed video (temporary, not committed)")
     preview_audio_url: Optional[str] = None
+    preview_audio_policy: Optional[AudioPolicy] = None
+    dubbed_audio_policy: Optional[AudioPolicy] = None
+    dubbed_audio_url: Optional[str] = None
     preview_video_task_id: Optional[str] = None
     preview_source_video_url: Optional[str] = None
     preview_offset_ms: Optional[int] = None
@@ -733,6 +745,7 @@ class Script(BaseModel):
     props: List[Prop] = Field(default_factory=list)
     frames: List[StoryboardFrame] = Field(default_factory=list)
     video_tasks: List[VideoTask] = Field(default_factory=list)
+    audio_policy: Optional[AudioPolicy] = None
     dialogue_audio_batch: Optional[DialogueAudioBatch] = None
     storyboard_generation: Optional[StoryboardGeneration] = None
     production_plan: Optional[ProductionPlan] = None

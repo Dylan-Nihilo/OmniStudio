@@ -43,6 +43,8 @@ models:
         gateway: dashscope
       vendor:
         gateway: kling
+        audio_modes: [post, silent, native]
+        can_disable_native: true
     docs:
       context_hub_doc_ids:
         - aliyun/bailian-kling-proxy
