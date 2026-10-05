@@ -67,6 +67,34 @@ def _add_silent_audio(path):
 
 
 @requires_ffmpeg
+@pytest.mark.parametrize("speech_duration,frame_duration", [(4, 2), (1.5, 1)])
+def test_legacy_preview_rejects_truncated_speech(api_client, speech_duration, frame_duration):
+    project_id = _episode(api_client, with_dub=True)
+    frame = api_module.pipeline.scripts[project_id].frames[0]
+    frame.duration = frame_duration
+    _tone("output/audio/line.mp3", seconds=speech_duration)
+    with pytest.raises(ValueError, match="配音"):
+        api_module.pipeline._render_dub_preview(frame, "video/shot.mp4", 0)
+
+
+@requires_ffmpeg
+def test_apply_rejects_an_old_truncated_preview(api_client, monkeypatch):
+    project_id = _episode(api_client, with_dub=True)
+    frame = api_module.pipeline.scripts[project_id].frames[0]
+    _tone("output/audio/line.mp3", seconds=4)
+    frame.preview_video_url = "video/shot.mp4"
+    frame.preview_video_task_id = "take"
+    frame.preview_source_video_url = "video/shot.mp4"
+    frame.preview_audio_url = frame.audio_url
+    frame.preview_offset_ms = 0
+    monkeypatch.setattr(api_module.pipeline, "_validate_dub_audio", lambda *args: None)
+    with pytest.raises(ValueError, match="配音"):
+        api_module.pipeline.apply_dub(project_id, frame.id)
+    assert frame.dubbed_video_url is None
+    assert frame.preview_video_url == "video/shot.mp4"
+
+
+@requires_ffmpeg
 def test_legacy_dubbing_does_not_depend_on_container_audio_stream(api_client):
     project_id = _episode(api_client, with_dub=True)
     _add_silent_audio("output/video/shot.mp4")

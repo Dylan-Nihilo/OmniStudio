@@ -94,6 +94,69 @@ def test_an_overlong_line_is_reported_and_never_trimmed(tmp_path, monkeypatch):
     assert frame.dialogue_lines[0].duration > 5.5
     assert frame.dialogue_lines[0].voice_id == "v1" and frame.dialogue_lines[1].voice_id == "v2"
     assert os.path.isfile(os.path.join("output", frame.audio_url))
+    # Keep the planned shot anchor, but never speak over the previous speaker.
+    assert frame.dialogue_lines[1].start_seconds == 4.0
+    assert frame.dialogue_lines[1].scheduled_start_seconds >= frame.dialogue_lines[0].duration
+    assert not dialogue_audio_is_stale(frame, None, plans)
+
+
+@requires_ffmpeg
+def test_assembler_refuses_overlapping_speech_instead_of_mixing_it(tmp_path):
+    first = _tone(tmp_path / "first.wav", 2)
+    second = _tone(tmp_path / "second.wav", 1)
+    with pytest.raises(ValueError, match="重叠"):
+        _assemble_dialogue_track([(first, 0), (second, 1)], str(tmp_path / "track.wav"), 3)
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("lengths,second_overrun,min_duration", [
+    ([2, 0.5, 2], False, 6),
+    ([4, 0.5, 1], True, 5.5),
+])
+def test_calibration_preserves_gaps_and_reports_cascading_overrun(
+    tmp_path, monkeypatch, lengths, second_overrun, min_duration,
+):
+    monkeypatch.chdir(tmp_path)
+    frame = StoryboardFrame(id="cascade", scene_id="scene", duration=5, dialogue_lines=[
+        DialogueLine(speaker="A", line="first", start_seconds=0),
+        DialogueLine(speaker="B", line="second", start_seconds=1),
+        DialogueLine(speaker="C", line="third", start_seconds=4),
+    ])
+    generator = AudioGenerator({"output_dir": "output/audio"})
+    lengths = iter(lengths)
+
+    class Tts:
+        def synthesize(self, text, path, **kwargs):
+            _tone(path, next(lengths))
+
+    generator.tts = Tts()
+    plans = [{"line": line, "voice": line.speaker, "window": window}
+             for line, window in zip(frame.dialogue_lines, [1, 3, 1])]
+    generator.generate_dialogue_lines(frame, plans, total_duration=5)
+    assert frame.status == GenerationStatus.COMPLETED, frame.audio_error
+    starts = [line.scheduled_start_seconds for line in frame.dialogue_lines]
+    # MP3 encoder padding varies by platform and accumulates across adjacent lines.
+    durations = [_audio_duration(os.path.join("output", line.audio_url)) for line in frame.dialogue_lines]
+    assert starts[0] == 0
+    assert starts[1] == pytest.approx(durations[0], abs=0.001)
+    if second_overrun:
+        assert starts[2] == pytest.approx(starts[1] + durations[1], abs=0.001)
+    else:
+        assert starts[2] == 4
+    assert frame.dialogue_lines[1].overruns_shot is second_overrun
+    assert frame.dialogue_lines[2].overruns_shot
+    assert _audio_duration(os.path.join("output", frame.audio_url)) >= min_duration
+
+
+def test_legacy_mixed_track_requires_regeneration():
+    import hashlib
+    line = DialogueLine(speaker="A", line="words", start_seconds=0)
+    plans = [{"line": line, "voice": "v"}]
+    legacy_hash = hashlib.md5(b"A|words|0.000|v||1.0000|1.0000|50").hexdigest()
+    frame = StoryboardFrame(id="old", scene_id="scene", duration=4,
+                            dialogue_lines=[line], audio_url="audio/old.mp3",
+                            dialogue_text_hash=legacy_hash)
+    assert dialogue_audio_is_stale(frame, None, plans)
 
 
 def test_reassigning_one_characters_voice_makes_the_whole_track_stale():

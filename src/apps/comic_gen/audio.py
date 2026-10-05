@@ -3,6 +3,7 @@ import subprocess
 import time
 import hashlib
 import uuid
+import math
 from typing import Dict, Any, List, Optional
 from .models import StoryboardFrame, Character, DialogueLine, GenerationStatus
 from ...utils import get_logger
@@ -81,7 +82,8 @@ def _compute_lines_hash(plans: List[Dict[str, Any]]) -> str:
         f"|{float(plan.get('speed', 1.0)):.4f}|{float(plan.get('pitch', 1.0)):.4f}|{int(plan.get('volume', 50))}"
         for plan in plans
     )
-    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+    # Invalidate tracks mixed at estimated anchors before sequential scheduling.
+    return hashlib.md5(("sequential-v1||" + payload).encode("utf-8")).hexdigest()
 
 
 def _effective_instructions(frame: StoryboardFrame) -> Optional[str]:
@@ -150,6 +152,18 @@ def _assemble_dialogue_track(clips: List[tuple], output_path: str, total_duratio
     """
     if not clips:
         raise RuntimeError("没有可装配的对白片段")
+    clip_ends = []
+    previous_end = 0.0
+    for clip, offset in clips:
+        duration = _audio_duration(clip)
+        if duration is None or not math.isfinite(duration) or duration <= 0:
+            raise ValueError("无法读取对白时长，不能安全装配配音")
+        if not math.isfinite(offset) or offset < 0:
+            raise ValueError("对白起点无效，不能安全装配配音")
+        if offset < previous_end - 0.001:
+            raise ValueError("对白时间重叠，请重新校准配音")
+        previous_end = offset + duration
+        clip_ends.append(previous_end)
     command = [get_ffmpeg_path(), "-y", "-v", "error"]
     for clip, _offset in clips:
         command += ["-i", clip]
@@ -160,12 +174,6 @@ def _assemble_dialogue_track(clips: List[tuple], output_path: str, total_duratio
     labels = "".join(f"[a{index}]" for index in range(len(clips)))
     filters.append(f"{labels}amix=inputs={len(clips)}:duration=longest:dropout_transition=0,apad[out]")
     command += ["-filter_complex", ";".join(filters), "-map", "[out]"]
-    clip_ends = []
-    for clip, offset in clips:
-        duration = _audio_duration(clip)
-        if duration is None:
-            raise ValueError("无法读取对白时长，不能安全装配配音")
-        clip_ends.append(max(0, offset or 0) + duration)
     command += ["-t", str(max(total_duration or 0, *clip_ends))]
     command += ["-ar", "48000", "-ac", "1", output_path]
     subprocess.run(command, check=True, capture_output=True, timeout=180)
@@ -356,6 +364,7 @@ class AudioGenerator:
         os.makedirs(folder, exist_ok=True)
         written: List[str] = []
         try:
+            previous_end = 0.0
             for index, plan in enumerate(plans):
                 line: DialogueLine = plan["line"]
                 voice = plan.get("voice")
@@ -379,12 +388,19 @@ class AudioGenerator:
                 # current setting, which could never notice its own edit.
                 line.instructions_used = plan.get("instructions") or None
                 line.duration = _audio_duration(clip)
+                if line.duration is None or not math.isfinite(line.duration) or line.duration <= 0:
+                    raise ValueError("无法读取对白时长，不能安全装配配音")
+                if not math.isfinite(line.start_seconds) or line.start_seconds < 0:
+                    raise ValueError("对白起点无效，不能安全装配配音")
+                line.scheduled_start_seconds = max(line.start_seconds, previous_end)
+                previous_end = line.scheduled_start_seconds + line.duration
                 # Reported, never trimmed: shortening a line is a creative decision.
                 window = plan.get("window")
-                line.overruns_shot = bool(window and line.duration and line.duration > window + 0.05)
+                window_end = line.start_seconds + window if window is not None else total_duration
+                line.overruns_shot = previous_end > window_end + 0.05
 
             track = os.path.join(folder, f"{frame.id}_track_{uuid.uuid4().hex}.mp3")
-            _assemble_dialogue_track([(clip, plans[i]["line"].start_seconds) for i, clip in enumerate(written)],
+            _assemble_dialogue_track([(clip, plans[i]["line"].scheduled_start_seconds) for i, clip in enumerate(written)],
                                      track, total_duration)
             written.append(track)
             frame.audio_url = os.path.relpath(track, "output")

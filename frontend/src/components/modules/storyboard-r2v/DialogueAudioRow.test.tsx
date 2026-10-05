@@ -12,6 +12,48 @@ const props = { scriptId: 'dialogue-project', frameId: 'dialogue-frame', dialogu
 describe('Dialogue audio workbench', () => {
     beforeEach(() => { generate.mockReset(); previewSfx.mockReset(); applySfx.mockReset(); revertSfx.mockReset(); });
 
+    it('shows calibrated timing and blocks a preview or application that would cut speech', () => {
+        const line = { speaker: 'Sue', line: props.dialogue, start_seconds: 1,
+            scheduled_start_seconds: 3, duration: 4, voice_id: 'voice', audio_url: 'line.mp3' };
+        render(<DialogueAudioRow {...props} frameId="calibrated" dialogueLines={[line]}
+            resolveSpeakerVoice={() => ({ id: 'voice', name: 'Sue' })} frameDurationSeconds={5}
+            videoUrl="take.mp4" videoTaskId="take" onPreviewDub={vi.fn()} onApplyDub={vi.fn()}
+            previewVideoUrl="preview.mp4" previewVideoTaskId="take" previewAudioUrl="old.mp3"
+            previewSourceVideoUrl="take.mp4" previewOffsetMs={0} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        expect(screen.getByText('lineTiming')).toBeVisible();
+        expect(screen.getByText('lineShifted')).toBeVisible();
+        expect(screen.getByText('audioTooLong')).toBeVisible();
+        expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'applyOverride' })).toBeDisabled();
+    });
+
+    it('requires old per-speaker tracks to be regenerated before previewing', () => {
+        render(<DialogueAudioRow {...props} frameId="uncalibrated" dialogueLines={[
+            { speaker: 'Sue', line: props.dialogue, start_seconds: 0, duration: 2,
+                voice_id: 'voice', audio_url: 'line.mp3' },
+        ]} resolveSpeakerVoice={() => ({ id: 'voice', name: 'Sue' })} frameDurationSeconds={5}
+            videoUrl="take.mp4" videoTaskId="take" onPreviewDub={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        expect(screen.getByText('staleHint')).toBeVisible();
+        expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
+    });
+
+    it('does not count a negative preview offset twice after metadata loads', () => {
+        render(<DialogueAudioRow {...props} frameId="negative-duration" dialogueLines={[
+            { speaker: 'Sue', line: props.dialogue, start_seconds: 0, scheduled_start_seconds: 0,
+                duration: 7, voice_id: 'voice', audio_url: 'line.mp3' },
+        ]} resolveSpeakerVoice={() => ({ id: 'voice', name: 'Sue' })} frameDurationSeconds={10}
+            videoUrl="take.mp4" videoTaskId="take" onPreviewDub={vi.fn()}
+            previewVideoUrl="preview.mp4" previewVideoTaskId="take" previewOffsetMs={-1000} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        const video = screen.getByRole('dialog').querySelector('video')!;
+        Object.defineProperty(video, 'duration', { value: 6 });
+        fireEvent.loadedMetadata(video);
+        expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
+        expect(screen.getByText('audioTooLong')).toBeVisible();
+    });
+
     it('uploads the speaker reference and requests lip sync without applying the preview', async () => {
         const preview = vi.fn().mockResolvedValue(undefined), upload = vi.fn().mockResolvedValue(undefined), apply = vi.fn();
         const dub = { ...props, frameId: 'lip-sync', videoUrl: 'take.mp4', videoTaskId: 'take', allowLipSync: true,
@@ -220,8 +262,8 @@ describe('per-speaker dialogue', () => {
 
 describe('per-speaker workbench, reported from production', () => {
     const lines = [
-        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, audio_url: 'a.mp3', voice_id: 'sage' },
-        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, audio_url: 'b.mp3', voice_id: 'longyuan' },
+        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, scheduled_start_seconds: 0, audio_url: 'a.mp3', voice_id: 'sage' },
+        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, scheduled_start_seconds: 9, audio_url: 'b.mp3', voice_id: 'longyuan' },
     ];
     const assigned: Record<string, { id: string; name: string }> = {
         中年测验员: { id: 'sage', name: 'Eldric Sage · 沧明子' },
@@ -365,8 +407,8 @@ describe('per-line direction', () => {
 
     it('reports a track as out of date once a line’s direction is rewritten', () => {
         const generated = [
-            { ...lines[0], audio_url: 'a.mp3', voice_id: 'Cherry', instructions_used: '情绪：欢呼' },
-            { ...lines[1], audio_url: 'b.mp3', voice_id: 'Moon', instructions_used: '' },
+            { ...lines[0], scheduled_start_seconds: 0, audio_url: 'a.mp3', voice_id: 'Cherry', instructions_used: '情绪：欢呼' },
+            { ...lines[1], scheduled_start_seconds: 9, audio_url: 'b.mp3', voice_id: 'Moon', instructions_used: '' },
         ];
         const fresh = { ...props, dialogueLines: generated, resolveSpeakerVoice: directable,
             audioUrl: 'track.mp3', snapshotInstructions: '' };
@@ -384,8 +426,8 @@ describe('per-line direction', () => {
     it('does not date a clip that never recorded what it was read with', () => {
         // Every episode made before the direction was tracked would otherwise read as
         // permanently stale — and with an undirectable voice, regeneration is refused.
-        const legacy = [{ ...lines[0], audio_url: 'a.mp3', voice_id: 'Cherry' },
-                        { ...lines[1], audio_url: 'b.mp3', voice_id: 'Moon' }];
+        const legacy = [{ ...lines[0], scheduled_start_seconds: 0, audio_url: 'a.mp3', voice_id: 'Cherry' },
+                        { ...lines[1], scheduled_start_seconds: 9, audio_url: 'b.mp3', voice_id: 'Moon' }];
         render(<DialogueAudioRow {...props} dialogueLines={legacy} resolveSpeakerVoice={directable}
                                  audioUrl="track.mp3" snapshotInstructions="" />);
         fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));
