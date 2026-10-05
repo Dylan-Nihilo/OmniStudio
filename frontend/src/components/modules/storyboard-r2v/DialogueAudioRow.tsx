@@ -161,6 +161,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     // line whose voice has since been reassigned.
     const stale = perLine
         ? !!audioUrl && ((dialogueLines ?? []).some(line => !line.audio_url || lineVoice(line)?.id !== line.voice_id
+            || line.scheduled_start_seconds == null
             // Per-line direction counts only once the clip has recorded what it was read
             // with. A clip made before that was tracked says nothing about its direction,
             // and calling it stale on that basis would strand every existing episode whose
@@ -172,6 +173,12 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     // and disabled until its metadata arrived — or for ever, if it never did. The segment's
     // own length is known all along.
     const timelineMs = duration || Math.round((frameDurationSeconds ?? 0) * 1000);
+    const speechEnd = perLine ? Math.max(0, ...(dialogueLines ?? []).map(line =>
+        (line.scheduled_start_seconds ?? line.start_seconds ?? 0) + (line.duration ?? 0))) : 0;
+    const requiredMs = Math.round(speechEnd * 1000) + Math.max(0, offset);
+    // Negative offsets delay the video, as in the backend preview renderer.
+    const availableMs = timelineMs + Math.max(0, -offset);
+    const audioTooLong = !stale && timelineMs > 0 && requiredMs > availableMs + 50;
     // One track, one face: lip-sync cannot be aimed at a segment where several people
     // speak. Said plainly rather than asking for a face that could only be right for one.
     const lipSyncBlocked = perLine && speakerCount > 1;
@@ -316,7 +323,11 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                                     isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
                                     onChange={value => setDirectionDrafts(current => current.map((text, i) => i === index ? value.slice(0, 200) : text))} />
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-chrome-sm text-text-secondary">
-                                    <span>{t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
+                                    <span>{line.scheduled_start_seconds != null && line.duration != null
+                                        ? t("lineTiming", { start: line.scheduled_start_seconds.toFixed(1), end: (line.scheduled_start_seconds + line.duration).toFixed(1) })
+                                        : t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
+                                    {line.scheduled_start_seconds != null && line.scheduled_start_seconds > (line.start_seconds ?? 0) + 0.05 &&
+                                        <span>{t("lineShifted", { seconds: (line.scheduled_start_seconds - (line.start_seconds ?? 0)).toFixed(1) })}</span>}
                                     {lineVoice(line)
                                         ? <span>{t("lineVoice", { voice: lineVoice(line)!.name })}</span>
                                         : <span className="text-status-failed-fg">{t("lineNoVoice")}</span>}
@@ -399,15 +410,16 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                         <Label>{t("audioPosition")}</Label><Slider.Track><Slider.Fill /><Slider.Thumb /></Slider.Track>
                     </Slider>
                     <div className="flex flex-wrap gap-2">
-                        <Button variant="secondary" isPending={request?.operation === "preview"} isDisabled={stale || (busy && request?.operation !== "preview")}
+                        <Button variant="secondary" isPending={request?.operation === "preview"} isDisabled={stale || audioTooLong || (busy && request?.operation !== "preview")}
                             onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset); }); }}><Film size={16} aria-hidden="true" />{t("preview")}</Button>
-                        {allowLipSync && !lipSyncBlocked && <Button variant="secondary" isDisabled={stale || busy || !timelineMs}
+                        {allowLipSync && !lipSyncBlocked && <Button variant="secondary" isDisabled={stale || audioTooLong || busy || !timelineMs}
                             onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset, true); }); }}>{t("matchLips")}</Button>}
-                        {previewVideoUrl && onApplyDub && <Button variant="primary" isPending={request?.operation === "apply"} isDisabled={previewChanged || (busy && request?.operation !== "apply")}
+                        {previewVideoUrl && onApplyDub && <Button variant="primary" isPending={request?.operation === "apply"} isDisabled={previewChanged || audioTooLong || (busy && request?.operation !== "apply")}
                             onPress={() => { void run("apply", onApplyDub); }}>{t("applyOverride")}</Button>}
                         {dubbedVideoUrl && !previewVideoUrl && onRevertDub && <Button variant="secondary" isPending={request?.operation === "revert"} isDisabled={busy && request?.operation !== "revert"}
                             onPress={() => { void run("revert", onRevertDub); }}><Undo2 size={16} aria-hidden="true" />{t("undoOverride")}</Button>}
                     </div>
+                    {audioTooLong && <p role="alert" className="text-status-failed-fg">{t("audioTooLong", { required: (requiredMs / 1000).toFixed(1), available: (availableMs / 1000).toFixed(1) })}</p>}
                     {allowLipSync && !lipSyncBlocked && onUploadSpeakerFace && <div className="flex items-center gap-3">
                         {speakerFaceUrl && <img src={getAssetUrl(speakerFaceUrl)} alt={speakerName ?? ""} className="h-16 w-16 rounded-lg object-cover" />}
                         <Button variant="quiet" isDisabled={busy} onPress={() => faceInputRef.current?.click()}>{t(speakerFaceUrl ? "speakerFaceReplace" : "speakerFace", { name: speakerName ?? "" })}</Button>

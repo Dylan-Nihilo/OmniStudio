@@ -180,6 +180,7 @@ export interface DialogueLine {
     mode?: 'on_screen' | 'voiceover';
     shot_id?: string | null;
     start_seconds?: number;
+    scheduled_start_seconds?: number | null;
     voice_id?: string | null;
     audio_url?: string | null;
     duration?: number | null;
