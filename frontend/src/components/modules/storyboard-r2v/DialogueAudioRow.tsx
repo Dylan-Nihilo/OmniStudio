@@ -63,6 +63,7 @@ interface DialogueAudioRowProps {
     dubError?: string | null;
     dubbedVideoUrl?: string;
     dubbedVideoTaskId?: string;
+    dubbedAudioUrl?: string;
     dubOffsetMs?: number;
     allowLipSync?: boolean;
     speakerName?: string;
@@ -102,7 +103,7 @@ export default function DialogueAudioRow(props: DialogueAudioRowProps) {
 function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogueLines, resolveSpeakerVoice, frameDurationSeconds, inPointSeconds, outPointSeconds, onUpdateDialogueLines, draftDialogue, actionDescription, voiceId, voiceSpeed = 1, voicePitch = 1, voiceVolume = 50, audioUrl, sfxUrl, previewSfxUrl, sfxFingerprint, previewSfxFingerprint, audioError, generationStatus, batchPending, generationId, refreshFailed, refreshing, onRefresh,
     snapshotDialogue, snapshotVoiceId, snapshotInstructions: savedInstructions, snapshotSpeed = 1, snapshotPitch = 1, snapshotVolume = 50, onAudioUpdated, onUpdateDialogue, onDraftChange,
     videoUrl, videoTaskId, previewVideoUrl, previewPolicyStale, previewAudioUrl, previewVideoTaskId, previewSourceVideoUrl, previewOffsetMs, dubGenerationStatus, dubGenerationId, dubError,
-    dubbedVideoUrl, dubbedVideoTaskId, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
+    dubbedVideoUrl, dubbedVideoTaskId, dubbedAudioUrl, dubOffsetMs = 0, allowLipSync = false, speakerName, speakerFaceUrl, onUploadSpeakerFace, onPreviewDub, onApplyDub, onRevertDub, onPreviewSfx, onApplySfx, onRevertSfx, scope,
 }: DialogueAudioRowProps & { scope: string }) {
     const t = useTranslations("dialogueAudio");
     const dialogue = savedDialogue ?? "";
@@ -192,7 +193,9 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     const sfxBusy = request?.operation === "apply" || request?.operation === "revert" || (request?.operation === "preview" && request?.recoveryKind === "sfx");
     const hasSfxContext = !!actionDescription?.trim() || !!videoUrl;
     const error = request?.error || dubError || audioError;
-    const displayVideo = (previewVideoTaskId === videoTaskId && previewVideoUrl) || (dubbedVideoTaskId === videoTaskId && dubbedVideoUrl) || videoUrl;
+    const appliedDubStale = !!dubbedVideoUrl && !!dubbedAudioUrl && mediaIdentity(dubbedAudioUrl) !== mediaIdentity(audioUrl);
+    const currentDubbedVideoUrl = appliedDubStale ? undefined : dubbedVideoUrl;
+    const displayVideo = (previewVideoTaskId === videoTaskId && previewVideoUrl) || (dubbedVideoTaskId === videoTaskId && currentDubbedVideoUrl) || videoUrl;
     const canDub = !!(audioUrl && videoUrl && videoTaskId && onPreviewDub);
     const previewChanged = !!previewPolicyStale || offset !== previewOffsetMs || stale || mediaIdentity(previewAudioUrl) !== mediaIdentity(audioUrl) || previewVideoTaskId !== videoTaskId || mediaIdentity(previewSourceVideoUrl) !== mediaIdentity(videoUrl);
     const status = generating ? "generating" : error ? "error" : stale ? "stale" : audioUrl ? "ready" : "empty";
@@ -304,7 +307,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
             <div className="w-full min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2"><Mic size={16} aria-hidden="true" /><span>{t("title")}</span>
                     <StatusBadge tone={status === "error" ? "danger" : status === "stale" ? "warning" : status === "ready" ? "success" : "neutral"}>{t(`state.${status}`)}</StatusBadge>
-                    {dubbedVideoUrl && <StatusBadge tone="success">{t("overridden")}</StatusBadge>}
+                    {currentDubbedVideoUrl && <StatusBadge tone="success">{t("overridden")}</StatusBadge>}
                     <span className="ml-auto text-xs text-text-secondary">{canDub ? t("openWorkbench") : t("openVoiceGen")}</span>
                 </div>
                 {draft.trim() && <p className="truncate text-sm text-text-secondary">{draft}</p>}
@@ -405,7 +408,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                     {videoLoading && !videoError && <LoadingState inline label={t("loadingVideo")} />}
                     {videoError && <div className="space-y-2"><p role="alert" className="text-status-failed-fg">{t("playFailed")}</p>
                         <Button variant="secondary" onPress={() => { setVideoError(false); setVideoLoading(true); videoRef.current?.load(); }}>{t("reloadVideo")}</Button></div>}
-                    {(previewVideoUrl || dubbedVideoUrl) && <StatusBadge tone={previewVideoUrl ? "info" : "success"}>{t(previewVideoUrl ? "previewVersion" : "dubbedVersion")}</StatusBadge>}
+                    {(previewVideoUrl || currentDubbedVideoUrl) && <StatusBadge tone={previewVideoUrl ? "info" : "success"}>{t(previewVideoUrl ? "previewVersion" : "dubbedVersion")}</StatusBadge>}
                     <Button variant="quiet" isDisabled={busy || !timelineMs} onPress={() => { if (videoRef.current) setPosition(videoRef.current.currentTime * 1000); }}><Crosshair size={16} aria-hidden="true" />{t("markStartPoint")}</Button>
                     <p className="text-xs text-text-secondary">{t("markStartHint")}</p>
                     <div className="flex items-end gap-2">
@@ -423,10 +426,11 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                             onPress={() => { void run("preview", async () => { stopPlayback(); await onPreviewDub!(videoTaskId!, offset, true); }); }}>{t("matchLips")}</Button>}
                         {previewVideoUrl && onApplyDub && <Button variant="primary" isPending={request?.operation === "apply"} isDisabled={previewChanged || audioTooLong || (busy && request?.operation !== "apply")}
                             onPress={() => { void run("apply", onApplyDub); }}>{t("applyOverride")}</Button>}
-                        {dubbedVideoUrl && !previewVideoUrl && onRevertDub && <Button variant="secondary" isPending={request?.operation === "revert"} isDisabled={busy && request?.operation !== "revert"}
+                        {currentDubbedVideoUrl && !previewVideoUrl && onRevertDub && <Button variant="secondary" isPending={request?.operation === "revert"} isDisabled={busy && request?.operation !== "revert"}
                             onPress={() => { void run("revert", onRevertDub); }}><Undo2 size={16} aria-hidden="true" />{t("undoOverride")}</Button>}
                     </div>
                     {audioTooLong && <p role="alert" className="text-status-failed-fg">{t("audioTooLong", { required: (requiredMs / 1000).toFixed(1), available: (availableMs / 1000).toFixed(1) })}</p>}
+                    {appliedDubStale && <p className="text-status-queued-fg">{t("dubStaleHint")}</p>}
                     {allowLipSync && !lipSyncBlocked && onUploadSpeakerFace && <div className="flex items-center gap-3">
                         {speakerFaceUrl && <img src={getAssetUrl(speakerFaceUrl)} alt={speakerName ?? ""} className="h-16 w-16 rounded-lg object-cover" />}
                         <Button variant="quiet" isDisabled={busy} onPress={() => faceInputRef.current?.click()}>{t(speakerFaceUrl ? "speakerFaceReplace" : "speakerFace", { name: speakerName ?? "" })}</Button>

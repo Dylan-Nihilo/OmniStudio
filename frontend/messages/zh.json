@@ -164,6 +164,7 @@
       "serious": "严肃"
     },
     "overridden": "已覆盖",
+    "dubStaleHint": "当前视频覆盖使用的是旧配音，请重新预听并应用覆盖。",
     "previewingBadge": "预览中",
     "openWorkbench": "配音工作台 →",
     "openVoiceGen": "语音生成 →",

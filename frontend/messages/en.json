@@ -164,6 +164,7 @@
       "serious": "Serious"
     },
     "overridden": "Overridden",
+    "dubStaleHint": "This video uses an older dialogue track. Preview and apply the override again.",
     "previewingBadge": "Previewing",
     "openWorkbench": "Dubbing studio →",
     "openVoiceGen": "Voice gen →",

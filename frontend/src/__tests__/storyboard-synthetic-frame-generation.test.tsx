@@ -145,7 +145,7 @@ vi.mock("@/components/modules/storyboard-r2v/DialogueAudioRow", async importOrig
         <output aria-label="dialogue voice">{voiceId}</output><output aria-label="audio state">{generationStatus}</output>
         <output aria-label="dub state">{dubGenerationStatus}</output>
         <button onClick={() => { void onUpdateDialogue("Saved dialogue").catch(candidateError); }}>save dialogue</button>
-        <button onClick={() => onAudioUpdated({ frames: [{ id: frameId, action_description: "Stale prompt", dialogue: "Stale dialogue", audio_url: "new-audio.mp3", dialogue_snapshot_text: "Saved dialogue", audio_generation_status: "completed" }] })}>audio completed</button>
+        <button onClick={() => onAudioUpdated({ frames: [{ id: frameId, action_description: "Stale prompt", dialogue: "Stale dialogue", audio_url: "new-audio.mp3", dialogue_snapshot_text: "Saved dialogue", audio_generation_status: "completed", dubbed_video_url: null, dubbed_audio_url: null }] })}>audio completed</button>
     </>,
 }));
 vi.mock("@/components/modules/storyboard-r2v/AssetDrawer", () => ({ default: () => null }));
@@ -576,7 +576,7 @@ describe("StoryboardR2V synthetic frame generation", () => {
     it("uses the explicit speaker and merges audio without replacing dialogue or other edits", async () => {
         useProjectStore.setState(state => ({ currentProject: { ...state.currentProject!,
             characters: [{ id: "silent", name: "Silent" }, { id: "speaker", name: "Speaker", voice_id: "speaker-voice" }],
-            frames: [{ id: "audio-frame", action_description: "Original prompt", character_ids: ["silent", "speaker"], dialogue_structured: { speaker: "Speaker", line: "Original dialogue" } }],
+            frames: [{ id: "audio-frame", action_description: "Original prompt", dubbed_video_url: "old-dub.mp4", dubbed_audio_url: "old.mp3", character_ids: ["silent", "speaker"], dialogue_structured: { speaker: "Speaker", line: "Original dialogue" } }],
         } } as never));
         render(<StoryboardR2V />);
         expect(screen.getByLabelText("dialogue voice")).toHaveTextContent("speaker-voice");
@@ -586,6 +586,8 @@ describe("StoryboardR2V synthetic frame generation", () => {
         fireEvent.click(screen.getByRole("button", { name: "audio completed" }));
         const frame = useProjectStore.getState().currentProject!.frames[0];
         expect(frame.audio_url).toBe("new-audio.mp3");
+        expect(frame.dubbed_video_url).toBeNull();
+        expect(frame.dubbed_audio_url).toBeNull();
         expect(frame.action_description).toBe("New prompt");
         expect(frame.dialogue_structured.line).toBe("Saved dialogue");
         expect(screen.getByRole("textbox", { name: "shot prompt" })).toHaveValue("New prompt");
