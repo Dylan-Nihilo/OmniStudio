@@ -115,6 +115,11 @@ def test_native_tts_never_regenerates_the_models_on_screen_words(api_client, mon
     script.frames = [StoryboardFrame(id='f', scene_id='', duration=2, dialogue_lines=[
         DialogueLine(speaker='Actor', line='model speech'),
         DialogueLine(speaker='Narrator', line='narration', mode='voiceover')])]
+    script.frames[0].dubbed_video_url = 'video/old-dub.mp4'
+    script.frames[0].dubbed_video_task_id = 'take-old'
+    script.frames[0].dubbed_audio_url = 'audio/old.wav'
+    script.frames[0].dubbed_audio_policy = AudioPolicy(mode='native')
+    script.frames[0].dub_offset_ms = 120
     spoken = []
     def generate(frame, plans, total_duration):
         spoken.extend(plan['line'].line for plan in plans)
@@ -128,4 +133,9 @@ def test_native_tts_never_regenerates_the_models_on_screen_words(api_client, mon
     assert spoken == ['narration']
     assert script.frames[0].dialogue_lines[0].voice_id is None
     assert script.frames[0].dialogue_lines[1].voice_id == 'narrator-voice'
+    assert script.frames[0].dubbed_video_url is None
+    assert script.frames[0].dubbed_video_task_id is None
+    assert script.frames[0].dubbed_audio_url is None
+    assert script.frames[0].dubbed_audio_policy is None
+    assert script.frames[0].dub_offset_ms == 0
     pipeline._validate_dub_audio(script, script.frames[0])

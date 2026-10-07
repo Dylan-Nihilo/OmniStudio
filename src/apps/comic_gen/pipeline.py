@@ -6345,6 +6345,18 @@ class ComicGenPipeline:
                 text_unchanged = _effective_dialogue_text(dialogue_frame_for_policy(current, target)) == source_text
                 fields = ("audio_url", "audio_error", "dialogue_voice_id", "dialogue_snapshot_text", "dialogue_instructions", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "dialogue_text_hash", "dialogue_lines")
                 previous_output = {name: getattr(target, name) for name in fields}
+                # A new TTS track can never be played through an older applied dub.
+                # Invalidate both committed and pending dub artifacts atomically with
+                # the audio snapshot so the UI cannot advertise a stale video as current.
+                stale_dub_fields = (
+                    "dubbed_video_url", "dubbed_video_task_id", "dubbed_audio_url",
+                    "dubbed_audio_policy", "dub_offset_ms", "preview_video_url",
+                    "preview_audio_url", "preview_audio_policy", "preview_video_task_id",
+                    "preview_source_video_url", "preview_offset_ms", "preview_lip_sync",
+                    "dub_lip_sync", "dub_generation_status", "dub_generation_id",
+                    "dub_provider_task_id", "dub_error",
+                )
+                previous_dub = {name: getattr(target, name) for name in stale_dub_fields}
                 for name in fields:
                     if name == "dialogue_lines" and not text_unchanged:
                         continue
@@ -6355,11 +6367,15 @@ class ComicGenPipeline:
                         target.dialogue_lines = lines
                     else:
                         setattr(target, name, getattr(frame, name))
+                for name in stale_dub_fields:
+                    setattr(target, name, False if name in ("preview_lip_sync", "dub_lip_sync") else (0 if name == "dub_offset_ms" else None))
                 target.audio_generation_status = GenerationStatus.COMPLETED
                 try:
                     self._save_data()
                 except Exception:
                     for name, value in previous_output.items():
+                        setattr(target, name, value)
+                    for name, value in previous_dub.items():
                         setattr(target, name, value)
                     raise
                 return current
