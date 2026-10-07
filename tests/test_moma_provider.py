@@ -251,11 +251,12 @@ def test_pipeline_keeps_minimax_for_direct_r2v_and_forwards_reference_images(mon
 
 
 def test_create_video_task_does_not_replace_multimodal_minimax_with_wan():
+    from src.apps.comic_gen.models import StoryboardFrame
     pipeline = ComicGenPipeline.__new__(ComicGenPipeline)
     pipeline._save_lock = threading.RLock()
     script = SimpleNamespace(
         id="script-1",
-        frames=[SimpleNamespace(id="frame-1", dialogue="", dialogue_structured=None, prompt_mode="complete")],
+        frames=[StoryboardFrame(id="frame-1", scene_id="", prompt_mode="complete")],
         video_tasks=[],
     )
     pipeline.get_script = lambda script_id: script if script_id == "script-1" else None

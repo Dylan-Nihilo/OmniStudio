@@ -38,7 +38,7 @@ def test_complete_video_prompt_keeps_timed_dialogue_authoritative():
 
 @pytest.mark.parametrize("mode,valid_audio,audio_mode", [("on_screen", True, "post"), ("voiceover", False, "post"), ("on_screen", False, "post"), ("on_screen", True, "driven")])
 @pytest.mark.parametrize("prompt_mode", ["structured", "complete"])
-def test_h3_keeps_the_requested_audio_mode_and_first_frame_contract(mode, valid_audio, audio_mode, prompt_mode):
+def test_h3_keeps_the_requested_audio_mode_and_first_frame_contract(mode, valid_audio, audio_mode, prompt_mode, monkeypatch):
     frame = StoryboardFrame(id="frame", scene_id="room", character_ids=["sue"], dialogue="明天会好的。",
         dialogue_mode=mode, prompt_mode=prompt_mode, audio_url="audio/line.mp3" if valid_audio else None)
     script = Script(id="script", title="test", original_text="test", created_at=0, updated_at=0, frames=[frame])
@@ -50,6 +50,12 @@ def test_h3_keeps_the_requested_audio_mode_and_first_frame_contract(mode, valid_
         if not valid_audio:
             raise ValueError("stale audio")
     pipeline._validate_dub_audio = validate
+    monkeypatch.setattr("src.apps.comic_gen.pipeline._dialogue_audio_bounds", lambda url: (0, 4))
+    if audio_mode == "post" and not valid_audio:
+        with pytest.raises(ValueError, match="实测"):
+            pipeline.create_video_task(script_id=script.id, image_url="", prompt="苏望向窗外", model="minimax/minimax-h3", frame_id=frame.id, audio_mode=audio_mode)
+        assert not script.video_tasks
+        return
     pipeline.create_video_task(script_id=script.id, image_url="", prompt="苏望向窗外", model="minimax/minimax-h3", frame_id=frame.id, audio_mode=audio_mode)
     task = script.video_tasks[-1]
     assert task.audio_mode == audio_mode

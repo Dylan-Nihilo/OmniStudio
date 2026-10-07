@@ -69,6 +69,49 @@ def _effective_dialogue_text(frame: StoryboardFrame) -> str:
     return frame.dialogue or ""
 
 
+def dialogue_timing_issues(frame: StoryboardFrame, tolerance: float = 0.05) -> List[Dict[str, Any]]:
+    """Return blocking timing issues for measured dialogue on a video frame.
+
+    Use calibrated starts and measured durations; unknown measurements cannot approve
+    an existing track for generation or export.
+    """
+    lines = list(getattr(frame, "dialogue_lines", None) or [])
+    frame_duration = float(getattr(frame, "duration", 0) or 0)
+    issues: List[Dict[str, Any]] = []
+    previous_end = 0.0
+    for index, line in enumerate(lines):
+        duration = getattr(line, "duration", None)
+        if duration is None or not math.isfinite(float(duration)) or float(duration) <= 0:
+            issues.append({"code": "line_unmeasured", "line_index": index, "speaker": line.speaker})
+            continue
+        start_value = getattr(line, "scheduled_start_seconds", None)
+        if start_value is None:
+            start_value = getattr(line, "start_seconds", 0) or 0
+        start = float(start_value)
+        if not math.isfinite(start) or start < 0:
+            issues.append({"code": "line_unmeasured", "line_index": index, "speaker": line.speaker})
+            continue
+        end = start + float(duration)
+        if start < previous_end - tolerance:
+            issues.append({
+                "code": "line_overlap",
+                "line_index": index,
+                "speaker": line.speaker,
+                "previous_end_seconds": round(previous_end, 3),
+                "start_seconds": round(start, 3),
+            })
+        if frame_duration > 0 and end > frame_duration + tolerance:
+            issues.append({
+                "code": "line_overruns_frame",
+                "line_index": index,
+                "speaker": line.speaker,
+                "end_seconds": round(end, 3),
+                "frame_duration": round(frame_duration, 3),
+            })
+        previous_end = max(previous_end, end)
+    return issues
+
+
 def _compute_lines_hash(plans: List[Dict[str, Any]]) -> str:
     """Snapshot of every line and the voice it is spoken in.
 
