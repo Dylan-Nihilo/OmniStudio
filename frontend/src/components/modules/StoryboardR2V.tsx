@@ -60,6 +60,7 @@ const useFirstFrameRequests = create<Partial<Record<string, { pending: boolean; 
 const firstFrameFields = ["image_generation_id", "image_generation_status", "image_error", "image_url", "rendered_image_url", "t2i_image_urls", "t2i_selected_index"] as const;
 const audioFields = ["dialogue_lines", "audio_url", "audio_error", "audio_generation_id", "audio_generation_status", "dialogue_snapshot_text", "dialogue_voice_id", "dialogue_instructions", "dialogue_text_hash", "dialogue_snapshot_speed", "dialogue_snapshot_pitch", "dialogue_snapshot_volume", "sfx_url", "preview_sfx_url", "sfx_fingerprint", "preview_sfx_fingerprint"] as const;
 const dubFields = ["preview_audio_policy", "dubbed_audio_policy", "dubbed_audio_url", "preview_video_url", "preview_audio_url", "preview_video_task_id", "preview_source_video_url", "preview_offset_ms", "dub_generation_status", "dub_generation_id", "dub_error", "dubbed_video_url", "dubbed_video_task_id", "dub_offset_ms"] as const;
+const generatedAudioFields = [...audioFields, ...dubFields] as const;
 const useVideoRetryRequests = create<Partial<Record<string, Promise<void>>>>(() => ({}));
 const useVideoSelectionRequests = create<Partial<Record<string, { mode: string; taskId?: string; promise: Promise<void> }>>>(() => ({}));
 // Live submissions outlive the page; persisted jobs provide full-reload recovery.
@@ -525,7 +526,7 @@ function StoryboardWorkbench() {
                 const before = current.frames.find(before => before.id === frame.id);
                 const newerAudio = frame.audio_generation_id && frame.audio_generation_id !== before?.audio_generation_id && frame.audio_generation_id !== saved?.audio_generation_id;
                 return saved && !newerAudio && result.dialogue_audio_batch.frame_ids.includes(frame.id)
-                    ? { ...frame, ...Object.fromEntries(audioFields.map(field => [field, saved[field]])) } : frame;
+                    ? { ...frame, ...Object.fromEntries(generatedAudioFields.map(field => [field, saved[field]])) } : frame;
             }) });
             useDialogueAudioRequests.setState({ [batchScope]: undefined });
         } catch (error: any) {
@@ -1316,7 +1317,7 @@ function StoryboardWorkbench() {
                         refinedFrames.push(next);
                     }
                     for (const kind of ["audio", "dub"] as const) {
-                        const fields = kind === "audio" ? audioFields : dubFields;
+                        const fields = kind === "audio" ? generatedAudioFields : dubFields;
                         const statusField = `${kind}_generation_status` as const;
                         const generationField = `${kind}_generation_id` as const;
                         const errorField = kind === "audio" ? "audio_error" : "dub_error";
@@ -2245,7 +2246,7 @@ function StoryboardWorkbench() {
                                             if (!await flushDrafts()) throw new Error(t("saveFailed"));
                                         }}
                                         onDraftChange={text => queueDraft(frame.id, "fields", { dialogue: text }, 1000)}
-                                        onAudioUpdated={result => mergeAudioResult(frame.id, result, audioFields)}
+                                        onAudioUpdated={result => mergeAudioResult(frame.id, result, generatedAudioFields)}
                                         videoUrl={(() => {
                                             const selectedId = frame.selected_video_id;
                                             const task = (currentProject as any)?.video_tasks?.find(
@@ -2268,6 +2269,7 @@ function StoryboardWorkbench() {
                                         dubError={frame.dub_error}
                                         dubbedVideoTaskId={frame.dubbed_video_task_id}
                                         dubbedVideoUrl={frame.dubbed_video_url}
+                                        dubbedAudioUrl={frame.dubbed_audio_url}
                                         dubOffsetMs={frame.dub_offset_ms ?? 0}
                                         allowLipSync={!native && frame.dialogue_mode !== "voiceover" && !(lines ?? []).some((line: any) => line.mode === 'voiceover')}
                                         speakerName={speaker?.name}

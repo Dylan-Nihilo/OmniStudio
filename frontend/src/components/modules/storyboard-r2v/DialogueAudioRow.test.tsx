@@ -124,6 +124,15 @@ describe('Dialogue audio workbench', () => {
         expect(screen.getByRole('textbox', { name: 'audioPosition (ms)' })).toHaveValue('-50');
     });
 
+    it('does not advertise an applied dub when its audio snapshot is older', () => {
+        render(<DialogueAudioRow {...props} frameId="stale-applied-dub" videoUrl="take.mp4" videoTaskId="take"
+            audioUrl="new.mp3" dubbedVideoUrl="old-dub.mp4" dubbedVideoTaskId="take" dubbedAudioUrl="old.mp3"
+            onPreviewDub={vi.fn()} onApplyDub={vi.fn()} onRevertDub={vi.fn()} />);
+        expect(screen.queryByText('overridden')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        expect(screen.getByText('dubStaleHint')).toBeVisible();
+    });
+
     it.each([false, true])('accepts null project audio fields (empty dialogue: %s)', async empty => {
         generate.mockResolvedValueOnce({ frames: [{ id: 'default-delivery-false', audio_url: 'new.mp3' }] });
         render(<DialogueAudioRow {...props} frameId={`default-delivery-${empty}`} dialogue={empty ? null : props.dialogue} audioUrl={empty ? undefined : props.audioUrl} snapshotInstructions={null} />);
