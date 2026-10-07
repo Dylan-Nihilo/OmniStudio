@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from src.apps.comic_gen.models import (
     Script, Character, Scene, Prop, StoryboardFrame, GenerationStatus,
-    GlobalAssetLibrary,
+    GlobalAssetLibrary, AudioPolicy,
 )
 from src.apps.comic_gen.pipeline import ComicGenPipeline
 
@@ -168,6 +168,7 @@ class TestGenerateStoryboard:
 
 class TestGenerateVideo:
     def test_frames_receive_video_urls(self, pipeline, project):
+        project.audio_policy = AudioPolicy(mode="silent")
         def fake_generate(script):
             for frame in script.frames:
                 frame.video_url = f"http://example.com/{frame.id}.mp4"
@@ -177,6 +178,11 @@ class TestGenerateVideo:
         result = pipeline.generate_video(project.id)
         assert all(f.video_url for f in result.frames)
         pipeline.video_generator.generate_video.assert_called_once_with(project)
+
+    def test_unmeasured_post_dialogue_blocks_the_batch(self, pipeline, project):
+        with pytest.raises(ValueError, match="实测"):
+            pipeline.generate_video(project.id)
+        pipeline.video_generator.generate_video.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

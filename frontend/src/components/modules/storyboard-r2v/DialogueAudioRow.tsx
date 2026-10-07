@@ -163,8 +163,9 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
     // dates that track is a line with no clip (never made, or its words were edited) or a
     // line whose voice has since been reassigned.
     const stale = perLine
-        ? !!audioUrl && ((dialogueLines ?? []).some(line => !line.audio_url || lineVoice(line)?.id !== line.voice_id
+        ? !!audioUrl && (dirty || (dialogueLines ?? []).some(line => !line.audio_url || lineVoice(line)?.id !== line.voice_id
             || line.scheduled_start_seconds == null
+            || line.duration == null || !Number.isFinite(line.duration) || line.duration <= 0
             // Per-line direction counts only once the clip has recorded what it was read
             // with. A clip made before that was tracked says nothing about its direction,
             // and calling it stale on that basis would strand every existing episode whose
@@ -333,15 +334,24 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                                     isDisabled={busy} isReadOnly={!onUpdateDialogueLines}
                                     onChange={value => setDirectionDrafts(current => current.map((text, i) => i === index ? value.slice(0, 200) : text))} />
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-chrome-sm text-text-secondary">
-                                    <span>{line.scheduled_start_seconds != null && line.duration != null
+                                    <span>{!stale && !dirty && line.scheduled_start_seconds != null && line.duration != null
                                         ? t("lineTiming", { start: line.scheduled_start_seconds.toFixed(1), end: (line.scheduled_start_seconds + line.duration).toFixed(1) })
                                         : t("lineAt", { seconds: (line.start_seconds ?? 0).toFixed(1) })}</span>
-                                    {line.scheduled_start_seconds != null && line.scheduled_start_seconds > (line.start_seconds ?? 0) + 0.05 &&
+                                    {!stale && !dirty && line.scheduled_start_seconds != null && line.scheduled_start_seconds > (line.start_seconds ?? 0) + 0.05 &&
                                         <span>{t("lineShifted", { seconds: (line.scheduled_start_seconds - (line.start_seconds ?? 0)).toFixed(1) })}</span>}
                                     {lineVoice(line)
                                         ? <span>{t("lineVoice", { voice: lineVoice(line)!.name })}</span>
                                         : <span className="text-status-failed-fg">{t("lineNoVoice")}</span>}
                                 </div>
+                                {frameDurationSeconds != null && frameDurationSeconds > 0 && <p className="text-chrome-sm text-text-secondary">
+                                    {t(!stale && !dirty && audioUrl && line.duration != null && Number.isFinite(line.duration) && line.duration > 0
+                                        ? "lineBudget" : "lineBudgetUnmeasured", {
+                                        required: line.duration?.toFixed(1) ?? "",
+                                        available: Math.max(0, Math.min(frameDurationSeconds, outPointSeconds ?? Infinity,
+                                            dialogueLines?.[index + 1]?.start_seconds ?? Infinity) - Math.max(inPointSeconds ?? 0, line.start_seconds ?? 0)).toFixed(1),
+                                    })}
+                                </p>}
+                                {!frameDurationSeconds && (stale || dirty || !audioUrl || line.duration == null) && <p className="text-chrome-sm text-status-queued-fg">{t("lineUnmeasured")}</p>}
                                 {/* The direction is written but this voice has no way to act
                                     on it, so say so here — the fix is the character's voice,
                                     not anything on this line. */}
@@ -349,7 +359,7 @@ function DialogueWorkbench({ scriptId, frameId, dialogue: savedDialogue, dialogu
                                     <p role="alert" className="text-chrome-sm text-status-failed-fg">
                                         {t("lineVoiceIgnoresDirection", { speaker: line.speaker })}
                                     </p>}
-                                {line.overruns_shot && <p role="alert" className="text-chrome-sm text-status-processing-fg">{t("lineOverruns")}</p>}
+                                {!stale && !dirty && line.overruns_shot && <p role="alert" className="text-chrome-sm text-status-processing-fg">{t("lineOverruns")}</p>}
                             </div>
                         ))}
                         {dirty && <Button variant="quiet" isPending={request?.operation === "save"} isDisabled={busy && request?.operation !== "save"} onPress={() => { void run("save", saveDialogue); }}>{t("saveLines")}</Button>}

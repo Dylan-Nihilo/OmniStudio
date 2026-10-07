@@ -24,7 +24,7 @@ from .assets import AssetGenerator
 from .aspect_ratio import effective_export_settings, resolve_master_aspect_ratio, resolve_video_task_aspect_ratio
 from .storyboard import StoryboardGenerator
 from .video import VideoGenerator
-from .audio import AudioGenerator
+from .audio import AudioGenerator, dialogue_timing_issues
 from .export import ExportManager
 from .model_settings import (
     MODEL_SETTING_FIELDS,
@@ -409,6 +409,25 @@ def _clip_duration_seconds(frame: Any) -> float:
     if duration <= 0:
         raise ValueError(f"Frame {frame.id}: trim range must have positive duration")
     return duration
+
+
+def _dialogue_timing_error(frame: Any, issues: List[Dict[str, Any]]) -> Optional[str]:
+    if not issues:
+        return None
+    first = issues[0]
+    if first["code"] == "line_unmeasured":
+        return f"片段 {frame.id} 的第 {first['line_index'] + 1} 句缺少有效实测时长，请重新生成对白语音"
+    if first["code"] == "line_overlap":
+        return (
+            f"对白时间重叠：片段 {frame.id} 的第 {first['line_index'] + 1} 句 "
+            f"从 {first['start_seconds']:.1f}s 开始，但上一句到 {first['previous_end_seconds']:.1f}s；"
+            "请重新生成对白或调整对白起点"
+        )
+    return (
+        f"对白超出视频时长：片段 {frame.id} 的第 {first['line_index'] + 1} 句 "
+        f"结束于 {first['end_seconds']:.1f}s，镜头只有 {first['frame_duration']:.1f}s；"
+        "请延长镜头或缩短对白后重新生成语音"
+    )
 
 
 def _validate_dub_duration(frame: StoryboardFrame, media_duration: float, offset_ms: int) -> None:
@@ -3514,10 +3533,41 @@ class ComicGenPipeline:
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
+
+        for frame in script.frames:
+            mode = effective_audio_policy(script, frame).mode.value
+            self._validate_video_dialogue_timing(script, frame, frame.duration, mode)
             
         script = self.video_generator.generate_video(script)
         self._save_data()
         return script
+
+    def _validate_video_dialogue_timing(self, script: Script, frame: StoryboardFrame,
+                                        requested_duration: float, audio_mode: str) -> None:
+        """Reject measured post-production speech that cannot fit this video take."""
+        if audio_mode != "post":
+            return
+        # Check the requested mode, even when it differs from the saved project mode.
+        policy = effective_audio_policy(script, frame).model_copy(update={"mode": AudioMode.POST})
+        candidate = frame.model_copy(update={"duration": requested_duration, "audio_policy_override": policy})
+        if not candidate.audio_url:
+            from .audio import _effective_dialogue_text
+            if _effective_dialogue_text(candidate).strip():
+                raise ValueError("后期配音模式需要先生成对白语音并实测时长，再生成视频；请打开配音工作台生成对白")
+            return
+        self._validate_dub_audio(script, candidate)
+        if not candidate.dialogue_lines:
+            try:
+                _, speech_end = _dialogue_audio_bounds(candidate.audio_url)
+            except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                raise ValueError("无法实测当前配音时长，请重新生成对白语音后再生成视频") from exc
+            if speech_end > requested_duration + 0.05:
+                raise ValueError(f"配音需要 {speech_end:.1f} 秒，视频只有 {requested_duration:.1f} 秒；请缩短对白或延长镜头")
+            return
+        issue = dialogue_timing_issues(candidate)
+        error = _dialogue_timing_error(frame, issue)
+        if error:
+            raise ValueError(error)
 
     def _shot_input_fingerprint(self, script: Script, frame: StoryboardFrame, submitted_refs: Optional[List[str]] = None,
                                 *, audio_inputs: bool = True, native_inputs: bool = False) -> str:
@@ -3654,6 +3704,8 @@ class ComicGenPipeline:
             legacy_vidu_audio=vidu_audio,
             backend=self._resolve_video_backend(model),
         )
+        if frame:
+            self._validate_video_dialogue_timing(script, frame, duration, audio_options["mode"])
         if last_frame_url and (
             model != "minimax/minimax-h3" or generation_mode != "i2v" or not image_url
             or reference_image_urls or reference_video_urls or audio_options["audio_url"]
@@ -3846,6 +3898,9 @@ class ComicGenPipeline:
                 and task.status in {"pending", "processing"}), None)
             if running:
                 return running, False
+            frame = next((frame for frame in script.frames if frame.id == source.frame_id), None)
+            if frame:
+                self._validate_video_dialogue_timing(script, frame, source.duration, source.audio_mode)
             task = source.model_copy(deep=True, update={
                 "id": str(uuid.uuid4()), "created_at": time.time(), "retry_of_task_id": task_id,
                 "status": "pending", "error": None, "video_url": None,
@@ -4694,6 +4749,7 @@ class ComicGenPipeline:
             fatal_errors.append(error)
 
         candidate_files: List[Tuple[Any, str, str]] = []
+        dialogue_ends: Dict[str, float] = {}
         for frame in script.frames:
             task, candidate_url, selection_error = _resolve_explicit_video_take(script, frame)
             if not candidate_url:
@@ -4728,9 +4784,14 @@ class ComicGenPipeline:
                     report["content_issues"].append({"frame_id": frame.id, "video_id": task.id, "blocking": True,
                         "reason": "已应用配音与当前对白或音色不一致，请重新生成并应用配音。"})
                 else:
+                    timing_error = _dialogue_timing_error(frame, dialogue_timing_issues(dialogue_frame_for_policy(script, frame)))
+                    if timing_error:
+                        report["content_issues"].append({"frame_id": frame.id, "video_id": task.id, "blocking": True,
+                            "reason": timing_error})
                     try:
                         _, speech_end = _dialogue_audio_bounds(frame.audio_url)
                         end_in_clip = speech_end + max(0, frame.dub_offset_ms) / 1000 - (frame.in_point or 0)
+                        dialogue_ends[frame.id] = end_in_clip
                         if end_in_clip > _clip_duration_seconds(frame) + 0.05:
                             report["content_issues"].append({"frame_id": frame.id, "video_id": task.id, "blocking": True,
                                 "reason": "当前镜头会截断配音结尾，请延长镜头或调整配音偏移后重新应用。"})
@@ -4807,6 +4868,11 @@ class ComicGenPipeline:
                 probe_data = json.loads(result.stdout)
                 raw_duration = (probe_data.get("format") or {}).get("duration")
                 duration = float(raw_duration)
+                if frame.id in dialogue_ends:
+                    available = max(0, min(duration, getattr(frame, "out_point", None) or duration) - (frame.in_point or 0))
+                    if dialogue_ends[frame.id] > available + 0.05:
+                        report["content_issues"].append({"frame_id": frame.id, "blocking": True,
+                            "reason": f"实际视频仅可用 {available:.1f} 秒，会截断配音结尾；请缩短对白或调整剪辑后重新应用配音。"})
                 if duration <= 0.5:
                     report["duration_anomalies"].append(
                         {

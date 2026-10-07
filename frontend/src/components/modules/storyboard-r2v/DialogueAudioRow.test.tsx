@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import DialogueAudioRow from './DialogueAudioRow';
 
 const { generate, previewSfx, applySfx, revertSfx } = vi.hoisted(() => ({ generate: vi.fn(), previewSfx: vi.fn(), applySfx: vi.fn(), revertSfx: vi.fn() }));
-vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
+vi.mock('next-intl', () => ({ useTranslations: () => (key: string, values?: Record<string, unknown>) =>
+    key === 'lineBudget' ? `${key}:${values?.required}:${values?.available}` : key }));
 vi.mock('@/lib/api', () => ({ API_URL: 'http://localhost:17177', api: { generateLineAudio: generate, previewSfx, applySfx, revertSfx } }));
 
 const props = { scriptId: 'dialogue-project', frameId: 'dialogue-frame', dialogue: 'Original dialogue', voiceId: 'voice', audioUrl: 'old.mp3', audioError: null,
@@ -37,6 +38,27 @@ describe('Dialogue audio workbench', () => {
         fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
         expect(screen.getByText('staleHint')).toBeVisible();
         expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
+    });
+
+    it('compares measured speech against the remaining line window', () => {
+        render(<DialogueAudioRow {...props} frameId="line-window" dialogueLines={[
+            { speaker: 'Sue', line: props.dialogue, start_seconds: 5, scheduled_start_seconds: 5,
+                duration: 4, voice_id: 'voice', audio_url: 'line.mp3' },
+        ]} resolveSpeakerVoice={() => ({ id: 'voice', name: 'Sue' })} frameDurationSeconds={8} />);
+        fireEvent.click(screen.getByRole('button', { name: /openVoiceGen/ }));
+        expect(screen.getByText('lineBudget:4.0:3.0')).toBeVisible();
+    });
+
+    it('does not approve old timing after editing an unsaved dialogue line', () => {
+        render(<DialogueAudioRow {...props} frameId="dirty-timing" dialogueLines={[
+            { speaker: 'Sue', line: props.dialogue, start_seconds: 0, scheduled_start_seconds: 0,
+                duration: 2, voice_id: 'voice', audio_url: 'line.mp3' },
+        ]} resolveSpeakerVoice={() => ({ id: 'voice', name: 'Sue' })} frameDurationSeconds={8}
+            onUpdateDialogueLines={vi.fn()} videoUrl="take.mp4" videoTaskId="take" onPreviewDub={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /openWorkbench/ }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Sue' }), { target: { value: 'A much longer new dialogue' } });
+        expect(screen.getByRole('button', { name: 'preview' })).toBeDisabled();
+        expect(screen.getByText('lineBudgetUnmeasured')).toBeVisible();
     });
 
     it('does not count a negative preview offset twice after metadata loads', () => {
@@ -235,8 +257,9 @@ describe('per-speaker dialogue', () => {
         expect(within(dialog).getAllByText('lineVoice')).toHaveLength(2);
         // A speaker with nothing assigned is called out rather than silently borrowing one.
         expect(within(dialog).getByText('lineNoVoice')).toBeVisible();
-        // An overlong line is flagged, never trimmed.
-        expect(within(dialog).getByRole('alert')).toHaveTextContent('lineOverruns');
+        // These lines have no measurements; an old overrun flag cannot approve timing.
+        expect(within(dialog).getAllByText('lineUnmeasured')).toHaveLength(3);
+        expect(within(dialog).queryByText('lineOverruns')).not.toBeInTheDocument();
         // The single-blob editor is gone, so there is only one source of truth.
         expect(within(dialog).queryByText('stepDialogueText')).not.toBeInTheDocument();
     });
@@ -271,8 +294,8 @@ describe('per-speaker dialogue', () => {
 
 describe('per-speaker workbench, reported from production', () => {
     const lines = [
-        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, scheduled_start_seconds: 0, audio_url: 'a.mp3', voice_id: 'sage' },
-        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, scheduled_start_seconds: 9, audio_url: 'b.mp3', voice_id: 'longyuan' },
+        { speaker: '中年测验员', line: '下一个，萧媚！', start_seconds: 0, scheduled_start_seconds: 0, duration: 2, audio_url: 'a.mp3', voice_id: 'sage' },
+        { speaker: '萧媚', line: '斗之气：七段！', start_seconds: 9, scheduled_start_seconds: 9, duration: 3, audio_url: 'b.mp3', voice_id: 'longyuan' },
     ];
     const assigned: Record<string, { id: string; name: string }> = {
         中年测验员: { id: 'sage', name: 'Eldric Sage · 沧明子' },
@@ -416,8 +439,8 @@ describe('per-line direction', () => {
 
     it('reports a track as out of date once a line’s direction is rewritten', () => {
         const generated = [
-            { ...lines[0], scheduled_start_seconds: 0, audio_url: 'a.mp3', voice_id: 'Cherry', instructions_used: '情绪：欢呼' },
-            { ...lines[1], scheduled_start_seconds: 9, audio_url: 'b.mp3', voice_id: 'Moon', instructions_used: '' },
+            { ...lines[0], scheduled_start_seconds: 0, duration: 2, audio_url: 'a.mp3', voice_id: 'Cherry', instructions_used: '情绪：欢呼' },
+            { ...lines[1], scheduled_start_seconds: 9, duration: 2, audio_url: 'b.mp3', voice_id: 'Moon', instructions_used: '' },
         ];
         const fresh = { ...props, dialogueLines: generated, resolveSpeakerVoice: directable,
             audioUrl: 'track.mp3', snapshotInstructions: '' };
@@ -435,8 +458,8 @@ describe('per-line direction', () => {
     it('does not date a clip that never recorded what it was read with', () => {
         // Every episode made before the direction was tracked would otherwise read as
         // permanently stale — and with an undirectable voice, regeneration is refused.
-        const legacy = [{ ...lines[0], scheduled_start_seconds: 0, audio_url: 'a.mp3', voice_id: 'Cherry' },
-                        { ...lines[1], scheduled_start_seconds: 9, audio_url: 'b.mp3', voice_id: 'Moon' }];
+        const legacy = [{ ...lines[0], scheduled_start_seconds: 0, duration: 2, audio_url: 'a.mp3', voice_id: 'Cherry' },
+                        { ...lines[1], scheduled_start_seconds: 9, duration: 2, audio_url: 'b.mp3', voice_id: 'Moon' }];
         render(<DialogueAudioRow {...props} dialogueLines={legacy} resolveSpeakerVoice={directable}
                                  audioUrl="track.mp3" snapshotInstructions="" />);
         fireEvent.click(screen.getByRole('button', { name: /openVoiceGen|openWorkbench/ }));

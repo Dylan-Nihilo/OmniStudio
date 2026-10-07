@@ -7,7 +7,7 @@ import pytest
 
 from src.apps.comic_gen.audio import (
     AudioGenerator, _assemble_dialogue_track, _audio_duration, _compute_lines_hash,
-    dialogue_audio_is_stale,
+    dialogue_audio_is_stale, dialogue_timing_issues,
 )
 from src.apps.comic_gen.models import DialogueLine, GenerationStatus, StoryboardFrame
 
@@ -178,3 +178,33 @@ def test_reassigning_one_characters_voice_makes_the_whole_track_stale():
 
     # Without freshly resolved voices there is nothing to compare, so it is not called current.
     assert dialogue_audio_is_stale(frame, None, None)
+
+
+def test_video_generation_preflight_rejects_dialogue_that_does_not_fit_the_frame():
+    frame = StoryboardFrame(id="timing", scene_id="scene", duration=8, dialogue_lines=[
+        DialogueLine(speaker="A", line="第一句", start_seconds=0, scheduled_start_seconds=0, duration=3.5),
+        DialogueLine(speaker="B", line="第二句", start_seconds=4, scheduled_start_seconds=4, duration=4.5),
+    ])
+
+    issues = dialogue_timing_issues(frame)
+
+    assert issues == [{
+        "code": "line_overruns_frame",
+        "line_index": 1,
+        "speaker": "B",
+        "end_seconds": 8.5,
+        "frame_duration": 8.0,
+    }]
+
+
+def test_video_generation_preflight_reports_overlap_after_manual_timing_edit():
+    frame = StoryboardFrame(id="overlap", scene_id="scene", duration=8, dialogue_lines=[
+        DialogueLine(speaker="A", line="第一句", start_seconds=0, scheduled_start_seconds=0, duration=4),
+        DialogueLine(speaker="B", line="第二句", start_seconds=2, scheduled_start_seconds=2, duration=2),
+    ])
+
+    issues = dialogue_timing_issues(frame)
+
+    assert issues[0]["code"] == "line_overlap"
+    assert issues[0]["previous_end_seconds"] == 4.0
+    assert issues[0]["start_seconds"] == 2.0
